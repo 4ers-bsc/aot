@@ -21,7 +21,14 @@ const els = {
   pvpLobby: document.getElementById("pvpLobby"),
   pvpLobbyStatus: document.getElementById("pvpLobbyStatus"),
   pvpLobbyMeta: document.getElementById("pvpLobbyMeta"),
-  pvpCancelBtn: document.getElementById("pvpCancelBtn")
+  pvpCancelBtn: document.getElementById("pvpCancelBtn"),
+  gameOver: document.getElementById("gameOver"),
+  gameOverTitle: document.getElementById("gameOverTitle"),
+  gameOverReason: document.getElementById("gameOverReason"),
+  gameOverWins: document.getElementById("gameOverWins"),
+  gameOverLosses: document.getElementById("gameOverLosses"),
+  gameOverName: document.getElementById("gameOverName"),
+  gameOverMenuBtn: document.getElementById("gameOverMenuBtn")
 };
 
 const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
@@ -62,6 +69,7 @@ function bindUi() {
   els.howToPlayBtn.addEventListener("click", () => els.howToOverlay.classList.add("show"));
   els.howToClose.addEventListener("click", () => els.howToOverlay.classList.remove("show"));
   els.pvpCancelBtn.addEventListener("click", () => leaveMatch());
+  els.gameOverMenuBtn.addEventListener("click", () => { hideGameOver(); leaveMatch({ silent: true }); });
   els.howToOverlay.addEventListener("pointerdown", (e) => {
     if (e.target === els.howToOverlay) els.howToOverlay.classList.remove("show");
   });
@@ -180,6 +188,22 @@ function hidePvpLobby() {
   els.pvpLobby.classList.add("hidden");
 }
 
+function showGameOver(result, reason) {
+  const win = result === "win";
+  els.gameOverTitle.textContent = win ? "VICTORY" : "DEFEAT";
+  els.gameOverTitle.classList.toggle("is-win", win);
+  els.gameOverTitle.classList.toggle("is-loss", !win);
+  els.gameOverReason.textContent = reason || (win ? "Your rival fell in the trench." : "You fell in the trench.");
+  els.gameOverName.textContent = state.profile?.display_name || "Trench Rookie";
+  els.gameOverWins.textContent = state.profile?.wins ?? 0;
+  els.gameOverLosses.textContent = state.profile?.losses ?? 0;
+  els.gameOver.classList.remove("hidden");
+}
+
+function hideGameOver() {
+  els.gameOver.classList.add("hidden");
+}
+
 async function startPvp() {
   if (!state.user) { signIn(); return; }
   try {
@@ -221,6 +245,10 @@ async function enterArena(matchId) {
     })
     .on("broadcast", { event: "attack" }, ({ payload }) => game.receiveAttack(payload))
     .on("presence", { event: "sync" }, () => { loadRoster(matchId).catch((e) => console.error(e)); })
+    .on("presence", { event: "leave" }, ({ leftPresences }) => {
+      const oppLeft = (leftPresences || []).some((p) => p.user_id === state.remoteId);
+      if (oppLeft) handleOpponentLeft();
+    })
     .subscribe((status) => {
       if (status === "SUBSCRIBED") state.channel.track({ user_id: state.user.id, display_name: state.profile?.display_name });
     });
@@ -248,9 +276,15 @@ async function loadRoster(matchId) {
 }
 
 // ---------------------------------------------------------------------------
-// Result handling (PvP only) — loser is whoever hits 0 HP
+// Result handling (PvP only) — loser is whoever hits 0 HP or disconnects
 // ---------------------------------------------------------------------------
-async function reportResult(result) {
+// Opponent dropped the connection: award the win to the player still standing.
+function handleOpponentLeft() {
+  if (state.match?.mode !== "pvp" || state.match.finished) return;
+  reportResult("win", { reason: "Your opponent disconnected." }).catch((e) => console.error(e));
+}
+
+async function reportResult(result, { reason = "" } = {}) {
   if (state.match?.mode !== "pvp" || !state.match.id || state.match.finished) return;
   state.match.finished = true;
   const winner = result === "win" ? state.user.id : state.remoteId;
@@ -260,12 +294,12 @@ async function reportResult(result) {
   } catch (error) {
     console.error(error);
   }
-  setStatus(recordSuffix(result === "win" ? "Victory!" : "Defeat."));
-  setTimeout(() => leaveMatch({ silent: true }), 2600);
+  showGameOver(result, reason);
 }
 
 async function leaveMatch({ silent = false } = {}) {
   hidePvpLobby();
+  hideGameOver();
   if (!state.match) { if (!silent) setStatus("You're not in a match."); return; }
   if (state.match.mode === "pvp") {
     try { await supabase.rpc("leave_my_matches"); } catch (error) { console.error(error); }
