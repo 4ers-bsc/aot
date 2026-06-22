@@ -239,20 +239,21 @@ textarea:focus {
 .hero-title {
   margin: 0;
   font-family: var(--font-display);
-  font-size: clamp(2.4rem, 6vw, 4.4rem);
-  line-height: 0.96;
+  font-size: clamp(1.7rem, 3.6vw, 2.9rem);
+  line-height: 1;
   letter-spacing: 0.02em;
   color: var(--text);
   text-shadow: 0 2px 0 rgba(0, 0, 0, 0.6), 0 14px 36px rgba(0, 0, 0, 0.7);
 }
 
 .hero-copy {
-  max-width: 700px;
+  max-width: 640px;
   margin: 0;
-  color: rgba(243, 243, 243, 0.88);
-  font-size: clamp(1.02rem, 1.7vw, 1.4rem);
-  font-weight: 500;
-  line-height: 1.5;
+  color: rgba(243, 243, 243, 0.82);
+  font-size: clamp(0.72rem, 1vw, 0.86rem);
+  font-weight: 400;
+  line-height: 1.85;
+  letter-spacing: 0.015em;
 }
 
 .hero-actions {
@@ -261,15 +262,16 @@ textarea:focus {
   justify-content: center;
   gap: 14px;
   flex-wrap: wrap;
+  max-width: 720px;
 }
 
 .hero-primary,
 .hero-secondary {
-  min-width: 210px;
-  min-height: 58px;
+  min-width: 200px;
+  min-height: 56px;
   border-radius: 10px;
   padding: 14px 28px;
-  font-size: 1.04rem;
+  font-size: 1rem;
 }
 
 .hero-secondary {
@@ -281,6 +283,22 @@ textarea:focus {
   letter-spacing: 0.08em;
   box-shadow: 0 12px 24px rgba(0, 0, 0, 0.5), var(--shadow-inset);
 }
+
+/* Sign Out: drops to its own row, understated. */
+.hero-ghost {
+  flex-basis: 100%;
+  min-height: 40px;
+  padding: 8px 18px;
+  border-radius: 8px;
+  background: transparent;
+  border: 1px solid var(--line);
+  color: var(--muted);
+  font-size: 0.82rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.hero-ghost:hover { color: var(--text); border-color: var(--line-strong); }
 
 .hero-pills {
   display: flex;
@@ -835,12 +853,14 @@ textarea:focus {
 body.in-game .log-feed { top: 58px; }
 
 /* ===== PvP size chooser ===== */
-.pvp-size-panel { max-width: 460px; }
+.pvp-size-panel { width: 480px; }
 
 .pvp-size-copy {
-  margin: 4px 2px 16px;
+  margin: 6px 0 22px;
+  text-align: center;
   font-family: var(--font-body);
-  font-size: 14px;
+  font-size: 13px;
+  line-height: 1.7;
   color: var(--muted);
   letter-spacing: 0.02em;
 }
@@ -848,15 +868,16 @@ body.in-game .log-feed { top: 58px; }
 .pvp-size-grid {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
-  gap: 12px;
+  gap: 16px;
+  padding-bottom: 8px;
 }
 
 .pvp-size-btn {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 6px;
-  padding: 22px 10px 16px;
+  gap: 10px;
+  padding: 28px 10px 20px;
   border-radius: 12px;
   background: rgba(255, 255, 255, 0.05);
   border: 1px solid var(--line);
@@ -1072,8 +1093,8 @@ body.in-game .log-feed { top: 58px; }
   pointer-events: none;
   font-family: var(--font-display);
   font-size: clamp(5rem, 18vw, 12rem);
-  color: #ffffff;
-  text-shadow: 0 4px 0 rgba(0, 0, 0, 0.5), 0 0 50px rgba(255, 255, 255, 0.45);
+  color: #0a0a0a;
+  text-shadow: 0 3px 0 rgba(255, 255, 255, 0.55), 0 0 60px rgba(255, 255, 255, 0.7);
 }
 
 .countdown.show { display: flex; }
@@ -1382,20 +1403,32 @@ body.in-game .game-hud-root {
 
 .tab.active { color: #fff; border-color: #5a6670; background: linear-gradient(180deg, #4a535c, #343b42); }
 
-.tab-body { padding: 6px 18px 20px; overflow-y: auto; }
+.tab-body { padding: 16px 22px 22px; overflow-y: auto; }
 .tab-body.hidden { display: none; }
 
 .panel .row {
   display: flex;
-  align-items: center;
+  align-items: baseline;
   justify-content: space-between;
-  padding: 13px 2px;
-  font-size: 15px;
+  gap: 18px;
+  padding: 11px 2px;
+  font-size: 14px;
   font-weight: 600;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
 }
 
-.panel .divider { height: 1px; background: rgba(255, 255, 255, 0.08); margin: 6px 0; }
-.panel .section { font-size: 11px; letter-spacing: 0.14em; color: #6f7c87; padding: 10px 2px 2px; font-weight: 700; }
+.panel .row:last-child { border-bottom: 0; }
+
+.panel .row .k {
+  flex: 1;
+  text-align: right;
+  font-weight: 500;
+  line-height: 1.5;
+  color: #9fb6c6;
+}
+
+.panel .divider { height: 1px; background: rgba(255, 255, 255, 0.08); margin: 12px 0; }
+.panel .section { font-size: 11px; letter-spacing: 0.14em; color: #6f7c87; padding: 14px 2px 4px; font-weight: 700; }
 
 .cycle {
   min-width: 86px;
