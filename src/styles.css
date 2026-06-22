@@ -978,8 +978,9 @@ body.in-game .log-feed { top: 58px; }
   display: flex;
   justify-content: space-around;
   gap: 20px;
-  padding: 6px 0 4px;
+  padding: 10px 0;
 }
+.profile-stats + .profile-stats { border-top: 1px solid rgba(0, 0, 0, 0.07); }
 
 .profile-save {
   width: 100%;
@@ -997,6 +998,58 @@ body.in-game .log-feed { top: 58px; }
 
 .profile-save:hover { filter: brightness(1.1); }
 .profile-save:disabled { opacity: 0.6; }
+
+/* ===== Level / progression ===== */
+.level-block { margin-top: 16px; }
+
+.level-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+
+.level-badge {
+  font-family: var(--font-display);
+  font-size: 15px;
+  letter-spacing: 0.08em;
+  color: #14181c;
+  background: linear-gradient(180deg, #ffd66b, #f0a93a);
+  border: 1px solid #d2902a;
+  border-radius: 8px;
+  padding: 5px 12px;
+}
+
+.level-pts {
+  font-family: var(--font-display);
+  font-size: 14px;
+  letter-spacing: 0.06em;
+  color: #51626f;
+}
+
+.level-bar {
+  height: 12px;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.1);
+  border: 1px solid rgba(0, 0, 0, 0.12);
+  overflow: hidden;
+}
+
+.level-fill {
+  height: 100%;
+  width: 0;
+  border-radius: 999px;
+  background: linear-gradient(90deg, #f0a93a, #ffd66b);
+  transition: width 0.4s ease;
+}
+
+.level-next {
+  margin-top: 6px;
+  text-align: right;
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  color: #8a939c;
+}
 
 /* ===== Match history / portfolio ===== */
 .portfolio-summary {

@@ -127,11 +127,26 @@
         <label class="profile-label" for="profileNameInput">Username</label>
         <input id="profileNameInput" type="text" maxlength="24" autocomplete="off" spellcheck="false" placeholder="3–24 characters" />
         <div class="profile-hint" id="profileHint">Saved to your wallet profile.</div>
+
+        <div class="level-block">
+          <div class="level-top">
+            <span class="level-badge">LVL <span id="profileLevel">1</span></span>
+            <span class="level-pts"><span id="profilePoints">0</span> PTS</span>
+          </div>
+          <div class="level-bar"><div class="level-fill" id="profileLevelFill"></div></div>
+          <div class="level-next" id="profileLevelNext">0 / 100 to level 2</div>
+        </div>
+
         <div class="divider"></div>
         <div class="profile-stats">
           <div class="go-stat go-win"><span class="go-num" id="profileWins">0</span><span class="go-label">Wins</span></div>
           <div class="go-stat go-loss"><span class="go-num" id="profileLosses">0</span><span class="go-label">Losses</span></div>
           <div class="go-stat"><span class="go-num" id="profileWinRate">0%</span><span class="go-label">Win Rate</span></div>
+        </div>
+        <div class="profile-stats">
+          <div class="go-stat"><span class="go-num" id="profileGames">0</span><span class="go-label">Games</span></div>
+          <div class="go-stat"><span class="go-num" id="profileStreak">0</span><span class="go-label">Streak</span></div>
+          <div class="go-stat"><span class="go-num" id="profileBest">0</span><span class="go-label">Best Streak</span></div>
         </div>
         <button class="profile-save" id="profileSaveBtn" type="button">Save Username</button>
       </div>
@@ -179,6 +194,17 @@
         <div class="section">MODES</div>
         <div class="row"><span>Demo Match</span><span class="k">vs the computer</span></div>
         <div class="row"><span>Play PvP</span><span class="k">2 / 5 / 10 players · free-for-all</span></div>
+        <div class="divider"></div>
+        <div class="section">MAP HAZARDS</div>
+        <div class="row"><span>Trees &amp; steel rods</span><span class="k">block movement &amp; deflect attacks</span></div>
+        <div class="row"><span>River</span><span class="k">halves your speed &amp; damage</span></div>
+        <div class="divider"></div>
+        <div class="section">PROGRESSION</div>
+        <div class="row"><span>Play a match</span><span class="k">+10 pts</span></div>
+        <div class="row"><span>Win a match</span><span class="k">+50 pts</span></div>
+        <div class="row"><span>Win streak</span><span class="k">+10 pts × streak (escalates)</span></div>
+        <div class="row"><span>A loss</span><span class="k">resets your streak</span></div>
+        <div class="row"><span>Levels</span><span class="k">L2 100 · L3 300 · L4 600 · L5 1000 · …</span></div>
       </div>
     </div>
   </div>

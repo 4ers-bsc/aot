@@ -16,6 +16,11 @@ create table if not exists public.profiles (
   wallet_address text,
   wins integer not null default 0,
   losses integer not null default 0,
+  games_played integer not null default 0,
+  points integer not null default 0,
+  level integer not null default 1,
+  win_streak integer not null default 0,
+  best_streak integer not null default 0,
   created_at timestamptz not null default timezone('utc', now())
 );
 
@@ -242,6 +247,23 @@ $$;
 -- Finish an active PvP match (free-for-all, last one standing): record the
 -- winner, +1 win for them, +1 loss for every other player in the match.
 -- Idempotent — only the first call (while the match is still active) settles it.
+--
+-- Progression / points:
+--   * Every player gets +10 for playing the match.
+--   * The winner gets +50 for the win.
+--   * The winner gets a streak bonus of +10 x (current streak) — escalating
+--     rewards for back-to-back wins.
+--   * A loss resets your win streak to 0.
+-- Level is derived from total points on a triangular curve (level L is reached
+-- at 50*(L-1)*L points): L1=0, L2=100, L3=300, L4=600, L5=1000 …
+create or replace function public.level_for_points(p integer)
+returns integer
+language sql
+immutable
+as $$
+  select greatest(1, floor((1 + sqrt(1 + 0.08 * greatest(p, 0))) / 2)::int);
+$$;
+
 create or replace function public.finish_match(p_match_id uuid, p_winner_user_id uuid)
 returns void
 language plpgsql
@@ -251,6 +273,8 @@ as $$
 declare
   v_uid uuid := auth.uid();
   v_status text;
+  v_streak integer;
+  v_win_points integer;
 begin
   if v_uid is null then
     raise exception 'not_authenticated';
@@ -276,12 +300,29 @@ begin
   set status = 'finished', winner_user_id = p_winner_user_id, ended_at = timezone('utc', now())
   where id = p_match_id;
 
-  update public.profiles set wins = wins + 1 where user_id = p_winner_user_id;
-  update public.profiles set losses = losses + 1
-  where user_id in (
+  -- Losers: +1 loss, +1 game, +10 points, streak reset.
+  update public.profiles p set
+    losses = p.losses + 1,
+    games_played = p.games_played + 1,
+    win_streak = 0,
+    points = p.points + 10,
+    level = public.level_for_points(p.points + 10)
+  where p.user_id in (
     select user_id from public.match_players
     where match_id = p_match_id and user_id <> p_winner_user_id
   );
+
+  -- Winner: +1 win, +1 game, +60 base, +10 x streak bonus.
+  select win_streak + 1 into v_streak from public.profiles where user_id = p_winner_user_id;
+  v_win_points := 60 + greatest(0, v_streak - 1) * 10;
+  update public.profiles p set
+    wins = p.wins + 1,
+    games_played = p.games_played + 1,
+    win_streak = v_streak,
+    best_streak = greatest(p.best_streak, v_streak),
+    points = p.points + v_win_points,
+    level = public.level_for_points(p.points + v_win_points)
+  where p.user_id = p_winner_user_id;
 end;
 $$;
 
@@ -299,6 +340,7 @@ grant execute on function public.sync_my_profile(text) to authenticated;
 grant execute on function public.join_pvp_match(smallint, text) to authenticated;
 grant execute on function public.leave_my_matches() to authenticated;
 grant execute on function public.finish_match(uuid, uuid) to authenticated;
+grant execute on function public.level_for_points(integer) to authenticated;
 
 create policy "profiles_select_own"
 on public.profiles for select to authenticated
