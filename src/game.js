@@ -307,7 +307,7 @@ export function createArenaGame(options) {
   }
 
   // -- Map obstacles --------------------------------------------------------
-  // Trees & steel rods block movement and deflect attacks; the river slows
+  // Trees & snow mountains block movement and deflect attacks; the river slows
   // movement and weakens attacks. Built deterministically from a seed so every
   // client in a match shares the exact same layout.
   const BODY_R = 0.6;
@@ -377,18 +377,24 @@ export function createArenaGame(options) {
     mapGroup.add(g);
     solids.push({ x, z, r: 1.1 });
   }
-  function addRod(x, z) {
+  function addMountain(x, z) {
     const g = new THREE.Group();
-    const base = box(0.7, 0.3, 0.7, 0x6f777e); base.position.y = 0.15;
-    const rod = new THREE.Mesh(
-      new THREE.CylinderGeometry(0.18, 0.18, 4.2, 8),
-      new THREE.MeshStandardMaterial({ color: 0x9aa3ab, metalness: 0.85, roughness: 0.3 })
+    // Rocky base + snow-capped cone.
+    const rock = new THREE.Mesh(
+      new THREE.ConeGeometry(2.6, 2.2, 7),
+      new THREE.MeshStandardMaterial({ color: 0x8b8f96, roughness: 1, flatShading: true })
     );
-    rod.position.y = 2.1; rod.castShadow = true;
-    g.add(base, rod);
+    rock.position.y = 1.1; rock.castShadow = true; rock.receiveShadow = true;
+    const snow = new THREE.Mesh(
+      new THREE.ConeGeometry(1.7, 2.4, 7),
+      new THREE.MeshStandardMaterial({ color: 0xf4f8fb, roughness: 0.9, flatShading: true })
+    );
+    snow.position.y = 2.6; snow.castShadow = true;
+    g.add(rock, snow);
+    g.rotation.y = Math.random() * Math.PI;
     g.position.set(x, 0, z);
     mapGroup.add(g);
-    solids.push({ x, z, r: 0.55 });
+    solids.push({ x, z, r: 1.9 });
   }
   function buildRiver(rng) {
     const axis = rng() < 0.5 ? "x" : "z";
@@ -420,7 +426,7 @@ export function createArenaGame(options) {
       }
     };
     scatter(18, addTree, 2.4);
-    scatter(10, addRod, 2.0);
+    scatter(8, addMountain, 3.4);
   }
   // A free, dry spawn point anywhere on the map.
   function randomSpawn() {
@@ -455,7 +461,7 @@ export function createArenaGame(options) {
     const lim = MAP_HALF - 0.5;
     const nx = Math.max(-lim, Math.min(lim, px + dx / dist * step));
     const nz = Math.max(-lim, Math.min(lim, pz + dz / dist * step));
-    // Trees / steel rods block movement — slide along whichever axis is free.
+    // Trees / snow mountains block movement — slide along whichever axis is free.
     if (!collidesSolid(nx, nz, BODY_R)) { f.group.position.x = nx; f.group.position.z = nz; }
     else if (!collidesSolid(nx, pz, BODY_R)) { f.group.position.x = nx; }
     else if (!collidesSolid(px, nz, BODY_R)) { f.group.position.z = nz; }
@@ -522,13 +528,15 @@ export function createArenaGame(options) {
       }
     }
   }
+  // Returns true once the attack is committed (cooldown started), so the
+  // caller can stop after a single strike rather than auto-repeating.
   function playerAttack(def) {
-    if (player.cdTimer > 0 || def.dead || player.hp <= 0) return;
+    if (player.cdTimer > 0 || def.dead || player.hp <= 0) return false;
     const w = player.weapon;
     player.cdTimer = w.cd;
     player.atkAnim = 0.32;
-    // Trees / steel rods in the way deflect the blow (swing plays, no hit).
-    if (losBlocked(player.group.position.x, player.group.position.z, def.group.position.x, def.group.position.z)) return;
+    // Trees / snow mountains in the way deflect the blow (swing plays, no hit).
+    if (losBlocked(player.group.position.x, player.group.position.z, def.group.position.x, def.group.position.z)) return true;
     let dmg = Math.max(1, Math.round(w.atk + (Math.random() * 2 - 1) * w.atkVar));
     if (inRiver(player.group.position.x, player.group.position.z)) dmg = Math.max(1, Math.round(dmg * RIVER_ATK));
     if (foeMode === "net") {
@@ -542,6 +550,7 @@ export function createArenaGame(options) {
       if (w.ranged) fireBullet(player, def, dmg, true);
       else applyDamage(def, dmg);
     }
+    return true;
   }
   function aiAttack() {
     if (aiEnemy.cdTimer > 0 || player.dead || aiEnemy.hp <= 0) return;
@@ -596,12 +605,13 @@ export function createArenaGame(options) {
     regen(p, dt);
     p.moving = false;
     if (!controllable) return;
-    // Melee or ranged: close to weapon range, then face the target and fire.
+    // Melee or ranged: close to weapon range, then face the target and fire
+    // exactly once. Clearing the target after the strike stops auto-repeat.
     if (p.attackTarget && !p.attackTarget.dead && p.attackTarget.connected) {
       const e = p.attackTarget;
       const dx = e.group.position.x - p.group.position.x, dz = e.group.position.z - p.group.position.z;
       if (Math.hypot(dx, dz) > p.weapon.range) moveStep(p, e.group.position.x, e.group.position.z, dt);
-      else { p.facing = Math.atan2(dx, dz); playerAttack(e); }
+      else { p.facing = Math.atan2(dx, dz); if (playerAttack(e)) p.attackTarget = null; }
     } else {
       p.attackTarget = null;
       if (p.target && moveStep(p, p.target.x, p.target.z, dt)) p.target = null;
@@ -665,8 +675,7 @@ export function createArenaGame(options) {
     f.bar.el.style.top = (rect.top + (-_bv.y * 0.5 + 0.5) * rect.height) + "px";
     f.bar.fill.style.width = (Math.max(0, f.hp / f.maxHp) * 100) + "%";
     f.bar.fill.style.background = f.hurt > 0 ? "#ff6b6b" : f.bar.color;
-    const ic = f.weapon.ranged ? "⌖" : "⚔";
-    f.bar.name.textContent = `${f.name}  ${f.hp}/${f.maxHp}  ${ic}${f.weapon.atk}`;
+    f.bar.name.textContent = f.name;
   }
 
   // -- Picking --------------------------------------------------------------
@@ -704,7 +713,9 @@ export function createArenaGame(options) {
       const tz = Math.max(-lim, Math.min(lim, (Math.floor(hit.z / TILE) + 0.5) * TILE));
       player.attackTarget = null;
       player.target = new THREE.Vector3(tx, 0, tz);
-      following = true;
+      // Don't recenter the camera on the character for a move order; the
+      // player can pan freely (Center Camera setting still forces follow).
+      if (settings.centerCamera) following = true;
       setMarker(tx, tz, theme.markerMove[0], theme.markerMove[1]);
     }
   }
