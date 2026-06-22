@@ -20,6 +20,11 @@ const els = {
   profileLosses: document.getElementById("profileLosses"),
   profileWinRate: document.getElementById("profileWinRate"),
   profileSaveBtn: document.getElementById("profileSaveBtn"),
+  profileTabs: Array.from(document.querySelectorAll("[data-ptab]")),
+  profileBodies: Array.from(document.querySelectorAll("[data-pbody]")),
+  historyList: document.getElementById("historyList"),
+  pfWins: document.getElementById("pfWins"),
+  pfLosses: document.getElementById("pfLosses"),
   demoBtn: document.getElementById("demoBtn"),
   pvpBtn: document.getElementById("pvpBtn"),
   signOutBtn: document.getElementById("signOutBtn"),
@@ -27,12 +32,18 @@ const els = {
   arenaMount: document.getElementById("arenaMount"),
   howToOverlay: document.getElementById("howToOverlay"),
   howToClose: document.getElementById("howToClose"),
+  pauseOverlay: document.getElementById("pauseOverlay"),
+  pauseClose: document.getElementById("pauseClose"),
+  resumeBtn: document.getElementById("resumeBtn"),
+  pauseHowToBtn: document.getElementById("pauseHowToBtn"),
+  leaveMatchBtn: document.getElementById("leaveMatchBtn"),
   pvpSizeOverlay: document.getElementById("pvpSizeOverlay"),
   pvpSizeClose: document.getElementById("pvpSizeClose"),
   pvpSizeBtns: Array.from(document.querySelectorAll("[data-size]")),
   pvpLobby: document.getElementById("pvpLobby"),
   pvpLobbyStatus: document.getElementById("pvpLobbyStatus"),
   pvpLobbyMeta: document.getElementById("pvpLobbyMeta"),
+  lobbyPlayers: document.getElementById("lobbyPlayers"),
   pvpCancelBtn: document.getElementById("pvpCancelBtn"),
   gameOver: document.getElementById("gameOver"),
   gameOverTitle: document.getElementById("gameOverTitle"),
@@ -89,6 +100,7 @@ function bindUi() {
   });
   els.profileSaveBtn.addEventListener("click", saveProfile);
   els.profileNameInput.addEventListener("keydown", (e) => { if (e.key === "Enter") saveProfile(); });
+  els.profileTabs.forEach((t) => t.addEventListener("click", () => selectProfileTab(t.dataset.ptab)));
   els.pvpCancelBtn.addEventListener("click", () => leaveMatch());
   els.gameOverMenuBtn.addEventListener("click", () => { hideGameOver(); leaveMatch({ silent: true }); });
   els.pvpSizeClose.addEventListener("click", () => els.pvpSizeOverlay.classList.remove("show"));
@@ -104,9 +116,29 @@ function bindUi() {
   els.howToOverlay.addEventListener("pointerdown", (e) => {
     if (e.target === els.howToOverlay) els.howToOverlay.classList.remove("show");
   });
-  window.addEventListener("keydown", (e) => {
-    if (e.key === "Escape" && state.match) leaveMatch();
+  // In-game menu (Esc opens it — does NOT quit the match)
+  els.resumeBtn.addEventListener("click", () => els.pauseOverlay.classList.remove("show"));
+  els.pauseClose.addEventListener("click", () => els.pauseOverlay.classList.remove("show"));
+  els.pauseOverlay.addEventListener("pointerdown", (e) => {
+    if (e.target === els.pauseOverlay) els.pauseOverlay.classList.remove("show");
   });
+  els.pauseHowToBtn.addEventListener("click", () => {
+    els.pauseOverlay.classList.remove("show");
+    els.howToOverlay.classList.add("show");
+  });
+  els.leaveMatchBtn.addEventListener("click", () => { els.pauseOverlay.classList.remove("show"); leaveMatch(); });
+  window.addEventListener("keydown", (e) => {
+    if (e.key !== "Escape") return;
+    const open = document.querySelector(".overlay.show");
+    if (open) { open.classList.remove("show"); return; } // close topmost overlay
+    if (state.match && !state.match.finished) els.pauseOverlay.classList.add("show");
+  });
+}
+
+function selectProfileTab(tab) {
+  els.profileTabs.forEach((t) => t.classList.toggle("active", t.dataset.ptab === tab));
+  els.profileBodies.forEach((b) => b.classList.toggle("hidden", b.dataset.pbody !== tab));
+  if (tab === "history") loadHistory().catch((e) => console.error(e));
 }
 
 async function init() {
@@ -190,9 +222,14 @@ function startDemo() {
   game.setView("game");
   game.setLocalUser({ userId: state.user.id, displayName: state.profile?.display_name || "You" });
   game.useAiFoe();          // single AI raider opponent
-  game.setMatchPhase("active");
   game.resetForMatch();
-  setStatus("Demo match vs the computer. Click the battlefield to move.");
+  game.setMatchPhase("countdown");
+  game.setControllable(false);
+  runCountdown(5, () => {
+    game.setMatchPhase("active");
+    game.setControllable(true);
+    setStatus("Demo match vs the computer. Click the battlefield to move.");
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -307,6 +344,8 @@ async function loadRoster(matchId) {
     }
   }
 
+  renderLobbyPlayers(players, max);
+
   const isActive = matchRow?.status === "active" || players.length >= max;
   if (isActive) {
     beginMatch();
@@ -316,16 +355,42 @@ async function loadRoster(matchId) {
   }
 }
 
-// Flip from the waiting lobby into the live arena (once only).
+// One row per joined wallet (a wallet can only hold one seat at a time).
+function renderLobbyPlayers(players, max) {
+  els.lobbyPlayers.innerHTML = "";
+  const sorted = [...players].sort((a, b) => a.seat - b.seat);
+  for (const p of sorted) {
+    const row = document.createElement("div");
+    row.className = "lobby-player" + (p.user_id === state.user.id ? " is-you" : "");
+    row.innerHTML =
+      `<span class="lp-dot"></span>` +
+      `<span class="lp-name">${escapeHtml(p.display_name)}${p.user_id === state.user.id ? " (you)" : ""}</span>`;
+    els.lobbyPlayers.appendChild(row);
+  }
+  for (let i = sorted.length; i < max; i++) {
+    const row = document.createElement("div");
+    row.className = "lobby-player lp-empty";
+    row.innerHTML = `<span class="lp-dot"></span><span class="lp-name">Waiting…</span>`;
+    els.lobbyPlayers.appendChild(row);
+  }
+}
+
+// Flip from the waiting lobby into the live arena (once only), behind a
+// 5-second countdown so every client starts together.
 function beginMatch() {
   if (state.started) return;
   state.started = true;
   if (state.match) state.match.status = "active";
   hidePvpLobby();
   game.setView("game");
-  game.setMatchPhase("active");
   game.resetForMatch();
-  setStatus("Fight! Last one standing wins.");
+  game.setMatchPhase("countdown");
+  game.setControllable(false);
+  runCountdown(5, () => {
+    game.setMatchPhase("active");
+    game.setControllable(true);
+    setStatus("Fight! Last one standing wins.");
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -361,6 +426,7 @@ async function reportResult(result, { reason = "" } = {}) {
 async function leaveMatch({ silent = false } = {}) {
   hidePvpLobby();
   hideGameOver();
+  cancelCountdown();
   if (!state.match) { if (!silent) setStatus("You're not in a match."); return; }
   if (state.match.mode === "pvp") {
     try { await supabase.rpc("leave_my_matches"); } catch (error) { console.error(error); }
@@ -406,6 +472,7 @@ function openProfile() {
   els.profileNameInput.value = state.profile?.display_name || "";
   els.profileHint.textContent = "Saved to your wallet profile.";
   els.profileHint.classList.remove("error");
+  selectProfileTab("stats");
   els.profileOverlay.classList.add("show");
   els.profileNameInput.focus();
 }
@@ -417,6 +484,46 @@ function renderProfileStats() {
   els.profileWins.textContent = wins;
   els.profileLosses.textContent = losses;
   els.profileWinRate.textContent = total ? `${Math.round((wins / total) * 100)}%` : "—";
+}
+
+// Match history (portfolio): the matches this wallet played, newest first.
+async function loadHistory() {
+  if (!state.user) return;
+  els.pfWins.textContent = `${state.profile?.wins ?? 0} W`;
+  els.pfLosses.textContent = `${state.profile?.losses ?? 0} L`;
+  els.historyList.innerHTML = '<div class="history-empty">Loading…</div>';
+  const { data, error } = await supabase
+    .from("match_players")
+    .select("joined_at, matches(id, status, max_players, winner_user_id, ended_at)")
+    .eq("user_id", state.user.id)
+    .order("joined_at", { ascending: false })
+    .limit(25);
+  if (error) {
+    console.error(error);
+    els.historyList.innerHTML = '<div class="history-empty">Could not load history.</div>';
+    return;
+  }
+  const rows = (data || [])
+    .map((r) => r.matches)
+    .filter((m) => m && m.status === "finished");
+  if (!rows.length) {
+    els.historyList.innerHTML = '<div class="history-empty">No matches played yet.</div>';
+    return;
+  }
+  els.historyList.innerHTML = "";
+  for (const m of rows) {
+    const win = m.winner_user_id === state.user.id;
+    const noContest = !m.winner_user_id;
+    const row = document.createElement("div");
+    row.className = "history-row " + (noContest ? "hr-void" : win ? "hr-win" : "hr-loss");
+    const result = noContest ? "—" : win ? "WIN" : "LOSS";
+    const when = m.ended_at ? new Date(m.ended_at).toLocaleDateString(undefined, { month: "short", day: "numeric" }) : "";
+    row.innerHTML =
+      `<span class="hr-result">${result}</span>` +
+      `<span class="hr-mode">${m.max_players}-player</span>` +
+      `<span class="hr-date">${when}</span>`;
+    els.historyList.appendChild(row);
+  }
 }
 
 async function saveProfile() {
@@ -447,6 +554,54 @@ async function saveProfile() {
 function recordSuffix(message) {
   if (!state.profile || (state.profile.wins == null && state.profile.losses == null)) return message;
   return `${message}  ·  Record ${state.profile.wins ?? 0}-${state.profile.losses ?? 0}`;
+}
+
+// 5-4-3-2-1-FIGHT! overlay shown as a match begins.
+let countdownTimer = null;
+function runCountdown(seconds, onDone) {
+  const el = ensureCountdownEl();
+  clearInterval(countdownTimer);
+  let n = seconds;
+  const tick = () => {
+    if (n > 0) {
+      el.textContent = String(n);
+      el.classList.remove("pop"); void el.offsetWidth; el.classList.add("pop");
+      n--;
+    } else {
+      el.textContent = "FIGHT!";
+      el.classList.remove("pop"); void el.offsetWidth; el.classList.add("pop");
+      clearInterval(countdownTimer);
+      countdownTimer = null;
+      setTimeout(() => { el.classList.remove("show"); }, 700);
+      onDone?.();
+    }
+  };
+  el.classList.add("show");
+  tick();
+  countdownTimer = setInterval(tick, 1000);
+}
+
+function cancelCountdown() {
+  clearInterval(countdownTimer);
+  countdownTimer = null;
+  const el = document.getElementById("countdown");
+  if (el) el.classList.remove("show");
+}
+
+function ensureCountdownEl() {
+  let el = document.getElementById("countdown");
+  if (!el) {
+    el = document.createElement("div");
+    el.id = "countdown";
+    el.className = "countdown";
+    document.body.appendChild(el);
+  }
+  return el;
+}
+
+function escapeHtml(s) {
+  return String(s ?? "").replace(/[&<>"']/g, (c) =>
+    ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 }
 
 function toggle(el, show) {
