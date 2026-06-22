@@ -17,7 +17,11 @@ const els = {
   appStatus: document.getElementById("appStatus"),
   arenaMount: document.getElementById("arenaMount"),
   howToOverlay: document.getElementById("howToOverlay"),
-  howToClose: document.getElementById("howToClose")
+  howToClose: document.getElementById("howToClose"),
+  pvpLobby: document.getElementById("pvpLobby"),
+  pvpLobbyStatus: document.getElementById("pvpLobbyStatus"),
+  pvpLobbyMeta: document.getElementById("pvpLobbyMeta"),
+  pvpCancelBtn: document.getElementById("pvpCancelBtn")
 };
 
 const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
@@ -57,6 +61,7 @@ function bindUi() {
   els.signOutBtn.addEventListener("click", signOut);
   els.howToPlayBtn.addEventListener("click", () => els.howToOverlay.classList.add("show"));
   els.howToClose.addEventListener("click", () => els.howToOverlay.classList.remove("show"));
+  els.pvpCancelBtn.addEventListener("click", () => leaveMatch());
   els.howToOverlay.addEventListener("pointerdown", (e) => {
     if (e.target === els.howToOverlay) els.howToOverlay.classList.remove("show");
   });
@@ -154,17 +159,43 @@ function startDemo() {
 // ---------------------------------------------------------------------------
 // PvP — matchmaking vs other players, result written to the DB
 // ---------------------------------------------------------------------------
+let pvpLobbyTimer = null;
+let pvpLobbySeconds = 0;
+
+function showPvpLobby(status) {
+  els.pvpLobbyStatus.textContent = status || "Searching for an opponent…";
+  els.pvpLobbyMeta.textContent = "";
+  els.pvpLobby.classList.remove("hidden");
+  pvpLobbySeconds = 0;
+  clearInterval(pvpLobbyTimer);
+  pvpLobbyTimer = setInterval(() => {
+    pvpLobbySeconds++;
+    els.pvpLobbyMeta.textContent = `${pvpLobbySeconds}s elapsed`;
+  }, 1000);
+}
+
+function hidePvpLobby() {
+  clearInterval(pvpLobbyTimer);
+  pvpLobbyTimer = null;
+  els.pvpLobby.classList.add("hidden");
+}
+
 async function startPvp() {
   if (!state.user) { signIn(); return; }
   try {
-    setStatus("Finding a PvP match…");
+    showPvpLobby("Searching for an opponent…");
     const { data, error } = await supabase.rpc("join_pvp_match", { p_display_name: null });
     if (error) throw error;
     state.match = { id: data.match_id, mode: "pvp", status: data.status === "active" ? "active" : "waiting", finished: false };
     state.seat = data.seat;
     await enterArena(data.match_id);
-    setStatus(state.match.status === "active" ? "Opponent found — fight!" : "Waiting for an opponent…");
+    if (state.match.status === "active") {
+      hidePvpLobby();
+    } else {
+      els.pvpLobbyStatus.textContent = "Waiting for an opponent…";
+    }
   } catch (error) {
+    hidePvpLobby();
     console.error(error);
     setStatus(error.message || "Could not join a PvP match.");
   }
@@ -172,7 +203,7 @@ async function startPvp() {
 
 async function enterArena(matchId) {
   await teardownMatch(true);
-  game.setView("game");
+  // Stay in lobby view while waiting; setView("game") fires when opponent connects
   game.setMode("player");
   game.setPlayerPerspective({ userId: state.user.id, displayName: state.profile?.display_name || "You" });
   game.setMatchPhase("waiting");
@@ -207,6 +238,8 @@ async function loadRoster(matchId) {
   if (opponent && opponent.user_id !== state.remoteId) {
     state.remoteId = opponent.user_id;
     if (state.match) state.match.status = "active";
+    hidePvpLobby();
+    game.setView("game");
     game.setMatchPhase("active");
     game.setRemoteIdentity({ userId: opponent.user_id, displayName: opponent.display_name });
     game.resetForMatch();
@@ -232,6 +265,7 @@ async function reportResult(result) {
 }
 
 async function leaveMatch({ silent = false } = {}) {
+  hidePvpLobby();
   if (!state.match) { if (!silent) setStatus("You're not in a match."); return; }
   if (state.match.mode === "pvp") {
     try { await supabase.rpc("leave_my_matches"); } catch (error) { console.error(error); }
