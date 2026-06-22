@@ -747,7 +747,7 @@ export function createArenaGame(options) {
 
   // -- HUD (attached reference set) -----------------------------------------
   const hud = buildHud();
-  const { hint, coords, mmCanvas, hotbar, slots, fpsEl, pingEl, overlay, renderDistBtn } = hud;
+  const { hint, coords, mmCanvas, hotbar, slots, fpsEl, pingEl, overlay, renderDistBtn, matchTimerEl } = hud;
 
   let activeSlot = 1;
   function selectSlot(n) {
@@ -895,6 +895,33 @@ export function createArenaGame(options) {
     if (!anyAlive && player.hp > 0) { resultSent = true; options.onResultSuggestion?.("win"); }
   }
 
+  // -- Match timer ----------------------------------------------------------
+  let matchTimeLeft = 0;
+  let matchTimerOn = false;
+  function fmtTime(s) {
+    s = Math.max(0, Math.ceil(s));
+    return Math.floor(s / 60) + ":" + String(s % 60).padStart(2, "0");
+  }
+  function showTimer() {
+    matchTimerEl.style.display = matchTimerOn && viewIsGame ? "block" : "none";
+  }
+  function tickTimer(dt) {
+    if (!matchTimerOn || resultSent || matchPhase !== "active") return;
+    matchTimeLeft -= dt;
+    matchTimerEl.textContent = fmtTime(matchTimeLeft);
+    matchTimerEl.classList.toggle("low", matchTimeLeft <= 30);
+    if (matchTimeLeft <= 0) { matchTimerOn = false; resolveByHp(); }
+  }
+  // Time's up: highest HP among the survivors wins (tie-break by id).
+  function resolveByHp() {
+    if (resultSent) return;
+    resultSent = true;
+    const field = [{ id: localUserId || "me", hp: player.dead ? -1 : player.hp, me: true }];
+    opponents.forEach((o) => field.push({ id: o.userId, hp: o.dead ? -1 : o.hp, me: false }));
+    field.sort((a, b) => b.hp - a.hp || String(a.id).localeCompare(String(b.id)));
+    options.onResultSuggestion?.(field[0].me ? "win" : "loss");
+  }
+
   // -- Loop -----------------------------------------------------------------
   let destroyed = false;
   let fpsAcc = 0, fpsFrames = 0, pingTimer = 0;
@@ -920,6 +947,7 @@ export function createArenaGame(options) {
       emitAcc += dt * 1000;
       if (emitAcc >= EMIT_MS) emitState();
       checkResult();
+      tickTimer(dt);
     }
 
     if (settings.centerCamera) following = true;
@@ -983,6 +1011,7 @@ export function createArenaGame(options) {
       viewIsGame = view === "game";
       document.body.classList.toggle("in-game", viewIsGame);
       applyTheme(viewIsGame ? "game" : "lobby");
+      showTimer();
     },
     setMode(mode) {
       perspective = mode;
@@ -990,6 +1019,13 @@ export function createArenaGame(options) {
     },
     setMatchPhase(phase) { matchPhase = phase; },
     setControllable(on) { controllable = !!on; },
+    setMatchTimer(seconds) {
+      matchTimeLeft = seconds || 0;
+      matchTimerOn = matchTimeLeft > 0;
+      matchTimerEl.textContent = fmtTime(matchTimeLeft);
+      matchTimerEl.classList.remove("low");
+      showTimer();
+    },
     playerAlive() { return !player.dead && player.hp > 0; },
     opponentCount() { return opponents.size; },
     setLocalUser({ userId, displayName }) {
@@ -1039,6 +1075,7 @@ export function createArenaGame(options) {
     clearRemote() { clearOpponents(); },
     resetForMatch() {
       resultSent = false;
+      matchTimerOn = false; showTimer();
       bullets.splice(0).forEach((b) => scene.remove(b.mesh));
       Object.assign(player, { hp: player.maxHp, dead: false, cdTimer: 0, atkAnim: 0, hurt: 0, moving: false, attackTarget: null, target: null });
       player.group.rotation.set(0, player.group.rotation.y, 0);
@@ -1104,6 +1141,7 @@ export function createArenaGame(options) {
       aiEnemy.connected = false;
       aiEnemy.name = "Raider";
       player.connected = false;
+      matchTimerOn = false; showTimer();
       viewIsGame = false;
       document.body.classList.remove("in-game");
       applyTheme("lobby");
@@ -1142,6 +1180,7 @@ function buildHud() {
   };
 
   const hint = add('<div class="hint game-ui"><b>Arena</b> — <span class="key">click</span> move &middot; <span class="key">click rival</span> attack &middot; <span class="key">drag</span> pan &middot; <span class="key">scroll</span> zoom &middot; <span class="key">Esc</span> leave</div>');
+  const matchTimerEl = add('<div class="match-timer game-ui">0:00</div>');
   const coords = add('<div class="coords game-ui">x 0.0 &middot; z 0.0</div>');
   add('<div class="mm-label game-ui">map</div>');
   const mmCanvas = add('<canvas class="game-minimap game-ui"></canvas>');
@@ -1231,7 +1270,7 @@ function buildHud() {
     });
   }
 
-  return { root, hint, coords, mmCanvas, hotbar, slots, fpsEl, pingEl, overlay, renderDistBtn, bindSettings };
+  return { root, hint, coords, matchTimerEl, mmCanvas, hotbar, slots, fpsEl, pingEl, overlay, renderDistBtn, bindSettings };
 }
 
 function clamp(v, min, max) {
@@ -1241,7 +1280,7 @@ function clamp(v, min, max) {
 function stubApi() {
   const noop = () => {};
   return {
-    setView: noop, setMode: noop, setMatchPhase: noop, setControllable: noop, setLocalUser: noop,
+    setView: noop, setMode: noop, setMatchPhase: noop, setControllable: noop, setMatchTimer: noop, setLocalUser: noop,
     playerAlive: () => false, opponentCount: () => 0,
     useAiFoe: noop, usePvpFoes: noop, addOpponent: noop, removeOpponent: () => 0,
     clearRemote: noop, resetForMatch: noop, receivePlayerState: noop,

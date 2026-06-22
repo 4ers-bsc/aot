@@ -52,6 +52,8 @@ const els = {
   pvpLobbyMeta: document.getElementById("pvpLobbyMeta"),
   lobbyPlayers: document.getElementById("lobbyPlayers"),
   pvpCancelBtn: document.getElementById("pvpCancelBtn"),
+  matchStarting: document.getElementById("matchStarting"),
+  matchStartCount: document.getElementById("matchStartCount"),
   gameOver: document.getElementById("gameOver"),
   gameOverTitle: document.getElementById("gameOverTitle"),
   gameOverReason: document.getElementById("gameOverReason"),
@@ -233,7 +235,7 @@ function startDemo() {
   game.resetForMatch();
   game.setMatchPhase("countdown");
   game.setControllable(false);
-  runCountdown(5, () => {
+  runMatchStart(() => {
     game.setMatchPhase("active");
     game.setControllable(true);
     setStatus("Demo match vs the computer. Click the battlefield to move.");
@@ -384,14 +386,20 @@ function renderLobbyPlayers(players, max) {
   }
 }
 
-// Flip from the waiting lobby into the live arena (once only), behind a
-// 5-second countdown so every client starts together.
+// Per-size match length: 2p → 5min, 5p → 10min, 10p → 15min.
+function matchDuration(max) {
+  if (max >= 10) return 15 * 60;
+  if (max >= 5) return 10 * 60;
+  return 5 * 60;
+}
+
+// Flip from the waiting lobby into the live arena (once only), behind a short
+// "MATCH STARTING" transition so every client starts together.
 function beginMatch() {
   if (state.started) return;
   state.started = true;
   if (state.match) state.match.status = "active";
-  // Tell every other client to start too, so the countdown runs for everyone
-  // (presence sync alone can miss a client).
+  // Tell every other client to start too (presence sync alone can miss one).
   state.channel?.send({ type: "broadcast", event: "start", payload: {} });
   hidePvpLobby();
   game.setView("game");
@@ -399,9 +407,10 @@ function beginMatch() {
   game.resetForMatch();
   game.setMatchPhase("countdown");
   game.setControllable(false);
-  runCountdown(5, () => {
+  runMatchStart(() => {
     game.setMatchPhase("active");
     game.setControllable(true);
+    game.setMatchTimer(matchDuration(state.match?.maxPlayers || 2));
     setStatus("Fight! Last one standing wins.");
   });
 }
@@ -439,7 +448,7 @@ async function reportResult(result, { reason = "" } = {}) {
 async function leaveMatch({ silent = false } = {}) {
   hidePvpLobby();
   hideGameOver();
-  cancelCountdown();
+  cancelMatchStart();
   if (!state.match) { if (!silent) setStatus("You're not in a match."); return; }
   if (state.match.mode === "pvp") {
     try { await supabase.rpc("leave_my_matches"); } catch (error) { console.error(error); }
@@ -593,47 +602,33 @@ function recordSuffix(message) {
   return `${message}  ·  Record ${state.profile.wins ?? 0}-${state.profile.losses ?? 0}`;
 }
 
-// 5-4-3-2-1-FIGHT! overlay shown as a match begins.
-let countdownTimer = null;
-function runCountdown(seconds, onDone) {
-  const el = ensureCountdownEl();
-  clearInterval(countdownTimer);
-  let n = seconds;
-  const tick = () => {
+// "MATCH STARTING" transition: a fast spinning ring dimming the whole screen
+// for 3 seconds while the arena is set up, then the match begins.
+let matchStartTimer = null;
+function runMatchStart(onDone) {
+  const ov = els.matchStarting;
+  cancelMatchStart();
+  let n = 3;
+  const count = els.matchStartCount;
+  if (count) count.textContent = String(n);
+  ov.classList.add("show");
+  matchStartTimer = setInterval(() => {
+    n--;
     if (n > 0) {
-      el.textContent = String(n);
-      el.classList.remove("pop"); void el.offsetWidth; el.classList.add("pop");
-      n--;
+      if (count) count.textContent = String(n);
     } else {
-      el.textContent = "FIGHT!";
-      el.classList.remove("pop"); void el.offsetWidth; el.classList.add("pop");
-      clearInterval(countdownTimer);
-      countdownTimer = null;
-      setTimeout(() => { el.classList.remove("show"); }, 700);
+      clearInterval(matchStartTimer);
+      matchStartTimer = null;
+      ov.classList.remove("show");
       onDone?.();
     }
-  };
-  el.classList.add("show");
-  tick();
-  countdownTimer = setInterval(tick, 1000);
+  }, 1000);
 }
 
-function cancelCountdown() {
-  clearInterval(countdownTimer);
-  countdownTimer = null;
-  const el = document.getElementById("countdown");
-  if (el) el.classList.remove("show");
-}
-
-function ensureCountdownEl() {
-  let el = document.getElementById("countdown");
-  if (!el) {
-    el = document.createElement("div");
-    el.id = "countdown";
-    el.className = "countdown";
-    document.body.appendChild(el);
-  }
-  return el;
+function cancelMatchStart() {
+  clearInterval(matchStartTimer);
+  matchStartTimer = null;
+  els.matchStarting?.classList.remove("show");
 }
 
 function escapeHtml(s) {
