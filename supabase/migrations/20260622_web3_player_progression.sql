@@ -197,21 +197,36 @@ begin
     raise exception 'wallet_identity_not_found';
   end if;
 
-  update public.profiles
-  set display_name = coalesce(nullif(trim(p_display_name), ''), display_name),
-      wallet_public_key = v_identity.provider_id,
-      wallet_chain = coalesce(v_identity.identity_data ->> 'chain', 'solana'),
-      auth_provider = v_identity.provider,
+  -- Upsert so wallet sign-in works even if no profile row exists yet (e.g. the
+  -- on_auth_user_created trigger did not fire for this user, or the account
+  -- predates it). A plain UPDATE would match 0 rows and leave the client with
+  -- no profile to read.
+  insert into public.profiles as p (
+    user_id, display_name, gold_balance, can_compete,
+    wallet_public_key, wallet_chain, auth_provider,
+    mmr, xp, level, last_login_at
+  )
+  values (
+    v_uid,
+    coalesce(nullif(trim(p_display_name), ''), 'Trench Rookie'),
+    10,
+    true,
+    v_identity.provider_id,
+    coalesce(v_identity.identity_data ->> 'chain', 'solana'),
+    v_identity.provider,
+    1000, 0, 1,
+    timezone('utc', now())
+  )
+  on conflict (user_id) do update
+  set display_name = coalesce(nullif(trim(p_display_name), ''), p.display_name),
+      wallet_public_key = excluded.wallet_public_key,
+      wallet_chain = excluded.wallet_chain,
+      auth_provider = excluded.auth_provider,
       can_compete = true,
-      gold_balance = case when can_compete then gold_balance else 10 end,
-      last_login_at = timezone('utc', now())
-  where user_id = v_uid
+      gold_balance = case when p.can_compete then p.gold_balance else 10 end,
+      last_login_at = excluded.last_login_at
+  where p.user_id = v_uid
   returning * into v_profile;
-
-  if not v_profile.can_compete then
-    -- unreachable because of returning new row after update, kept for clarity
-    null;
-  end if;
 
   perform public.seed_player_inventory(v_uid);
 
