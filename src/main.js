@@ -313,6 +313,7 @@ async function enterArena(matchId) {
       if (payload?.userId && payload.userId !== state.user.id) game.receivePlayerState(payload.userId, payload.snapshot);
     })
     .on("broadcast", { event: "attack" }, ({ payload }) => game.receiveAttack(payload))
+    .on("broadcast", { event: "start" }, () => beginMatch())
     .on("presence", { event: "sync" }, () => { loadRoster(matchId).catch((e) => console.error(e)); })
     .on("presence", { event: "leave" }, ({ leftPresences }) => {
       (leftPresences || []).forEach((p) => { if (state.remoteIds.has(p.user_id)) handleOpponentLeft(p.user_id); });
@@ -381,6 +382,9 @@ function beginMatch() {
   if (state.started) return;
   state.started = true;
   if (state.match) state.match.status = "active";
+  // Tell every other client to start too, so the countdown runs for everyone
+  // (presence sync alone can miss a client).
+  state.channel?.send({ type: "broadcast", event: "start", payload: {} });
   hidePvpLobby();
   game.setView("game");
   game.resetForMatch();

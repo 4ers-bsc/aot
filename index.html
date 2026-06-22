@@ -38,10 +38,10 @@
           </p>
           <div class="hero-actions">
             <button class="hero-primary" id="connectWalletBtn" type="button">Connect Wallet</button>
+            <button class="hero-secondary hidden" id="demoBtn" type="button">Demo Match</button>
+            <button class="hero-primary hidden" id="pvpBtn" type="button">Play PvP</button>
             <button class="hero-secondary" id="howToPlayBtn" type="button">How to Play</button>
-            <button class="hero-primary hidden" id="demoBtn" type="button">Demo Match</button>
-            <button class="hero-secondary hidden" id="pvpBtn" type="button">Play PvP</button>
-            <button class="hero-secondary hidden" id="signOutBtn" type="button">Sign Out</button>
+            <button class="hero-ghost hidden" id="signOutBtn" type="button">Sign Out</button>
           </div>
         </section>
       </section>
@@ -56,20 +56,22 @@
   <div class="overlay" id="pvpSizeOverlay">
     <div class="panel pvp-size-panel">
       <div class="panel-head">Choose Battle<button class="close" id="pvpSizeClose" type="button">&times;</button></div>
-      <p class="pvp-size-copy">Free-for-all — last fighter standing wins. Match begins once the room is full.</p>
-      <div class="pvp-size-grid">
-        <button class="pvp-size-btn" data-size="2" type="button">
-          <span class="pvp-size-num">2</span>
-          <span class="pvp-size-label">Duel</span>
-        </button>
-        <button class="pvp-size-btn" data-size="5" type="button">
-          <span class="pvp-size-num">5</span>
-          <span class="pvp-size-label">Skirmish</span>
-        </button>
-        <button class="pvp-size-btn" data-size="10" type="button">
-          <span class="pvp-size-num">10</span>
-          <span class="pvp-size-label">Warzone</span>
-        </button>
+      <div class="tab-body">
+        <p class="pvp-size-copy">Free-for-all — last fighter standing wins. The match begins once the room is full.</p>
+        <div class="pvp-size-grid">
+          <button class="pvp-size-btn" data-size="2" type="button">
+            <span class="pvp-size-num">2</span>
+            <span class="pvp-size-label">Duel</span>
+          </button>
+          <button class="pvp-size-btn" data-size="5" type="button">
+            <span class="pvp-size-num">5</span>
+            <span class="pvp-size-label">Skirmish</span>
+          </button>
+          <button class="pvp-size-btn" data-size="10" type="button">
+            <span class="pvp-size-num">10</span>
+            <span class="pvp-size-label">Warzone</span>
+          </button>
+        </div>
       </div>
     </div>
   </div>
