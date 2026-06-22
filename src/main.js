@@ -19,6 +19,13 @@ const els = {
   profileWins: document.getElementById("profileWins"),
   profileLosses: document.getElementById("profileLosses"),
   profileWinRate: document.getElementById("profileWinRate"),
+  profileGames: document.getElementById("profileGames"),
+  profileStreak: document.getElementById("profileStreak"),
+  profileBest: document.getElementById("profileBest"),
+  profileLevel: document.getElementById("profileLevel"),
+  profilePoints: document.getElementById("profilePoints"),
+  profileLevelFill: document.getElementById("profileLevelFill"),
+  profileLevelNext: document.getElementById("profileLevelNext"),
   profileSaveBtn: document.getElementById("profileSaveBtn"),
   profileTabs: Array.from(document.querySelectorAll("[data-ptab]")),
   profileBodies: Array.from(document.querySelectorAll("[data-pbody]")),
@@ -222,6 +229,7 @@ function startDemo() {
   game.setView("game");
   game.setLocalUser({ userId: state.user.id, displayName: state.profile?.display_name || "You" });
   game.useAiFoe();          // single AI raider opponent
+  game.generateMap("demo-" + Date.now());
   game.resetForMatch();
   game.setMatchPhase("countdown");
   game.setControllable(false);
@@ -387,6 +395,7 @@ function beginMatch() {
   state.channel?.send({ type: "broadcast", event: "start", payload: {} });
   hidePvpLobby();
   game.setView("game");
+  game.generateMap(state.match?.id || "pvp");  // seed by match id so all clients match
   game.resetForMatch();
   game.setMatchPhase("countdown");
   game.setControllable(false);
@@ -482,12 +491,36 @@ function openProfile() {
 }
 
 function renderProfileStats() {
-  const wins = state.profile?.wins ?? 0;
-  const losses = state.profile?.losses ?? 0;
+  const p = state.profile || {};
+  const wins = p.wins ?? 0;
+  const losses = p.losses ?? 0;
   const total = wins + losses;
   els.profileWins.textContent = wins;
   els.profileLosses.textContent = losses;
   els.profileWinRate.textContent = total ? `${Math.round((wins / total) * 100)}%` : "—";
+  els.profileGames.textContent = p.games_played ?? 0;
+  els.profileStreak.textContent = p.win_streak ?? 0;
+  els.profileBest.textContent = p.best_streak ?? 0;
+
+  // Level + progress to next level (triangular curve: L reached at 50*(L-1)*L).
+  const points = p.points ?? 0;
+  const level = p.level ?? levelForPoints(points);
+  const floorPts = cumPointsForLevel(level);
+  const nextPts = cumPointsForLevel(level + 1);
+  const span = Math.max(1, nextPts - floorPts);
+  const into = Math.max(0, points - floorPts);
+  els.profileLevel.textContent = level;
+  els.profilePoints.textContent = points;
+  els.profileLevelFill.style.width = `${Math.min(100, (into / span) * 100)}%`;
+  els.profileLevelNext.textContent = `${into} / ${span} to level ${level + 1}`;
+}
+
+// Mirrors public.level_for_points(): level L is reached at 50*(L-1)*L points.
+function levelForPoints(p) {
+  return Math.max(1, Math.floor((1 + Math.sqrt(1 + 0.08 * Math.max(0, p))) / 2));
+}
+function cumPointsForLevel(level) {
+  return 50 * (level - 1) * level;
 }
 
 // Match history (portfolio): the matches this wallet played, newest first.

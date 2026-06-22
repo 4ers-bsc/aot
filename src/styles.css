@@ -169,6 +169,49 @@ textarea:focus {
   background: repeating-linear-gradient(180deg, rgba(0, 0, 0, 0) 0, rgba(0, 0, 0, 0) 2px, rgba(0, 0, 0, 0.06) 3px, rgba(0, 0, 0, 0) 4px);
 }
 
+/* Glitch: horizontal slices whose pixels invert/hue-swap in brief bursts. */
+.world-glitch {
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  pointer-events: none;
+  opacity: 0;
+  will-change: clip-path, transform, opacity;
+}
+
+.world-glitch-a {
+  backdrop-filter: hue-rotate(180deg) invert(0.92);
+  -webkit-backdrop-filter: hue-rotate(180deg) invert(0.92);
+  animation: glitch-a 4.2s steps(1, end) infinite;
+}
+
+.world-glitch-b {
+  backdrop-filter: hue-rotate(90deg) saturate(2.5) contrast(1.4);
+  -webkit-backdrop-filter: hue-rotate(90deg) saturate(2.5) contrast(1.4);
+  animation: glitch-b 6.7s steps(1, end) infinite;
+}
+
+@keyframes glitch-a {
+  0%, 90%, 100% { opacity: 0; clip-path: inset(100% 0 0 0); transform: translateX(0); }
+  91% { opacity: 0.9; clip-path: inset(18% 0 70% 0); transform: translateX(-7px); }
+  92.5% { opacity: 0.85; clip-path: inset(58% 0 24% 0); transform: translateX(9px); }
+  94% { opacity: 0; }
+  95.5% { opacity: 0.95; clip-path: inset(38% 0 46% 0); transform: translateX(-12px); }
+  97% { opacity: 0; }
+  98% { opacity: 0.8; clip-path: inset(74% 0 12% 0); transform: translateX(6px); }
+  99% { opacity: 0; }
+}
+
+@keyframes glitch-b {
+  0%, 85%, 100% { opacity: 0; clip-path: inset(100% 0 0 0); transform: translateX(0); }
+  86% { opacity: 0.7; clip-path: inset(30% 0 55% 0); transform: translateX(11px); }
+  87.5% { opacity: 0; }
+  93% { opacity: 0.75; clip-path: inset(66% 0 18% 0); transform: translateX(-9px); }
+  94% { opacity: 0; }
+  96% { opacity: 0.7; clip-path: inset(8% 0 84% 0); transform: translateX(13px); }
+  97% { opacity: 0; }
+}
+
 .brand-header,
 .top-actions,
 .hero-panel,
@@ -935,8 +978,9 @@ body.in-game .log-feed { top: 58px; }
   display: flex;
   justify-content: space-around;
   gap: 20px;
-  padding: 6px 0 4px;
+  padding: 10px 0;
 }
+.profile-stats + .profile-stats { border-top: 1px solid rgba(0, 0, 0, 0.07); }
 
 .profile-save {
   width: 100%;
@@ -954,6 +998,58 @@ body.in-game .log-feed { top: 58px; }
 
 .profile-save:hover { filter: brightness(1.1); }
 .profile-save:disabled { opacity: 0.6; }
+
+/* ===== Level / progression ===== */
+.level-block { margin-top: 16px; }
+
+.level-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+
+.level-badge {
+  font-family: var(--font-display);
+  font-size: 15px;
+  letter-spacing: 0.08em;
+  color: #14181c;
+  background: linear-gradient(180deg, #ffd66b, #f0a93a);
+  border: 1px solid #d2902a;
+  border-radius: 8px;
+  padding: 5px 12px;
+}
+
+.level-pts {
+  font-family: var(--font-display);
+  font-size: 14px;
+  letter-spacing: 0.06em;
+  color: #51626f;
+}
+
+.level-bar {
+  height: 12px;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.1);
+  border: 1px solid rgba(0, 0, 0, 0.12);
+  overflow: hidden;
+}
+
+.level-fill {
+  height: 100%;
+  width: 0;
+  border-radius: 999px;
+  background: linear-gradient(90deg, #f0a93a, #ffd66b);
+  transition: width 0.4s ease;
+}
+
+.level-next {
+  margin-top: 6px;
+  text-align: right;
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  color: #8a939c;
+}
 
 /* ===== Match history / portfolio ===== */
 .portfolio-summary {
@@ -1122,7 +1218,8 @@ body.in-game .hud-rail,
 body.in-game .micro-footer,
 body.in-game .world-vignette,
 body.in-game .world-grain,
-body.in-game .world-scanlines {
+body.in-game .world-scanlines,
+body.in-game .world-glitch {
   display: none !important;
 }
 
