@@ -77,7 +77,11 @@ returns trigger
 language plpgsql
 as $$
 begin
-  if auth.uid() = old.user_id and (
+  -- Only block direct client tampering. SECURITY DEFINER RPCs run as the table
+  -- owner (e.g. postgres) and must be allowed to update server-managed fields,
+  -- so gate on the effective role rather than auth.uid() (which is still the
+  -- user's id even inside a definer function).
+  if current_user in ('authenticated', 'anon') and (
     new.gold_balance <> old.gold_balance or
     coalesce(new.wallet_public_key, '') <> coalesce(old.wallet_public_key, '') or
     coalesce(new.wallet_chain, '') <> coalesce(old.wallet_chain, '') or
