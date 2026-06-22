@@ -553,14 +553,6 @@ export function createArenaGame(options) {
     if (inRiver(aiEnemy.group.position.x, aiEnemy.group.position.z)) dmg = Math.max(1, Math.round(dmg * RIVER_ATK));
     applyDamage(player, dmg);
   }
-  function shootAt(target) {
-    if (player.dead || target.dead) return;
-    const dx = target.group.position.x - player.group.position.x;
-    const dz = target.group.position.z - player.group.position.z;
-    player.facing = Math.atan2(dx, dz);
-    player.moving = false;
-    if (Math.hypot(dx, dz) <= player.weapon.range) playerAttack(target);
-  }
   function killFighter(f) {
     f.dead = true;
     f.moving = false;
@@ -604,7 +596,8 @@ export function createArenaGame(options) {
     regen(p, dt);
     p.moving = false;
     if (!controllable) return;
-    if (!p.weapon.ranged && p.attackTarget && !p.attackTarget.dead && p.attackTarget.connected) {
+    // Melee or ranged: close to weapon range, then face the target and fire.
+    if (p.attackTarget && !p.attackTarget.dead && p.attackTarget.connected) {
       const e = p.attackTarget;
       const dx = e.group.position.x - p.group.position.x, dz = e.group.position.z - p.group.position.z;
       if (Math.hypot(dx, dz) > p.weapon.range) moveStep(p, e.group.position.x, e.group.position.z, dt);
@@ -700,8 +693,8 @@ export function createArenaGame(options) {
     if (foe) {
       following = true;
       setMarker(foe.group.position.x, foe.group.position.z, theme.markerAttack[0], theme.markerAttack[1]);
-      if (player.weapon.ranged) { player.attackTarget = null; shootAt(foe); }
-      else player.attackTarget = foe;
+      player.target = null;
+      player.attackTarget = foe; // pursue into range (melee or ranged), then fire
       return;
     }
     const hit = raycaster.ray.intersectPlane(groundPlane, _hit);
