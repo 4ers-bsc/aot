@@ -9,26 +9,15 @@ const SIGN_IN_STATEMENT = "Sign in to Age of Trenches to play realtime trench du
 
 const els = {
   signInWalletBtn: document.getElementById("signInWalletBtn"),
-  heroPlayBtn: document.getElementById("heroPlayBtn"),
+  connectWalletBtn: document.getElementById("connectWalletBtn"),
+  howToPlayBtn: document.getElementById("howToPlayBtn"),
+  demoBtn: document.getElementById("demoBtn"),
+  pvpBtn: document.getElementById("pvpBtn"),
   signOutBtn: document.getElementById("signOutBtn"),
-  authCard: document.getElementById("authCard"),
-  walletBadge: document.getElementById("walletBadge"),
-  walletHint: document.getElementById("walletHint"),
-  profileCard: document.getElementById("profileCard"),
-  authBadge: document.getElementById("authBadge"),
-  walletAddress: document.getElementById("walletAddress"),
-  playerShortId: document.getElementById("playerShortId"),
-  displayNameInput: document.getElementById("displayNameInput"),
-  saveNameBtn: document.getElementById("saveNameBtn"),
-  matchCard: document.getElementById("matchCard"),
-  matchStatusBadge: document.getElementById("matchStatusBadge"),
-  roster: document.getElementById("roster"),
-  queueBtn: document.getElementById("queueBtn"),
-  forfeitBtn: document.getElementById("forfeitBtn"),
   appStatus: document.getElementById("appStatus"),
-  arenaTitle: document.getElementById("arenaTitle"),
-  presenceState: document.getElementById("presenceState"),
-  arenaMount: document.getElementById("arenaMount")
+  arenaMount: document.getElementById("arenaMount"),
+  howToOverlay: document.getElementById("howToOverlay"),
+  howToClose: document.getElementById("howToClose")
 };
 
 const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
@@ -38,9 +27,8 @@ const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
 const state = {
   user: null,
   profile: null,
-  match: null, // { id, status }
+  match: null, // { id, mode: 'demo'|'pvp', status, finished }
   seat: null,
-  players: [],
   remoteId: null,
   channel: null
 };
@@ -48,17 +36,13 @@ const state = {
 const game = createArenaGame({
   mount: els.arenaMount,
   onLocalState: (snapshot) => {
-    state.channel?.send({
-      type: "broadcast",
-      event: "state",
-      payload: { userId: state.user?.id, snapshot }
-    });
+    state.channel?.send({ type: "broadcast", event: "state", payload: { userId: state.user?.id, snapshot } });
   },
   onAttack: (attackEvent) => {
     state.channel?.send({ type: "broadcast", event: "attack", payload: attackEvent });
   },
   onResultSuggestion: (result) => {
-    setStatus(result === "win" ? "You knocked out your opponent! 🎖" : "You were knocked out.");
+    reportResult(result).catch((err) => console.error(err));
   }
 });
 
@@ -67,12 +51,15 @@ init();
 
 function bindUi() {
   els.signInWalletBtn.addEventListener("click", signIn);
-  els.heroPlayBtn.addEventListener("click", handleHeroPlay);
+  els.connectWalletBtn.addEventListener("click", signIn);
+  els.demoBtn.addEventListener("click", startDemo);
+  els.pvpBtn.addEventListener("click", startPvp);
   els.signOutBtn.addEventListener("click", signOut);
-  els.saveNameBtn.addEventListener("click", saveDisplayName);
-  els.queueBtn.addEventListener("click", findMatch);
-  els.forfeitBtn.addEventListener("click", leaveMatch);
-  // Esc leaves the match and returns to the lobby chrome.
+  els.howToPlayBtn.addEventListener("click", () => els.howToOverlay.classList.add("show"));
+  els.howToClose.addEventListener("click", () => els.howToOverlay.classList.remove("show"));
+  els.howToOverlay.addEventListener("pointerdown", (e) => {
+    if (e.target === els.howToOverlay) els.howToOverlay.classList.remove("show");
+  });
   window.addEventListener("keydown", (e) => {
     if (e.key === "Escape" && state.match) leaveMatch();
   });
@@ -105,11 +92,7 @@ async function signIn() {
   try {
     setStatus("Approve the signature in your wallet…");
     await wallet.connect();
-    const { error } = await supabase.auth.signInWithWeb3({
-      chain: "solana",
-      statement: SIGN_IN_STATEMENT,
-      wallet
-    });
+    const { error } = await supabase.auth.signInWithWeb3({ chain: "solana", statement: SIGN_IN_STATEMENT, wallet });
     if (error) throw error;
   } catch (error) {
     console.error(error);
@@ -129,7 +112,9 @@ async function handleSession(session) {
   if (!state.user) {
     state.profile = null;
     await teardownMatch();
-    renderSignedOut();
+    game.clearAll();
+    showLobby();
+    setStatus("Connect a Solana wallet to begin.");
     return;
   }
 
@@ -140,89 +125,58 @@ async function handleSession(session) {
     setStatus(error.message || "Could not load profile.");
     return;
   }
-
-  els.profileCard.classList.remove("hidden");
-  els.matchCard.classList.remove("hidden");
-  setBadge(els.walletBadge, "solana", "badge-good");
-  setBadge(els.authBadge, "player", "badge-good");
-  els.walletHint.textContent = "Wallet authenticated. Hit Find Demo Match to drop into the arena.";
-  renderProfile();
-  renderMatch();
-  updateHero();
+  showLobby();
+  setStatus(recordSuffix("Wallet connected — choose Demo Match or Play PvP."));
 }
 
 async function syncProfile() {
-  const name = els.displayNameInput.value.trim() || null;
-  const { data, error } = await supabase.rpc("sync_my_profile", { p_display_name: name });
+  const { data, error } = await supabase.rpc("sync_my_profile", { p_display_name: null });
   if (error) throw error;
   state.profile = data;
 }
 
 // ---------------------------------------------------------------------------
-// Matchmaking
+// Demo match — vs the computer (no networking, no DB)
 // ---------------------------------------------------------------------------
-async function handleHeroPlay() {
-  if (!state.user) {
-    await signIn();
-    return;
-  }
-  if (state.match) {
-    setStatus("You're already in a match below.");
-    return;
-  }
-  await findMatch();
+function startDemo() {
+  if (!state.user) { signIn(); return; }
+  state.match = { mode: "demo", status: "active", finished: false };
+  state.remoteId = null;
+  game.setView("game");
+  game.setMode("player");
+  game.setPlayerPerspective({ userId: state.user.id, displayName: state.profile?.display_name || "You" });
+  game.setMatchPhase("active");
+  game.clearRemote();       // AI raider opponent
+  game.resetForMatch();
+  setStatus("Demo match vs the computer. Click the battlefield to move.");
 }
 
-async function findMatch() {
-  if (!state.user) {
-    await signIn();
-    return;
-  }
+// ---------------------------------------------------------------------------
+// PvP — matchmaking vs other players, result written to the DB
+// ---------------------------------------------------------------------------
+async function startPvp() {
+  if (!state.user) { signIn(); return; }
   try {
-    setStatus("Finding a demo match…");
-    const name = els.displayNameInput.value.trim() || null;
-    const { data, error } = await supabase.rpc("join_demo_match", { p_display_name: name });
+    setStatus("Finding a PvP match…");
+    const { data, error } = await supabase.rpc("join_pvp_match", { p_display_name: null });
     if (error) throw error;
-
-    state.match = { id: data.match_id, status: data.status === "active" ? "active" : "waiting" };
+    state.match = { id: data.match_id, mode: "pvp", status: data.status === "active" ? "active" : "waiting", finished: false };
     state.seat = data.seat;
     await enterArena(data.match_id);
-    setStatus(state.match.status === "active" ? "Opponent found — fight!" : "Waiting for an opponent to join…");
+    setStatus(state.match.status === "active" ? "Opponent found — fight!" : "Waiting for an opponent…");
   } catch (error) {
     console.error(error);
-    setStatus(error.message || "Could not join a match.");
+    setStatus(error.message || "Could not join a PvP match.");
   }
-}
-
-async function leaveMatch({ silent = false } = {}) {
-  if (!state.match) {
-    if (!silent) setStatus("You're not in a match.");
-    return;
-  }
-  try {
-    await supabase.rpc("leave_my_matches");
-  } catch (error) {
-    console.error(error);
-  }
-  await teardownMatch();
-  game.clearAll();
-  game.setMode("offline");
-  renderMatch();
-  updateHero();
-  if (!silent) setStatus("Left the match.");
 }
 
 async function enterArena(matchId) {
   await teardownMatch(true);
-
-  // Switch to the full-screen game view: hides app chrome, applies game theme.
   game.setView("game");
   game.setMode("player");
-  game.setPlayerPerspective({
-    userId: state.user.id,
-    displayName: state.profile?.display_name || "You"
-  });
-  game.clearRemote();
+  game.setPlayerPerspective({ userId: state.user.id, displayName: state.profile?.display_name || "You" });
+  game.setMatchPhase("waiting");
+  game.clearRemote();       // AI stand-in until the real opponent connects
   game.resetForMatch();
 
   await loadRoster(matchId);
@@ -230,29 +184,15 @@ async function enterArena(matchId) {
   state.channel = supabase.channel(`match-${matchId}`, {
     config: { broadcast: { self: false }, presence: { key: state.user.id } }
   });
-
   state.channel
     .on("broadcast", { event: "state" }, ({ payload }) => {
-      if (payload?.userId && payload.userId !== state.user.id) {
-        game.receivePlayerState(payload.snapshot);
-      }
+      if (payload?.userId && payload.userId !== state.user.id) game.receivePlayerState(payload.snapshot);
     })
-    .on("broadcast", { event: "attack" }, ({ payload }) => {
-      game.receiveAttack(payload);
-    })
-    .on("presence", { event: "sync" }, () => {
-      const members = Object.keys(state.channel.presenceState()).length;
-      els.presenceState.textContent = `${members} player${members === 1 ? "" : "s"} in the room`;
-      loadRoster(matchId).catch((error) => console.error(error));
-    })
+    .on("broadcast", { event: "attack" }, ({ payload }) => game.receiveAttack(payload))
+    .on("presence", { event: "sync" }, () => { loadRoster(matchId).catch((e) => console.error(e)); })
     .subscribe((status) => {
-      if (status === "SUBSCRIBED") {
-        state.channel.track({ user_id: state.user.id, display_name: state.profile?.display_name });
-      }
+      if (status === "SUBSCRIBED") state.channel.track({ user_id: state.user.id, display_name: state.profile?.display_name });
     });
-
-  renderMatch();
-  updateHero();
 }
 
 async function loadRoster(matchId) {
@@ -261,27 +201,45 @@ async function loadRoster(matchId) {
     .select("user_id, seat, display_name")
     .eq("match_id", matchId)
     .order("seat", { ascending: true });
-  if (error) {
-    console.warn(error);
-    return;
-  }
+  if (error) { console.warn(error); return; }
 
-  state.players = data || [];
-  const opponent = state.players.find((p) => p.user_id !== state.user.id);
-
+  const opponent = (data || []).find((p) => p.user_id !== state.user.id);
   if (opponent && opponent.user_id !== state.remoteId) {
     state.remoteId = opponent.user_id;
-    state.match = { ...state.match, status: "active" };
+    if (state.match) state.match.status = "active";
+    game.setMatchPhase("active");
     game.setRemoteIdentity({ userId: opponent.user_id, displayName: opponent.display_name });
     game.resetForMatch();
-  } else if (!opponent) {
-    state.remoteId = null;
-    game.clearRemote();
+    setStatus("Opponent found — fight!");
   }
+}
 
-  game.setMatchPhase(state.match?.status || "offline");
-  renderMatch();
-  updateHero();
+// ---------------------------------------------------------------------------
+// Result handling (PvP only) — loser is whoever hits 0 HP
+// ---------------------------------------------------------------------------
+async function reportResult(result) {
+  if (state.match?.mode !== "pvp" || !state.match.id || state.match.finished) return;
+  state.match.finished = true;
+  const winner = result === "win" ? state.user.id : state.remoteId;
+  try {
+    if (winner) await supabase.rpc("finish_match", { p_match_id: state.match.id, p_winner_user_id: winner });
+    await syncProfile();
+  } catch (error) {
+    console.error(error);
+  }
+  setStatus(recordSuffix(result === "win" ? "Victory!" : "Defeat."));
+  setTimeout(() => leaveMatch({ silent: true }), 2600);
+}
+
+async function leaveMatch({ silent = false } = {}) {
+  if (!state.match) { if (!silent) setStatus("You're not in a match."); return; }
+  if (state.match.mode === "pvp") {
+    try { await supabase.rpc("leave_my_matches"); } catch (error) { console.error(error); }
+  }
+  await teardownMatch();
+  game.clearAll();
+  showLobby();
+  if (!silent) setStatus(recordSuffix("Left the match."));
 }
 
 async function teardownMatch(keepMatch = false) {
@@ -289,139 +247,32 @@ async function teardownMatch(keepMatch = false) {
     await supabase.removeChannel(state.channel);
     state.channel = null;
   }
-  state.players = [];
   state.remoteId = null;
-  if (!keepMatch) {
-    state.match = null;
-    state.seat = null;
-  }
+  if (!keepMatch) { state.match = null; state.seat = null; }
 }
 
 // ---------------------------------------------------------------------------
-// Profile editing
+// Lobby UI
 // ---------------------------------------------------------------------------
-async function saveDisplayName() {
-  if (!state.user) return;
-  const name = els.displayNameInput.value.trim();
-  if (name.length < 3) {
-    setStatus("Display names must be at least 3 characters.");
-    return;
-  }
-  try {
-    await syncProfile();
-    renderProfile();
-    setStatus("Display name saved.");
-  } catch (error) {
-    setStatus(error.message || "Could not save name.");
-  }
+function showLobby() {
+  const connected = !!state.user;
+  toggle(els.connectWalletBtn, !connected);
+  toggle(els.signInWalletBtn, !connected);
+  toggle(els.howToPlayBtn, true);
+  toggle(els.demoBtn, connected);
+  toggle(els.pvpBtn, connected);
+  toggle(els.signOutBtn, connected);
 }
 
-// ---------------------------------------------------------------------------
-// Rendering
-// ---------------------------------------------------------------------------
-function renderSignedOut() {
-  setBadge(els.walletBadge, "disconnected");
-  setBadge(els.authBadge, "offline");
-  els.profileCard.classList.add("hidden");
-  els.matchCard.classList.add("hidden");
-  els.walletHint.textContent = "Sign in with a Solana wallet like Phantom, Backpack, or Brave to play.";
-  els.presenceState.textContent = "Waiting for wallet sign-in";
-  els.arenaTitle.textContent = "Trench Duel";
-  els.roster.className = "roster empty";
-  els.roster.textContent = "No active match yet.";
-  game.clearAll();
-  game.setMode("offline");
-  updateHero();
+function recordSuffix(message) {
+  if (!state.profile || (state.profile.wins == null && state.profile.losses == null)) return message;
+  return `${message}  ·  Record ${state.profile.wins ?? 0}-${state.profile.losses ?? 0}`;
 }
 
-function renderProfile() {
-  if (!state.profile) return;
-  els.displayNameInput.value = state.profile.display_name || "";
-  els.walletAddress.textContent = state.profile.wallet_address
-    ? shorten(state.profile.wallet_address, 4, 4)
-    : "—";
-  els.playerShortId.textContent = state.user.id.slice(0, 8);
+function toggle(el, show) {
+  if (el) el.classList.toggle("hidden", !show);
 }
 
-function renderMatch() {
-  if (!state.match) {
-    setBadge(els.matchStatusBadge, "idle");
-    els.roster.className = "roster empty";
-    els.roster.textContent = "No active match yet.";
-    els.arenaTitle.textContent = "Trench Duel";
-    return;
-  }
-
-  els.arenaTitle.textContent = `Match ${state.match.id.slice(0, 8)}`;
-  const kind = state.match.status === "active" ? "badge-good" : "badge-warm";
-  setBadge(els.matchStatusBadge, state.match.status, kind);
-
-  if (!state.players.length) {
-    els.roster.className = "roster empty";
-    els.roster.textContent = "Waiting for players…";
-    return;
-  }
-
-  els.roster.className = "roster";
-  els.roster.innerHTML = "";
-  state.players.forEach((player) => {
-    const isYou = player.user_id === state.user.id;
-    const row = document.createElement("div");
-    row.className = "roster-row";
-    row.innerHTML = `
-      <strong>${escapeHtml(player.display_name || player.user_id.slice(0, 8))}</strong>
-      <span class="badge">${isYou ? "you" : "rival"}</span>
-      <span class="badge">seat ${player.seat}</span>
-    `;
-    els.roster.appendChild(row);
-  });
-}
-
-function updateHero() {
-  if (!state.user) {
-    els.heroPlayBtn.textContent = "Connect Wallet";
-    els.signOutBtn.classList.add("hidden");
-    els.queueBtn.disabled = true;
-    els.forfeitBtn.disabled = true;
-    return;
-  }
-
-  els.signOutBtn.classList.remove("hidden");
-  els.queueBtn.disabled = !!state.match;
-  els.forfeitBtn.disabled = !state.match;
-
-  if (state.match?.status === "active") {
-    els.heroPlayBtn.textContent = "Match Live";
-  } else if (state.match?.status === "waiting") {
-    els.heroPlayBtn.textContent = "Waiting…";
-  } else {
-    els.heroPlayBtn.textContent = "Find Demo Match";
-  }
-}
-
-// ---------------------------------------------------------------------------
-// Utils
-// ---------------------------------------------------------------------------
 function setStatus(message) {
   els.appStatus.textContent = message;
-}
-
-function setBadge(element, text, kind = "") {
-  element.textContent = text;
-  element.className = `badge ${kind}`.trim();
-}
-
-function shorten(value, start, end) {
-  if (!value) return "—";
-  if (value.length <= start + end + 1) return value;
-  return `${value.slice(0, start)}…${value.slice(-end)}`;
-}
-
-function escapeHtml(value) {
-  return String(value)
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;")
-    .replaceAll('"', "&quot;")
-    .replaceAll("'", "&#39;");
 }

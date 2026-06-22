@@ -1,6 +1,8 @@
 -- Age of Trenches — minimal schema
 -- Flow: sign in with a Solana wallet (Supabase Web3 auth) -> a profile is
--- created -> join a demo match that pairs you with the next player.
+-- created. Demo matches run vs the computer (client only). PvP pairs you with
+-- another player via join_pvp_match(); finish_match() records the winner and
+-- updates win/loss tallies when someone reaches 0 HP.
 
 create extension if not exists pgcrypto;
 
@@ -12,6 +14,8 @@ create table if not exists public.profiles (
   display_name text not null default 'Trench Rookie'
     check (char_length(display_name) between 3 and 24),
   wallet_address text,
+  wins integer not null default 0,
+  losses integer not null default 0,
   created_at timestamptz not null default timezone('utc', now())
 );
 
@@ -20,8 +24,10 @@ create table if not exists public.matches (
   status text not null default 'waiting'
     check (status in ('waiting', 'active', 'finished')),
   created_by uuid references auth.users(id) on delete set null,
+  winner_user_id uuid references auth.users(id) on delete set null,
   created_at timestamptz not null default timezone('utc', now()),
-  started_at timestamptz
+  started_at timestamptz,
+  ended_at timestamptz
 );
 
 create table if not exists public.match_players (
@@ -112,8 +118,8 @@ begin
 end;
 $$;
 
--- Join an open demo match, or open a new one if none is waiting.
-create or replace function public.join_demo_match(p_display_name text default null)
+-- Join an open PvP match, or open a new one if none is waiting.
+create or replace function public.join_pvp_match(p_display_name text default null)
 returns jsonb
 language plpgsql
 security definer
@@ -202,6 +208,55 @@ begin
 end;
 $$;
 
+-- Finish an active PvP match: record the winner and update win/loss tallies.
+-- Idempotent — only the first call (while the match is still active) settles it.
+create or replace function public.finish_match(p_match_id uuid, p_winner_user_id uuid)
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_uid uuid := auth.uid();
+  v_status text;
+  v_loser uuid;
+begin
+  if v_uid is null then
+    raise exception 'not_authenticated';
+  end if;
+
+  if not exists (select 1 from public.match_players where match_id = p_match_id and user_id = v_uid) then
+    raise exception 'not_in_match';
+  end if;
+
+  select status into v_status from public.matches where id = p_match_id for update;
+  if v_status is null then
+    raise exception 'match_not_found';
+  end if;
+  if v_status <> 'active' then
+    return; -- already settled
+  end if;
+
+  if not exists (select 1 from public.match_players where match_id = p_match_id and user_id = p_winner_user_id) then
+    raise exception 'winner_not_in_match';
+  end if;
+
+  select user_id into v_loser
+  from public.match_players
+  where match_id = p_match_id and user_id <> p_winner_user_id
+  limit 1;
+
+  update public.matches
+  set status = 'finished', winner_user_id = p_winner_user_id, ended_at = timezone('utc', now())
+  where id = p_match_id;
+
+  update public.profiles set wins = wins + 1 where user_id = p_winner_user_id;
+  if v_loser is not null then
+    update public.profiles set losses = losses + 1 where user_id = v_loser;
+  end if;
+end;
+$$;
+
 -- ----------------------------------------------------------------------------
 -- Row level security
 -- ----------------------------------------------------------------------------
@@ -213,8 +268,9 @@ grant select, update(display_name) on public.profiles to authenticated;
 grant select on public.matches to authenticated;
 grant select on public.match_players to authenticated;
 grant execute on function public.sync_my_profile(text) to authenticated;
-grant execute on function public.join_demo_match(text) to authenticated;
+grant execute on function public.join_pvp_match(text) to authenticated;
 grant execute on function public.leave_my_matches() to authenticated;
+grant execute on function public.finish_match(uuid, uuid) to authenticated;
 
 create policy "profiles_select_own"
 on public.profiles for select to authenticated
