@@ -169,6 +169,49 @@ textarea:focus {
   background: repeating-linear-gradient(180deg, rgba(0, 0, 0, 0) 0, rgba(0, 0, 0, 0) 2px, rgba(0, 0, 0, 0.06) 3px, rgba(0, 0, 0, 0) 4px);
 }
 
+/* Glitch: horizontal slices whose pixels invert/hue-swap in brief bursts. */
+.world-glitch {
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  pointer-events: none;
+  opacity: 0;
+  will-change: clip-path, transform, opacity;
+}
+
+.world-glitch-a {
+  backdrop-filter: hue-rotate(180deg) invert(0.92);
+  -webkit-backdrop-filter: hue-rotate(180deg) invert(0.92);
+  animation: glitch-a 4.2s steps(1, end) infinite;
+}
+
+.world-glitch-b {
+  backdrop-filter: hue-rotate(90deg) saturate(2.5) contrast(1.4);
+  -webkit-backdrop-filter: hue-rotate(90deg) saturate(2.5) contrast(1.4);
+  animation: glitch-b 6.7s steps(1, end) infinite;
+}
+
+@keyframes glitch-a {
+  0%, 90%, 100% { opacity: 0; clip-path: inset(100% 0 0 0); transform: translateX(0); }
+  91% { opacity: 0.9; clip-path: inset(18% 0 70% 0); transform: translateX(-7px); }
+  92.5% { opacity: 0.85; clip-path: inset(58% 0 24% 0); transform: translateX(9px); }
+  94% { opacity: 0; }
+  95.5% { opacity: 0.95; clip-path: inset(38% 0 46% 0); transform: translateX(-12px); }
+  97% { opacity: 0; }
+  98% { opacity: 0.8; clip-path: inset(74% 0 12% 0); transform: translateX(6px); }
+  99% { opacity: 0; }
+}
+
+@keyframes glitch-b {
+  0%, 85%, 100% { opacity: 0; clip-path: inset(100% 0 0 0); transform: translateX(0); }
+  86% { opacity: 0.7; clip-path: inset(30% 0 55% 0); transform: translateX(11px); }
+  87.5% { opacity: 0; }
+  93% { opacity: 0.75; clip-path: inset(66% 0 18% 0); transform: translateX(-9px); }
+  94% { opacity: 0; }
+  96% { opacity: 0.7; clip-path: inset(8% 0 84% 0); transform: translateX(13px); }
+  97% { opacity: 0; }
+}
+
 .brand-header,
 .top-actions,
 .hero-panel,
@@ -1122,7 +1165,8 @@ body.in-game .hud-rail,
 body.in-game .micro-footer,
 body.in-game .world-vignette,
 body.in-game .world-grain,
-body.in-game .world-scanlines {
+body.in-game .world-scanlines,
+body.in-game .world-glitch {
   display: none !important;
 }
 

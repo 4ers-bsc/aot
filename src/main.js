@@ -222,6 +222,7 @@ function startDemo() {
   game.setView("game");
   game.setLocalUser({ userId: state.user.id, displayName: state.profile?.display_name || "You" });
   game.useAiFoe();          // single AI raider opponent
+  game.generateMap("demo-" + Date.now());
   game.resetForMatch();
   game.setMatchPhase("countdown");
   game.setControllable(false);
@@ -387,6 +388,7 @@ function beginMatch() {
   state.channel?.send({ type: "broadcast", event: "start", payload: {} });
   hidePvpLobby();
   game.setView("game");
+  game.generateMap(state.match?.id || "pvp");  // seed by match id so all clients match
   game.resetForMatch();
   game.setMatchPhase("countdown");
   game.setControllable(false);

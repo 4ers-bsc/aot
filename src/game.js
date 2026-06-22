@@ -306,6 +306,132 @@ export function createArenaGame(options) {
     return foeMode === "ai" ? [aiEnemy] : [...opponents.values()];
   }
 
+  // -- Map obstacles --------------------------------------------------------
+  // Trees & steel rods block movement and deflect attacks; the river slows
+  // movement and weakens attacks. Built deterministically from a seed so every
+  // client in a match shares the exact same layout.
+  const BODY_R = 0.6;
+  const RIVER_SLOW = 0.5;
+  const RIVER_ATK = 0.5;
+  const mapGroup = new THREE.Group();
+  scene.add(mapGroup);
+  let solids = [];   // { x, z, r } — blocks movement + line of sight
+  let river = null;  // { axis: 'x'|'z', min, max }
+
+  function makeRng(seedStr) {
+    const str = String(seedStr);
+    let h = 1779033703 ^ str.length;
+    for (let i = 0; i < str.length; i++) {
+      h = Math.imul(h ^ str.charCodeAt(i), 3432918353);
+      h = (h << 13) | (h >>> 19);
+    }
+    let a = h >>> 0;
+    return function () {
+      a = (a + 0x6d2b79f5) | 0;
+      let t = Math.imul(a ^ (a >>> 15), 1 | a);
+      t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+      return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    };
+  }
+  function inRiver(x, z) {
+    if (!river) return false;
+    const v = river.axis === "x" ? x : z;
+    return v >= river.min && v <= river.max;
+  }
+  function collidesSolid(x, z, selfR) {
+    for (const s of solids) {
+      const dx = x - s.x, dz = z - s.z, rr = s.r + selfR;
+      if (dx * dx + dz * dz < rr * rr) return true;
+    }
+    return false;
+  }
+  // True if the segment A→B passes within any solid's radius (attack deflected).
+  function losBlocked(ax, az, bx, bz) {
+    for (const s of solids) {
+      const abx = bx - ax, abz = bz - az;
+      const len2 = abx * abx + abz * abz || 1e-6;
+      let t = ((s.x - ax) * abx + (s.z - az) * abz) / len2;
+      t = Math.max(0, Math.min(1, t));
+      const cx = ax + abx * t, cz = az + abz * t;
+      const dx = s.x - cx, dz = s.z - cz;
+      if (dx * dx + dz * dz < s.r * s.r) return true;
+    }
+    return false;
+  }
+  function clearMap() {
+    while (mapGroup.children.length) {
+      const c = mapGroup.children.pop();
+      c.traverse((o) => { if (o.geometry) o.geometry.dispose(); if (o.material) o.material.dispose(); });
+      mapGroup.remove(c);
+    }
+    solids = [];
+    river = null;
+  }
+  function addTree(x, z) {
+    const g = new THREE.Group();
+    const trunk = box(0.5, 1.6, 0.5, 0x6b4a2a); trunk.position.y = 0.8;
+    const f1 = box(2.0, 1.4, 2.0, 0x356b32); f1.position.y = 2.0;
+    const f2 = box(1.3, 1.2, 1.3, 0x2c5a29); f2.position.y = 3.0;
+    g.add(trunk, f1, f2);
+    g.position.set(x, 0, z);
+    mapGroup.add(g);
+    solids.push({ x, z, r: 1.1 });
+  }
+  function addRod(x, z) {
+    const g = new THREE.Group();
+    const base = box(0.7, 0.3, 0.7, 0x6f777e); base.position.y = 0.15;
+    const rod = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.18, 0.18, 4.2, 8),
+      new THREE.MeshStandardMaterial({ color: 0x9aa3ab, metalness: 0.85, roughness: 0.3 })
+    );
+    rod.position.y = 2.1; rod.castShadow = true;
+    g.add(base, rod);
+    g.position.set(x, 0, z);
+    mapGroup.add(g);
+    solids.push({ x, z, r: 0.55 });
+  }
+  function buildRiver(rng) {
+    const axis = rng() < 0.5 ? "x" : "z";
+    const half = 5 + rng() * 2;
+    const center = (rng() * 2 - 1) * (MAP_HALF - 16);
+    river = { axis, min: center - half, max: center + half };
+    const w = half * 2;
+    const geo = new THREE.PlaneGeometry(axis === "x" ? w : MAP_WORLD, axis === "x" ? MAP_WORLD : w);
+    const plane = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({
+      color: 0x3d7fb0, transparent: true, opacity: 0.72, roughness: 0.2, metalness: 0.1
+    }));
+    plane.rotation.x = -Math.PI / 2;
+    plane.position.set(axis === "x" ? center : 0, 0.05, axis === "x" ? 0 : center);
+    plane.receiveShadow = true;
+    mapGroup.add(plane);
+  }
+  function generateMap(seedStr) {
+    clearMap();
+    const rng = makeRng(seedStr || "demo");
+    buildRiver(rng);
+    const scatter = (count, adder, gap) => {
+      let made = 0, tries = 0;
+      while (made < count && tries < count * 40) {
+        tries++;
+        const x = (rng() * 2 - 1) * (MAP_HALF - 4);
+        const z = (rng() * 2 - 1) * (MAP_HALF - 4);
+        if (inRiver(x, z) || collidesSolid(x, z, gap)) continue;
+        adder(x, z); made++;
+      }
+    };
+    scatter(18, addTree, 2.4);
+    scatter(10, addRod, 2.0);
+  }
+  // A free, dry spawn point anywhere on the map.
+  function randomSpawn() {
+    for (let i = 0; i < 80; i++) {
+      const x = (Math.random() * 2 - 1) * (MAP_HALF - 3);
+      const z = (Math.random() * 2 - 1) * (MAP_HALF - 3);
+      if (!inRiver(x, z) && !collidesSolid(x, z, BODY_R + 0.4)) return { x, z };
+    }
+    return { x: 0, z: 0 };
+  }
+
   // -- State ----------------------------------------------------------------
   let perspective = "offline";
   let controllable = false;
@@ -320,13 +446,19 @@ export function createArenaGame(options) {
   const ARRIVE = 0.06;
   const bullets = [];
   function moveStep(f, tx, tz, dt) {
-    const dx = tx - f.group.position.x, dz = tz - f.group.position.z;
+    const px = f.group.position.x, pz = f.group.position.z;
+    const dx = tx - px, dz = tz - pz;
     const dist = Math.hypot(dx, dz);
     if (dist <= ARRIVE) return true;
-    const step = Math.min(f.speed * dt, dist);
+    const slow = inRiver(px, pz) ? RIVER_SLOW : 1;
+    const step = Math.min(f.speed * slow * dt, dist);
     const lim = MAP_HALF - 0.5;
-    f.group.position.x = Math.max(-lim, Math.min(lim, f.group.position.x + dx / dist * step));
-    f.group.position.z = Math.max(-lim, Math.min(lim, f.group.position.z + dz / dist * step));
+    const nx = Math.max(-lim, Math.min(lim, px + dx / dist * step));
+    const nz = Math.max(-lim, Math.min(lim, pz + dz / dist * step));
+    // Trees / steel rods block movement — slide along whichever axis is free.
+    if (!collidesSolid(nx, nz, BODY_R)) { f.group.position.x = nx; f.group.position.z = nz; }
+    else if (!collidesSolid(nx, pz, BODY_R)) { f.group.position.x = nx; }
+    else if (!collidesSolid(px, nz, BODY_R)) { f.group.position.z = nz; }
     f.facing = Math.atan2(dx, dz);
     f.walkPhase += dt * f.speed * 1.6;
     f.moving = true;
@@ -395,7 +527,10 @@ export function createArenaGame(options) {
     const w = player.weapon;
     player.cdTimer = w.cd;
     player.atkAnim = 0.32;
-    const dmg = Math.max(1, Math.round(w.atk + (Math.random() * 2 - 1) * w.atkVar));
+    // Trees / steel rods in the way deflect the blow (swing plays, no hit).
+    if (losBlocked(player.group.position.x, player.group.position.z, def.group.position.x, def.group.position.z)) return;
+    let dmg = Math.max(1, Math.round(w.atk + (Math.random() * 2 - 1) * w.atkVar));
+    if (inRiver(player.group.position.x, player.group.position.z)) dmg = Math.max(1, Math.round(dmg * RIVER_ATK));
     if (foeMode === "net") {
       // Optimistic: apply the same damage locally and tell everyone. All
       // clients compute from the identical dmg, so the target's bar drops
@@ -413,7 +548,10 @@ export function createArenaGame(options) {
     const w = aiEnemy.weapon;
     aiEnemy.cdTimer = w.cd;
     aiEnemy.atkAnim = 0.32;
-    applyDamage(player, Math.max(1, Math.round(w.atk + (Math.random() * 2 - 1) * w.atkVar)));
+    if (losBlocked(aiEnemy.group.position.x, aiEnemy.group.position.z, player.group.position.x, player.group.position.z)) return;
+    let dmg = Math.max(1, Math.round(w.atk + (Math.random() * 2 - 1) * w.atkVar));
+    if (inRiver(aiEnemy.group.position.x, aiEnemy.group.position.z)) dmg = Math.max(1, Math.round(dmg * RIVER_ATK));
+    applyDamage(player, dmg);
   }
   function shootAt(target) {
     if (player.dead || target.dead) return;
@@ -440,17 +578,9 @@ export function createArenaGame(options) {
     f.hp = f.maxHp; f.dead = false;
     f.group.rotation.z = 0; f.group.position.y = 0;
     f.cdTimer = 0; f.atkAnim = 0; f.hurt = 0; f.moving = false;
-    if (f.isPlayer) {
-      f.group.position.set(-12, 0, 4); f.attackTarget = null; f.target = null;
-      camCenter.set(-12, 0, 4);
-    } else {
-      let rx, rz;
-      do {
-        rx = (Math.random() * 2 - 1) * (MAP_HALF - 4);
-        rz = (Math.random() * 2 - 1) * (MAP_HALF - 4);
-      } while (Math.hypot(rx - player.group.position.x, rz - player.group.position.z) < 12);
-      f.group.position.set(rx, 0, rz);
-    }
+    const sp = randomSpawn();
+    f.group.position.set(sp.x, 0, sp.z);
+    if (f.isPlayer) { f.attackTarget = null; f.target = null; camCenter.set(sp.x, 0, sp.z); }
   }
   function regen(f, dt) {
     if (f.hp >= f.maxHp || f.dead) { f.regenAcc = 0; return; }
@@ -671,6 +801,15 @@ export function createArenaGame(options) {
       mmCtx.beginPath(); mmCtx.moveTo(p, 0); mmCtx.lineTo(p, MM); mmCtx.stroke();
       mmCtx.beginPath(); mmCtx.moveTo(0, p); mmCtx.lineTo(MM, p); mmCtx.stroke();
     }
+    if (river) {
+      mmCtx.fillStyle = "rgba(61,127,176,0.55)";
+      if (river.axis === "x") mmCtx.fillRect(wToMM(river.min), 0, (river.max - river.min) * mmScale, MM);
+      else mmCtx.fillRect(0, wToMM(river.min), MM, (river.max - river.min) * mmScale);
+    }
+    mmCtx.fillStyle = "rgba(40,46,40,0.7)";
+    for (const s of solids) {
+      mmCtx.fillRect(wToMM(s.x) - 1.5, wToMM(s.z) - 1.5, 3, 3);
+    }
     mmCtx.strokeStyle = theme.mm.border; mmCtx.lineWidth = 1.5;
     mmCtx.strokeRect(0.75, 0.75, MM - 1.5, MM - 1.5);
     mmCtx.strokeStyle = theme.mm.cam; mmCtx.lineWidth = 1;
@@ -731,23 +870,13 @@ export function createArenaGame(options) {
   ro.observe(mount);
   onResize();
 
-  // Spread the player and opponents around the arena at match start.
-  function spawnPositions(count) {
-    // Player anchors near the lower-left; opponents ring the centre.
-    const pts = [];
-    const R = 22;
-    for (let i = 0; i < count; i++) {
-      const a = (i / Math.max(1, count)) * Math.PI * 2 + 0.6;
-      pts.push({ x: Math.cos(a) * R, z: Math.sin(a) * R });
-    }
-    return pts;
-  }
+  // Opponents start at random free spots (placeholders; their real positions
+  // arrive over the network and snap into place on the first packet).
   function placeOpponents() {
-    const list = [...opponents.values()];
-    const pts = spawnPositions(list.length);
-    list.forEach((o, i) => {
-      o.group.position.set(pts[i].x, 0, pts[i].z);
-      o.netTarget = { x: pts[i].x, z: pts[i].z };
+    opponents.forEach((o) => {
+      const sp = randomSpawn();
+      o.group.position.set(sp.x, 0, sp.z);
+      o.netTarget = { x: sp.x, z: sp.z };
       o.group.rotation.set(0, o.group.rotation.y, 0);
     });
   }
@@ -909,13 +1038,15 @@ export function createArenaGame(options) {
       bullets.splice(0).forEach((b) => scene.remove(b.mesh));
       Object.assign(player, { hp: player.maxHp, dead: false, cdTimer: 0, atkAnim: 0, hurt: 0, moving: false, attackTarget: null, target: null });
       player.group.rotation.set(0, player.group.rotation.y, 0);
-      player.group.position.set(-12, 0, 4);
+      const ps = randomSpawn();
+      player.group.position.set(ps.x, 0, ps.z);
       player.connected = true;
       if (foeMode === "ai") {
         Object.assign(aiEnemy, { hp: aiEnemy.maxHp, dead: false, cdTimer: 0, atkAnim: 0, hurt: 0, moving: false });
         aiEnemy.group.rotation.set(0, aiEnemy.group.rotation.y, 0);
-        aiEnemy.group.position.set(12, 0, -4);
-        aiEnemy.netTarget = { x: 12, z: -4 };
+        const es = randomSpawn();
+        aiEnemy.group.position.set(es.x, 0, es.z);
+        aiEnemy.netTarget = { x: es.x, z: es.z };
         aiEnemy.connected = true;
       } else {
         opponents.forEach((o) => {
@@ -923,7 +1054,7 @@ export function createArenaGame(options) {
         });
         placeOpponents();
       }
-      camCenter.set(-12, 0, 4);
+      camCenter.set(ps.x, 0, ps.z);
       following = true;
     },
     receivePlayerState(userId, snap) {
@@ -958,11 +1089,13 @@ export function createArenaGame(options) {
         else applyDamage(target, payload.dmg || 0);
       }
     },
+    generateMap(seed) { generateMap(seed); },
     clearAll() {
       perspective = "offline";
       controllable = false;
       foeMode = "ai";
       clearOpponents();
+      clearMap();
       aiEnemy.networked = false;
       aiEnemy.connected = false;
       aiEnemy.name = "Raider";
@@ -1108,6 +1241,6 @@ function stubApi() {
     playerAlive: () => false, opponentCount: () => 0,
     useAiFoe: noop, usePvpFoes: noop, addOpponent: noop, removeOpponent: () => 0,
     clearRemote: noop, resetForMatch: noop, receivePlayerState: noop,
-    receiveAttack: noop, clearAll: noop, destroy: noop
+    receiveAttack: noop, generateMap: noop, clearAll: noop, destroy: noop
   };
 }
