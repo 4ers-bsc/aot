@@ -856,6 +856,7 @@ export function createArenaGame(options) {
       controllable = mode === "player";
     },
     setMatchPhase(phase) { matchPhase = phase; },
+    setControllable(on) { controllable = !!on; },
     playerAlive() { return !player.dead && player.hp > 0; },
     opponentCount() { return opponents.size; },
     setLocalUser({ userId, displayName }) {
@@ -1103,7 +1104,7 @@ function clamp(v, min, max) {
 function stubApi() {
   const noop = () => {};
   return {
-    setView: noop, setMode: noop, setMatchPhase: noop, setLocalUser: noop,
+    setView: noop, setMode: noop, setMatchPhase: noop, setControllable: noop, setLocalUser: noop,
     playerAlive: () => false, opponentCount: () => 0,
     useAiFoe: noop, usePvpFoes: noop, addOpponent: noop, removeOpponent: () => 0,
     clearRemote: noop, resetForMatch: noop, receivePlayerState: noop,
