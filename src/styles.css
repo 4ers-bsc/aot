@@ -812,6 +812,120 @@ textarea:focus {
   border-color: var(--line-strong);
 }
 
+/* ===== Game over ===== */
+.game-over {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.82);
+  backdrop-filter: blur(14px);
+}
+
+.game-over-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 18px;
+  padding: 46px 56px;
+  border: 1px solid var(--line-strong);
+  border-radius: 18px;
+  background: linear-gradient(160deg, rgba(28,28,28,0.96), rgba(8,8,8,0.99));
+  box-shadow: 0 32px 80px rgba(0,0,0,0.75), inset 0 1px 0 rgba(255,255,255,0.07);
+  min-width: 340px;
+  text-align: center;
+  animation: go-pop 0.32s cubic-bezier(0.2, 0.9, 0.3, 1.2);
+}
+
+@keyframes go-pop {
+  from { transform: scale(0.9); opacity: 0; }
+  to { transform: scale(1); opacity: 1; }
+}
+
+.game-over-title {
+  font-family: var(--font-display);
+  font-size: 44px;
+  letter-spacing: 0.1em;
+  line-height: 1;
+}
+
+.game-over-title.is-win { color: #ffffff; text-shadow: 0 0 24px rgba(255,255,255,0.35); }
+.game-over-title.is-loss { color: #8c8c8c; }
+
+.game-over-reason {
+  font-family: var(--font-head);
+  font-size: 14px;
+  color: var(--muted);
+  letter-spacing: 0.05em;
+  max-width: 320px;
+}
+
+.game-over-stats {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+  width: 100%;
+  padding: 18px 0 4px;
+  border-top: 1px solid var(--line);
+}
+
+.go-name {
+  font-family: var(--font-head);
+  font-size: 16px;
+  letter-spacing: 0.08em;
+  color: var(--accent);
+  text-transform: uppercase;
+}
+
+.go-record {
+  display: flex;
+  gap: 36px;
+}
+
+.go-stat {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+
+.go-num {
+  font-family: var(--font-display);
+  font-size: 30px;
+  line-height: 1;
+}
+
+.go-win .go-num { color: #ffffff; }
+.go-loss .go-num { color: #7a7a7a; }
+
+.go-label {
+  font-family: var(--font-head);
+  font-size: 11px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--soft);
+}
+
+.game-over-menu {
+  margin-top: 8px;
+  padding: 13px 40px;
+  border-radius: 10px;
+  background: var(--accent);
+  color: #0a0a0a;
+  font-family: var(--font-head);
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.game-over-menu:hover {
+  filter: brightness(1.1);
+}
+
 body.in-game {
   overflow: hidden;
 }

@@ -383,7 +383,11 @@ export function createArenaGame(options) {
     player.atkAnim = 0.32;
     const dmg = Math.max(1, Math.round(w.atk + (Math.random() * 2 - 1) * w.atkVar));
     if (enemy.networked) {
-      if (w.ranged) fireBullet(player, def, dmg, false);
+      // Optimistic: apply the same damage locally and tell the opponent. Both
+      // clients compute from the identical dmg value, so the rival's bar drops
+      // instantly here instead of after a network round-trip.
+      if (w.ranged) fireBullet(player, def, dmg, true);
+      else applyDamage(def, dmg);
       options.onAttack?.({ weapon: w.id, dmg, ranged: !!w.ranged });
     } else {
       if (w.ranged) fireBullet(player, def, dmg, true);
@@ -813,8 +817,12 @@ export function createArenaGame(options) {
       if (!snap || !enemy.networked) return;
       enemy.connected = true;
       enemy.netTarget = { x: clamp(snap.x, -MAP_HALF, MAP_HALF), z: clamp(snap.z, -MAP_HALF, MAP_HALF) };
-      enemy.hp = clamp(snap.hp ?? enemy.hp, 0, enemy.maxHp);
       enemy.maxHp = snap.maxHp ?? enemy.maxHp;
+      // HP only ever drops within a match (no respawns in PvP). Take the lower
+      // of our optimistic value and the opponent's authoritative report so a
+      // stale, higher snapshot can't bounce the bar back up.
+      const snapHp = clamp(snap.hp ?? enemy.hp, 0, enemy.maxHp);
+      enemy.hp = Math.min(enemy.hp, snapHp);
       if (typeof snap.facing === "number") enemy.facing = snap.facing;
       if (snap.weapon && WEAPONS[snap.weapon]) { enemy.weapon = WEAPONS[snap.weapon]; updateWeaponVis(enemy); }
       if (snap.name) enemy.name = snap.name;
