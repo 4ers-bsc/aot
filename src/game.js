@@ -11,7 +11,7 @@ const TILE = 2;
 const MAP_TILES = 50;
 const MAP_WORLD = MAP_TILES * TILE; // 100
 const MAP_HALF = MAP_WORLD / 2; // 50
-const EMIT_MS = 90;
+const EMIT_MS = 50;
 
 const WEAPONS = {
   sword: { id: "sword", name: "Sword", atk: 16, atkVar: 3, cd: 0.7, range: 2.4, ranged: false },
@@ -315,11 +315,45 @@ export function createArenaGame(options) {
     f.moving = true;
     return false;
   }
+  // Networked opponent interpolation: snap on big jumps (teleport / first
+  // packet), otherwise close the gap fast enough to keep pace with the remote
+  // player. A fixed catch-up rate keeps motion smooth without trailing behind.
+  function netMove(f, tx, tz, dt) {
+    const dx = tx - f.group.position.x, dz = tz - f.group.position.z;
+    const dist = Math.hypot(dx, dz);
+    if (dist <= ARRIVE) { f.moving = false; return; }
+    if (dist > 6) { // packet gap / respawn — snap to avoid rubber-banding
+      f.group.position.x = tx; f.group.position.z = tz;
+      f.facing = Math.atan2(dx, dz);
+      return;
+    }
+    // Close 16x the gap per second, but never slower than a brisk walk so it
+    // visibly tracks the remote player instead of lagging behind.
+    const step = Math.min(dist, Math.max(dist * 16, 8) * dt);
+    f.group.position.x += dx / dist * step;
+    f.group.position.z += dz / dist * step;
+    f.facing = Math.atan2(dx, dz);
+    f.walkPhase += dt * f.speed * 1.6;
+    f.moving = true;
+  }
+  // Broadcast the local player's authoritative state. Throttled in the loop,
+  // but also forced the instant our HP changes so the opponent's bar tracks
+  // damage immediately instead of waiting for the next throttled tick.
+  function emitState() {
+    if (perspective !== "player") return;
+    emitAcc = 0;
+    options.onLocalState?.({
+      x: +player.group.position.x.toFixed(2), z: +player.group.position.z.toFixed(2),
+      hp: player.hp, maxHp: player.maxHp, facing: +player.facing.toFixed(2),
+      weapon: player.weapon.id, name: player.name
+    });
+  }
   function applyDamage(def, dmg) {
     if (def.dead) return;
     def.hp = Math.max(0, def.hp - dmg);
     def.hurt = 0.18;
     if (def.hp <= 0) killFighter(def);
+    if (def === player && enemy.networked) emitState();
   }
   function fireBullet(att, def, dmg, deal) {
     const b = new THREE.Mesh(new THREE.SphereGeometry(0.13, 8, 8), new THREE.MeshBasicMaterial({ color: theme.bullet }));
@@ -430,7 +464,7 @@ export function createArenaGame(options) {
     if (e.atkAnim > 0) e.atkAnim -= dt;
     e.moving = false;
     if (e.networked) {
-      if (e.netTarget) moveStep(e, e.netTarget.x, e.netTarget.z, dt);
+      if (e.netTarget) netMove(e, e.netTarget.x, e.netTarget.z, dt);
       return;
     }
     regen(e, dt);
@@ -671,14 +705,7 @@ export function createArenaGame(options) {
 
     if (perspective === "player") {
       emitAcc += dt * 1000;
-      if (emitAcc >= EMIT_MS) {
-        emitAcc = 0;
-        options.onLocalState?.({
-          x: +player.group.position.x.toFixed(2), z: +player.group.position.z.toFixed(2),
-          hp: player.hp, maxHp: player.maxHp, facing: +player.facing.toFixed(2),
-          weapon: player.weapon.id, name: player.name
-        });
-      }
+      if (emitAcc >= EMIT_MS) emitState();
       if (enemy.networked && !resultSent) {
         if (player.hp <= 0) { resultSent = true; options.onResultSuggestion?.("loss"); }
         else if (enemy.connected && enemy.hp <= 0) { resultSent = true; options.onResultSuggestion?.("win"); }
