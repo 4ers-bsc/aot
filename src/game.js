@@ -3,9 +3,9 @@
 //   - "lobby": monochrome, shown behind the app chrome before a match.
 //   - "game":  the attached reference look (light battlefield, green/red
 //              fighters) with its own HUD; all app chrome is hidden.
-// Keeps the createArenaGame() contract main.js relies on. The local player is
-// simulated and emits state/attacks; the opponent is network-driven in a real
-// match and falls back to a simple AI raider while solo/waiting.
+// The local player is simulated and emits state/attacks. Demo mode pits the
+// player against one AI raider. PvP mode supports up to ten network-driven
+// opponents in a free-for-all; the last fighter standing wins.
 
 const TILE = 2;
 const MAP_TILES = 50;
@@ -260,6 +260,7 @@ export function createArenaGame(options) {
     g.visible = false;
     scene.add(g);
     const f = {
+      userId: cfg.userId || null,
       name: cfg.name, isPlayer: !!cfg.isPlayer, group: g,
       legL, legR, armL, armR, swordMesh, pistolMesh,
       maxHp: cfg.hp, hp: cfg.hp, weapon: cfg.weapon, speed: cfg.speed,
@@ -285,10 +286,25 @@ export function createArenaGame(options) {
   function recolorFighter(f, palette) {
     Object.keys(f.parts).forEach((key) => f.parts[key].forEach((mat) => mat.color.setHex(palette[key])));
   }
+  function disposeFighter(f) {
+    scene.remove(f.group);
+    f.group.traverse((o) => {
+      if (o.geometry) o.geometry.dispose();
+      if (o.material) o.material.dispose();
+    });
+    f.bar.el.remove();
+  }
 
   const player = makeFighter({ name: "You", isPlayer: true, palette: theme.player, pos: new THREE.Vector3(-12, 0, 4), hp: 100, weapon: WEAPONS.sword, speed: 6.5, barColor: theme.playerBar });
-  const enemy = makeFighter({ name: "Raider", palette: theme.enemy, pos: new THREE.Vector3(12, 0, -4), hp: 100, weapon: AI_WEAPON, speed: 4.6, barColor: theme.enemyBar });
+  // Demo AI raider (foeMode === "ai"). PvP uses the opponents map instead.
+  const aiEnemy = makeFighter({ name: "Raider", palette: theme.enemy, pos: new THREE.Vector3(12, 0, -4), hp: 100, weapon: AI_WEAPON, speed: 4.6, barColor: theme.enemyBar });
+  const opponents = new Map(); // userId -> networked fighter
+  let foeMode = "ai"; // "ai" (demo) | "net" (pvp)
   const AI_AGGRO = 14;
+
+  function foeList() {
+    return foeMode === "ai" ? [aiEnemy] : [...opponents.values()];
+  }
 
   // -- State ----------------------------------------------------------------
   let perspective = "offline";
@@ -298,6 +314,7 @@ export function createArenaGame(options) {
   let emitAcc = 0;
   let kills = 0;
   let viewIsGame = false;
+  let localUserId = null;
 
   // -- Combat ---------------------------------------------------------------
   const ARRIVE = 0.06;
@@ -322,13 +339,11 @@ export function createArenaGame(options) {
     const dx = tx - f.group.position.x, dz = tz - f.group.position.z;
     const dist = Math.hypot(dx, dz);
     if (dist <= ARRIVE) { f.moving = false; return; }
-    if (dist > 6) { // packet gap / respawn — snap to avoid rubber-banding
+    if (dist > 6) {
       f.group.position.x = tx; f.group.position.z = tz;
       f.facing = Math.atan2(dx, dz);
       return;
     }
-    // Close 16x the gap per second, but never slower than a brisk walk so it
-    // visibly tracks the remote player instead of lagging behind.
     const step = Math.min(dist, Math.max(dist * 16, 8) * dt);
     f.group.position.x += dx / dist * step;
     f.group.position.z += dz / dist * step;
@@ -337,8 +352,7 @@ export function createArenaGame(options) {
     f.moving = true;
   }
   // Broadcast the local player's authoritative state. Throttled in the loop,
-  // but also forced the instant our HP changes so the opponent's bar tracks
-  // damage immediately instead of waiting for the next throttled tick.
+  // but also forced the instant our HP changes so opponents' bars track damage.
   function emitState() {
     if (perspective !== "player") return;
     emitAcc = 0;
@@ -353,7 +367,7 @@ export function createArenaGame(options) {
     def.hp = Math.max(0, def.hp - dmg);
     def.hurt = 0.18;
     if (def.hp <= 0) killFighter(def);
-    if (def === player && enemy.networked) emitState();
+    if (def === player && foeMode === "net") emitState();
   }
   function fireBullet(att, def, dmg, deal) {
     const b = new THREE.Mesh(new THREE.SphereGeometry(0.13, 8, 8), new THREE.MeshBasicMaterial({ color: theme.bullet }));
@@ -382,23 +396,23 @@ export function createArenaGame(options) {
     player.cdTimer = w.cd;
     player.atkAnim = 0.32;
     const dmg = Math.max(1, Math.round(w.atk + (Math.random() * 2 - 1) * w.atkVar));
-    if (enemy.networked) {
-      // Optimistic: apply the same damage locally and tell the opponent. Both
-      // clients compute from the identical dmg value, so the rival's bar drops
+    if (foeMode === "net") {
+      // Optimistic: apply the same damage locally and tell everyone. All
+      // clients compute from the identical dmg, so the target's bar drops
       // instantly here instead of after a network round-trip.
       if (w.ranged) fireBullet(player, def, dmg, true);
       else applyDamage(def, dmg);
-      options.onAttack?.({ weapon: w.id, dmg, ranged: !!w.ranged });
+      options.onAttack?.({ fromId: localUserId, targetId: def.userId, weapon: w.id, dmg, ranged: !!w.ranged });
     } else {
       if (w.ranged) fireBullet(player, def, dmg, true);
       else applyDamage(def, dmg);
     }
   }
   function aiAttack() {
-    if (enemy.cdTimer > 0 || player.dead || enemy.hp <= 0) return;
-    const w = enemy.weapon;
-    enemy.cdTimer = w.cd;
-    enemy.atkAnim = 0.32;
+    if (aiEnemy.cdTimer > 0 || player.dead || aiEnemy.hp <= 0) return;
+    const w = aiEnemy.weapon;
+    aiEnemy.cdTimer = w.cd;
+    aiEnemy.atkAnim = 0.32;
     applyDamage(player, Math.max(1, Math.round(w.atk + (Math.random() * 2 - 1) * w.atkVar)));
   }
   function shootAt(target) {
@@ -413,12 +427,12 @@ export function createArenaGame(options) {
     f.dead = true;
     f.moving = false;
     f.deadTimer = f.isPlayer ? 1.8 : 2.2;
-    if (f === enemy && !enemy.networked) kills++;
+    if (foeMode === "ai" && f === aiEnemy) kills++;
   }
   function handleDead(f, dt) {
     f.group.rotation.z = Math.min(Math.PI / 2, f.group.rotation.z + dt * 5);
     f.group.position.y = Math.max(-0.5, f.group.position.y - dt * 0.7);
-    if (enemy.networked) return;
+    if (foeMode === "net") return; // no respawns in PvP
     f.deadTimer -= dt;
     if (f.deadTimer <= 0) respawn(f);
   }
@@ -443,6 +457,15 @@ export function createArenaGame(options) {
     f.regenAcc += dt;
     if (f.regenAcc >= 2) { const add = Math.floor(f.regenAcc / 2); f.hp = Math.min(f.maxHp, f.hp + add); f.regenAcc -= add * 2; }
   }
+  function nearestFoe() {
+    let best = null, bestD = Infinity;
+    for (const f of foeList()) {
+      if (!f.connected || f.dead) continue;
+      const d = Math.hypot(f.group.position.x - player.group.position.x, f.group.position.z - player.group.position.z);
+      if (d < bestD) { bestD = d; best = f; }
+    }
+    return best;
+  }
   function updatePlayer(dt) {
     const p = player;
     if (p.dead) { handleDead(p, dt); return; }
@@ -451,7 +474,7 @@ export function createArenaGame(options) {
     regen(p, dt);
     p.moving = false;
     if (!controllable) return;
-    if (!p.weapon.ranged && p.attackTarget && !p.attackTarget.dead) {
+    if (!p.weapon.ranged && p.attackTarget && !p.attackTarget.dead && p.attackTarget.connected) {
       const e = p.attackTarget;
       const dx = e.group.position.x - p.group.position.x, dz = e.group.position.z - p.group.position.z;
       if (Math.hypot(dx, dz) > p.weapon.range) moveStep(p, e.group.position.x, e.group.position.z, dt);
@@ -461,16 +484,12 @@ export function createArenaGame(options) {
       if (p.target && moveStep(p, p.target.x, p.target.z, dt)) p.target = null;
     }
   }
-  function updateEnemy(dt) {
-    const e = enemy;
+  function updateAi(dt) {
+    const e = aiEnemy;
     if (e.dead) { handleDead(e, dt); return; }
     if (e.cdTimer > 0) e.cdTimer -= dt;
     if (e.atkAnim > 0) e.atkAnim -= dt;
     e.moving = false;
-    if (e.networked) {
-      if (e.netTarget) netMove(e, e.netTarget.x, e.netTarget.z, dt);
-      return;
-    }
     regen(e, dt);
     if (player.dead || !controllable) return;
     const dx = player.group.position.x - e.group.position.x, dz = player.group.position.z - e.group.position.z;
@@ -479,6 +498,13 @@ export function createArenaGame(options) {
       if (dist > e.weapon.range) moveStep(e, player.group.position.x, player.group.position.z, dt);
       else { e.facing = Math.atan2(dx, dz); aiAttack(); }
     }
+  }
+  function updateNetFoe(f, dt) {
+    if (f.dead) { handleDead(f, dt); return; }
+    if (f.cdTimer > 0) f.cdTimer -= dt;
+    if (f.atkAnim > 0) f.atkAnim -= dt;
+    f.moving = false;
+    if (f.netTarget) netMove(f, f.netTarget.x, f.netTarget.z, dt);
   }
   function updateVisual(f, dt) {
     if (f.dead) return;
@@ -525,17 +551,27 @@ export function createArenaGame(options) {
   const pointer = new THREE.Vector2();
   const groundPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
   const _hit = new THREE.Vector3();
+  function pickFoe() {
+    let best = null, bestDist = Infinity;
+    for (const f of foeList()) {
+      if (!f.connected || f.dead) continue;
+      const hits = raycaster.intersectObject(f.group, true);
+      if (hits.length && hits[0].distance < bestDist) { bestDist = hits[0].distance; best = f; }
+    }
+    return best;
+  }
   function handleTap(cx, cy) {
     if (!controllable || player.dead) return;
     const rect = mount.getBoundingClientRect();
     pointer.x = ((cx - rect.left) / rect.width) * 2 - 1;
     pointer.y = -((cy - rect.top) / rect.height) * 2 + 1;
     raycaster.setFromCamera(pointer, camera);
-    if (enemy.connected && !enemy.dead && raycaster.intersectObject(enemy.group, true).length) {
+    const foe = pickFoe();
+    if (foe) {
       following = true;
-      setMarker(enemy.group.position.x, enemy.group.position.z, theme.markerAttack[0], theme.markerAttack[1]);
-      if (player.weapon.ranged) { player.attackTarget = null; shootAt(enemy); }
-      else player.attackTarget = enemy;
+      setMarker(foe.group.position.x, foe.group.position.z, theme.markerAttack[0], theme.markerAttack[1]);
+      if (player.weapon.ranged) { player.attackTarget = null; shootAt(foe); }
+      else player.attackTarget = foe;
       return;
     }
     const hit = raycaster.ray.intersectPlane(groundPlane, _hit);
@@ -639,10 +675,11 @@ export function createArenaGame(options) {
     mmCtx.strokeRect(0.75, 0.75, MM - 1.5, MM - 1.5);
     mmCtx.strokeStyle = theme.mm.cam; mmCtx.lineWidth = 1;
     mmCtx.strokeRect(wToMM(camCenter.x) - 9, wToMM(camCenter.z) - 9, 18, 18);
-    if (enemy.connected && !enemy.dead) {
-      mmCtx.fillStyle = theme.mm.enemy;
+    mmCtx.fillStyle = theme.mm.enemy;
+    for (const f of foeList()) {
+      if (!f.connected || f.dead) continue;
       mmCtx.beginPath();
-      mmCtx.arc(wToMM(enemy.group.position.x), wToMM(enemy.group.position.z), 3.5, 0, Math.PI * 2);
+      mmCtx.arc(wToMM(f.group.position.x), wToMM(f.group.position.z), 3.5, 0, Math.PI * 2);
       mmCtx.fill();
     }
     if (player.connected && !player.dead) arrow(mmCtx, wToMM(player.group.position.x), wToMM(player.group.position.z), player.group.rotation.y, theme.mm.player);
@@ -674,9 +711,10 @@ export function createArenaGame(options) {
     buildGrid();
     border.material.color.setHex(theme.border);
     recolorFighter(player, theme.player);
-    recolorFighter(enemy, theme.enemy);
     player.bar.color = theme.playerBar;
-    enemy.bar.color = theme.enemyBar;
+    recolorFighter(aiEnemy, theme.enemy);
+    aiEnemy.bar.color = theme.enemyBar;
+    opponents.forEach((o) => { recolorFighter(o, theme.enemy); o.bar.color = theme.enemyBar; });
     cursorAttack = !cursorAttack; setCursor(false);
   }
 
@@ -693,6 +731,37 @@ export function createArenaGame(options) {
   ro.observe(mount);
   onResize();
 
+  // Spread the player and opponents around the arena at match start.
+  function spawnPositions(count) {
+    // Player anchors near the lower-left; opponents ring the centre.
+    const pts = [];
+    const R = 22;
+    for (let i = 0; i < count; i++) {
+      const a = (i / Math.max(1, count)) * Math.PI * 2 + 0.6;
+      pts.push({ x: Math.cos(a) * R, z: Math.sin(a) * R });
+    }
+    return pts;
+  }
+  function placeOpponents() {
+    const list = [...opponents.values()];
+    const pts = spawnPositions(list.length);
+    list.forEach((o, i) => {
+      o.group.position.set(pts[i].x, 0, pts[i].z);
+      o.netTarget = { x: pts[i].x, z: pts[i].z };
+      o.group.rotation.set(0, o.group.rotation.y, 0);
+    });
+  }
+
+  // -- Result detection -----------------------------------------------------
+  function checkResult() {
+    if (foeMode !== "net" || matchPhase !== "active" || resultSent) return;
+    if (player.hp <= 0) { resultSent = true; options.onResultSuggestion?.("loss"); return; }
+    if (opponents.size === 0) return; // no rivals yet
+    let anyAlive = false;
+    opponents.forEach((o) => { if (o.connected && !o.dead) anyAlive = true; });
+    if (!anyAlive && player.hp > 0) { resultSent = true; options.onResultSuggestion?.("win"); }
+  }
+
   // -- Loop -----------------------------------------------------------------
   let destroyed = false;
   let fpsAcc = 0, fpsFrames = 0, pingTimer = 0;
@@ -702,18 +771,22 @@ export function createArenaGame(options) {
     const dt = Math.min(clock.getDelta(), 0.05);
 
     updatePlayer(dt);
-    updateEnemy(dt);
-    if (settings.animations) { updateVisual(player, dt); updateVisual(enemy, dt); }
-    else { player.group.rotation.y = player.facing; enemy.group.rotation.y = enemy.facing; }
+    if (foeMode === "ai") updateAi(dt);
+    else opponents.forEach((o) => updateNetFoe(o, dt));
+
+    if (settings.animations) {
+      updateVisual(player, dt);
+      foeList().forEach((f) => updateVisual(f, dt));
+    } else {
+      player.group.rotation.y = player.facing;
+      foeList().forEach((f) => { f.group.rotation.y = f.facing; });
+    }
     updateBullets(dt);
 
     if (perspective === "player") {
       emitAcc += dt * 1000;
       if (emitAcc >= EMIT_MS) emitState();
-      if (enemy.networked && !resultSent) {
-        if (player.hp <= 0) { resultSent = true; options.onResultSuggestion?.("loss"); }
-        else if (enemy.connected && enemy.hp <= 0) { resultSent = true; options.onResultSuggestion?.("win"); }
-      }
+      checkResult();
     }
 
     if (settings.centerCamera) following = true;
@@ -747,9 +820,11 @@ export function createArenaGame(options) {
     }
 
     player.group.visible = player.connected;
-    enemy.group.visible = enemy.connected;
+    aiEnemy.group.visible = foeMode === "ai" && aiEnemy.connected;
+    opponents.forEach((o) => { o.group.visible = foeMode === "net" && o.connected; });
     updateBar(player);
-    updateBar(enemy);
+    updateBar(aiEnemy);
+    opponents.forEach((o) => updateBar(o));
     setCursor(controllable && !player.dead && ((player.attackTarget && !player.attackTarget.dead) || player.atkAnim > 0));
 
     if (settings.fps) {
@@ -760,7 +835,8 @@ export function createArenaGame(options) {
       pingTimer -= dt;
       if (pingTimer <= 0) { pingTimer = 2; pingEl.textContent = (22 + Math.round(Math.random() * 16)) + " ms"; }
     }
-    coords.textContent = `x ${player.group.position.x.toFixed(1)} · z ${player.group.position.z.toFixed(1)} · kills ${kills}`;
+    const aliveRivals = foeList().filter((f) => f.connected && !f.dead).length;
+    coords.textContent = `x ${player.group.position.x.toFixed(1)} · z ${player.group.position.z.toFixed(1)} · ${foeMode === "net" ? `rivals ${aliveRivals}` : `kills ${kills}`}`;
 
     drawMinimap();
     renderer.render(scene, camera);
@@ -778,27 +854,55 @@ export function createArenaGame(options) {
     setMode(mode) {
       perspective = mode;
       controllable = mode === "player";
-      if (mode === "offline") { enemy.networked = false; enemy.connected = true; player.connected = true; }
     },
     setMatchPhase(phase) { matchPhase = phase; },
-    setPlayerPerspective({ userId, displayName }) {
+    playerAlive() { return !player.dead && player.hp > 0; },
+    opponentCount() { return opponents.size; },
+    setLocalUser({ userId, displayName }) {
       perspective = "player";
       controllable = true;
+      localUserId = userId || null;
       player.name = displayName || "You";
       player.connected = true;
     },
-    setRemoteIdentity({ userId, displayName }) {
-      enemy.name = displayName || "Rival";
-      enemy.networked = true;
-      enemy.connected = true;
-      enemy.netTarget = { x: enemy.group.position.x, z: enemy.group.position.z };
+    // Demo: single AI raider.
+    useAiFoe() {
+      foeMode = "ai";
+      clearOpponents();
+      aiEnemy.networked = false;
+      aiEnemy.connected = true;
+      aiEnemy.name = "Raider";
+      aiEnemy.weapon = AI_WEAPON;
     },
-    clearRemote() {
-      enemy.networked = false;
-      enemy.connected = true;
-      enemy.name = "Raider";
-      enemy.weapon = AI_WEAPON;
+    // PvP: switch to networked opponents.
+    usePvpFoes() {
+      foeMode = "net";
+      aiEnemy.connected = false;
     },
+    addOpponent({ userId, displayName }) {
+      if (!userId || opponents.has(userId)) {
+        const ex = opponents.get(userId);
+        if (ex && displayName) ex.name = displayName;
+        return;
+      }
+      const f = makeFighter({
+        userId, name: displayName || "Rival", palette: theme.enemy,
+        pos: new THREE.Vector3(0, 0, 0), hp: 100, weapon: WEAPONS.sword, speed: 6.5, barColor: theme.enemyBar
+      });
+      f.networked = true;
+      f.connected = true;
+      opponents.set(userId, f);
+      placeOpponents();
+    },
+    removeOpponent(userId) {
+      const f = opponents.get(userId);
+      if (!f) return opponents.size;
+      if (player.attackTarget === f) player.attackTarget = null;
+      disposeFighter(f);
+      opponents.delete(userId);
+      return opponents.size;
+    },
+    clearRemote() { clearOpponents(); },
     resetForMatch() {
       resultSent = false;
       bullets.splice(0).forEach((b) => scene.remove(b.mesh));
@@ -806,40 +910,61 @@ export function createArenaGame(options) {
       player.group.rotation.set(0, player.group.rotation.y, 0);
       player.group.position.set(-12, 0, 4);
       player.connected = true;
-      Object.assign(enemy, { hp: enemy.maxHp, dead: false, cdTimer: 0, atkAnim: 0, hurt: 0, moving: false });
-      enemy.group.rotation.set(0, enemy.group.rotation.y, 0);
-      enemy.group.position.set(12, 0, -4);
-      enemy.netTarget = { x: 12, z: -4 };
+      if (foeMode === "ai") {
+        Object.assign(aiEnemy, { hp: aiEnemy.maxHp, dead: false, cdTimer: 0, atkAnim: 0, hurt: 0, moving: false });
+        aiEnemy.group.rotation.set(0, aiEnemy.group.rotation.y, 0);
+        aiEnemy.group.position.set(12, 0, -4);
+        aiEnemy.netTarget = { x: 12, z: -4 };
+        aiEnemy.connected = true;
+      } else {
+        opponents.forEach((o) => {
+          Object.assign(o, { hp: o.maxHp, dead: false, cdTimer: 0, atkAnim: 0, hurt: 0, moving: false });
+        });
+        placeOpponents();
+      }
       camCenter.set(-12, 0, 4);
       following = true;
     },
-    receivePlayerState(snap) {
-      if (!snap || !enemy.networked) return;
-      enemy.connected = true;
-      enemy.netTarget = { x: clamp(snap.x, -MAP_HALF, MAP_HALF), z: clamp(snap.z, -MAP_HALF, MAP_HALF) };
-      enemy.maxHp = snap.maxHp ?? enemy.maxHp;
-      // HP only ever drops within a match (no respawns in PvP). Take the lower
-      // of our optimistic value and the opponent's authoritative report so a
-      // stale, higher snapshot can't bounce the bar back up.
-      const snapHp = clamp(snap.hp ?? enemy.hp, 0, enemy.maxHp);
-      enemy.hp = Math.min(enemy.hp, snapHp);
-      if (typeof snap.facing === "number") enemy.facing = snap.facing;
-      if (snap.weapon && WEAPONS[snap.weapon]) { enemy.weapon = WEAPONS[snap.weapon]; updateWeaponVis(enemy); }
-      if (snap.name) enemy.name = snap.name;
-      if (enemy.hp <= 0 && !enemy.dead) killFighter(enemy);
+    receivePlayerState(userId, snap) {
+      if (!snap || foeMode !== "net") return;
+      const f = opponents.get(userId);
+      if (!f) return;
+      f.connected = true;
+      f.netTarget = { x: clamp(snap.x, -MAP_HALF, MAP_HALF), z: clamp(snap.z, -MAP_HALF, MAP_HALF) };
+      f.maxHp = snap.maxHp ?? f.maxHp;
+      // HP only drops within a match (no respawns). Take the lower of our
+      // optimistic value and their authoritative report to avoid bounce-back.
+      const snapHp = clamp(snap.hp ?? f.hp, 0, f.maxHp);
+      f.hp = Math.min(f.hp, snapHp);
+      if (typeof snap.facing === "number") f.facing = snap.facing;
+      if (snap.weapon && WEAPONS[snap.weapon]) { f.weapon = WEAPONS[snap.weapon]; updateWeaponVis(f); }
+      if (snap.name) f.name = snap.name;
+      if (f.hp <= 0 && !f.dead) killFighter(f);
     },
     receiveAttack(payload) {
-      if (!payload || !enemy.networked || player.dead) return;
-      enemy.atkAnim = 0.32;
-      if (payload.ranged) fireBullet(enemy, player, payload.dmg || 0, true);
-      else applyDamage(player, payload.dmg || 0);
+      if (!payload || foeMode !== "net") return;
+      const attacker = payload.fromId ? opponents.get(payload.fromId) : null;
+      if (payload.targetId === localUserId) {
+        if (player.dead) return;
+        if (attacker) attacker.atkAnim = 0.32;
+        if (payload.ranged && attacker) fireBullet(attacker, player, payload.dmg || 0, true);
+        else applyDamage(player, payload.dmg || 0);
+      } else {
+        const target = opponents.get(payload.targetId);
+        if (!target || target.dead) return;
+        if (attacker) attacker.atkAnim = 0.32;
+        if (payload.ranged && attacker) fireBullet(attacker, target, payload.dmg || 0, true);
+        else applyDamage(target, payload.dmg || 0);
+      }
     },
     clearAll() {
       perspective = "offline";
       controllable = false;
-      enemy.networked = false;
-      enemy.connected = false;
-      enemy.name = "Raider";
+      foeMode = "ai";
+      clearOpponents();
+      aiEnemy.networked = false;
+      aiEnemy.connected = false;
+      aiEnemy.name = "Raider";
       player.connected = false;
       viewIsGame = false;
       document.body.classList.remove("in-game");
@@ -849,12 +974,18 @@ export function createArenaGame(options) {
       destroyed = true;
       ro.disconnect();
       player.bar.el.remove();
-      enemy.bar.el.remove();
+      aiEnemy.bar.el.remove();
+      clearOpponents();
       hud.root.remove();
       renderer.dispose();
       mount.innerHTML = "";
     }
   };
+
+  function clearOpponents() {
+    opponents.forEach((f) => disposeFighter(f));
+    opponents.clear();
+  }
 }
 
 // Builds the attached reference HUD (hint, coords, minimap+label, hotbar,
@@ -972,8 +1103,10 @@ function clamp(v, min, max) {
 function stubApi() {
   const noop = () => {};
   return {
-    setView: noop, setMode: noop, setMatchPhase: noop, setPlayerPerspective: noop,
-    setRemoteIdentity: noop, clearRemote: noop, resetForMatch: noop,
-    receivePlayerState: noop, receiveAttack: noop, clearAll: noop, destroy: noop
+    setView: noop, setMode: noop, setMatchPhase: noop, setLocalUser: noop,
+    playerAlive: () => false, opponentCount: () => 0,
+    useAiFoe: noop, usePvpFoes: noop, addOpponent: noop, removeOpponent: () => 0,
+    clearRemote: noop, resetForMatch: noop, receivePlayerState: noop,
+    receiveAttack: noop, clearAll: noop, destroy: noop
   };
 }

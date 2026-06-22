@@ -23,6 +23,8 @@ create table if not exists public.matches (
   id uuid primary key default gen_random_uuid(),
   status text not null default 'waiting'
     check (status in ('waiting', 'active', 'finished')),
+  max_players smallint not null default 2
+    check (max_players between 2 and 10),
   created_by uuid references auth.users(id) on delete set null,
   winner_user_id uuid references auth.users(id) on delete set null,
   created_at timestamptz not null default timezone('utc', now()),
@@ -33,7 +35,7 @@ create table if not exists public.matches (
 create table if not exists public.match_players (
   match_id uuid not null references public.matches(id) on delete cascade,
   user_id uuid not null references auth.users(id) on delete cascade,
-  seat smallint not null check (seat between 1 and 2),
+  seat smallint not null check (seat between 1 and 10),
   display_name text not null,
   joined_at timestamptz not null default timezone('utc', now()),
   primary key (match_id, user_id),
@@ -118,8 +120,10 @@ begin
 end;
 $$;
 
--- Join an open PvP match, or open a new one if none is waiting.
-create or replace function public.join_pvp_match(p_display_name text default null)
+-- Join an open PvP match of the requested size, or open a new one. A wallet
+-- can only ever be in one unfinished match at a time. A match flips to
+-- 'active' the moment its seats are all filled.
+create or replace function public.join_pvp_match(p_max_players smallint default 2, p_display_name text default null)
 returns jsonb
 language plpgsql
 security definer
@@ -128,8 +132,11 @@ as $$
 declare
   v_uid uuid := auth.uid();
   v_name text;
+  v_size smallint := least(greatest(coalesce(p_max_players, 2), 2), 10);
   v_match_id uuid;
   v_seat smallint;
+  v_count smallint;
+  v_status text;
   v_existing record;
 begin
   if v_uid is null then
@@ -140,51 +147,66 @@ begin
   select display_name into v_name
   from public.sync_my_profile(p_display_name);
 
-  -- Already in an unfinished match? Return it instead of queueing twice.
-  select mp.match_id, mp.seat into v_existing
+  -- One wallet, one match: if already in an unfinished match, return it.
+  select mp.match_id, mp.seat, m.status, m.max_players into v_existing
   from public.match_players mp
   join public.matches m on m.id = mp.match_id
   where mp.user_id = v_uid and m.status in ('waiting', 'active')
   limit 1;
 
   if found then
-    return jsonb_build_object('match_id', v_existing.match_id, 'seat', v_existing.seat, 'status', 'existing');
+    return jsonb_build_object(
+      'match_id', v_existing.match_id, 'seat', v_existing.seat,
+      'status', 'existing', 'max_players', v_existing.max_players
+    );
   end if;
 
-  -- Try to fill a match someone else is waiting in.
-  select id into v_match_id
-  from public.matches
-  where status = 'waiting' and created_by is distinct from v_uid
-  order by created_at
-  for update skip locked
+  -- Find a waiting match of the same size with a free seat, lock it.
+  select m.id into v_match_id
+  from public.matches m
+  where m.status = 'waiting'
+    and m.max_players = v_size
+    and (select count(*) from public.match_players mp where mp.match_id = m.id) < m.max_players
+  order by m.created_at
+  for update of m skip locked
   limit 1;
 
   if found then
-    v_seat := 2;
+    select count(*) into v_count from public.match_players where match_id = v_match_id;
+    v_seat := v_count + 1;
     insert into public.match_players (match_id, user_id, seat, display_name)
     values (v_match_id, v_uid, v_seat, v_name);
 
-    update public.matches
-    set status = 'active', started_at = timezone('utc', now())
-    where id = v_match_id;
+    -- Full now? Kick it off.
+    if v_seat >= v_size then
+      update public.matches
+      set status = 'active', started_at = timezone('utc', now())
+      where id = v_match_id;
+      v_status := 'active';
+    else
+      v_status := 'waiting';
+    end if;
 
-    return jsonb_build_object('match_id', v_match_id, 'seat', v_seat, 'status', 'active');
+    return jsonb_build_object('match_id', v_match_id, 'seat', v_seat, 'status', v_status, 'max_players', v_size);
   end if;
 
-  -- Otherwise open a new waiting match.
-  insert into public.matches (status, created_by)
-  values ('waiting', v_uid)
+  -- Otherwise open a new waiting match of the requested size.
+  insert into public.matches (status, max_players, created_by)
+  values ('waiting', v_size, v_uid)
   returning id into v_match_id;
 
   v_seat := 1;
   insert into public.match_players (match_id, user_id, seat, display_name)
   values (v_match_id, v_uid, v_seat, v_name);
 
-  return jsonb_build_object('match_id', v_match_id, 'seat', v_seat, 'status', 'waiting');
+  -- A size-1 match would be degenerate; minimum is 2 so this always waits.
+  return jsonb_build_object('match_id', v_match_id, 'seat', v_seat, 'status', 'waiting', 'max_players', v_size);
 end;
 $$;
 
--- Finish any unfinished matches the caller is in (leave / forfeit a demo).
+-- Leave the caller's unfinished matches. Waiting matches: drop the seat and
+-- finish the match only if it empties. Active matches are left for finish_match
+-- (the surviving players settle the result).
 create or replace function public.leave_my_matches()
 returns void
 language plpgsql
@@ -193,22 +215,32 @@ set search_path = public
 as $$
 declare
   v_uid uuid := auth.uid();
+  r record;
+  v_remaining integer;
 begin
   if v_uid is null then
     raise exception 'not_authenticated';
   end if;
 
-  update public.matches m
-  set status = 'finished'
-  where m.status in ('waiting', 'active')
-    and exists (
-      select 1 from public.match_players mp
-      where mp.match_id = m.id and mp.user_id = v_uid
-    );
+  for r in
+    select m.id, m.status
+    from public.matches m
+    join public.match_players mp on mp.match_id = m.id
+    where mp.user_id = v_uid and m.status in ('waiting', 'active')
+  loop
+    if r.status = 'waiting' then
+      delete from public.match_players where match_id = r.id and user_id = v_uid;
+      select count(*) into v_remaining from public.match_players where match_id = r.id;
+      if v_remaining = 0 then
+        update public.matches set status = 'finished', ended_at = timezone('utc', now()) where id = r.id;
+      end if;
+    end if;
+  end loop;
 end;
 $$;
 
--- Finish an active PvP match: record the winner and update win/loss tallies.
+-- Finish an active PvP match (free-for-all, last one standing): record the
+-- winner, +1 win for them, +1 loss for every other player in the match.
 -- Idempotent — only the first call (while the match is still active) settles it.
 create or replace function public.finish_match(p_match_id uuid, p_winner_user_id uuid)
 returns void
@@ -219,7 +251,6 @@ as $$
 declare
   v_uid uuid := auth.uid();
   v_status text;
-  v_loser uuid;
 begin
   if v_uid is null then
     raise exception 'not_authenticated';
@@ -241,19 +272,16 @@ begin
     raise exception 'winner_not_in_match';
   end if;
 
-  select user_id into v_loser
-  from public.match_players
-  where match_id = p_match_id and user_id <> p_winner_user_id
-  limit 1;
-
   update public.matches
   set status = 'finished', winner_user_id = p_winner_user_id, ended_at = timezone('utc', now())
   where id = p_match_id;
 
   update public.profiles set wins = wins + 1 where user_id = p_winner_user_id;
-  if v_loser is not null then
-    update public.profiles set losses = losses + 1 where user_id = v_loser;
-  end if;
+  update public.profiles set losses = losses + 1
+  where user_id in (
+    select user_id from public.match_players
+    where match_id = p_match_id and user_id <> p_winner_user_id
+  );
 end;
 $$;
 
@@ -268,7 +296,7 @@ grant select, update(display_name) on public.profiles to authenticated;
 grant select on public.matches to authenticated;
 grant select on public.match_players to authenticated;
 grant execute on function public.sync_my_profile(text) to authenticated;
-grant execute on function public.join_pvp_match(text) to authenticated;
+grant execute on function public.join_pvp_match(smallint, text) to authenticated;
 grant execute on function public.leave_my_matches() to authenticated;
 grant execute on function public.finish_match(uuid, uuid) to authenticated;
 
