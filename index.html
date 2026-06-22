@@ -1,0 +1,152 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Age of Trenches — Supabase PvP</title>
+<link rel="stylesheet" href="./src/styles.css" />
+</head>
+<body>
+  <div class="shell">
+    <main class="arena-shell">
+      <div class="world-vignette"></div>
+      <div class="arena-topbar">
+        <div class="topnav">
+          <div class="topnav-brand">
+            <span class="topnav-title">AGE OF TRENCHES</span>
+            <span class="topnav-badge">BETA</span>
+          </div>
+          <div class="topnav-links">
+            <button class="navlink" type="button">How to Play</button>
+            <button class="navlink" type="button">Docs</button>
+          </div>
+          <div class="topnav-actions">
+            <div class="presence" id="presenceState">Waiting for Supabase connection</div>
+            <button class="connect-pill" id="signInWalletBtn" type="button">Connect</button>
+          </div>
+        </div>
+      </div>
+
+      <section class="arena-panel">
+        <div id="arenaMount" class="arena-mount"></div>
+        <section class="hero-panel">
+          <p class="hero-kicker">Realtime Arena</p>
+          <h1 class="hero-title" id="arenaTitle">Gold Duel</h1>
+          <p class="hero-copy">
+            A tactical isometric PvP arena where players stake 10 gold, outplay their opponent,
+            and take the full pot.
+          </p>
+          <div class="hero-actions">
+            <button class="hero-primary" id="heroPlayBtn" type="button">Play Now</button>
+            <button class="hero-secondary" id="spectatorBtn" type="button">Spectate</button>
+            <button class="hero-secondary hidden" id="signOutBtn" type="button">Sign Out</button>
+          </div>
+          <div class="hero-pills">
+            <div class="metric-pill">
+              <span class="dot"></span>
+              <span>Realtime PvP</span>
+            </div>
+            <div class="metric-pill">
+              <span class="dot"></span>
+              <span>Winner Takes All</span>
+            </div>
+          </div>
+          <div class="status-strip" id="appStatus">Set your Vite Supabase env vars or enter them manually to start.</div>
+        </section>
+
+        <aside class="hud-rail">
+          <section class="hud-panel hud-auth" id="authCard">
+            <div class="hud-panel-head">
+              <span>Wallet Access</span>
+              <span class="badge" id="walletBadge">disconnected</span>
+            </div>
+            <p class="microcopy" id="walletHint">Connect Supabase first, then sign in with a Solana wallet like Phantom or Backpack.</p>
+          </section>
+
+          <section class="hud-panel hidden" id="profileCard">
+            <div class="hud-panel-head">
+              <span>Profile</span>
+              <span class="badge" id="authBadge">offline</span>
+            </div>
+            <div class="hud-list">
+              <div class="hud-row"><span class="hud-key">Gold</span><strong id="goldBalance">--</strong></div>
+              <div class="hud-row"><span class="hud-key">Wallet</span><strong id="walletAddress">--</strong></div>
+              <div class="hud-row"><span class="hud-key">Level</span><strong id="playerLevel">--</strong></div>
+              <div class="hud-row"><span class="hud-key">MMR</span><strong id="playerMmr">--</strong></div>
+              <div class="hud-row"><span class="hud-key">Record</span><strong id="playerRecord">--</strong></div>
+              <div class="hud-row"><span class="hud-key">Player ID</span><strong id="playerShortId">--</strong></div>
+            </div>
+            <label class="field">
+              <span>Display Name</span>
+              <input id="displayNameInput" maxlength="24" placeholder="TrenchRunner" autocomplete="off" />
+            </label>
+            <button class="secondary-button" id="saveNameBtn" type="button">Save Name</button>
+          </section>
+
+          <section class="hud-panel hidden" id="inventoryCard">
+            <div class="hud-panel-head">
+              <span>Inventory</span>
+              <span class="badge badge-good" id="loadoutBadge">starter</span>
+            </div>
+            <div class="hud-list">
+              <div class="hud-row"><span class="hud-key">Primary</span><strong id="primaryLoadout">--</strong></div>
+              <div class="hud-row"><span class="hud-key">Secondary</span><strong id="secondaryLoadout">--</strong></div>
+            </div>
+            <div id="inventoryList" class="inventory-list empty">Inventory will appear after wallet sign-in.</div>
+          </section>
+
+          <section class="hud-panel hidden" id="matchCard">
+            <div class="hud-panel-head">
+              <span>Match</span>
+              <span class="badge badge-warm" id="matchStatusBadge">idle</span>
+            </div>
+            <div class="hud-list">
+              <div class="hud-row"><span class="hud-key">Entry Fee</span><strong>10 gold</strong></div>
+              <div class="hud-row"><span class="hud-key">Pot</span><strong id="potValue">0 gold</strong></div>
+            </div>
+            <div id="roster" class="roster empty">No active match yet.</div>
+            <div class="actions action-grid">
+              <button class="primary-button" id="queueBtn" type="button">Find Match</button>
+              <button class="secondary-button" id="cancelQueueBtn" type="button">Cancel Queue</button>
+              <button class="secondary-button" id="claimWinBtn" type="button">Claim Victory</button>
+              <button class="secondary-button" id="claimLossBtn" type="button">Claim Defeat</button>
+              <button class="danger-button" id="forfeitBtn" type="button">Forfeit</button>
+            </div>
+            <p class="microcopy" id="settlementNote">Payout happens only after both players submit the same winner or one player forfeits.</p>
+          </section>
+
+          <section class="hud-panel hidden" id="historyCard">
+            <div class="hud-panel-head">
+              <span>Recent PvP</span>
+            </div>
+            <div id="historyList" class="history-list empty">No match history yet.</div>
+          </section>
+
+          <section class="hud-panel hidden" id="securityCard">
+            <div class="hud-panel-head">
+              <span>Security</span>
+            </div>
+            <ul class="security-list">
+              <li>Supabase Web3 auth verifies the Solana wallet signature before a session is issued.</li>
+              <li>Wallet debits, refunds, forfeits, and payouts happen in Supabase SQL via Edge Functions, never in client-side JS.</li>
+              <li>Realtime match channels are private and locked to match members with Realtime RLS.</li>
+              <li>One player cannot claim the pot alone: both winner claims must agree unless someone forfeits.</li>
+            </ul>
+          </section>
+        </aside>
+      </section>
+      <div class="micro-footer">Built for live wallet PvP, spectating, and realtime arena play.</div>
+    </main>
+  </div>
+
+  <div class="hidden">
+    <button id="connectBtn" type="button">Connect</button>
+    <button id="clearConfigBtn" type="button">Clear</button>
+    <input id="supabaseUrl" type="url" />
+    <textarea id="supabaseAnonKey"></textarea>
+    <button id="heroPlayMirror" type="button"></button>
+  </div>
+
+  <script type="module" src="./src/main.js"></script>
+</body>
+</html>
