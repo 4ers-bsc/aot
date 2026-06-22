@@ -1,8 +1,11 @@
 // 3D isometric voxel arena for Age of Trenches.
-// Renders a pixelated 50x50 battlefield with voxel fighters. Exposes the same
-// createArenaGame() contract main.js expects: the local player is simulated
-// here and emits state/attacks; the opponent is either driven by the network
-// (in a real match) or by a simple AI (solo / waiting demo).
+// Two visual views share one scene:
+//   - "lobby": monochrome, shown behind the app chrome before a match.
+//   - "game":  the attached reference look (light battlefield, green/red
+//              fighters) with its own HUD; all app chrome is hidden.
+// Keeps the createArenaGame() contract main.js relies on. The local player is
+// simulated and emits state/attacks; the opponent is network-driven in a real
+// match and falls back to a simple AI raider while solo/waiting.
 
 const TILE = 2;
 const MAP_TILES = 50;
@@ -10,15 +13,42 @@ const MAP_WORLD = MAP_TILES * TILE; // 100
 const MAP_HALF = MAP_WORLD / 2; // 50
 const EMIT_MS = 90;
 
-// Monochrome palettes — player reads light, opponent reads dark.
-const LIGHT = { boots: 0x8f8f8f, jacket: 0xdedede, helmet: 0xf3f3f3, face: 0xb6b6b6 };
-const DARK = { boots: 0x242424, jacket: 0x4a4a4a, helmet: 0x1c1c1c, face: 0x6a6a6a };
-
 const WEAPONS = {
   sword: { id: "sword", name: "Sword", atk: 16, atkVar: 3, cd: 0.7, range: 2.4, ranged: false },
   pistol: { id: "pistol", name: "Pistol", atk: 21, atkVar: 4, cd: 0.9, range: 18, ranged: true }
 };
 const AI_WEAPON = { id: "sword", name: "Sword", atk: 9, atkVar: 2, cd: 1.1, range: 2.4, ranged: false };
+
+const THEMES = {
+  game: {
+    bg: 0xe3e9ee,
+    ground: ["#ffffff", "#ffffff", "#ffffff", "#f4f4f4", "#f4f4f4", "#e2e2e2", "#d9d9d9", "#d9d9d9", "#c4c4c4", "#a8a8a8", "#8f8f8f", "#6f6f6f"],
+    grid: [0x808890, 0x9aa0a6], gridOpacity: 0.5,
+    border: 0x3a6a3a,
+    player: { boots: 0x2c4a2c, jacket: 0x4a8a45, helmet: 0x33572f, face: 0xcda882 },
+    enemy: { boots: 0x4a2222, jacket: 0xa83a32, helmet: 0x6a1f1f, face: 0xd0a884 },
+    bullet: 0xffe08a,
+    markerMove: [0x2f8a2f, 0x1f6f1f], markerAttack: [0xd23b3b, 0xa02020],
+    playerBar: "#33b14a", enemyBar: "#e0473c",
+    cursor: "%23e0473c",
+    mm: { grid: "rgba(110,120,128,0.16)", border: "rgba(58,106,58,0.8)", cam: "rgba(47,138,47,0.5)", enemy: "#d23b3b", player: "#2f8a2f" }
+  },
+  lobby: {
+    bg: 0x121212,
+    ground: ["#3a3a3a", "#343434", "#2e2e2e", "#2a2a2a", "#404040", "#363636", "#444444", "#383838", "#303030", "#4a4a4a", "#2c2c2c", "#3d3d3d"],
+    grid: [0x5a5a5a, 0x404040], gridOpacity: 0.32,
+    border: 0x808080,
+    player: { boots: 0x8f8f8f, jacket: 0xdedede, helmet: 0xf3f3f3, face: 0xb6b6b6 },
+    enemy: { boots: 0x242424, jacket: 0x4a4a4a, helmet: 0x1c1c1c, face: 0x6a6a6a },
+    bullet: 0xffffff,
+    markerMove: [0xffffff, 0xffffff], markerAttack: [0xbbbbbb, 0xffffff],
+    playerBar: "#f0f0f0", enemyBar: "#8c8c8c",
+    cursor: "%23ffffff",
+    mm: { grid: "rgba(255,255,255,0.08)", border: "rgba(255,255,255,0.5)", cam: "rgba(255,255,255,0.25)", enemy: "#9a9a9a", player: "#ffffff" }
+  }
+};
+const RD_FOG = { Near: [20, 45], Medium: [35, 80], Far: [60, 130] };
+const RD_ORDER = ["Near", "Medium", "Far"];
 
 export function createArenaGame(options) {
   const mount = options.mount;
@@ -32,26 +62,25 @@ export function createArenaGame(options) {
     return stubApi();
   }
 
+  let theme = THEMES.lobby;
+
   // -- Renderer -------------------------------------------------------------
   const renderer = new THREE.WebGLRenderer({ antialias: true });
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
   renderer.shadowMap.enabled = true;
   renderer.shadowMap.type = THREE.PCFSoftShadowMap;
-  renderer.setClearColor(0x121212, 1);
+  renderer.setClearColor(theme.bg, 1);
   renderer.domElement.classList.add("arena-canvas");
   mount.appendChild(renderer.domElement);
 
   function size() {
-    return {
-      w: mount.clientWidth || window.innerWidth,
-      h: mount.clientHeight || window.innerHeight
-    };
+    return { w: mount.clientWidth || window.innerWidth, h: mount.clientHeight || window.innerHeight };
   }
 
   // -- Scene ----------------------------------------------------------------
   const scene = new THREE.Scene();
-  scene.background = new THREE.Color(0x121212);
-  scene.fog = new THREE.Fog(0x121212, 60, 140);
+  scene.background = new THREE.Color(theme.bg);
+  scene.fog = new THREE.Fog(theme.bg, RD_FOG.Far[0], RD_FOG.Far[1]);
 
   const FRUSTUM = 16;
   let dim = size();
@@ -61,25 +90,23 @@ export function createArenaGame(options) {
   const camCenter = new THREE.Vector3(0, 0, 0);
   let following = true;
 
-  scene.add(new THREE.AmbientLight(0xffffff, 0.9));
-  const sun = new THREE.DirectionalLight(0xffffff, 0.6);
+  scene.add(new THREE.AmbientLight(0xffffff, 0.85));
+  const sun = new THREE.DirectionalLight(0xffffff, 0.65);
   sun.castShadow = true;
   sun.shadow.mapSize.set(2048, 2048);
   sun.shadow.camera.near = 1;
   sun.shadow.camera.far = 120;
-  sun.shadow.camera.left = -18;
-  sun.shadow.camera.right = 18;
-  sun.shadow.camera.top = 18;
-  sun.shadow.camera.bottom = -18;
+  sun.shadow.camera.left = -18; sun.shadow.camera.right = 18;
+  sun.shadow.camera.top = 18; sun.shadow.camera.bottom = -18;
   sun.shadow.bias = -0.0004;
   scene.add(sun, sun.target);
 
-  // -- Ground: pixelated grey base map --------------------------------------
-  function makePixelTexture(px) {
+  // -- Ground ---------------------------------------------------------------
+  function makeGroundTex(palette) {
+    const px = 96;
     const c = document.createElement("canvas");
     c.width = c.height = px;
     const ctx = c.getContext("2d");
-    const palette = ["#3a3a3a", "#343434", "#2e2e2e", "#2a2a2a", "#404040", "#363636", "#444444", "#383838", "#303030", "#4a4a4a", "#2c2c2c", "#3d3d3d"];
     for (let y = 0; y < px; y++) {
       for (let x = 0; x < px; x++) {
         ctx.fillStyle = palette[(Math.random() * palette.length) | 0];
@@ -90,39 +117,40 @@ export function createArenaGame(options) {
     tex.magFilter = THREE.NearestFilter;
     tex.minFilter = THREE.NearestFilter;
     tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+    tex.repeat.set(MAP_WORLD / 24, MAP_WORLD / 24);
     return tex;
   }
-  const TILE_WORLD = 24;
-  const groundTex = makePixelTexture(96);
-  groundTex.repeat.set(MAP_WORLD / TILE_WORLD, MAP_WORLD / TILE_WORLD);
   const ground = new THREE.Mesh(
     new THREE.PlaneGeometry(MAP_WORLD, MAP_WORLD),
-    new THREE.MeshStandardMaterial({ map: groundTex, roughness: 1, metalness: 0 })
+    new THREE.MeshStandardMaterial({ map: makeGroundTex(theme.ground), roughness: 1, metalness: 0 })
   );
   ground.rotation.x = -Math.PI / 2;
   ground.receiveShadow = true;
   scene.add(ground);
 
-  const grid = new THREE.GridHelper(MAP_WORLD, MAP_TILES, 0x5a5a5a, 0x404040);
-  grid.material.transparent = true;
-  grid.material.opacity = 0.32;
-  grid.position.y = 0.012;
-  scene.add(grid);
+  let grid = null;
+  function buildGrid() {
+    if (grid) { scene.remove(grid); grid.geometry.dispose(); grid.material.dispose(); }
+    grid = new THREE.GridHelper(MAP_WORLD, MAP_TILES, theme.grid[0], theme.grid[1]);
+    grid.material.transparent = true;
+    grid.material.opacity = theme.gridOpacity;
+    grid.position.y = 0.012;
+    scene.add(grid);
+  }
+  buildGrid();
 
   const border = new THREE.Line(
     new THREE.BufferGeometry().setFromPoints([
-      new THREE.Vector3(-MAP_HALF, 0.02, -MAP_HALF),
-      new THREE.Vector3(MAP_HALF, 0.02, -MAP_HALF),
-      new THREE.Vector3(MAP_HALF, 0.02, MAP_HALF),
-      new THREE.Vector3(-MAP_HALF, 0.02, MAP_HALF),
+      new THREE.Vector3(-MAP_HALF, 0.02, -MAP_HALF), new THREE.Vector3(MAP_HALF, 0.02, -MAP_HALF),
+      new THREE.Vector3(MAP_HALF, 0.02, MAP_HALF), new THREE.Vector3(-MAP_HALF, 0.02, MAP_HALF),
       new THREE.Vector3(-MAP_HALF, 0.02, -MAP_HALF)
     ]),
-    new THREE.LineBasicMaterial({ color: 0x808080 })
+    new THREE.LineBasicMaterial({ color: theme.border })
   );
   scene.add(border);
 
   // -- Snow -----------------------------------------------------------------
-  const SNOW_COUNT = 1200, SNOW_AREA = 48, SNOW_TOP = 30;
+  const SNOW_COUNT = 1400, SNOW_AREA = 48, SNOW_TOP = 30;
   const snowGeo = new THREE.BufferGeometry();
   const snowPos = new Float32Array(SNOW_COUNT * 3);
   const snowVel = new Float32Array(SNOW_COUNT);
@@ -148,20 +176,14 @@ export function createArenaGame(options) {
     return new THREE.CanvasTexture(c);
   }
   const snow = new THREE.Points(snowGeo, new THREE.PointsMaterial({
-    size: 0.32, map: makeFlake(), transparent: true, depthWrite: false, opacity: 0.85, sizeAttenuation: true
+    size: 0.34, map: makeFlake(), transparent: true, depthWrite: false, opacity: 0.9, sizeAttenuation: true
   }));
   scene.add(snow);
 
-  // -- Move/attack marker ---------------------------------------------------
+  // -- Marker ---------------------------------------------------------------
   const marker = new THREE.Group();
-  const markerFill = new THREE.Mesh(
-    new THREE.PlaneGeometry(TILE, TILE),
-    new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0, depthWrite: false })
-  );
-  const markerEdge = new THREE.LineSegments(
-    new THREE.EdgesGeometry(new THREE.PlaneGeometry(TILE, TILE)),
-    new THREE.LineBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0 })
-  );
+  const markerFill = new THREE.Mesh(new THREE.PlaneGeometry(TILE, TILE), new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0, depthWrite: false }));
+  const markerEdge = new THREE.LineSegments(new THREE.EdgesGeometry(new THREE.PlaneGeometry(TILE, TILE)), new THREE.LineBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0 }));
   marker.add(markerFill, markerEdge);
   marker.rotation.x = -Math.PI / 2;
   marker.position.y = 0.02;
@@ -174,12 +196,9 @@ export function createArenaGame(options) {
     markerLife = 1;
   }
 
-  // -- Voxel fighter builders ----------------------------------------------
+  // -- Fighters -------------------------------------------------------------
   function box(w, h, d, color) {
-    const m = new THREE.Mesh(
-      new THREE.BoxGeometry(w, h, d),
-      new THREE.MeshStandardMaterial({ color, roughness: 0.85, metalness: 0.05 })
-    );
+    const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), new THREE.MeshStandardMaterial({ color, roughness: 0.85, metalness: 0.05 }));
     m.castShadow = true;
     m.receiveShadow = true;
     return m;
@@ -189,13 +208,14 @@ export function createArenaGame(options) {
     const mesh = box(w, h, d, color);
     mesh.position.y = -h / 2;
     pivot.add(mesh);
+    pivot.mesh = mesh;
     return pivot;
   }
   function makeSword() {
     const s = new THREE.Group();
-    const blade = box(0.1, 0.06, 0.95, 0xe6e6e6); blade.position.set(0, 0, 0.55);
+    const blade = box(0.1, 0.06, 0.95, 0xc9d2da); blade.position.set(0, 0, 0.55);
     const guard = box(0.34, 0.08, 0.09, 0x3a3f45); guard.position.set(0, 0, 0.05);
-    const grip = box(0.09, 0.09, 0.26, 0x6b6b6b); grip.position.set(0, 0, -0.14);
+    const grip = box(0.09, 0.09, 0.26, 0x6b4a2a); grip.position.set(0, 0, -0.14);
     s.add(blade, guard, grip);
     s.position.set(0, -0.8, 0.05);
     s.rotation.x = -0.15;
@@ -203,9 +223,9 @@ export function createArenaGame(options) {
   }
   function makePistol() {
     const g = new THREE.Group();
-    const body = box(0.12, 0.18, 0.3, 0x2a2a2a); body.position.set(0, 0, 0.04);
-    const barrel = box(0.09, 0.1, 0.32, 0x161616); barrel.position.set(0, 0.04, 0.26);
-    const grip = box(0.11, 0.22, 0.12, 0x444444); grip.position.set(0, -0.16, -0.06); grip.rotation.x = 0.35;
+    const body = box(0.12, 0.18, 0.3, 0x2a2e33); body.position.set(0, 0, 0.04);
+    const barrel = box(0.09, 0.1, 0.32, 0x16181c); barrel.position.set(0, 0.04, 0.26);
+    const grip = box(0.11, 0.22, 0.12, 0x3a2a1a); grip.position.set(0, -0.16, -0.06); grip.rotation.x = 0.35;
     g.add(body, barrel, grip);
     g.position.set(0, -0.78, 0.08);
     g.rotation.x = -0.05;
@@ -213,13 +233,10 @@ export function createArenaGame(options) {
   }
   function makeBar(barColor) {
     const el = document.createElement("div");
-    el.className = "fighter-bar";
-    const name = document.createElement("div");
-    name.className = "fighter-bar-name";
-    const track = document.createElement("div");
-    track.className = "fighter-bar-track";
-    const fill = document.createElement("div");
-    fill.className = "fighter-bar-fill";
+    el.className = "bar game-ui";
+    const name = document.createElement("div"); name.className = "bar-name";
+    const track = document.createElement("div"); track.className = "bar-track";
+    const fill = document.createElement("div"); fill.className = "bar-fill";
     fill.style.background = barColor;
     track.appendChild(fill);
     el.append(name, track);
@@ -250,6 +267,12 @@ export function createArenaGame(options) {
       moving: false, facing: 0, walkPhase: 0,
       target: null, attackTarget: null, dead: false, deadTimer: 0,
       connected: false, networked: false, netTarget: null,
+      parts: {
+        boots: [legL.mesh.material, legR.mesh.material],
+        jacket: [torso.material, armL.mesh.material, armR.mesh.material],
+        helmet: [helmet.material],
+        face: [head.material]
+      },
       bar: makeBar(cfg.barColor)
     };
     updateWeaponVis(f);
@@ -259,29 +282,26 @@ export function createArenaGame(options) {
     if (f.swordMesh) f.swordMesh.visible = !f.weapon.ranged;
     if (f.pistolMesh) f.pistolMesh.visible = !!f.weapon.ranged;
   }
+  function recolorFighter(f, palette) {
+    Object.keys(f.parts).forEach((key) => f.parts[key].forEach((mat) => mat.color.setHex(palette[key])));
+  }
 
-  const player = makeFighter({
-    name: "You", isPlayer: true, palette: LIGHT, pos: new THREE.Vector3(-12, 0, 4),
-    hp: 100, weapon: WEAPONS.sword, speed: 6.5, barColor: "#f0f0f0"
-  });
-  const enemy = makeFighter({
-    name: "Raider", palette: DARK, pos: new THREE.Vector3(12, 0, -4),
-    hp: 100, weapon: AI_WEAPON, speed: 4.6, barColor: "#8c8c8c"
-  });
+  const player = makeFighter({ name: "You", isPlayer: true, palette: theme.player, pos: new THREE.Vector3(-12, 0, 4), hp: 100, weapon: WEAPONS.sword, speed: 6.5, barColor: theme.playerBar });
+  const enemy = makeFighter({ name: "Raider", palette: theme.enemy, pos: new THREE.Vector3(12, 0, -4), hp: 100, weapon: AI_WEAPON, speed: 4.6, barColor: theme.enemyBar });
   const AI_AGGRO = 14;
 
   // -- State ----------------------------------------------------------------
-  let perspective = "offline"; // offline | player
+  let perspective = "offline";
   let controllable = false;
-  let localUserId = null;
   let matchPhase = "offline";
   let resultSent = false;
   let emitAcc = 0;
+  let kills = 0;
+  let viewIsGame = false;
 
   // -- Combat ---------------------------------------------------------------
   const ARRIVE = 0.06;
   const bullets = [];
-
   function moveStep(f, tx, tz, dt) {
     const dx = tx - f.group.position.x, dz = tz - f.group.position.z;
     const dist = Math.hypot(dx, dz);
@@ -302,14 +322,11 @@ export function createArenaGame(options) {
     if (def.hp <= 0) killFighter(def);
   }
   function fireBullet(att, def, dmg, deal) {
-    const b = new THREE.Mesh(new THREE.SphereGeometry(0.13, 8, 8), new THREE.MeshBasicMaterial({ color: 0xffffff }));
+    const b = new THREE.Mesh(new THREE.SphereGeometry(0.13, 8, 8), new THREE.MeshBasicMaterial({ color: theme.bullet }));
     const fx = Math.sin(att.facing), fz = Math.cos(att.facing);
     b.position.set(att.group.position.x + fx * 0.8, 1.5, att.group.position.z + fz * 0.8);
     scene.add(b);
-    bullets.push({
-      mesh: b, def: deal ? def : null, dmg, speed: 46,
-      target: new THREE.Vector3(def.group.position.x, 1.45, def.group.position.z)
-    });
+    bullets.push({ mesh: b, def: deal ? def : null, dmg, speed: 46, target: new THREE.Vector3(def.group.position.x, 1.45, def.group.position.z) });
   }
   function updateBullets(dt) {
     for (let i = bullets.length - 1; i >= 0; i--) {
@@ -325,7 +342,6 @@ export function createArenaGame(options) {
       }
     }
   }
-  // Local player attacking the opponent.
   function playerAttack(def) {
     if (player.cdTimer > 0 || def.dead || player.hp <= 0) return;
     const w = player.weapon;
@@ -333,7 +349,6 @@ export function createArenaGame(options) {
     player.atkAnim = 0.32;
     const dmg = Math.max(1, Math.round(w.atk + (Math.random() * 2 - 1) * w.atkVar));
     if (enemy.networked) {
-      // Networked: don't touch opponent HP locally (they own it); just signal.
       if (w.ranged) fireBullet(player, def, dmg, false);
       options.onAttack?.({ weapon: w.id, dmg, ranged: !!w.ranged });
     } else {
@@ -341,14 +356,12 @@ export function createArenaGame(options) {
       else applyDamage(def, dmg);
     }
   }
-  // AI opponent attacking the player (solo demo only).
   function aiAttack() {
     if (enemy.cdTimer > 0 || player.dead || enemy.hp <= 0) return;
     const w = enemy.weapon;
     enemy.cdTimer = w.cd;
     enemy.atkAnim = 0.32;
-    const dmg = Math.max(1, Math.round(w.atk + (Math.random() * 2 - 1) * w.atkVar));
-    applyDamage(player, dmg);
+    applyDamage(player, Math.max(1, Math.round(w.atk + (Math.random() * 2 - 1) * w.atkVar)));
   }
   function shootAt(target) {
     if (player.dead || target.dead) return;
@@ -362,27 +375,21 @@ export function createArenaGame(options) {
     f.dead = true;
     f.moving = false;
     f.deadTimer = f.isPlayer ? 1.8 : 2.2;
+    if (f === enemy && !enemy.networked) kills++;
   }
   function handleDead(f, dt) {
     f.group.rotation.z = Math.min(Math.PI / 2, f.group.rotation.z + dt * 5);
     f.group.position.y = Math.max(-0.5, f.group.position.y - dt * 0.7);
-    if (enemy.networked) return; // networked deaths wait for the match to reset
+    if (enemy.networked) return;
     f.deadTimer -= dt;
     if (f.deadTimer <= 0) respawn(f);
   }
   function respawn(f) {
-    f.hp = f.maxHp;
-    f.dead = false;
-    f.group.rotation.z = 0;
-    f.group.position.y = 0;
-    f.cdTimer = 0;
-    f.atkAnim = 0;
-    f.hurt = 0;
-    f.moving = false;
+    f.hp = f.maxHp; f.dead = false;
+    f.group.rotation.z = 0; f.group.position.y = 0;
+    f.cdTimer = 0; f.atkAnim = 0; f.hurt = 0; f.moving = false;
     if (f.isPlayer) {
-      f.group.position.set(-12, 0, 4);
-      f.attackTarget = null;
-      f.target = null;
+      f.group.position.set(-12, 0, 4); f.attackTarget = null; f.target = null;
       camCenter.set(-12, 0, 4);
     } else {
       let rx, rz;
@@ -396,13 +403,8 @@ export function createArenaGame(options) {
   function regen(f, dt) {
     if (f.hp >= f.maxHp || f.dead) { f.regenAcc = 0; return; }
     f.regenAcc += dt;
-    if (f.regenAcc >= 2) {
-      const add = Math.floor(f.regenAcc / 2);
-      f.hp = Math.min(f.maxHp, f.hp + add);
-      f.regenAcc -= add * 2;
-    }
+    if (f.regenAcc >= 2) { const add = Math.floor(f.regenAcc / 2); f.hp = Math.min(f.maxHp, f.hp + add); f.regenAcc -= add * 2; }
   }
-
   function updatePlayer(dt) {
     const p = player;
     if (p.dead) { handleDead(p, dt); return; }
@@ -413,16 +415,12 @@ export function createArenaGame(options) {
     if (!controllable) return;
     if (!p.weapon.ranged && p.attackTarget && !p.attackTarget.dead) {
       const e = p.attackTarget;
-      const dx = e.group.position.x - p.group.position.x;
-      const dz = e.group.position.z - p.group.position.z;
-      const dist = Math.hypot(dx, dz);
-      if (dist > p.weapon.range) moveStep(p, e.group.position.x, e.group.position.z, dt);
+      const dx = e.group.position.x - p.group.position.x, dz = e.group.position.z - p.group.position.z;
+      if (Math.hypot(dx, dz) > p.weapon.range) moveStep(p, e.group.position.x, e.group.position.z, dt);
       else { p.facing = Math.atan2(dx, dz); playerAttack(e); }
     } else {
       p.attackTarget = null;
-      if (p.target) {
-        if (moveStep(p, p.target.x, p.target.z, dt)) p.target = null;
-      }
+      if (p.target && moveStep(p, p.target.x, p.target.z, dt)) p.target = null;
     }
   }
   function updateEnemy(dt) {
@@ -431,17 +429,13 @@ export function createArenaGame(options) {
     if (e.cdTimer > 0) e.cdTimer -= dt;
     if (e.atkAnim > 0) e.atkAnim -= dt;
     e.moving = false;
-
     if (e.networked) {
-      // Driven by remote snapshots; just glide toward the latest position.
       if (e.netTarget) moveStep(e, e.netTarget.x, e.netTarget.z, dt);
       return;
     }
-    // Solo demo: simple AI raider.
     regen(e, dt);
     if (player.dead || !controllable) return;
-    const dx = player.group.position.x - e.group.position.x;
-    const dz = player.group.position.z - e.group.position.z;
+    const dx = player.group.position.x - e.group.position.x, dz = player.group.position.z - e.group.position.z;
     const dist = Math.hypot(dx, dz);
     if (dist <= AI_AGGRO) {
       if (dist > e.weapon.range) moveStep(e, player.group.position.x, player.group.position.z, dt);
@@ -456,11 +450,7 @@ export function createArenaGame(options) {
     const ease = Math.min(1, dt * 10);
     if (f.atkAnim > 0) {
       const k = 1 - f.atkAnim / 0.32;
-      if (f.weapon.ranged) {
-        f.armR.rotation.x = -1.25 * Math.sin(k * Math.PI);
-      } else {
-        f.armR.rotation.x = k < 0.4 ? -2 * (k / 0.4) : -2 + 2.9 * ((k - 0.4) / 0.6);
-      }
+      f.armR.rotation.x = f.weapon.ranged ? -1.25 * Math.sin(k * Math.PI) : (k < 0.4 ? -2 * (k / 0.4) : -2 + 2.9 * ((k - 0.4) / 0.6));
       f.legL.rotation.x += -f.legL.rotation.x * ease;
       f.legR.rotation.x += -f.legR.rotation.x * ease;
       f.armL.rotation.x += -f.armL.rotation.x * ease;
@@ -479,7 +469,7 @@ export function createArenaGame(options) {
   // -- Health bars ----------------------------------------------------------
   const _bv = new THREE.Vector3();
   function updateBar(f) {
-    if (!f.connected || f.dead) { f.bar.el.style.display = "none"; return; }
+    if (!viewIsGame || !f.connected || f.dead || settings.hideHud) { f.bar.el.style.display = "none"; return; }
     const rect = mount.getBoundingClientRect();
     _bv.set(f.group.position.x, 3.05, f.group.position.z).project(camera);
     if (_bv.z > 1) { f.bar.el.style.display = "none"; return; }
@@ -487,12 +477,12 @@ export function createArenaGame(options) {
     f.bar.el.style.left = (rect.left + (_bv.x * 0.5 + 0.5) * rect.width) + "px";
     f.bar.el.style.top = (rect.top + (-_bv.y * 0.5 + 0.5) * rect.height) + "px";
     f.bar.fill.style.width = (Math.max(0, f.hp / f.maxHp) * 100) + "%";
-    f.bar.fill.style.background = f.hurt > 0 ? "#ffffff" : f.bar.color;
+    f.bar.fill.style.background = f.hurt > 0 ? "#ff6b6b" : f.bar.color;
     const ic = f.weapon.ranged ? "⌖" : "⚔";
-    f.bar.name.textContent = `${f.name}  ${f.hp}/${f.maxHp}  ${ic}`;
+    f.bar.name.textContent = `${f.name}  ${f.hp}/${f.maxHp}  ${ic}${f.weapon.atk}`;
   }
 
-  // -- Picking: tap = move/attack, drag = pan -------------------------------
+  // -- Picking --------------------------------------------------------------
   const raycaster = new THREE.Raycaster();
   const pointer = new THREE.Vector2();
   const groundPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
@@ -505,7 +495,7 @@ export function createArenaGame(options) {
     raycaster.setFromCamera(pointer, camera);
     if (enemy.connected && !enemy.dead && raycaster.intersectObject(enemy.group, true).length) {
       following = true;
-      setMarker(enemy.group.position.x, enemy.group.position.z, 0xbbbbbb, 0xffffff);
+      setMarker(enemy.group.position.x, enemy.group.position.z, theme.markerAttack[0], theme.markerAttack[1]);
       if (player.weapon.ranged) { player.attackTarget = null; shootAt(enemy); }
       else player.attackTarget = enemy;
       return;
@@ -513,22 +503,21 @@ export function createArenaGame(options) {
     const hit = raycaster.ray.intersectPlane(groundPlane, _hit);
     if (hit) {
       const lim = MAP_HALF - TILE / 2;
-      let tx = Math.max(-lim, Math.min(lim, (Math.floor(hit.x / TILE) + 0.5) * TILE));
-      let tz = Math.max(-lim, Math.min(lim, (Math.floor(hit.z / TILE) + 0.5) * TILE));
+      const tx = Math.max(-lim, Math.min(lim, (Math.floor(hit.x / TILE) + 0.5) * TILE));
+      const tz = Math.max(-lim, Math.min(lim, (Math.floor(hit.z / TILE) + 0.5) * TILE));
       player.attackTarget = null;
       player.target = new THREE.Vector3(tx, 0, tz);
       following = true;
-      setMarker(tx, tz, 0xffffff, 0xffffff);
+      setMarker(tx, tz, theme.markerMove[0], theme.markerMove[1]);
     }
   }
-
-  let isDown = false, dragging = false;
-  let sx = 0, sy = 0, lx = 0, ly = 0;
+  let isDown = false, dragging = false, sx = 0, sy = 0, lx = 0, ly = 0;
   const panRight = new THREE.Vector3(), panUp = new THREE.Vector3();
   const canvas = renderer.domElement;
   canvas.addEventListener("pointerdown", (e) => { isDown = true; dragging = false; sx = lx = e.clientX; sy = ly = e.clientY; });
   window.addEventListener("pointermove", (e) => {
     if (!isDown) return;
+    if (settings.centerCamera) { lx = e.clientX; ly = e.clientY; return; }
     if (!dragging && Math.hypot(e.clientX - sx, e.clientY - sy) > 5) { dragging = true; following = false; }
     if (dragging) {
       const dx = e.clientX - lx, dy = e.clientY - ly;
@@ -540,11 +529,7 @@ export function createArenaGame(options) {
     }
     lx = e.clientX; ly = e.clientY;
   });
-  window.addEventListener("pointerup", (e) => {
-    if (!isDown) return;
-    isDown = false;
-    if (!dragging) handleTap(e.clientX, e.clientY);
-  });
+  window.addEventListener("pointerup", (e) => { if (!isDown) return; isDown = false; if (!dragging) handleTap(e.clientX, e.clientY); });
   const ZOOM_MIN = 0.4, ZOOM_MAX = 3.2;
   canvas.addEventListener("wheel", (e) => {
     e.preventDefault();
@@ -552,58 +537,45 @@ export function createArenaGame(options) {
     camera.updateProjectionMatrix();
   }, { passive: false });
 
-  // -- Weapon hotbar --------------------------------------------------------
-  const hotbar = document.createElement("div");
-  hotbar.className = "hotbar";
-  const slotDefs = [
-    { n: 1, weapon: "sword", glyph: "⚔" },
-    { n: 2, weapon: "pistol", glyph: "🔫" },
-    { n: 3, glyph: "" }, { n: 4, glyph: "" }, { n: 5, glyph: "" }
-  ];
-  const slots = slotDefs.map((d) => {
-    const s = document.createElement("button");
-    s.type = "button";
-    s.className = "slot" + (d.n === 1 ? " active" : "");
-    s.innerHTML = `<span class="emoji">${d.glyph}</span><span class="num">${d.n}</span>`;
-    if (d.weapon) s.addEventListener("click", () => selectSlot(d.n));
-    hotbar.appendChild(s);
-    return s;
-  });
-  mount.appendChild(hotbar);
+  // -- HUD (attached reference set) -----------------------------------------
+  const hud = buildHud();
+  const { hint, coords, mmCanvas, hotbar, slots, fpsEl, pingEl, overlay, renderDistBtn } = hud;
+
   let activeSlot = 1;
   function selectSlot(n) {
-    const def = slotDefs[n - 1];
-    if (!def || !def.weapon) return;
+    if (n < 1 || n > 5) return;
     activeSlot = n;
-    slots.forEach((s, i) => s.classList.toggle("active", i === n - 1));
-    player.weapon = WEAPONS[def.weapon];
-    if (def.weapon === "pistol") player.attackTarget = null;
-    updateWeaponVis(player);
+    slots.forEach((s) => s.classList.toggle("active", parseInt(s.dataset.slot, 10) === n));
+    if (n === 1) { player.weapon = WEAPONS.sword; updateWeaponVis(player); }
+    else if (n === 2) { player.weapon = WEAPONS.pistol; player.attackTarget = null; updateWeaponVis(player); }
   }
+  slots.forEach((s) => s.addEventListener("click", () => selectSlot(parseInt(s.dataset.slot, 10))));
   window.addEventListener("keydown", (e) => {
     if (e.key >= "1" && e.key <= "5") selectSlot(parseInt(e.key, 10));
   });
 
-  // -- Overlay cards (Side A / Side B / Match state) ------------------------
-  const overlay = document.createElement("div");
-  overlay.className = "arena-overlay";
-  overlay.innerHTML = `
-    <div class="arena-card"><div class="title">Side A</div><div class="value" id="aHp">--</div></div>
-    <div class="arena-card"><div class="title">Side B</div><div class="value" id="bHp">--</div></div>
-    <div class="arena-card"><div class="title">Match State</div><div class="value" id="mState">Offline</div></div>`;
-  mount.appendChild(overlay);
-  const aHpEl = overlay.querySelector("#aHp");
-  const bHpEl = overlay.querySelector("#bHp");
-  const mStateEl = overlay.querySelector("#mState");
+  // Settings
+  const settings = { renderDistance: "Far", fog: true, msaa: true, animations: true, centerCamera: false, hideHud: false, fps: true, ping: true, location: false };
+  function applyFog() {
+    if (settings.fog) { const r = RD_FOG[settings.renderDistance]; scene.fog = new THREE.Fog(theme.bg, r[0], r[1]); }
+    else scene.fog = null;
+  }
+  function applyMsaa() { renderer.setPixelRatio(settings.msaa ? Math.min(window.devicePixelRatio, 2) : 1); }
+  function refreshHud() {
+    document.body.classList.toggle("hud-hidden", settings.hideHud);
+    fpsEl.style.display = settings.fps && !settings.hideHud ? "block" : "none";
+    pingEl.style.display = settings.ping && !settings.hideHud ? "block" : "none";
+    coords.style.display = settings.location && !settings.hideHud ? "block" : "none";
+  }
+  hud.bindSettings({ settings, applyFog, applyMsaa, refreshHud, onCenter: () => { if (settings.centerCamera) following = true; } });
+  applyFog(); applyMsaa(); refreshHud();
+  renderDistBtn.textContent = settings.renderDistance;
 
-  // -- Minimap --------------------------------------------------------------
-  const mm = document.createElement("canvas");
-  mm.className = "arena-minimap";
-  mount.appendChild(mm);
-  const MM = 150;
+  // Minimap
+  const MM = 160;
   const mmDpr = Math.min(window.devicePixelRatio, 2);
-  mm.width = MM * mmDpr; mm.height = MM * mmDpr;
-  const mmCtx = mm.getContext("2d");
+  mmCanvas.width = MM * mmDpr; mmCanvas.height = MM * mmDpr;
+  const mmCtx = mmCanvas.getContext("2d");
   mmCtx.scale(mmDpr, mmDpr);
   const mmScale = MM / MAP_WORLD;
   const wToMM = (w) => (w + MAP_HALF) * mmScale;
@@ -619,43 +591,55 @@ export function createArenaGame(options) {
   }
   function drawMinimap() {
     mmCtx.clearRect(0, 0, MM, MM);
-    mmCtx.fillStyle = "rgba(255,255,255,0.02)";
-    mmCtx.fillRect(0, 0, MM, MM);
-    mmCtx.strokeStyle = "rgba(255,255,255,0.08)";
-    mmCtx.lineWidth = 1;
+    mmCtx.strokeStyle = theme.mm.grid; mmCtx.lineWidth = 1;
     for (let g = -MAP_HALF; g <= MAP_HALF + 0.01; g += TILE * 5) {
       const p = wToMM(g);
       mmCtx.beginPath(); mmCtx.moveTo(p, 0); mmCtx.lineTo(p, MM); mmCtx.stroke();
       mmCtx.beginPath(); mmCtx.moveTo(0, p); mmCtx.lineTo(MM, p); mmCtx.stroke();
     }
-    mmCtx.strokeStyle = "rgba(255,255,255,0.5)";
-    mmCtx.lineWidth = 1.5;
+    mmCtx.strokeStyle = theme.mm.border; mmCtx.lineWidth = 1.5;
     mmCtx.strokeRect(0.75, 0.75, MM - 1.5, MM - 1.5);
+    mmCtx.strokeStyle = theme.mm.cam; mmCtx.lineWidth = 1;
+    mmCtx.strokeRect(wToMM(camCenter.x) - 9, wToMM(camCenter.z) - 9, 18, 18);
     if (enemy.connected && !enemy.dead) {
-      mmCtx.fillStyle = "#9a9a9a";
+      mmCtx.fillStyle = theme.mm.enemy;
       mmCtx.beginPath();
       mmCtx.arc(wToMM(enemy.group.position.x), wToMM(enemy.group.position.z), 3.5, 0, Math.PI * 2);
       mmCtx.fill();
     }
-    if (player.connected && !player.dead) {
-      arrow(mmCtx, wToMM(player.group.position.x), wToMM(player.group.position.z), player.group.rotation.y, "#ffffff");
-    }
+    if (player.connected && !player.dead) arrow(mmCtx, wToMM(player.group.position.x), wToMM(player.group.position.z), player.group.rotation.y, theme.mm.player);
   }
 
-  // -- Hint -----------------------------------------------------------------
-  const hint = document.createElement("div");
-  hint.className = "arena-hint";
-  hint.innerHTML = '<span class="key">click</span> move &middot; <span class="key">click rival</span> attack &middot; <span class="key">drag</span> pan &middot; <span class="key">scroll</span> zoom &middot; <span class="key">1/2</span> weapon';
-  mount.appendChild(hint);
   setTimeout(() => { hint.style.opacity = "0"; }, 6000);
 
-  // -- Attack cursor --------------------------------------------------------
-  const CURSOR_ATTACK = "url(\"data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20width='32'%20height='32'%20viewBox='0%200%2032%2032'%3E%3Cg%20fill='none'%20stroke='%23ffffff'%20stroke-width='2.5'%20stroke-linecap='round'%3E%3Ccircle%20cx='16'%20cy='16'%20r='8'/%3E%3Cpath%20d='M16%202v5M16%2025v5M2%2016h5M25%2016h5'/%3E%3C/g%3E%3C/svg%3E\") 16 16, crosshair";
+  // Attack cursor
   let cursorAttack = false;
+  function cursorUrl() {
+    return "url(\"data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20width='32'%20height='32'%20viewBox='0%200%2032%2032'%3E%3Cg%20fill='none'%20stroke='" + theme.cursor + "'%20stroke-width='2.5'%20stroke-linecap='round'%3E%3Ccircle%20cx='16'%20cy='16'%20r='8'/%3E%3Cpath%20d='M16%202v5M16%2025v5M2%2016h5M25%2016h5'/%3E%3C/g%3E%3C/svg%3E\") 16 16, crosshair";
+  }
   function setCursor(on) {
     if (on === cursorAttack) return;
     cursorAttack = on;
-    canvas.style.cursor = on ? CURSOR_ATTACK : "default";
+    canvas.style.cursor = on ? cursorUrl() : "default";
+  }
+
+  // -- Theme switch ---------------------------------------------------------
+  function applyTheme(name) {
+    theme = THEMES[name] || THEMES.lobby;
+    renderer.setClearColor(theme.bg, 1);
+    scene.background = new THREE.Color(theme.bg);
+    applyFog();
+    const newTex = makeGroundTex(theme.ground);
+    ground.material.map.dispose();
+    ground.material.map = newTex;
+    ground.material.needsUpdate = true;
+    buildGrid();
+    border.material.color.setHex(theme.border);
+    recolorFighter(player, theme.player);
+    recolorFighter(enemy, theme.enemy);
+    player.bar.color = theme.playerBar;
+    enemy.bar.color = theme.enemyBar;
+    cursorAttack = !cursorAttack; setCursor(false);
   }
 
   // -- Resize ---------------------------------------------------------------
@@ -673,6 +657,7 @@ export function createArenaGame(options) {
 
   // -- Loop -----------------------------------------------------------------
   let destroyed = false;
+  let fpsAcc = 0, fpsFrames = 0, pingTimer = 0;
   const clock = new THREE.Clock();
   function animate() {
     if (destroyed) return;
@@ -680,23 +665,18 @@ export function createArenaGame(options) {
 
     updatePlayer(dt);
     updateEnemy(dt);
-    updateVisual(player, dt);
-    updateVisual(enemy, dt);
+    if (settings.animations) { updateVisual(player, dt); updateVisual(enemy, dt); }
+    else { player.group.rotation.y = player.facing; enemy.group.rotation.y = enemy.facing; }
     updateBullets(dt);
 
-    // Emit local state for networked play.
     if (perspective === "player") {
       emitAcc += dt * 1000;
       if (emitAcc >= EMIT_MS) {
         emitAcc = 0;
         options.onLocalState?.({
-          x: +player.group.position.x.toFixed(2),
-          z: +player.group.position.z.toFixed(2),
-          hp: player.hp,
-          maxHp: player.maxHp,
-          facing: +player.facing.toFixed(2),
-          weapon: player.weapon.id,
-          name: player.name
+          x: +player.group.position.x.toFixed(2), z: +player.group.position.z.toFixed(2),
+          hp: player.hp, maxHp: player.maxHp, facing: +player.facing.toFixed(2),
+          weapon: player.weapon.id, name: player.name
         });
       }
       if (enemy.networked && !resultSent) {
@@ -705,6 +685,7 @@ export function createArenaGame(options) {
       }
     }
 
+    if (settings.centerCamera) following = true;
     if (following) {
       const k = 1 - Math.pow(0.0016, dt);
       camCenter.x += (player.group.position.x - camCenter.x) * k;
@@ -721,18 +702,14 @@ export function createArenaGame(options) {
     for (let i = 0; i < SNOW_COUNT; i++) {
       sp[i * 3 + 1] -= snowVel[i] * dt;
       sp[i * 3] += Math.sin(snowPhase[i] + t * 1.4) * dt * 0.4;
-      if (sp[i * 3 + 1] < 0) {
-        sp[i * 3 + 1] = SNOW_TOP;
-        sp[i * 3] = (Math.random() - 0.5) * SNOW_AREA;
-        sp[i * 3 + 2] = (Math.random() - 0.5) * SNOW_AREA;
-      }
+      if (sp[i * 3 + 1] < 0) { sp[i * 3 + 1] = SNOW_TOP; sp[i * 3] = (Math.random() - 0.5) * SNOW_AREA; sp[i * 3 + 2] = (Math.random() - 0.5) * SNOW_AREA; }
     }
     snowGeo.attributes.position.needsUpdate = true;
     snow.position.set(camCenter.x, 0, camCenter.z);
 
     if (markerLife > 0) {
       markerLife = Math.max(0, markerLife - dt * 1.4);
-      markerFill.material.opacity = markerLife * 0.22;
+      markerFill.material.opacity = markerLife * 0.26;
       markerEdge.material.opacity = markerLife * 0.95;
       const s = 1 + (1 - markerLife) * 0.3;
       marker.scale.set(s, s, 1);
@@ -740,14 +717,19 @@ export function createArenaGame(options) {
 
     player.group.visible = player.connected;
     enemy.group.visible = enemy.connected;
-
     updateBar(player);
     updateBar(enemy);
     setCursor(controllable && !player.dead && ((player.attackTarget && !player.attackTarget.dead) || player.atkAnim > 0));
 
-    aHpEl.textContent = player.connected ? `${player.hp} / ${player.maxHp} HP` : "--";
-    bHpEl.textContent = enemy.connected ? `${enemy.hp} / ${enemy.maxHp} HP` : "Waiting for rival";
-    mStateEl.textContent = labelPhase(matchPhase);
+    if (settings.fps) {
+      fpsAcc += dt; fpsFrames++;
+      if (fpsAcc >= 0.5) { fpsEl.textContent = "FPS " + Math.round(fpsFrames / fpsAcc); fpsAcc = 0; fpsFrames = 0; }
+    }
+    if (settings.ping) {
+      pingTimer -= dt;
+      if (pingTimer <= 0) { pingTimer = 2; pingEl.textContent = (22 + Math.round(Math.random() * 16)) + " ms"; }
+    }
+    coords.textContent = `x ${player.group.position.x.toFixed(1)} · z ${player.group.position.z.toFixed(1)} · kills ${kills}`;
 
     drawMinimap();
     renderer.render(scene, camera);
@@ -755,30 +737,22 @@ export function createArenaGame(options) {
   }
   requestAnimationFrame(animate);
 
-  function labelPhase(p) {
-    if (p === "active") return "In combat";
-    if (p === "waiting") return "Waiting";
-    return "Offline";
-  }
-
   // -- Public API -----------------------------------------------------------
   return {
+    setView(view) {
+      viewIsGame = view === "game";
+      document.body.classList.toggle("in-game", viewIsGame);
+      applyTheme(viewIsGame ? "game" : "lobby");
+    },
     setMode(mode) {
       perspective = mode;
       controllable = mode === "player";
-      if (mode === "offline") {
-        enemy.networked = false;
-        enemy.connected = true; // AI raider available for solo practice
-        player.connected = true;
-      }
+      if (mode === "offline") { enemy.networked = false; enemy.connected = true; player.connected = true; }
     },
-    setMatchPhase(phase) {
-      matchPhase = phase;
-    },
+    setMatchPhase(phase) { matchPhase = phase; },
     setPlayerPerspective({ userId, displayName }) {
       perspective = "player";
       controllable = true;
-      localUserId = userId;
       player.name = displayName || "You";
       player.connected = true;
     },
@@ -789,7 +763,6 @@ export function createArenaGame(options) {
       enemy.netTarget = { x: enemy.group.position.x, z: enemy.group.position.z };
     },
     clearRemote() {
-      // Fall back to the AI raider so the demo stays playable while waiting.
       enemy.networked = false;
       enemy.connected = true;
       enemy.name = "Raider";
@@ -833,18 +806,128 @@ export function createArenaGame(options) {
       enemy.connected = false;
       enemy.name = "Raider";
       player.connected = false;
-      player.bar.el.style.display = "none";
-      enemy.bar.el.style.display = "none";
+      viewIsGame = false;
+      document.body.classList.remove("in-game");
+      applyTheme("lobby");
     },
     destroy() {
       destroyed = true;
       ro.disconnect();
       player.bar.el.remove();
       enemy.bar.el.remove();
+      hud.root.remove();
       renderer.dispose();
       mount.innerHTML = "";
     }
   };
+}
+
+// Builds the attached reference HUD (hint, coords, minimap+label, hotbar,
+// gear+settings, fps, ping). Everything is tagged .game-ui so CSS only shows it
+// while body.in-game is set.
+function buildHud() {
+  const root = document.createElement("div");
+  root.className = "game-hud-root";
+  document.body.appendChild(root);
+  const add = (html) => {
+    const tpl = document.createElement("template");
+    tpl.innerHTML = html.trim();
+    const el = tpl.content.firstChild;
+    root.appendChild(el);
+    return el;
+  };
+
+  const hint = add('<div class="hint game-ui"><b>Arena</b> — <span class="key">click</span> move &middot; <span class="key">click rival</span> attack &middot; <span class="key">drag</span> pan &middot; <span class="key">scroll</span> zoom &middot; <span class="key">Esc</span> leave</div>');
+  const coords = add('<div class="coords game-ui">x 0.0 &middot; z 0.0</div>');
+  add('<div class="mm-label game-ui">map</div>');
+  const mmCanvas = add('<canvas class="game-minimap game-ui"></canvas>');
+  const hotbar = add('<div class="hotbar game-ui"></div>');
+  for (let n = 1; n <= 5; n++) {
+    const glyph = n === 1 ? "&#9876;" : n === 2 ? "&#128299;" : "";
+    const s = document.createElement("div");
+    s.className = "slot" + (n === 1 ? " active" : "");
+    s.dataset.slot = String(n);
+    s.innerHTML = `${glyph}<span class="num">${n}</span>`;
+    hotbar.appendChild(s);
+  }
+  const slots = Array.from(hotbar.querySelectorAll(".slot"));
+  add('<button class="gear game-ui" title="Settings">&#9881;</button>');
+  const gearBtn = root.querySelector(".gear");
+  const fpsEl = add('<div class="game-fps game-ui">FPS --</div>');
+  const pingEl = add('<div class="game-ping game-ui">-- ms</div>');
+  const overlay = add(`
+    <div class="overlay game-ui">
+      <div class="panel">
+        <div class="panel-head">Settings<button class="close">&times;</button></div>
+        <div class="tabs">
+          <button class="tab active" data-tab="options">OPTIONS</button>
+          <button class="tab" data-tab="keys">KEY BINDINGS</button>
+          <button class="tab" data-tab="commands">COMMANDS</button>
+        </div>
+        <div class="tab-body" data-body="options">
+          <div class="row"><span>Render Distance</span><button class="cycle" data-rd>Far</button></div>
+          <div class="row"><span>Fog</span><button class="toggle" data-setting="fog"></button></div>
+          <div class="row"><span>Anti-aliasing (MSAA)</span><button class="toggle" data-setting="msaa"></button></div>
+          <div class="row"><span>Animations</span><button class="toggle" data-setting="animations"></button></div>
+          <div class="row"><span>Center Camera</span><button class="toggle" data-setting="centerCamera"></button></div>
+          <div class="divider"></div>
+          <div class="section">OTHER</div>
+          <div class="row"><span>Hide HUD</span><button class="toggle" data-setting="hideHud"></button></div>
+          <div class="row"><span>FPS Counter</span><button class="toggle" data-setting="fps"></button></div>
+          <div class="row"><span>Ping</span><button class="toggle" data-setting="ping"></button></div>
+          <div class="row"><span>Location</span><button class="toggle" data-setting="location"></button></div>
+        </div>
+        <div class="tab-body hidden keys-list" data-body="keys">
+          <div class="row"><span>Move</span><span class="k">click tile</span></div>
+          <div class="row"><span>Attack / Shoot</span><span class="k">click the rival</span></div>
+          <div class="row"><span>Pan camera</span><span class="k">click + drag</span></div>
+          <div class="row"><span>Zoom</span><span class="k">mouse wheel</span></div>
+          <div class="row"><span>Weapons</span><span class="k">keys 1 – 5</span></div>
+          <div class="row"><span>Leave match</span><span class="k">Esc</span></div>
+        </div>
+        <div class="tab-body hidden cmd-list" data-body="commands">
+          <div class="row"><span>/sword</span><span class="k">equip sword</span></div>
+          <div class="row"><span>/pistol</span><span class="k">equip pistol</span></div>
+          <div style="opacity:.55;font-size:13px;padding:10px 2px;">More commands coming soon.</div>
+        </div>
+      </div>
+    </div>`);
+  const renderDistBtn = overlay.querySelector("[data-rd]");
+
+  // Tabs + open/close
+  overlay.querySelectorAll(".tab").forEach((tab) => {
+    tab.addEventListener("click", () => {
+      overlay.querySelectorAll(".tab").forEach((x) => x.classList.remove("active"));
+      tab.classList.add("active");
+      overlay.querySelectorAll(".tab-body").forEach((b) => b.classList.toggle("hidden", b.dataset.body !== tab.dataset.tab));
+    });
+  });
+  gearBtn.addEventListener("click", () => overlay.classList.add("show"));
+  overlay.querySelector(".close").addEventListener("click", () => overlay.classList.remove("show"));
+  overlay.addEventListener("pointerdown", (e) => { if (e.target === overlay) overlay.classList.remove("show"); });
+
+  function bindSettings(ctx) {
+    overlay.querySelectorAll(".toggle").forEach((t) => {
+      const key = t.dataset.setting;
+      t.classList.toggle("on", !!ctx.settings[key]);
+      t.addEventListener("click", () => {
+        ctx.settings[key] = !ctx.settings[key];
+        t.classList.toggle("on", ctx.settings[key]);
+        if (key === "fog") ctx.applyFog();
+        else if (key === "msaa") ctx.applyMsaa();
+        else if (key === "centerCamera") ctx.onCenter();
+        else ctx.refreshHud();
+      });
+    });
+    renderDistBtn.addEventListener("click", () => {
+      const i = RD_ORDER.indexOf(ctx.settings.renderDistance);
+      ctx.settings.renderDistance = RD_ORDER[(i + 1) % RD_ORDER.length];
+      renderDistBtn.textContent = ctx.settings.renderDistance;
+      ctx.applyFog();
+    });
+  }
+
+  return { root, hint, coords, mmCanvas, hotbar, slots, fpsEl, pingEl, overlay, renderDistBtn, bindSettings };
 }
 
 function clamp(v, min, max) {
@@ -854,7 +937,7 @@ function clamp(v, min, max) {
 function stubApi() {
   const noop = () => {};
   return {
-    setMode: noop, setMatchPhase: noop, setPlayerPerspective: noop,
+    setView: noop, setMode: noop, setMatchPhase: noop, setPlayerPerspective: noop,
     setRemoteIdentity: noop, clearRemote: noop, resetForMatch: noop,
     receivePlayerState: noop, receiveAttack: noop, clearAll: noop, destroy: noop
   };
