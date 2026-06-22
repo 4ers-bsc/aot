@@ -53,6 +53,31 @@
     </main>
   </div>
 
+  <!-- Top-left status log -->
+  <div class="log-feed" id="logFeed"></div>
+
+  <!-- PvP size chooser -->
+  <div class="overlay" id="pvpSizeOverlay">
+    <div class="panel pvp-size-panel">
+      <div class="panel-head">Choose Battle<button class="close" id="pvpSizeClose" type="button">&times;</button></div>
+      <p class="pvp-size-copy">Free-for-all — last fighter standing wins. Match begins once the room is full.</p>
+      <div class="pvp-size-grid">
+        <button class="pvp-size-btn" data-size="2" type="button">
+          <span class="pvp-size-num">2</span>
+          <span class="pvp-size-label">Duel</span>
+        </button>
+        <button class="pvp-size-btn" data-size="5" type="button">
+          <span class="pvp-size-num">5</span>
+          <span class="pvp-size-label">Skirmish</span>
+        </button>
+        <button class="pvp-size-btn" data-size="10" type="button">
+          <span class="pvp-size-num">10</span>
+          <span class="pvp-size-label">Warzone</span>
+        </button>
+      </div>
+    </div>
+  </div>
+
   <!-- PvP waiting lobby -->
   <div class="pvp-lobby hidden" id="pvpLobby">
     <div class="pvp-lobby-card">
@@ -101,7 +126,7 @@
         <div class="divider"></div>
         <div class="section">MODES</div>
         <div class="row"><span>Demo Match</span><span class="k">vs the computer</span></div>
-        <div class="row"><span>Play PvP</span><span class="k">vs another player · reach 0 HP and you lose</span></div>
+        <div class="row"><span>Play PvP</span><span class="k">2 / 5 / 10 players · free-for-all · last one standing wins</span></div>
       </div>
     </div>
   </div>

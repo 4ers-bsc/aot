@@ -18,6 +18,9 @@ const els = {
   arenaMount: document.getElementById("arenaMount"),
   howToOverlay: document.getElementById("howToOverlay"),
   howToClose: document.getElementById("howToClose"),
+  pvpSizeOverlay: document.getElementById("pvpSizeOverlay"),
+  pvpSizeClose: document.getElementById("pvpSizeClose"),
+  pvpSizeBtns: Array.from(document.querySelectorAll("[data-size]")),
   pvpLobby: document.getElementById("pvpLobby"),
   pvpLobbyStatus: document.getElementById("pvpLobbyStatus"),
   pvpLobbyMeta: document.getElementById("pvpLobbyMeta"),
@@ -28,7 +31,8 @@ const els = {
   gameOverWins: document.getElementById("gameOverWins"),
   gameOverLosses: document.getElementById("gameOverLosses"),
   gameOverName: document.getElementById("gameOverName"),
-  gameOverMenuBtn: document.getElementById("gameOverMenuBtn")
+  gameOverMenuBtn: document.getElementById("gameOverMenuBtn"),
+  logFeed: document.getElementById("logFeed")
 };
 
 const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
@@ -38,9 +42,10 @@ const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
 const state = {
   user: null,
   profile: null,
-  match: null, // { id, mode: 'demo'|'pvp', status, finished }
+  match: null, // { id, mode: 'demo'|'pvp', status, finished, maxPlayers }
   seat: null,
-  remoteId: null,
+  remoteIds: new Set(),
+  started: false,
   channel: null
 };
 
@@ -70,6 +75,16 @@ function bindUi() {
   els.howToClose.addEventListener("click", () => els.howToOverlay.classList.remove("show"));
   els.pvpCancelBtn.addEventListener("click", () => leaveMatch());
   els.gameOverMenuBtn.addEventListener("click", () => { hideGameOver(); leaveMatch({ silent: true }); });
+  els.pvpSizeClose.addEventListener("click", () => els.pvpSizeOverlay.classList.remove("show"));
+  els.pvpSizeOverlay.addEventListener("pointerdown", (e) => {
+    if (e.target === els.pvpSizeOverlay) els.pvpSizeOverlay.classList.remove("show");
+  });
+  els.pvpSizeBtns.forEach((b) =>
+    b.addEventListener("click", () => {
+      els.pvpSizeOverlay.classList.remove("show");
+      joinPvp(parseInt(b.dataset.size, 10));
+    })
+  );
   els.howToOverlay.addEventListener("pointerdown", (e) => {
     if (e.target === els.howToOverlay) els.howToOverlay.classList.remove("show");
   });
@@ -154,12 +169,12 @@ async function syncProfile() {
 function startDemo() {
   if (!state.user) { signIn(); return; }
   state.match = { mode: "demo", status: "active", finished: false };
-  state.remoteId = null;
+  state.remoteIds.clear();
+  state.started = true;
   game.setView("game");
-  game.setMode("player");
-  game.setPlayerPerspective({ userId: state.user.id, displayName: state.profile?.display_name || "You" });
+  game.setLocalUser({ userId: state.user.id, displayName: state.profile?.display_name || "You" });
+  game.useAiFoe();          // single AI raider opponent
   game.setMatchPhase("active");
-  game.clearRemote();       // AI raider opponent
   game.resetForMatch();
   setStatus("Demo match vs the computer. Click the battlefield to move.");
 }
@@ -176,10 +191,7 @@ function showPvpLobby(status) {
   els.pvpLobby.classList.remove("hidden");
   pvpLobbySeconds = 0;
   clearInterval(pvpLobbyTimer);
-  pvpLobbyTimer = setInterval(() => {
-    pvpLobbySeconds++;
-    els.pvpLobbyMeta.textContent = `${pvpLobbySeconds}s elapsed`;
-  }, 1000);
+  pvpLobbyTimer = setInterval(() => { pvpLobbySeconds++; }, 1000);
 }
 
 function hidePvpLobby() {
@@ -204,20 +216,25 @@ function hideGameOver() {
   els.gameOver.classList.add("hidden");
 }
 
-async function startPvp() {
+function startPvp() {
   if (!state.user) { signIn(); return; }
+  els.pvpSizeOverlay.classList.add("show");
+}
+
+async function joinPvp(maxPlayers) {
+  if (!state.user) { signIn(); return; }
+  const size = [2, 5, 10].includes(maxPlayers) ? maxPlayers : 2;
   try {
-    showPvpLobby("Searching for an opponent…");
-    const { data, error } = await supabase.rpc("join_pvp_match", { p_display_name: null });
+    showPvpLobby(`Finding a ${size}-player match…`, size);
+    const { data, error } = await supabase.rpc("join_pvp_match", { p_max_players: size, p_display_name: null });
     if (error) throw error;
-    state.match = { id: data.match_id, mode: "pvp", status: data.status === "active" ? "active" : "waiting", finished: false };
+    state.match = {
+      id: data.match_id, mode: "pvp", finished: false,
+      status: data.status === "active" ? "active" : "waiting",
+      maxPlayers: data.max_players || size
+    };
     state.seat = data.seat;
     await enterArena(data.match_id);
-    if (state.match.status === "active") {
-      hidePvpLobby();
-    } else {
-      els.pvpLobbyStatus.textContent = "Waiting for an opponent…";
-    }
   } catch (error) {
     hidePvpLobby();
     console.error(error);
@@ -227,69 +244,97 @@ async function startPvp() {
 
 async function enterArena(matchId) {
   await teardownMatch(true);
-  // Stay in lobby view while waiting; setView("game") fires when opponent connects
-  game.setMode("player");
-  game.setPlayerPerspective({ userId: state.user.id, displayName: state.profile?.display_name || "You" });
+  state.remoteIds.clear();
+  state.started = false;
+  // Stay in lobby view while waiting; setView("game") fires when the room fills.
+  game.setLocalUser({ userId: state.user.id, displayName: state.profile?.display_name || "You" });
+  game.usePvpFoes();
   game.setMatchPhase("waiting");
-  game.clearRemote();       // AI stand-in until the real opponent connects
   game.resetForMatch();
-
-  await loadRoster(matchId);
 
   state.channel = supabase.channel(`match-${matchId}`, {
     config: { broadcast: { self: false }, presence: { key: state.user.id } }
   });
   state.channel
     .on("broadcast", { event: "state" }, ({ payload }) => {
-      if (payload?.userId && payload.userId !== state.user.id) game.receivePlayerState(payload.snapshot);
+      if (payload?.userId && payload.userId !== state.user.id) game.receivePlayerState(payload.userId, payload.snapshot);
     })
     .on("broadcast", { event: "attack" }, ({ payload }) => game.receiveAttack(payload))
     .on("presence", { event: "sync" }, () => { loadRoster(matchId).catch((e) => console.error(e)); })
     .on("presence", { event: "leave" }, ({ leftPresences }) => {
-      const oppLeft = (leftPresences || []).some((p) => p.user_id === state.remoteId);
-      if (oppLeft) handleOpponentLeft();
+      (leftPresences || []).forEach((p) => { if (state.remoteIds.has(p.user_id)) handleOpponentLeft(p.user_id); });
     })
     .subscribe((status) => {
       if (status === "SUBSCRIBED") state.channel.track({ user_id: state.user.id, display_name: state.profile?.display_name });
     });
+
+  await loadRoster(matchId);
 }
 
 async function loadRoster(matchId) {
-  const { data, error } = await supabase
-    .from("match_players")
-    .select("user_id, seat, display_name")
-    .eq("match_id", matchId)
-    .order("seat", { ascending: true });
-  if (error) { console.warn(error); return; }
+  const [matchRes, playersRes] = await Promise.all([
+    supabase.from("matches").select("status, max_players").eq("id", matchId).maybeSingle(),
+    supabase.from("match_players").select("user_id, seat, display_name").eq("match_id", matchId).order("seat", { ascending: true })
+  ]);
+  if (playersRes.error) { console.warn(playersRes.error); return; }
+  const players = playersRes.data || [];
+  const matchRow = matchRes.data;
+  const max = matchRow?.max_players || state.match?.maxPlayers || 2;
+  if (state.match) state.match.maxPlayers = max;
 
-  const opponent = (data || []).find((p) => p.user_id !== state.user.id);
-  if (opponent && opponent.user_id !== state.remoteId) {
-    state.remoteId = opponent.user_id;
-    if (state.match) state.match.status = "active";
-    hidePvpLobby();
-    game.setView("game");
-    game.setMatchPhase("active");
-    game.setRemoteIdentity({ userId: opponent.user_id, displayName: opponent.display_name });
-    game.resetForMatch();
-    setStatus("Opponent found — fight!");
+  // Add any opponents we haven't seen yet (removals come via presence leave).
+  for (const p of players) {
+    if (p.user_id === state.user.id) continue;
+    if (!state.remoteIds.has(p.user_id)) {
+      state.remoteIds.add(p.user_id);
+      game.addOpponent({ userId: p.user_id, displayName: p.display_name });
+    }
   }
+
+  const isActive = matchRow?.status === "active" || players.length >= max;
+  if (isActive) {
+    beginMatch();
+  } else {
+    els.pvpLobbyStatus.textContent = "Waiting for players…";
+    els.pvpLobbyMeta.textContent = `${players.length} / ${max} players`;
+  }
+}
+
+// Flip from the waiting lobby into the live arena (once only).
+function beginMatch() {
+  if (state.started) return;
+  state.started = true;
+  if (state.match) state.match.status = "active";
+  hidePvpLobby();
+  game.setView("game");
+  game.setMatchPhase("active");
+  game.resetForMatch();
+  setStatus("Fight! Last one standing wins.");
 }
 
 // ---------------------------------------------------------------------------
 // Result handling (PvP only) — loser is whoever hits 0 HP or disconnects
 // ---------------------------------------------------------------------------
-// Opponent dropped the connection: award the win to the player still standing.
-function handleOpponentLeft() {
-  if (state.match?.mode !== "pvp" || state.match.finished) return;
-  reportResult("win", { reason: "Your opponent disconnected." }).catch((e) => console.error(e));
+// A rival dropped the connection: remove them. If they were the last one and
+// we're still standing, we take the win.
+function handleOpponentLeft(userId) {
+  state.remoteIds.delete(userId);
+  const remaining = game.removeOpponent(userId);
+  if (state.match?.mode !== "pvp" || state.match.finished || !state.started) return;
+  if (remaining === 0 && game.playerAlive()) {
+    reportResult("win", { reason: "Last one standing — rivals disconnected." }).catch((e) => console.error(e));
+  }
 }
 
+// Free-for-all: only the winner writes the result (and finish_match marks the
+// loss for everyone else). Losers just show defeat and refresh their record.
 async function reportResult(result, { reason = "" } = {}) {
   if (state.match?.mode !== "pvp" || !state.match.id || state.match.finished) return;
   state.match.finished = true;
-  const winner = result === "win" ? state.user.id : state.remoteId;
   try {
-    if (winner) await supabase.rpc("finish_match", { p_match_id: state.match.id, p_winner_user_id: winner });
+    if (result === "win") {
+      await supabase.rpc("finish_match", { p_match_id: state.match.id, p_winner_user_id: state.user.id });
+    }
     await syncProfile();
   } catch (error) {
     console.error(error);
@@ -303,6 +348,7 @@ async function leaveMatch({ silent = false } = {}) {
   if (!state.match) { if (!silent) setStatus("You're not in a match."); return; }
   if (state.match.mode === "pvp") {
     try { await supabase.rpc("leave_my_matches"); } catch (error) { console.error(error); }
+    try { await syncProfile(); } catch (error) { console.error(error); } // pick up any recorded loss
   }
   await teardownMatch();
   game.clearAll();
@@ -315,7 +361,9 @@ async function teardownMatch(keepMatch = false) {
     await supabase.removeChannel(state.channel);
     state.channel = null;
   }
-  state.remoteId = null;
+  state.remoteIds.clear();
+  state.started = false;
+  game.clearRemote();
   if (!keepMatch) { state.match = null; state.seat = null; }
 }
 
@@ -342,5 +390,20 @@ function toggle(el, show) {
 }
 
 function setStatus(message) {
-  els.appStatus.textContent = message;
+  if (els.appStatus) els.appStatus.textContent = message;
+  pushLog(message);
+}
+
+// Top-left log feed: shows the latest few status lines, each fading out.
+function pushLog(message) {
+  if (!els.logFeed || !message) return;
+  const line = document.createElement("div");
+  line.className = "log-line";
+  line.textContent = message;
+  els.logFeed.appendChild(line);
+  while (els.logFeed.children.length > 4) els.logFeed.removeChild(els.logFeed.firstChild);
+  setTimeout(() => {
+    line.classList.add("fade");
+    setTimeout(() => line.remove(), 600);
+  }, 4200);
 }
