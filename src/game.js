@@ -310,7 +310,7 @@ export function createArenaGame(options) {
 
   function drawGrid(width, height) {
     const spacing = width / 10;
-    ctx.strokeStyle = "rgba(255,255,255,0.08)";
+    ctx.strokeStyle = "rgba(212, 199, 160, 0.1)";
     ctx.lineWidth = 1;
     for (let x = 0; x <= width; x += spacing) {
       ctx.beginPath();
@@ -339,17 +339,20 @@ export function createArenaGame(options) {
     ctx.lineWidth = 3;
     ctx.stroke();
 
-    ctx.fillStyle = "rgba(6,10,11,0.86)";
-    ctx.fillRect(-36, -40, 72, 9);
+    ctx.fillStyle = "rgba(4,6,4,0.9)";
+    ctx.fillRect(-37, -41, 74, 10);
     ctx.fillStyle = accent;
-    ctx.fillRect(-36, -40, 72 * (entity.hp / entity.maxHp), 9);
+    ctx.fillRect(-36, -40, 72 * (entity.hp / entity.maxHp), 8);
+    ctx.strokeStyle = "rgba(212, 199, 160, 0.35)";
+    ctx.lineWidth = 1;
+    ctx.strokeRect(-37, -41, 74, 10);
 
-    ctx.fillStyle = "#edf6ef";
-    ctx.font = "700 13px IBM Plex Sans";
+    ctx.fillStyle = "#f3ecd8";
+    ctx.font = "700 13px Oswald, sans-serif";
     ctx.textAlign = "center";
-    ctx.fillText(label, 0, -48);
-    ctx.fillStyle = "rgba(237,246,239,0.72)";
-    ctx.font = "12px IBM Plex Sans";
+    ctx.fillText(label.toUpperCase(), 0, -48);
+    ctx.fillStyle = "rgba(243,236,216,0.7)";
+    ctx.font = "600 12px Rajdhani, sans-serif";
     ctx.fillText(hpText, 0, 42);
     ctx.restore();
   }
@@ -358,26 +361,41 @@ export function createArenaGame(options) {
     const rect = mount.getBoundingClientRect();
     ctx.clearRect(0, 0, rect.width, rect.height);
 
-    const gradient = ctx.createLinearGradient(0, 0, 0, rect.height);
-    gradient.addColorStop(0, "#dce6e6");
-    gradient.addColorStop(1, "#a6b3b5");
+    // Muddy no-man's-land battlefield
+    const gradient = ctx.createRadialGradient(
+      rect.width / 2, rect.height / 2, rect.height * 0.1,
+      rect.width / 2, rect.height / 2, rect.height * 0.85
+    );
+    gradient.addColorStop(0, "#3a3a26");
+    gradient.addColorStop(0.6, "#2a2a1b");
+    gradient.addColorStop(1, "#171710");
     ctx.fillStyle = gradient;
+    ctx.fillRect(0, 0, rect.width, rect.height);
+
+    // Faction territory wash (green left, red right)
+    const left = ctx.createLinearGradient(0, 0, rect.width, 0);
+    left.addColorStop(0, "rgba(74, 143, 47, 0.12)");
+    left.addColorStop(0.45, "rgba(74, 143, 47, 0)");
+    left.addColorStop(0.55, "rgba(168, 47, 32, 0)");
+    left.addColorStop(1, "rgba(168, 47, 32, 0.12)");
+    ctx.fillStyle = left;
     ctx.fillRect(0, 0, rect.width, rect.height);
 
     drawGrid(rect.width, rect.height);
 
     if (perspective === "player" && local.moveTarget) {
       const target = worldToCanvas(local.moveTarget);
-      ctx.fillStyle = "rgba(55,168,73,0.16)";
-      ctx.strokeStyle = "rgba(55,168,73,0.72)";
+      ctx.fillStyle = "rgba(240, 182, 74, 0.16)";
+      ctx.strokeStyle = "rgba(240, 182, 74, 0.78)";
+      ctx.lineWidth = 1.5;
       ctx.beginPath();
       ctx.arc(target.x, target.y, 12, 0, Math.PI * 2);
       ctx.fill();
       ctx.stroke();
     }
 
-    drawPawn(local, "rgba(63,136,71,0.9)", "#cbf1b6", local.displayName, `${local.hp} HP`);
-    drawPawn(remote, "rgba(194,72,72,0.88)", "#f9a7a7", remote.displayName, `${remote.hp} HP`);
+    drawPawn(local, "rgba(95,168,63,0.92)", "#aee87c", local.displayName, `${local.hp} HP`);
+    drawPawn(remote, "rgba(208,72,56,0.9)", "#f2a08f", remote.displayName, `${remote.hp} HP`);
 
     bullets.forEach((bullet) => {
       const point = worldToCanvas(bullet);
