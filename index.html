@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>Age of Trenches — Realtime PvP Arena</title>
+<title>FIGHT10 — Last One Standing</title>
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link href="https://fonts.googleapis.com/css2?family=Black+Ops+One&family=Oswald:wght@400;500;600;700&family=Rajdhani:wght@500;600;700&display=swap" rel="stylesheet" />
@@ -16,28 +16,25 @@
       <div class="world-vignette"></div>
       <div class="world-grain"></div>
       <div class="world-scanlines"></div>
-      <div class="arena-topbar">
-        <div class="topnav">
-          <div class="topnav-brand">
-            <span class="topnav-emblem" aria-hidden="true">✶</span>
-            <span class="topnav-title">AGE OF TRENCHES</span>
-            <span class="topnav-badge">BETA</span>
-          </div>
-          <div></div>
-          <div class="topnav-actions">
-            <button class="connect-pill" id="signInWalletBtn" type="button">Connect Wallet</button>
-          </div>
-        </div>
+
+      <header class="brand-header">
+        <h1 class="brand-title">FIGHT10</h1>
+      </header>
+      <div class="top-actions">
+        <button class="connect-pill hidden" id="profileBtn" type="button">Profile</button>
+        <button class="connect-pill" id="signInWalletBtn" type="button">Connect Wallet</button>
       </div>
 
       <section class="arena-panel">
         <div id="arenaMount" class="arena-mount"></div>
         <section class="hero-panel">
-          <p class="hero-kicker">Realtime Arena</p>
-          <h1 class="hero-title">Trench Duel</h1>
+          <h2 class="hero-title">Last One Standing</h2>
           <p class="hero-copy">
-            A tactical isometric arena. Connect your Solana wallet, then drop into a
-            demo match against the computer or queue up for live PvP.
+            A tactical isometric arena. Every fighter spawns with the
+            <strong>same health, the same attack, and the same weapons</strong> —
+            no advantages, pure skill. Connect your Solana wallet, then drop into a
+            demo match against the computer or queue for 2, 5, or 10-player PvP.
+            <strong>Winner takes it all.</strong>
           </p>
           <div class="hero-actions">
             <button class="hero-primary" id="connectWalletBtn" type="button">Connect Wallet</button>
@@ -46,10 +43,9 @@
             <button class="hero-secondary hidden" id="pvpBtn" type="button">Play PvP</button>
             <button class="hero-secondary hidden" id="signOutBtn" type="button">Sign Out</button>
           </div>
-          <div class="status-strip" id="appStatus">Connect a Solana wallet to begin.</div>
         </section>
       </section>
-      <div class="micro-footer">Built for live wallet PvP and realtime arena play.</div>
+      <div class="micro-footer">Same kit for everyone. Winner takes it all.</div>
     </main>
   </div>
 
@@ -113,6 +109,26 @@
     </div>
   </div>
 
+  <!-- Profile -->
+  <div class="overlay" id="profileOverlay">
+    <div class="panel">
+      <div class="panel-head">Profile<button class="close" id="profileClose" type="button">&times;</button></div>
+      <div class="tab-body">
+        <label class="profile-label" for="profileNameInput">Username</label>
+        <input id="profileNameInput" type="text" maxlength="24" autocomplete="off" spellcheck="false" placeholder="3–24 characters" />
+        <div class="profile-hint" id="profileHint">Saved to your wallet profile.</div>
+        <div class="divider"></div>
+        <div class="section">STATS</div>
+        <div class="profile-stats">
+          <div class="go-stat go-win"><span class="go-num" id="profileWins">0</span><span class="go-label">Wins</span></div>
+          <div class="go-stat go-loss"><span class="go-num" id="profileLosses">0</span><span class="go-label">Losses</span></div>
+          <div class="go-stat"><span class="go-num" id="profileWinRate">0%</span><span class="go-label">Win Rate</span></div>
+        </div>
+        <button class="profile-save" id="profileSaveBtn" type="button">Save Username</button>
+      </div>
+    </div>
+  </div>
+
   <div class="overlay" id="howToOverlay">
     <div class="panel">
       <div class="panel-head">How to Play<button class="close" id="howToClose" type="button">&times;</button></div>
@@ -124,9 +140,13 @@
         <div class="row"><span>Switch weapon</span><span class="k">keys 1 – 2</span></div>
         <div class="row"><span>Leave match</span><span class="k">Esc</span></div>
         <div class="divider"></div>
+        <div class="section">RULES</div>
+        <div class="row"><span>Loadout</span><span class="k">everyone starts equal — same HP, attack &amp; weapons</span></div>
+        <div class="row"><span>Win</span><span class="k">last one standing · winner takes it all</span></div>
+        <div class="divider"></div>
         <div class="section">MODES</div>
         <div class="row"><span>Demo Match</span><span class="k">vs the computer</span></div>
-        <div class="row"><span>Play PvP</span><span class="k">2 / 5 / 10 players · free-for-all · last one standing wins</span></div>
+        <div class="row"><span>Play PvP</span><span class="k">2 / 5 / 10 players · free-for-all</span></div>
       </div>
     </div>
   </div>
