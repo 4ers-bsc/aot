@@ -23,13 +23,9 @@
             <span class="topnav-title">AGE OF TRENCHES</span>
             <span class="topnav-badge">BETA</span>
           </div>
-          <div class="topnav-links">
-            <button class="navlink" type="button">How to Play</button>
-            <button class="navlink" type="button">Docs</button>
-          </div>
+          <div></div>
           <div class="topnav-actions">
-            <div class="presence" id="presenceState">Waiting for Supabase connection</div>
-            <button class="connect-pill" id="signInWalletBtn" type="button">Connect</button>
+            <button class="connect-pill" id="signInWalletBtn" type="button">Connect Wallet</button>
           </div>
         </div>
       </div>
@@ -38,69 +34,41 @@
         <div id="arenaMount" class="arena-mount"></div>
         <section class="hero-panel">
           <p class="hero-kicker">Realtime Arena</p>
-          <h1 class="hero-title" id="arenaTitle">Trench Duel</h1>
+          <h1 class="hero-title">Trench Duel</h1>
           <p class="hero-copy">
-            A tactical isometric arena. Sign in with your Solana wallet and drop into a
-            demo match against the next player in the queue.
+            A tactical isometric arena. Connect your Solana wallet, then drop into a
+            demo match against the computer or queue up for live PvP.
           </p>
           <div class="hero-actions">
-            <button class="hero-primary" id="heroPlayBtn" type="button">Play Now</button>
+            <button class="hero-primary" id="connectWalletBtn" type="button">Connect Wallet</button>
+            <button class="hero-secondary" id="howToPlayBtn" type="button">How to Play</button>
+            <button class="hero-primary hidden" id="demoBtn" type="button">Demo Match</button>
+            <button class="hero-secondary hidden" id="pvpBtn" type="button">Play PvP</button>
             <button class="hero-secondary hidden" id="signOutBtn" type="button">Sign Out</button>
-          </div>
-          <div class="hero-pills">
-            <div class="metric-pill">
-              <span class="dot"></span>
-              <span>Realtime PvP</span>
-            </div>
-            <div class="metric-pill">
-              <span class="dot"></span>
-              <span>Wallet Sign-In</span>
-            </div>
           </div>
           <div class="status-strip" id="appStatus">Connect a Solana wallet to begin.</div>
         </section>
-
-        <aside class="hud-rail">
-          <section class="hud-panel hud-auth" id="authCard">
-            <div class="hud-panel-head">
-              <span>Wallet Access</span>
-              <span class="badge" id="walletBadge">disconnected</span>
-            </div>
-            <p class="microcopy" id="walletHint">Sign in with a Solana wallet like Phantom, Backpack, or Brave to play.</p>
-          </section>
-
-          <section class="hud-panel hidden" id="profileCard">
-            <div class="hud-panel-head">
-              <span>Player</span>
-              <span class="badge" id="authBadge">offline</span>
-            </div>
-            <div class="hud-list">
-              <div class="hud-row"><span class="hud-key">Wallet</span><strong id="walletAddress">--</strong></div>
-              <div class="hud-row"><span class="hud-key">Player ID</span><strong id="playerShortId">--</strong></div>
-            </div>
-            <label class="field">
-              <span>Display Name</span>
-              <input id="displayNameInput" maxlength="24" placeholder="TrenchRunner" autocomplete="off" />
-            </label>
-            <button class="secondary-button" id="saveNameBtn" type="button">Save Name</button>
-          </section>
-
-          <section class="hud-panel hidden" id="matchCard">
-            <div class="hud-panel-head">
-              <span>Demo Match</span>
-              <span class="badge badge-warm" id="matchStatusBadge">idle</span>
-            </div>
-            <div id="roster" class="roster empty">No active match yet.</div>
-            <div class="actions action-grid">
-              <button class="primary-button" id="queueBtn" type="button">Find Demo Match</button>
-              <button class="danger-button" id="forfeitBtn" type="button">Leave Match</button>
-            </div>
-            <p class="microcopy" id="settlementNote">You're paired with the next player who joins. Click the battlefield to move.</p>
-          </section>
-        </aside>
       </section>
       <div class="micro-footer">Built for live wallet PvP and realtime arena play.</div>
     </main>
+  </div>
+
+  <div class="overlay" id="howToOverlay">
+    <div class="panel">
+      <div class="panel-head">How to Play<button class="close" id="howToClose" type="button">&times;</button></div>
+      <div class="tab-body">
+        <div class="row"><span>Move</span><span class="k">click a tile</span></div>
+        <div class="row"><span>Attack / shoot</span><span class="k">click the rival</span></div>
+        <div class="row"><span>Pan camera</span><span class="k">click + drag</span></div>
+        <div class="row"><span>Zoom</span><span class="k">mouse wheel</span></div>
+        <div class="row"><span>Switch weapon</span><span class="k">keys 1 – 2</span></div>
+        <div class="row"><span>Leave match</span><span class="k">Esc</span></div>
+        <div class="divider"></div>
+        <div class="section">MODES</div>
+        <div class="row"><span>Demo Match</span><span class="k">vs the computer</span></div>
+        <div class="row"><span>Play PvP</span><span class="k">vs another player · reach 0 HP and you lose</span></div>
+      </div>
+    </div>
   </div>
 
   <script type="module" src="./src/main.js"></script>
