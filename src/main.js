@@ -72,6 +72,10 @@ function bindUi() {
   els.saveNameBtn.addEventListener("click", saveDisplayName);
   els.queueBtn.addEventListener("click", findMatch);
   els.forfeitBtn.addEventListener("click", leaveMatch);
+  // Esc leaves the match and returns to the lobby chrome.
+  window.addEventListener("keydown", (e) => {
+    if (e.key === "Escape" && state.match) leaveMatch();
+  });
 }
 
 async function init() {
@@ -211,6 +215,8 @@ async function leaveMatch({ silent = false } = {}) {
 async function enterArena(matchId) {
   await teardownMatch(true);
 
+  // Switch to the full-screen game view: hides app chrome, applies game theme.
+  game.setView("game");
   game.setMode("player");
   game.setPlayerPerspective({
     userId: state.user.id,
