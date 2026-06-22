@@ -11,6 +11,15 @@ const els = {
   signInWalletBtn: document.getElementById("signInWalletBtn"),
   connectWalletBtn: document.getElementById("connectWalletBtn"),
   howToPlayBtn: document.getElementById("howToPlayBtn"),
+  profileBtn: document.getElementById("profileBtn"),
+  profileOverlay: document.getElementById("profileOverlay"),
+  profileClose: document.getElementById("profileClose"),
+  profileNameInput: document.getElementById("profileNameInput"),
+  profileHint: document.getElementById("profileHint"),
+  profileWins: document.getElementById("profileWins"),
+  profileLosses: document.getElementById("profileLosses"),
+  profileWinRate: document.getElementById("profileWinRate"),
+  profileSaveBtn: document.getElementById("profileSaveBtn"),
   demoBtn: document.getElementById("demoBtn"),
   pvpBtn: document.getElementById("pvpBtn"),
   signOutBtn: document.getElementById("signOutBtn"),
@@ -73,6 +82,13 @@ function bindUi() {
   els.signOutBtn.addEventListener("click", signOut);
   els.howToPlayBtn.addEventListener("click", () => els.howToOverlay.classList.add("show"));
   els.howToClose.addEventListener("click", () => els.howToOverlay.classList.remove("show"));
+  els.profileBtn.addEventListener("click", openProfile);
+  els.profileClose.addEventListener("click", () => els.profileOverlay.classList.remove("show"));
+  els.profileOverlay.addEventListener("pointerdown", (e) => {
+    if (e.target === els.profileOverlay) els.profileOverlay.classList.remove("show");
+  });
+  els.profileSaveBtn.addEventListener("click", saveProfile);
+  els.profileNameInput.addEventListener("keydown", (e) => { if (e.key === "Enter") saveProfile(); });
   els.pvpCancelBtn.addEventListener("click", () => leaveMatch());
   els.gameOverMenuBtn.addEventListener("click", () => { hideGameOver(); leaveMatch({ silent: true }); });
   els.pvpSizeClose.addEventListener("click", () => els.pvpSizeOverlay.classList.remove("show"));
@@ -375,9 +391,57 @@ function showLobby() {
   toggle(els.connectWalletBtn, !connected);
   toggle(els.signInWalletBtn, !connected);
   toggle(els.howToPlayBtn, true);
+  toggle(els.profileBtn, connected);
   toggle(els.demoBtn, connected);
   toggle(els.pvpBtn, connected);
   toggle(els.signOutBtn, connected);
+}
+
+// ---------------------------------------------------------------------------
+// Profile — edit username (saved to the DB) and view stats
+// ---------------------------------------------------------------------------
+function openProfile() {
+  if (!state.user) { signIn(); return; }
+  renderProfileStats();
+  els.profileNameInput.value = state.profile?.display_name || "";
+  els.profileHint.textContent = "Saved to your wallet profile.";
+  els.profileHint.classList.remove("error");
+  els.profileOverlay.classList.add("show");
+  els.profileNameInput.focus();
+}
+
+function renderProfileStats() {
+  const wins = state.profile?.wins ?? 0;
+  const losses = state.profile?.losses ?? 0;
+  const total = wins + losses;
+  els.profileWins.textContent = wins;
+  els.profileLosses.textContent = losses;
+  els.profileWinRate.textContent = total ? `${Math.round((wins / total) * 100)}%` : "—";
+}
+
+async function saveProfile() {
+  const name = els.profileNameInput.value.trim();
+  if (name.length < 3 || name.length > 24) {
+    els.profileHint.textContent = "Username must be 3–24 characters.";
+    els.profileHint.classList.add("error");
+    return;
+  }
+  els.profileSaveBtn.disabled = true;
+  try {
+    const { data, error } = await supabase.rpc("sync_my_profile", { p_display_name: name });
+    if (error) throw error;
+    state.profile = data;
+    renderProfileStats();
+    els.profileHint.textContent = "Saved.";
+    els.profileHint.classList.remove("error");
+    setStatus(recordSuffix(`Username set to ${state.profile.display_name}.`));
+  } catch (error) {
+    console.error(error);
+    els.profileHint.textContent = error.message || "Could not save username.";
+    els.profileHint.classList.add("error");
+  } finally {
+    els.profileSaveBtn.disabled = false;
+  }
 }
 
 function recordSuffix(message) {
