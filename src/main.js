@@ -494,9 +494,20 @@ async function depositEntryFee(matchId, numPlayers = 2) {
     console.log("[depositEntryFee] player pubkey:", playerPubkey.toString());
     console.log("[depositEntryFee] escrow pubkey:", escrowPubkey.toString());
 
+    // Detect token program from mint account owner (Token vs Token-2022)
+    const TOKEN_2022_PROGRAM_ID = new PublicKey("TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb");
+    const mintAccountInfo = await connection.getAccountInfo(mintPubkey);
+    if (!mintAccountInfo) throw new Error("Mint account not found on-chain — check FIGHT10_MINT address.");
+    const resolvedTokenProgramId = mintAccountInfo.owner;
+    const isToken2022 = resolvedTokenProgramId.equals(TOKEN_2022_PROGRAM_ID);
+    console.log("[depositEntryFee] mint owner (token program):", resolvedTokenProgramId.toString());
+    console.log("[depositEntryFee] is Token-2022:", isToken2022);
+
     // Find the player's actual token account for FIGHT10 (may not be the canonical ATA)
     console.log("[depositEntryFee] fetching player token accounts for mint…");
-    const tokenAccounts = await connection.getTokenAccountsByOwner(playerPubkey, { mint: mintPubkey });
+    const tokenAccounts = await connection.getTokenAccountsByOwner(
+      playerPubkey, { mint: mintPubkey }, { commitment: "confirmed", encoding: "jsonParsed" },
+    );
     console.log("[depositEntryFee] player token accounts found:", tokenAccounts.value.length,
       tokenAccounts.value.map((a) => a.pubkey.toString()));
     if (!tokenAccounts.value.length) throw new Error("No FIGHT10 token account found in wallet.");
@@ -520,7 +531,7 @@ async function depositEntryFee(matchId, numPlayers = 2) {
 
     // Canonical escrow ATA — create it in the same tx if it doesn't exist yet (one-time)
     const escrowAta = await getAssociatedTokenAddress(mintPubkey, escrowPubkey, false,
-      TOKEN_PROGRAM_ID, ASSOCIATED_TOKEN_PROGRAM_ID);
+      resolvedTokenProgramId, ASSOCIATED_TOKEN_PROGRAM_ID);
     console.log("[depositEntryFee] escrow ATA (TO):", escrowAta.toString());
     const escrowAtaInfo = await connection.getAccountInfo(escrowAta);
     console.log("[depositEntryFee] escrow ATA exists on-chain:", !!escrowAtaInfo);
@@ -530,11 +541,11 @@ async function depositEntryFee(matchId, numPlayers = 2) {
       console.log("[depositEntryFee] ⚠ escrow ATA missing — prepending createAssociatedTokenAccount instruction (player pays ~0.002 SOL rent, one-time)");
       instructions.push(createAssociatedTokenAccountInstruction(
         playerPubkey, escrowAta, escrowPubkey, mintPubkey,
-        TOKEN_PROGRAM_ID, ASSOCIATED_TOKEN_PROGRAM_ID
+        resolvedTokenProgramId, ASSOCIATED_TOKEN_PROGRAM_ID
       ));
     }
     instructions.push(createTransferInstruction(
-      sourceAta, escrowAta, playerPubkey, ENTRY_FEE_RAW, [], TOKEN_PROGRAM_ID
+      sourceAta, escrowAta, playerPubkey, ENTRY_FEE_RAW, [], resolvedTokenProgramId
     ));
     console.log("[depositEntryFee] instructions count:", instructions.length,
       instructions.length > 1 ? "(createATA + transfer)" : "(transfer only)");
