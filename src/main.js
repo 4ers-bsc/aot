@@ -99,6 +99,7 @@ init();
 function bindUi() {
   els.signInWalletBtn.addEventListener("click", signIn);
   els.connectWalletBtn.addEventListener("click", signIn);
+  document.getElementById("joinFightBtn")?.addEventListener("click", signIn);
   els.demoBtn.addEventListener("click", startDemo);
   els.pvpBtn.addEventListener("click", startPvp);
   els.signOutBtn.addEventListener("click", signOut);
