@@ -503,29 +503,25 @@ async function depositEntryFee(matchId, numPlayers = 2) {
     console.log("[depositEntryFee] mint owner (token program):", resolvedTokenProgramId.toString());
     console.log("[depositEntryFee] is Token-2022:", isToken2022);
 
-    // Find the player's actual token account for FIGHT10 (may not be the canonical ATA)
+    // Find the player's actual token account for FIGHT10 (same method as getFight10Balance)
     console.log("[depositEntryFee] fetching player token accounts for mint…");
-    const tokenAccounts = await connection.getTokenAccountsByOwner(
-      playerPubkey, { mint: mintPubkey }, { commitment: "confirmed", encoding: "jsonParsed" },
+    const { value: tokenAccounts } = await connection.getParsedTokenAccountsByOwner(
+      playerPubkey, { mint: mintPubkey }
     );
-    console.log("[depositEntryFee] player token accounts found:", tokenAccounts.value.length,
-      tokenAccounts.value.map((a) => a.pubkey.toString()));
-    if (!tokenAccounts.value.length) throw new Error("No FIGHT10 token account found in wallet.");
+    console.log("[depositEntryFee] player token accounts found:", tokenAccounts.length,
+      tokenAccounts.map((a) => ({
+        pubkey: a.pubkey.toString(),
+        amount: a.account.data.parsed.info.tokenAmount.uiAmount,
+      })));
+    if (!tokenAccounts.length) throw new Error("No FIGHT10 token account found in wallet.");
 
     // Pick the account with the highest balance as source
-    let sourceAta = tokenAccounts.value[0].pubkey;
-    if (tokenAccounts.value.length > 1) {
-      const infos = await Promise.all(
-        tokenAccounts.value.map((a) => connection.getParsedAccountInfo(a.pubkey))
-      );
-      let max = BigInt(0);
-      tokenAccounts.value.forEach((a, i) => {
-        const amt = BigInt(infos[i].value.data.parsed.info.tokenAmount.amount);
-        if (amt > max) { max = amt; sourceAta = a.pubkey; }
-      });
-    }
-    const sourceInfo = await connection.getParsedAccountInfo(sourceAta);
-    const sourceAmount = sourceInfo.value.data.parsed.info.tokenAmount;
+    tokenAccounts.sort((a, b) =>
+      Number(BigInt(b.account.data.parsed.info.tokenAmount.amount) -
+             BigInt(a.account.data.parsed.info.tokenAmount.amount))
+    );
+    const sourceAta  = tokenAccounts[0].pubkey;
+    const sourceAmount = tokenAccounts[0].account.data.parsed.info.tokenAmount;
     console.log("[depositEntryFee] source token account (FROM):", sourceAta.toString());
     console.log("[depositEntryFee] source balance:", sourceAmount.uiAmount, "FIGHT10 (raw:", sourceAmount.amount, ")");
 
