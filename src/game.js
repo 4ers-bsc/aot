@@ -1007,7 +1007,7 @@ export function createArenaGame(options) {
 
   // -- Loop -----------------------------------------------------------------
   let destroyed = false;
-  let fpsAcc = 0, fpsFrames = 0, pingTimer = 0;
+  let fpsAcc = 0, fpsFrames = 0;
   const clock = new THREE.Clock();
   function animate() {
     if (destroyed) return;
@@ -1076,12 +1076,7 @@ export function createArenaGame(options) {
       if (fpsAcc >= 0.5) { fpsEl.textContent = "FPS " + Math.round(fpsFrames / fpsAcc); fpsAcc = 0; fpsFrames = 0; }
     }
     if (settings.ping) {
-      if (foeMode === "net") {
-        pingTimer -= dt;
-        if (pingTimer <= 0) { pingTimer = 2; pingEl.textContent = (22 + Math.round(Math.random() * 16)) + " ms"; }
-      } else {
-        pingEl.textContent = "-- ms";
-      }
+      if (foeMode !== "net") pingEl.textContent = "-- ms";
     }
     const aliveRivals = foeList().filter((f) => f.connected && !f.dead).length;
     coords.textContent = `x ${player.group.position.x.toFixed(1)} · z ${player.group.position.z.toFixed(1)} · ${foeMode === "net" ? `rivals ${aliveRivals}` : `kills ${kills}`}`;
@@ -1238,6 +1233,7 @@ export function createArenaGame(options) {
       document.body.classList.remove("in-game");
       applyTheme("lobby");
     },
+    setPing(ms) { if (pingEl) pingEl.textContent = ms != null ? ms + " ms" : "-- ms"; },
     openSettings() { overlay.classList.add("show"); },
     destroy() {
       destroyed = true;

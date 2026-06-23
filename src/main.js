@@ -77,7 +77,8 @@ const state = {
   remoteIds: new Set(),
   started: false,
   channel: null,
-  iRoomFiller: false
+  iRoomFiller: false,
+  pingInterval: null
 };
 
 const game = createArenaGame({
@@ -325,6 +326,33 @@ function hideGameOver() {
 function startPvp() {
   if (!state.user) { signIn(); return; }
   els.pvpSizeOverlay.classList.add("show");
+  fetchLobbyCounts().catch(() => {});
+}
+
+async function fetchLobbyCounts() {
+  const { data: matches, error } = await supabase
+    .from("matches")
+    .select("id, max_players")
+    .eq("status", "waiting");
+  if (error || !matches) return;
+  const matchIds = matches.map((m) => m.id);
+  const sizeOf = Object.fromEntries(matches.map((m) => [m.id, m.max_players]));
+  const counts = { 2: 0, 5: 0, 10: 0 };
+  if (matchIds.length > 0) {
+    const { data: players } = await supabase
+      .from("match_players")
+      .select("match_id")
+      .in("match_id", matchIds);
+    (players || []).forEach((p) => {
+      const sz = sizeOf[p.match_id];
+      if (sz) counts[sz] = (counts[sz] || 0) + 1;
+    });
+  }
+  [2, 5, 10].forEach((sz) => {
+    const el = document.getElementById("pvpWaiting" + sz);
+    if (!el) return;
+    el.textContent = counts[sz] > 0 ? counts[sz] + " waiting" : "";
+  });
 }
 
 async function joinPvp(maxPlayers) {
@@ -357,7 +385,6 @@ async function enterArena(matchId) {
   game.setLocalUser({ userId: state.user.id, displayName: state.profile?.display_name || "You" });
   game.usePvpFoes();
   game.setMatchPhase("waiting");
-  game.resetForMatch();
 
   state.channel = supabase.channel(`match-${matchId}`, {
     config: { broadcast: { self: false }, presence: { key: state.user.id } }
@@ -440,6 +467,24 @@ function matchDuration(max) {
 
 // Flip from the waiting lobby into the live arena (once only), behind a short
 // "MATCH STARTING" transition so every client starts together.
+function startPingLoop() {
+  stopPingLoop();
+  const probe = async () => {
+    try {
+      const t0 = performance.now();
+      await supabase.from("profiles").select("id").limit(1);
+      game.setPing(Math.round(performance.now() - t0));
+    } catch (_) {}
+  };
+  probe();
+  state.pingInterval = setInterval(probe, 3000);
+}
+
+function stopPingLoop() {
+  if (state.pingInterval) { clearInterval(state.pingInterval); state.pingInterval = null; }
+  game.setPing(null);
+}
+
 function beginMatch(skipCountdown = false) {
   if (state.started) return;
   state.started = true;
@@ -452,6 +497,7 @@ function beginMatch(skipCountdown = false) {
   game.resetForMatch();
   game.setMatchPhase("countdown");
   game.setControllable(false);
+  startPingLoop();
   if (skipCountdown) {
     // Late joiner who missed the "start" broadcast — match already in progress,
     // drop straight into active rather than showing a stale countdown.
@@ -516,6 +562,7 @@ async function leaveMatch({ silent = false } = {}) {
 }
 
 async function teardownMatch(keepMatch = false) {
+  stopPingLoop();
   if (state.channel) {
     await supabase.removeChannel(state.channel);
     state.channel = null;
