@@ -174,7 +174,12 @@ Deno.serve(async (req: Request) => {
     console.log("Escrow pubkey:", escrowKeypair.publicKey.toString());
 
     const mintPubkey   = new PublicKey(cleanMint);
-    const winnerPubkey = new PublicKey(profile.wallet_address.replace(B58_CHARS, ""));
+    console.log("Mint pubkey ok:", mintPubkey.toString());
+    const rawWallet = (profile.wallet_address ?? "").replace(B58_CHARS, "");
+    console.log("Winner wallet (sanitized):", rawWallet, "length:", rawWallet.length);
+    if (!rawWallet || rawWallet.length < 32) return errorResponse("Winner wallet address invalid", 400);
+    const winnerPubkey = new PublicKey(rawWallet);
+    console.log("Winner pubkey ok:", winnerPubkey.toString());
     const connection  = new Connection(rpcUrl, "confirmed");
 
     console.log("Fetching mint account to detect token program…");
