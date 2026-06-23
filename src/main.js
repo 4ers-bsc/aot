@@ -101,7 +101,8 @@ const state = {
   started: false,
   channel: null,
   iRoomFiller: false,
-  pingInterval: null
+  pingInterval: null,
+  depositPollTimer: null
 };
 
 const game = createArenaGame({
@@ -343,14 +344,25 @@ function showGameOver(result, reason, standings = [], prizeAmount = null) {
   const prizeEl  = document.getElementById("gameOverPrize");
   const prizeAmt = document.getElementById("gameOverPrizeAmount");
   if (prizeEl && prizeAmt) {
-    if (win && prizeAmount !== null) {
-      prizeAmt.textContent = prizeAmount.toLocaleString(undefined, { maximumFractionDigits: 0 });
+    if (win) {
+      prizeAmt.textContent = prizeAmount === "pending" ? "Processing payout…" : prizeAmount !== null
+        ? prizeAmount.toLocaleString(undefined, { maximumFractionDigits: 0 }) + " $FIGHT10"
+        : "Payout failed — contact support";
       prizeEl.classList.remove("hidden");
     } else {
       prizeEl.classList.add("hidden");
     }
   }
   els.gameOver.classList.remove("hidden");
+}
+
+function updateGameOverPrize(prizeAmount) {
+  const prizeEl  = document.getElementById("gameOverPrize");
+  const prizeAmt = document.getElementById("gameOverPrizeAmount");
+  if (!prizeEl || !prizeAmt) return;
+  prizeAmt.textContent = prizeAmount !== null
+    ? prizeAmount.toLocaleString(undefined, { maximumFractionDigits: 0 }) + " $FIGHT10"
+    : "Payout failed — contact support";
 }
 
 function renderStandings(standings) {
@@ -704,7 +716,7 @@ async function enterArena(matchId) {
 async function loadRoster(matchId) {
   const [matchRes, playersRes] = await Promise.all([
     supabase.from("matches").select("status, max_players").eq("id", matchId).maybeSingle(),
-    supabase.from("match_players").select("user_id, seat, display_name").eq("match_id", matchId).order("seat", { ascending: true })
+    supabase.from("match_players").select("user_id, seat, display_name, deposit_tx").eq("match_id", matchId).order("seat", { ascending: true })
   ]);
   if (playersRes.error) { console.warn(playersRes.error); return; }
   const players = playersRes.data || [];
@@ -725,8 +737,20 @@ async function loadRoster(matchId) {
 
   const isActive = matchRow?.status === "active";
   if (isActive) {
-    const isLateSync = !state.iRoomFiller && state.match?.status !== "active";
-    beginMatch(isLateSync);
+    const deposited = players.filter((p) => p.deposit_tx).length;
+    const allDeposited = deposited >= players.length;
+    if (allDeposited) {
+      clearInterval(state.depositPollTimer);
+      state.depositPollTimer = null;
+      const isLateSync = !state.iRoomFiller && state.match?.status !== "active";
+      beginMatch(isLateSync);
+    } else {
+      els.pvpLobbyStatus.textContent = "Waiting for deposits…";
+      els.pvpLobbyMeta.textContent = `${deposited} / ${players.length} deposited`;
+      if (!state.depositPollTimer) {
+        state.depositPollTimer = setInterval(() => loadRoster(matchId).catch(console.error), 2500);
+      }
+    }
   } else {
     els.pvpLobbyStatus.textContent = "Waiting for players…";
     els.pvpLobbyMeta.textContent = `${players.length} / ${max} players`;
@@ -830,26 +854,34 @@ function handleOpponentLeft(userId) {
 async function reportResult(result, { reason = "", standings = [] } = {}) {
   if (state.match?.mode !== "pvp" || !state.match.id || state.match.finished) return;
   state.match.finished = true;
+
+  if (result !== "win") {
+    // Losers: show defeat immediately, no payout involved
+    try { await syncProfile(); } catch (e) { console.error(e); }
+    showGameOver(result, reason, standings, null);
+    return;
+  }
+
+  // Winner: show game-over right away with a "processing" state, then fill in prize
+  showGameOver(result, reason, standings, "pending");
   let prizeAmount = null;
   try {
-    if (result === "win") {
-      await supabase.rpc("finish_match", { p_match_id: state.match.id, p_winner_user_id: state.user.id });
-      // Claim prize
-      setStatus("Claiming prize…");
-      const { data: payoutData, error: payoutErr } = await supabase.functions.invoke("f10treasurer", {
-        body: { match_id: state.match.id },
-      });
-      if (payoutErr) {
-        console.error("Payout invoke error:", payoutErr);
-      } else if (payoutData?.winner_amount && payoutData?.decimals != null) {
-        prizeAmount = Number(BigInt(payoutData.winner_amount)) / 10 ** payoutData.decimals;
-      }
+    await supabase.rpc("finish_match", { p_match_id: state.match.id, p_winner_user_id: state.user.id });
+    setStatus("Claiming prize…");
+    const { data: payoutData, error: payoutErr } = await supabase.functions.invoke("f10treasurer", {
+      body: { match_id: state.match.id },
+    });
+    if (payoutErr) {
+      console.error("Payout invoke error:", payoutErr);
+    } else if (payoutData?.winner_amount && payoutData?.decimals != null) {
+      prizeAmount = Number(BigInt(payoutData.winner_amount)) / 10 ** payoutData.decimals;
     }
     await syncProfile();
   } catch (error) {
     console.error(error);
   }
-  showGameOver(result, reason, standings, prizeAmount);
+  // Update prize display now that we have the result
+  updateGameOverPrize(prizeAmount);
 }
 
 async function leaveMatch({ silent = false } = {}) {
@@ -869,6 +901,7 @@ async function leaveMatch({ silent = false } = {}) {
 
 async function teardownMatch(keepMatch = false) {
   stopPingLoop();
+  if (state.depositPollTimer) { clearInterval(state.depositPollTimer); state.depositPollTimer = null; }
   if (state.channel) {
     await supabase.removeChannel(state.channel);
     state.channel = null;
