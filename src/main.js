@@ -223,24 +223,17 @@ function getSolanaWallet() {
 
 async function signIn() {
   const wallet = getSolanaWallet();
-  console.log("[signIn] getSolanaWallet →", wallet
-    ? `found (isPhantom=${wallet.isPhantom}, isBackpack=${wallet.isBackpack}, publicKey=${wallet.publicKey?.toString() ?? "not connected yet"})`
-    : "null — no wallet extension detected");
   if (!wallet) {
     setStatus("No Solana wallet found. Install Phantom, Backpack, or Brave Wallet.");
     return;
   }
   try {
     setStatus("Approve the signature in your wallet…");
-    console.log("[signIn] calling wallet.connect()…");
     await wallet.connect();
-    console.log("[signIn] wallet.connect() resolved — publicKey:", wallet.publicKey?.toString());
-    console.log("[signIn] calling supabase.auth.signInWithWeb3…");
     const { error } = await supabase.auth.signInWithWeb3({ chain: "solana", statement: SIGN_IN_STATEMENT, wallet });
     if (error) throw error;
-    console.log("[signIn] signInWithWeb3 succeeded");
   } catch (error) {
-    console.error("[signIn] error:", error);
+    console.error("[signIn]", error);
     setStatus(error.message || "Wallet sign-in failed.");
   }
 }
@@ -252,7 +245,6 @@ async function signOut() {
 }
 
 async function handleSession(session) {
-  console.log("[handleSession] session user:", session?.user?.id ?? "none");
   state.user = session?.user ?? null;
 
   if (!state.user) {
@@ -265,17 +257,15 @@ async function handleSession(session) {
   }
 
   try {
-    console.log("[handleSession] syncing profile for user", state.user.id);
     await syncProfile();
-    console.log("[handleSession] profile synced:", state.profile);
   } catch (error) {
-    console.error("[handleSession] syncProfile error:", error);
+    console.error("[handleSession]", error);
     setStatus(error.message || "Could not load profile.");
     return;
   }
   showLobby();
   setStatus(recordSuffix("Wallet connected — choose Demo Match or Play PvP."));
-  refreshFight10Balance().catch((e) => console.error("[handleSession] refreshFight10Balance error:", e));
+  refreshFight10Balance().catch(console.error);
 }
 
 async function syncProfile() {
@@ -417,13 +407,10 @@ async function fetchLobbyCounts() {
 async function joinPvp(maxPlayers) {
   if (!state.user) { signIn(); return; }
   const size = [2, 5, 10].includes(maxPlayers) ? maxPlayers : 2;
-  console.log("[joinPvp] size selected:", size, "| user:", state.user.id);
   try {
     showPvpLobby(`Finding a ${size}-player match…`);
-    console.log("[joinPvp] calling join_pvp_match RPC…");
     const { data, error } = await supabase.rpc("join_pvp_match", { p_max_players: size, p_display_name: null });
     if (error) throw error;
-    console.log("[joinPvp] join_pvp_match response:", data);
     state.match = {
       id: data.match_id, mode: "pvp", finished: false,
       status: data.status === "active" ? "active" : "waiting",
@@ -431,11 +418,8 @@ async function joinPvp(maxPlayers) {
     };
     state.iRoomFiller = data.status === "active";
     state.seat = data.seat;
-    console.log("[joinPvp] match state set — id:", data.match_id, "seat:", data.seat, "status:", data.status);
 
-    console.log("[joinPvp] starting deposit gate for match", data.match_id);
     const deposited = await depositEntryFee(data.match_id, size);
-    console.log("[joinPvp] depositEntryFee returned:", deposited);
     if (!deposited) {
       hidePvpLobby();
       try { await supabase.rpc("leave_my_matches"); } catch (_) {}
@@ -445,11 +429,13 @@ async function joinPvp(maxPlayers) {
       return;
     }
 
-    console.log("[joinPvp] deposit confirmed — entering arena");
     await enterArena(data.match_id);
   } catch (error) {
     hidePvpLobby();
-    console.error("[joinPvp] error:", error);
+    console.error("[joinPvp]", error);
+    try { await supabase.rpc("leave_my_matches"); } catch (_) {}
+    state.match = null;
+    state.seat = null;
     setStatus(error.message || "Could not join a PvP match.");
   }
 }
@@ -474,34 +460,19 @@ async function pollTxConfirmation(connection, sig, timeoutMs = 90000) {
 // Returns true if the deposit was confirmed and recorded, false if cancelled.
 // ---------------------------------------------------------------------------
 async function depositEntryFee(matchId, numPlayers = 2) {
-  console.log("[depositEntryFee] ── START ──");
-  console.log("[depositEntryFee] matchId:", matchId, "| numPlayers:", numPlayers);
-  console.log("[depositEntryFee] FIGHT10_MINT (mint CA):", FIGHT10_MINT);
-  console.log("[depositEntryFee] ESCROW_WALLET (treasury):", ESCROW_WALLET);
-  console.log("[depositEntryFee] ENTRY_FEE_RAW (raw units):", ENTRY_FEE_RAW.toString(), `(${ENTRY_FEE} × 10^${FIGHT10_DECIMALS})`);
-
   const wallet = getSolanaWallet();
-  console.log("[depositEntryFee] wallet publicKey:", wallet?.publicKey?.toString() ?? "not connected");
   if (!wallet?.publicKey) {
     setStatus("Wallet not connected — cannot deposit.");
     return false;
   }
 
-  // Guard: catch unset env vars before hitting PublicKey constructor
   if (FIGHT10_MINT.startsWith("<") || ESCROW_WALLET.startsWith("<")) {
-    console.error("[depositEntryFee] ✗ Missing env var —",
-      `VITE_FIGHT10_MINT=${FIGHT10_MINT}`, `VITE_ESCROW_WALLET=${ESCROW_WALLET}`);
     setStatus("Game not configured for live deposits yet (missing mint/escrow address).");
     return false;
   }
 
-  // Check balance before prompting
-  console.log("[depositEntryFee] checking player balance…");
   setStatus("Checking $FIGHT10 balance…");
   const balance = await getFight10Balance(wallet.publicKey.toString());
-  console.log("[depositEntryFee] player balance (raw):", balance.toString(),
-    "| display:", (Number(balance) / 10 ** FIGHT10_DECIMALS).toFixed(0), "FIGHT10",
-    "| need:", ENTRY_FEE, "| sufficient:", balance >= ENTRY_FEE_RAW);
   if (balance < ENTRY_FEE_RAW) {
     const have = Number(balance) / 10 ** FIGHT10_DECIMALS;
     setStatus(`Insufficient $FIGHT10 balance — need 2,500, have ${have.toFixed(0)}.`);
@@ -513,55 +484,33 @@ async function depositEntryFee(matchId, numPlayers = 2) {
     setStatus("Depositing 2,500 $FIGHT10… approve in wallet.");
     els.pvpLobbyStatus.textContent = "Approve deposit in your wallet…";
 
-    const connection  = new Connection(SOLANA_RPC_URL, "confirmed");
-    const mintPubkey  = new PublicKey(FIGHT10_MINT);
+    const connection   = new Connection(SOLANA_RPC_URL, "confirmed");
+    const mintPubkey   = new PublicKey(FIGHT10_MINT);
     const escrowPubkey = new PublicKey(ESCROW_WALLET);
     const playerPubkey = wallet.publicKey;
-    console.log("[depositEntryFee] RPC:", SOLANA_RPC_URL);
-    console.log("[depositEntryFee] player pubkey:", playerPubkey.toString());
-    console.log("[depositEntryFee] escrow pubkey:", escrowPubkey.toString());
 
-    // Detect token program from mint account owner (Token vs Token-2022)
     const TOKEN_2022_PROGRAM_ID = new PublicKey("TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb");
     const mintAccountInfo = await connection.getAccountInfo(mintPubkey);
     if (!mintAccountInfo) throw new Error("Mint account not found on-chain — check FIGHT10_MINT address.");
     const resolvedTokenProgramId = mintAccountInfo.owner;
-    const isToken2022 = resolvedTokenProgramId.equals(TOKEN_2022_PROGRAM_ID);
-    console.log("[depositEntryFee] mint owner (token program):", resolvedTokenProgramId.toString());
-    console.log("[depositEntryFee] is Token-2022:", isToken2022);
 
-    // Find the player's actual token account for FIGHT10 (same method as getFight10Balance)
-    console.log("[depositEntryFee] fetching player token accounts for mint…");
     const { value: tokenAccounts } = await connection.getParsedTokenAccountsByOwner(
       playerPubkey, { mint: mintPubkey }
     );
-    console.log("[depositEntryFee] player token accounts found:", tokenAccounts.length,
-      tokenAccounts.map((a) => ({
-        pubkey: a.pubkey.toString(),
-        amount: a.account.data.parsed.info.tokenAmount.uiAmount,
-      })));
     if (!tokenAccounts.length) throw new Error("No FIGHT10 token account found in wallet.");
 
-    // Pick the account with the highest balance as source
     tokenAccounts.sort((a, b) =>
       Number(BigInt(b.account.data.parsed.info.tokenAmount.amount) -
              BigInt(a.account.data.parsed.info.tokenAmount.amount))
     );
-    const sourceAta  = tokenAccounts[0].pubkey;
-    const sourceAmount = tokenAccounts[0].account.data.parsed.info.tokenAmount;
-    console.log("[depositEntryFee] source token account (FROM):", sourceAta.toString());
-    console.log("[depositEntryFee] source balance:", sourceAmount.uiAmount, "FIGHT10 (raw:", sourceAmount.amount, ")");
+    const sourceAta = tokenAccounts[0].pubkey;
 
-    // Canonical escrow ATA — create it in the same tx if it doesn't exist yet (one-time)
     const escrowAta = await getAssociatedTokenAddress(mintPubkey, escrowPubkey, false,
       resolvedTokenProgramId, ASSOCIATED_TOKEN_PROGRAM_ID);
-    console.log("[depositEntryFee] escrow ATA (TO):", escrowAta.toString());
     const escrowAtaInfo = await connection.getAccountInfo(escrowAta);
-    console.log("[depositEntryFee] escrow ATA exists on-chain:", !!escrowAtaInfo);
 
     const instructions = [];
     if (!escrowAtaInfo) {
-      console.log("[depositEntryFee] ⚠ escrow ATA missing — prepending createAssociatedTokenAccount instruction (player pays ~0.002 SOL rent, one-time)");
       instructions.push(createAssociatedTokenAccountInstruction(
         playerPubkey, escrowAta, escrowPubkey, mintPubkey,
         resolvedTokenProgramId, ASSOCIATED_TOKEN_PROGRAM_ID
@@ -570,43 +519,29 @@ async function depositEntryFee(matchId, numPlayers = 2) {
     instructions.push(createTransferInstruction(
       sourceAta, escrowAta, playerPubkey, ENTRY_FEE_RAW, [], resolvedTokenProgramId
     ));
-    console.log("[depositEntryFee] instructions count:", instructions.length,
-      instructions.length > 1 ? "(createATA + transfer)" : "(transfer only)");
 
-    console.log("[depositEntryFee] fetching latest blockhash…");
     const { blockhash } = await connection.getLatestBlockhash();
-    console.log("[depositEntryFee] blockhash:", blockhash);
-
     const tx = new Transaction().add(...instructions);
     tx.feePayer = playerPubkey;
     tx.recentBlockhash = blockhash;
 
-    console.log("[depositEntryFee] requesting wallet signature — wallet will prompt user…");
     const signedTx = await wallet.signTransaction(tx);
-    console.log("[depositEntryFee] wallet signed — sending raw transaction…");
     const txSig = await connection.sendRawTransaction(signedTx.serialize());
-    console.log("[depositEntryFee] ✓ tx sent — signature:", txSig);
-    console.log("[depositEntryFee] Solscan:", `https://solscan.io/tx/${txSig}`);
 
     setStatus("Confirming deposit on-chain…");
     els.pvpLobbyStatus.textContent = "Confirming on-chain…";
-    console.log("[depositEntryFee] polling for confirmation (HTTP, no WebSocket)…");
-    const confirmStatus = await pollTxConfirmation(connection, txSig);
-    console.log("[depositEntryFee] ✓ confirmed on-chain — status:", confirmStatus.confirmationStatus);
+    await pollTxConfirmation(connection, txSig);
 
-    console.log("[depositEntryFee] recording deposit in DB — match:", matchId, "tx:", txSig);
     const { error: recErr } = await supabase.rpc("record_deposit", {
       p_match_id: matchId,
       p_deposit_tx: txSig,
     });
     if (recErr) throw recErr;
-    console.log("[depositEntryFee] ✓ record_deposit RPC succeeded");
 
     setStatus("Deposit confirmed — entering arena.");
-    console.log("[depositEntryFee] ── DONE ──");
     return true;
   } catch (err) {
-    console.error("[depositEntryFee] ✗ error:", err);
+    console.error("[depositEntryFee]", err);
     const msg = err?.message || String(err);
     if (msg.includes("User rejected") || msg.includes("cancelled")) {
       setStatus("Deposit cancelled.");
@@ -618,41 +553,20 @@ async function depositEntryFee(matchId, numPlayers = 2) {
 }
 
 async function getFight10Balance(walletAddress) {
-  console.log("[getFight10Balance] wallet:", walletAddress);
-  console.log("[getFight10Balance] mint:", FIGHT10_MINT);
-  console.log("[getFight10Balance] RPC:", SOLANA_RPC_URL);
   try {
-    const connection  = new Connection(SOLANA_RPC_URL, "confirmed");
-    const mintPubkey  = new PublicKey(FIGHT10_MINT);
+    const connection   = new Connection(SOLANA_RPC_URL, "confirmed");
+    const mintPubkey   = new PublicKey(FIGHT10_MINT);
     const walletPubkey = new PublicKey(walletAddress);
-
-    console.log("[getFight10Balance] calling getParsedTokenAccountsByOwner…");
     const { value: accounts } = await connection.getParsedTokenAccountsByOwner(
-      walletPubkey,
-      { mint: mintPubkey }
+      walletPubkey, { mint: mintPubkey }
     );
-    console.log("[getFight10Balance] token accounts found:", accounts.length,
-      accounts.map((a) => ({
-        pubkey: a.pubkey.toString(),
-        amount: a.account.data.parsed.info.tokenAmount.amount,
-        uiAmount: a.account.data.parsed.info.tokenAmount.uiAmount,
-      }))
-    );
-
-    if (accounts.length === 0) {
-      console.log("[getFight10Balance] no token accounts found — wallet holds 0 FIGHT10");
-      return BigInt(0);
-    }
-
-    // Sum all accounts (wallet may hold tokens across multiple accounts)
-    const total = accounts.reduce(
+    if (accounts.length === 0) return BigInt(0);
+    return accounts.reduce(
       (sum, a) => sum + BigInt(a.account.data.parsed.info.tokenAmount.amount),
       BigInt(0)
     );
-    console.log("[getFight10Balance] total raw balance:", total.toString());
-    return total;
   } catch (err) {
-    console.warn("[getFight10Balance] error:", err?.name, err?.message ?? err);
+    console.warn("[getFight10Balance]", err?.message ?? err);
     return BigInt(0);
   }
 }
@@ -666,21 +580,16 @@ function updatePrizePot(numPlayers) {
 }
 
 async function refreshFight10Balance() {
-  console.log("[refreshFight10Balance] starting…");
   const balEl = document.getElementById("fight10Balance");
-  if (!balEl) { console.warn("[refreshFight10Balance] #fight10Balance element not found in DOM"); return; }
-  if (!state.user) { console.log("[refreshFight10Balance] no authenticated user, skipping"); return; }
+  if (!balEl || !state.user) return;
   const wallet = getSolanaWallet();
-  console.log("[refreshFight10Balance] wallet publicKey:", wallet?.publicKey?.toString() ?? "none");
-  if (!wallet?.publicKey) { console.warn("[refreshFight10Balance] wallet not connected, cannot fetch balance"); return; }
+  if (!wallet?.publicKey) return;
   try {
     const raw = await getFight10Balance(wallet.publicKey.toString());
-    const display = (Number(raw) / 10 ** FIGHT10_DECIMALS).toLocaleString(undefined, { maximumFractionDigits: 0 });
-    console.log("[refreshFight10Balance] display balance:", display, "$FIGHT10 — updating nav chip");
-    balEl.textContent = display + " $FIGHT10";
+    balEl.textContent = (Number(raw) / 10 ** FIGHT10_DECIMALS).toLocaleString(undefined, { maximumFractionDigits: 0 }) + " $FIGHT10";
     balEl.classList.remove("hidden");
   } catch (err) {
-    console.error("[refreshFight10Balance] unexpected error:", err);
+    console.error("[refreshFight10Balance]", err);
   }
 }
 
