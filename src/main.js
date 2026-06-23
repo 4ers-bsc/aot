@@ -287,6 +287,7 @@ function startDemo() {
   game.useAiFoe();          // single AI raider opponent
   game.generateMap("demo-" + Date.now());
   game.resetForMatch();
+  game.showMapToggle(true);
   game.setMatchPhase("countdown");
   game.setControllable(false);
   runMatchStart(() => {
@@ -840,6 +841,8 @@ async function leaveMatch({ silent = false } = {}) {
   }
   await teardownMatch();
   game.clearAll();
+  game.showMapToggle(false);
+  game.setMapVariant("game");
   showLobby();
   if (!silent) setStatus(recordSuffix("Left the match."));
 }

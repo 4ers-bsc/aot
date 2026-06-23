@@ -1630,6 +1630,26 @@ body.in-game .game-hud-root {
 
 .gear:hover { transform: rotate(45deg); border-color: #33b14a; }
 
+.map-toggle-btn {
+  position: fixed;
+  top: 64px;
+  right: 16px;
+  z-index: 12;
+  padding: 0 14px;
+  height: 36px;
+  border-radius: 9px;
+  background: rgba(20, 28, 24, 0.6);
+  color: #ffe8a0;
+  border: 1px solid rgba(255, 200, 48, 0.35);
+  backdrop-filter: blur(6px);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: border-color 0.15s, background 0.15s;
+}
+.map-toggle-btn:hover { border-color: #ffc830; background: rgba(20, 28, 24, 0.85); }
+
 .game-fps,
 .game-ping {
   position: fixed;
@@ -1642,8 +1662,8 @@ body.in-game .game-hud-root {
   user-select: none;
 }
 
-.game-fps { top: 64px; }
-.game-ping { top: 82px; }
+.game-fps { top: 108px; }
+.game-ping { top: 126px; }
 
 /* Hide HUD toggle */
 .hud-hidden .hint,
