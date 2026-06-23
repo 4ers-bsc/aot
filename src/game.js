@@ -14,8 +14,9 @@ const MAP_HALF = MAP_WORLD / 2; // 50
 const EMIT_MS = 50;
 
 const WEAPONS = {
-  sword: { id: "sword", name: "Sword", atk: 16, atkVar: 3, cd: 0.7, range: 2.4, ranged: false },
-  pistol: { id: "pistol", name: "Pistol", atk: 21, atkVar: 4, cd: 0.9, range: 18, ranged: true }
+  sword:  { id: "sword",   name: "Sword",   atk: 20, atkVar: 3, cd: 0.7,  range: 2.4, ranged: false },
+  pistol: { id: "pistol",  name: "Pistol",  atk: 15, atkVar: 4, cd: 0.9,  range: 18,  ranged: true  },
+  sniper: { id: "sniper",  name: "Sniper",  atk: 25, atkVar: 2, cd: 2.2,  range: 40,  ranged: true  },
 };
 const AI_WEAPON = { id: "sword", name: "Sword", atk: 9, atkVar: 2, cd: 1.1, range: 2.4, ranged: false };
 
@@ -280,8 +281,8 @@ export function createArenaGame(options) {
     return f;
   }
   function updateWeaponVis(f) {
-    if (f.swordMesh) f.swordMesh.visible = !f.weapon.ranged;
-    if (f.pistolMesh) f.pistolMesh.visible = !!f.weapon.ranged;
+    if (f.swordMesh)  f.swordMesh.visible  = f.weapon.id === "sword";
+    if (f.pistolMesh) f.pistolMesh.visible = f.weapon.id !== "sword";
   }
   function recolorFighter(f, palette) {
     Object.keys(f.parts).forEach((key) => f.parts[key].forEach((mat) => mat.color.setHex(palette[key])));
@@ -755,6 +756,7 @@ export function createArenaGame(options) {
     slots.forEach((s) => s.classList.toggle("active", parseInt(s.dataset.slot, 10) === n));
     if (n === 1) { player.weapon = WEAPONS.sword; updateWeaponVis(player); }
     else if (n === 2) { player.weapon = WEAPONS.pistol; player.attackTarget = null; updateWeaponVis(player); }
+    else if (n === 3) { player.weapon = WEAPONS.sniper; player.attackTarget = null; updateWeaponVis(player); }
   }
   slots.forEach((s) => s.addEventListener("click", () => selectSlot(parseInt(s.dataset.slot, 10))));
   window.addEventListener("keydown", (e) => {
@@ -1204,7 +1206,7 @@ function buildHud() {
   const mmCanvas = add('<canvas class="game-minimap game-ui"></canvas>');
   const hotbar = add('<div class="hotbar game-ui"></div>');
   for (let n = 1; n <= 5; n++) {
-    const imgSrc = n === 1 ? "/sword.png" : n === 2 ? "/pistol.png" : "";
+    const imgSrc = n === 1 ? "/sword.png" : n === 2 ? "/pistol.png" : n === 3 ? "/sniper.png" : "";
     const imgTag = imgSrc ? `<img src="${imgSrc}" class="slot-icon" alt="" />` : "";
     const s = document.createElement("div");
     s.className = "slot" + (n === 1 ? " active" : "");
