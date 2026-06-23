@@ -2161,3 +2161,49 @@ body.in-game .game-hud-root {
 .ms-count {
   font-family: var(--font-head) !important;
 }
+
+/* ---------------------------------------------------------------------------
+   FIGHT10 tokenomics UI
+--------------------------------------------------------------------------- */
+.fight10-balance {
+  font-family: var(--font-head);
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  color: #f0e040;
+  padding: 0.25rem 0.55rem;
+  border: 1px solid rgba(240, 224, 64, 0.35);
+  border-radius: 4px;
+  background: rgba(240, 224, 64, 0.08);
+  white-space: nowrap;
+  align-self: center;
+}
+
+.pvp-prize-pool {
+  font-family: var(--font-head);
+  font-size: 0.78rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  color: #f0e040;
+  text-align: center;
+  margin: 0.5rem 0 0.25rem;
+  padding: 0.35rem 0.75rem;
+  border: 1px solid rgba(240, 224, 64, 0.3);
+  border-radius: 6px;
+  background: rgba(240, 224, 64, 0.07);
+}
+
+.game-over-prize {
+  font-family: var(--font-head);
+  font-size: 1.1rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  color: #f0e040;
+  text-align: center;
+  margin: 0.5rem 0 0.25rem;
+  padding: 0.4rem 1rem;
+  border: 1px solid rgba(240, 224, 64, 0.4);
+  border-radius: 6px;
+  background: rgba(240, 224, 64, 0.1);
+  text-shadow: 0 0 12px rgba(240, 224, 64, 0.5);
+}

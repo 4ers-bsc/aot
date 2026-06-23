@@ -27,6 +27,7 @@
       <nav class="site-nav">
         <div class="site-nav-brand">FIGHT10</div>
         <div class="site-nav-actions">
+          <span class="fight10-balance hidden" id="fight10Balance">— $FIGHT10</span>
           <button class="nav-profile-btn hidden" id="profileBtn" type="button">
             <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M8 8a3 3 0 1 0 0-6 3 3 0 0 0 0 6zm-5 6a5 5 0 0 1 10 0H3z"/></svg>
             PROFILE
@@ -153,6 +154,9 @@
       </div>
       <div class="pvp-lobby-status" id="pvpLobbyStatus">Searching for an opponent…</div>
       <div class="pvp-lobby-meta" id="pvpLobbyMeta"></div>
+      <div class="pvp-prize-pool hidden" id="pvpPrizePool">
+        Prize Pool: <span id="pvpPrizeAmount">—</span> $FIGHT10
+      </div>
       <div class="lobby-players" id="lobbyPlayers"></div>
       <button class="pvp-lobby-cancel" id="pvpCancelBtn" type="button">Cancel</button>
     </div>
@@ -163,6 +167,9 @@
     <div class="game-over-card">
       <div class="game-over-title" id="gameOverTitle">VICTORY</div>
       <div class="game-over-reason" id="gameOverReason"></div>
+      <div class="game-over-prize hidden" id="gameOverPrize">
+        You won <span id="gameOverPrizeAmount">0</span> $FIGHT10!
+      </div>
       <div class="standings-list" id="gameOverStandings"></div>
       <div class="game-over-stats">
         <div class="go-name" id="gameOverName">Trench Rookie</div>
