@@ -9,7 +9,9 @@ import {
   getAssociatedTokenAddress,
   createTransferInstruction,
   createAssociatedTokenAccountInstruction,
-} from "https://esm.sh/@solana/spl-token@0.3.11?bundle";
+  TOKEN_PROGRAM_ID,
+  ASSOCIATED_TOKEN_PROGRAM_ID,
+} from "https://esm.sh/@solana/spl-token@0.3.5?bundle";
 
 const SUPABASE_URL =
   import.meta.env?.VITE_SUPABASE_URL?.trim() || "https://sajvismyvcgaszjcafcr.supabase.co";
@@ -403,10 +405,13 @@ async function fetchLobbyCounts() {
 async function joinPvp(maxPlayers) {
   if (!state.user) { signIn(); return; }
   const size = [2, 5, 10].includes(maxPlayers) ? maxPlayers : 2;
+  console.log("[joinPvp] size selected:", size, "| user:", state.user.id);
   try {
     showPvpLobby(`Finding a ${size}-player match…`);
+    console.log("[joinPvp] calling join_pvp_match RPC…");
     const { data, error } = await supabase.rpc("join_pvp_match", { p_max_players: size, p_display_name: null });
     if (error) throw error;
+    console.log("[joinPvp] join_pvp_match response:", data);
     state.match = {
       id: data.match_id, mode: "pvp", finished: false,
       status: data.status === "active" ? "active" : "waiting",
@@ -414,9 +419,11 @@ async function joinPvp(maxPlayers) {
     };
     state.iRoomFiller = data.status === "active";
     state.seat = data.seat;
+    console.log("[joinPvp] match state set — id:", data.match_id, "seat:", data.seat, "status:", data.status);
 
-    // Show deposit prompt and gate matchmaking on confirmed on-chain transfer
+    console.log("[joinPvp] starting deposit gate for match", data.match_id);
     const deposited = await depositEntryFee(data.match_id, size);
+    console.log("[joinPvp] depositEntryFee returned:", deposited);
     if (!deposited) {
       hidePvpLobby();
       try { await supabase.rpc("leave_my_matches"); } catch (_) {}
@@ -426,10 +433,11 @@ async function joinPvp(maxPlayers) {
       return;
     }
 
+    console.log("[joinPvp] deposit confirmed — entering arena");
     await enterArena(data.match_id);
   } catch (error) {
     hidePvpLobby();
-    console.error(error);
+    console.error("[joinPvp] error:", error);
     setStatus(error.message || "Could not join a PvP match.");
   }
 }
@@ -439,7 +447,14 @@ async function joinPvp(maxPlayers) {
 // Returns true if the deposit was confirmed and recorded, false if cancelled.
 // ---------------------------------------------------------------------------
 async function depositEntryFee(matchId, numPlayers = 2) {
+  console.log("[depositEntryFee] ── START ──");
+  console.log("[depositEntryFee] matchId:", matchId, "| numPlayers:", numPlayers);
+  console.log("[depositEntryFee] FIGHT10_MINT (mint CA):", FIGHT10_MINT);
+  console.log("[depositEntryFee] ESCROW_WALLET (treasury):", ESCROW_WALLET);
+  console.log("[depositEntryFee] ENTRY_FEE_RAW (raw units):", ENTRY_FEE_RAW.toString(), `(${ENTRY_FEE} × 10^${FIGHT10_DECIMALS})`);
+
   const wallet = getSolanaWallet();
+  console.log("[depositEntryFee] wallet publicKey:", wallet?.publicKey?.toString() ?? "not connected");
   if (!wallet?.publicKey) {
     setStatus("Wallet not connected — cannot deposit.");
     return false;
@@ -447,16 +462,19 @@ async function depositEntryFee(matchId, numPlayers = 2) {
 
   // Guard: catch unset env vars before hitting PublicKey constructor
   if (FIGHT10_MINT.startsWith("<") || ESCROW_WALLET.startsWith("<")) {
-    console.error("[depositEntryFee] Missing config —",
-      `FIGHT10_MINT=${FIGHT10_MINT}`, `ESCROW_WALLET=${ESCROW_WALLET}`);
+    console.error("[depositEntryFee] ✗ Missing env var —",
+      `VITE_FIGHT10_MINT=${FIGHT10_MINT}`, `VITE_ESCROW_WALLET=${ESCROW_WALLET}`);
     setStatus("Game not configured for live deposits yet (missing mint/escrow address).");
     return false;
   }
-  console.log("[depositEntryFee] mint:", FIGHT10_MINT, "escrow:", ESCROW_WALLET);
 
   // Check balance before prompting
+  console.log("[depositEntryFee] checking player balance…");
   setStatus("Checking $FIGHT10 balance…");
   const balance = await getFight10Balance(wallet.publicKey.toString());
+  console.log("[depositEntryFee] player balance (raw):", balance.toString(),
+    "| display:", (Number(balance) / 10 ** FIGHT10_DECIMALS).toFixed(0), "FIGHT10",
+    "| need:", ENTRY_FEE, "| sufficient:", balance >= ENTRY_FEE_RAW);
   if (balance < ENTRY_FEE_RAW) {
     const have = Number(balance) / 10 ** FIGHT10_DECIMALS;
     setStatus(`Insufficient $FIGHT10 balance — need 2,500, have ${have.toFixed(0)}.`);
@@ -468,62 +486,95 @@ async function depositEntryFee(matchId, numPlayers = 2) {
     setStatus("Depositing 2,500 $FIGHT10… approve in wallet.");
     els.pvpLobbyStatus.textContent = "Approve deposit in your wallet…";
 
-    const connection = new Connection(SOLANA_RPC_URL, "confirmed");
-    const mintPubkey   = new PublicKey(FIGHT10_MINT);
+    const connection  = new Connection(SOLANA_RPC_URL, "confirmed");
+    const mintPubkey  = new PublicKey(FIGHT10_MINT);
     const escrowPubkey = new PublicKey(ESCROW_WALLET);
     const playerPubkey = wallet.publicKey;
+    console.log("[depositEntryFee] RPC:", SOLANA_RPC_URL);
+    console.log("[depositEntryFee] player pubkey:", playerPubkey.toString());
+    console.log("[depositEntryFee] escrow pubkey:", escrowPubkey.toString());
 
-    // Find the player's actual token account holding FIGHT10 (may not be the canonical ATA)
-    const { value: playerAccounts } = await connection.getParsedTokenAccountsByOwner(
-      playerPubkey, { mint: mintPubkey }
-    );
-    if (!playerAccounts.length) throw new Error("No FIGHT10 token account found in wallet.");
-    // Use the account with the highest balance as source
-    playerAccounts.sort((a, b) =>
-      Number(BigInt(b.account.data.parsed.info.tokenAmount.amount) - BigInt(a.account.data.parsed.info.tokenAmount.amount))
-    );
-    const sourceAta = playerAccounts[0].pubkey;
-    console.log("[depositEntryFee] source token account:", sourceAta.toString(),
-      "amount:", playerAccounts[0].account.data.parsed.info.tokenAmount.uiAmount);
+    // Find the player's actual token account for FIGHT10 (may not be the canonical ATA)
+    console.log("[depositEntryFee] fetching player token accounts for mint…");
+    const tokenAccounts = await connection.getTokenAccountsByOwner(playerPubkey, { mint: mintPubkey });
+    console.log("[depositEntryFee] player token accounts found:", tokenAccounts.value.length,
+      tokenAccounts.value.map((a) => a.pubkey.toString()));
+    if (!tokenAccounts.value.length) throw new Error("No FIGHT10 token account found in wallet.");
 
-    // Derive canonical escrow ATA; create it in the same tx if it doesn't exist
-    const escrowAta = await getAssociatedTokenAddress(mintPubkey, escrowPubkey);
-    console.log("[depositEntryFee] escrow ATA:", escrowAta.toString());
-    const escrowAtaInfo = await connection.getAccountInfo(escrowAta);
-    console.log("[depositEntryFee] escrow ATA exists:", !!escrowAtaInfo);
-
-    const { blockhash, lastValidBlockHeight } = await connection.getLatestBlockhash();
-
-    const tx = new Transaction({ recentBlockhash: blockhash, feePayer: playerPubkey });
-
-    // Initialize escrow ATA if needed (player pays the ~0.002 SOL rent, one-time)
-    if (!escrowAtaInfo) {
-      console.log("[depositEntryFee] adding createAssociatedTokenAccount instruction for escrow ATA");
-      tx.add(createAssociatedTokenAccountInstruction(playerPubkey, escrowAta, escrowPubkey, mintPubkey));
+    // Pick the account with the highest balance as source
+    let sourceAta = tokenAccounts.value[0].pubkey;
+    if (tokenAccounts.value.length > 1) {
+      const infos = await Promise.all(
+        tokenAccounts.value.map((a) => connection.getParsedAccountInfo(a.pubkey))
+      );
+      let max = BigInt(0);
+      tokenAccounts.value.forEach((a, i) => {
+        const amt = BigInt(infos[i].value.data.parsed.info.tokenAmount.amount);
+        if (amt > max) { max = amt; sourceAta = a.pubkey; }
+      });
     }
+    const sourceInfo = await connection.getParsedAccountInfo(sourceAta);
+    const sourceAmount = sourceInfo.value.data.parsed.info.tokenAmount;
+    console.log("[depositEntryFee] source token account (FROM):", sourceAta.toString());
+    console.log("[depositEntryFee] source balance:", sourceAmount.uiAmount, "FIGHT10 (raw:", sourceAmount.amount, ")");
 
-    tx.add(createTransferInstruction(sourceAta, escrowAta, playerPubkey, ENTRY_FEE_RAW));
+    // Canonical escrow ATA — create it in the same tx if it doesn't exist yet (one-time)
+    const escrowAta = await getAssociatedTokenAddress(mintPubkey, escrowPubkey, false,
+      TOKEN_PROGRAM_ID, ASSOCIATED_TOKEN_PROGRAM_ID);
+    console.log("[depositEntryFee] escrow ATA (TO):", escrowAta.toString());
+    const escrowAtaInfo = await connection.getAccountInfo(escrowAta);
+    console.log("[depositEntryFee] escrow ATA exists on-chain:", !!escrowAtaInfo);
 
-    // Ask wallet to sign and broadcast
-    const sig = await wallet.signAndSendTransaction(tx);
-    const txSig = sig?.signature ?? sig;
+    const instructions = [];
+    if (!escrowAtaInfo) {
+      console.log("[depositEntryFee] ⚠ escrow ATA missing — prepending createAssociatedTokenAccount instruction (player pays ~0.002 SOL rent, one-time)");
+      instructions.push(createAssociatedTokenAccountInstruction(
+        playerPubkey, escrowAta, escrowPubkey, mintPubkey,
+        TOKEN_PROGRAM_ID, ASSOCIATED_TOKEN_PROGRAM_ID
+      ));
+    }
+    instructions.push(createTransferInstruction(
+      sourceAta, escrowAta, playerPubkey, ENTRY_FEE_RAW, [], TOKEN_PROGRAM_ID
+    ));
+    console.log("[depositEntryFee] instructions count:", instructions.length,
+      instructions.length > 1 ? "(createATA + transfer)" : "(transfer only)");
 
-    // Confirm on-chain
+    console.log("[depositEntryFee] fetching latest blockhash…");
+    const { blockhash } = await connection.getLatestBlockhash();
+    console.log("[depositEntryFee] blockhash:", blockhash);
+
+    const tx = new Transaction().add(...instructions);
+    tx.feePayer = playerPubkey;
+    tx.recentBlockhash = blockhash;
+
+    console.log("[depositEntryFee] requesting wallet signature — wallet will prompt user…");
+    const signedTx = await wallet.signTransaction(tx);
+    console.log("[depositEntryFee] wallet signed — sending raw transaction…");
+    const txSig = await connection.sendRawTransaction(signedTx.serialize());
+    console.log("[depositEntryFee] ✓ tx sent — signature:", txSig);
+    console.log("[depositEntryFee] Solscan:", `https://solscan.io/tx/${txSig}`);
+
     setStatus("Confirming deposit on-chain…");
     els.pvpLobbyStatus.textContent = "Confirming on-chain…";
-    await connection.confirmTransaction({ signature: txSig, blockhash, lastValidBlockHeight }, "confirmed");
+    console.log("[depositEntryFee] waiting for confirmation…");
+    const confirmation = await connection.confirmTransaction(txSig, "confirmed");
+    console.log("[depositEntryFee] confirmation result:", confirmation.value);
+    if (confirmation.value.err) throw new Error("Transaction failed to confirm: " + JSON.stringify(confirmation.value.err));
+    console.log("[depositEntryFee] ✓ confirmed on-chain");
 
-    // Record in DB
+    console.log("[depositEntryFee] recording deposit in DB — match:", matchId, "tx:", txSig);
     const { error: recErr } = await supabase.rpc("record_deposit", {
       p_match_id: matchId,
       p_deposit_tx: txSig,
     });
     if (recErr) throw recErr;
+    console.log("[depositEntryFee] ✓ record_deposit RPC succeeded");
 
     setStatus("Deposit confirmed — entering arena.");
+    console.log("[depositEntryFee] ── DONE ──");
     return true;
   } catch (err) {
-    console.error("depositEntryFee:", err);
+    console.error("[depositEntryFee] ✗ error:", err);
     const msg = err?.message || String(err);
     if (msg.includes("User rejected") || msg.includes("cancelled")) {
       setStatus("Deposit cancelled.");
