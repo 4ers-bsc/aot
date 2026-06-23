@@ -8,7 +8,6 @@ import {
 import {
   getAssociatedTokenAddress,
   createTransferInstruction,
-  getAccount,
 } from "https://esm.sh/@solana/spl-token@0.3.11?bundle";
 
 const SUPABASE_URL =
@@ -516,29 +515,19 @@ async function getFight10Balance(walletAddress) {
     const walletPubkey = new PublicKey(walletAddress);
     const ata = await getAssociatedTokenAddress(mintPubkey, walletPubkey);
     console.log("[getFight10Balance] derived ATA:", ata.toString());
-    try {
-      const account = await getAccount(connection, ata);
-      console.log("[getFight10Balance] ATA account data:", {
-        address: account.address.toString(),
-        mint: account.mint.toString(),
-        owner: account.owner.toString(),
-        amount: account.amount.toString(),
-        decimals: FIGHT10_DECIMALS,
-        displayBalance: (Number(account.amount) / 10 ** FIGHT10_DECIMALS).toFixed(FIGHT10_DECIMALS),
-      });
-      return account.amount;
-    } catch (accountErr) {
-      const name = accountErr?.name ?? accountErr?.constructor?.name ?? "";
-      const msg  = accountErr?.message ?? String(accountErr);
-      if (name === "TokenAccountNotFoundError" || msg.includes("could not find account") || msg.includes("Account does not exist")) {
-        console.log("[getFight10Balance] ATA does not exist on-chain — wallet holds 0 FIGHT10 (no token account created yet)");
-      } else {
-        console.warn("[getFight10Balance] getAccount error:", name, msg, accountErr);
-      }
-      return BigInt(0);
-    }
+
+    // Use web3.js directly — avoids spl-token's getAccount internals
+    const resp = await connection.getTokenAccountBalance(ata);
+    console.log("[getFight10Balance] getTokenAccountBalance response:", resp.value);
+    // resp.value.amount is a string of raw units (e.g. "2500000000")
+    return BigInt(resp.value.amount);
   } catch (err) {
-    console.warn("[getFight10Balance] setup error (bad mint/RPC?):", err?.name, err?.message ?? err);
+    const msg = err?.message ?? String(err);
+    if (msg.includes("could not find account") || msg.includes("Account does not exist") || msg.includes("Invalid param")) {
+      console.log("[getFight10Balance] ATA does not exist on-chain — wallet holds 0 FIGHT10");
+    } else {
+      console.warn("[getFight10Balance] error:", err?.name, msg, err);
+    }
     return BigInt(0);
   }
 }
