@@ -307,8 +307,8 @@ textarea:focus {
   font-family: var(--font-display);
   font-size: clamp(4rem, 13vw, 12rem);
   letter-spacing: 0.06em;
-  color: rgba(180, 180, 180, 0.22);
-  text-shadow: 0 4px 24px rgba(0, 0, 0, 0.5);
+  color: #000000;
+  text-shadow: none;
   margin-top: -0.08em;
 }
 
@@ -335,16 +335,24 @@ textarea:focus {
 
 .hero-card-icon {
   font-size: 0.9rem;
-  color: rgba(255, 255, 255, 0.4);
+  color: #ffffff;
   margin-bottom: 6px;
   letter-spacing: 0.05em;
+}
+
+.hero-card-img {
+  width: 36px;
+  height: 36px;
+  object-fit: contain;
+  filter: invert(1) brightness(1.2);
+  margin-bottom: 6px;
 }
 
 .hero-card-title {
   font-family: var(--font-head);
   font-size: 0.65rem;
   letter-spacing: 0.22em;
-  color: rgba(255, 255, 255, 0.8);
+  color: #ffffff;
   margin-bottom: 8px;
 }
 
@@ -353,7 +361,7 @@ textarea:focus {
   font-family: var(--font-body);
   font-size: 0.62rem;
   line-height: 1.8;
-  color: rgba(255, 255, 255, 0.32);
+  color: rgba(255, 255, 255, 0.72);
   letter-spacing: 0.04em;
 }
 
@@ -415,23 +423,19 @@ textarea:focus {
 
 .home-btn-ghost:hover { color: rgba(255, 255, 255, 0.6); }
 
-/* ===== X floating icon ===== */
-.x-floating {
-  position: absolute;
-  bottom: 16px;
-  right: 18px;
-  z-index: 6;
+/* ===== X icon in nav ===== */
+.x-nav {
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 32px;
-  height: 32px;
-  color: rgba(255, 255, 255, 0.3);
+  width: 30px;
+  height: 30px;
+  color: rgba(255, 255, 255, 0.45);
   text-decoration: none;
   transition: color 0.15s ease;
 }
 
-.x-floating:hover { color: rgba(255, 255, 255, 0.75); }
+.x-nav:hover { color: #ffffff; }
 
 /* ===== Info strip ===== */
 .info-strip {
@@ -487,7 +491,7 @@ textarea:focus {
   font-family: var(--font-body);
   font-size: 0.6rem;
   line-height: 1.5;
-  color: rgba(255, 255, 255, 0.38);
+  color: rgba(255, 255, 255, 0.7);
   letter-spacing: 0.02em;
 }
 
@@ -1384,7 +1388,6 @@ body.in-game .site-nav,
 body.in-game .hero-section,
 body.in-game .home-actions,
 body.in-game .info-strip,
-body.in-game .x-floating,
 body.in-game .world-vignette,
 body.in-game .world-grain,
 body.in-game .world-scanlines,
