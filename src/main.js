@@ -444,6 +444,15 @@ async function depositEntryFee(matchId, numPlayers = 2) {
     return false;
   }
 
+  // Guard: catch unset env vars before hitting PublicKey constructor
+  if (FIGHT10_MINT.startsWith("<") || ESCROW_WALLET.startsWith("<")) {
+    console.error("[depositEntryFee] Missing config —",
+      `FIGHT10_MINT=${FIGHT10_MINT}`, `ESCROW_WALLET=${ESCROW_WALLET}`);
+    setStatus("Game not configured for live deposits yet (missing mint/escrow address).");
+    return false;
+  }
+  console.log("[depositEntryFee] mint:", FIGHT10_MINT, "escrow:", ESCROW_WALLET);
+
   // Check balance before prompting
   setStatus("Checking $FIGHT10 balance…");
   const balance = await getFight10Balance(wallet.publicKey.toString());
