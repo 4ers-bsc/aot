@@ -241,7 +241,7 @@ export function createArenaGame(options) {
     fight10Groups.forEach((g) => scene.remove(g));
     fight10Groups.length = 0;
     const CW = 56, CH = 10;
-    for (let i = 0; i < 3; i++) {
+    for (let i = 0; i < 1; i++) {
       const dc = document.createElement("canvas");
       dc.width = CW; dc.height = CH;
       const dctx = dc.getContext("2d");
@@ -294,7 +294,7 @@ export function createArenaGame(options) {
         // Fade: full opacity near center (arena edge), transparent near outer edge
         const alpha = Math.max(0, 1 - (dist / maxDist) * 1.1);
         // Dot size shrinks slightly as alpha decreases (receding effect)
-        const r = 1.6 * (0.4 + 0.6 * alpha);
+        const r = 0.55 * (0.5 + 0.5 * alpha);
         dctx.globalAlpha = alpha * 0.7;
         dctx.fillStyle = "#c8d0da";
         dctx.beginPath();
