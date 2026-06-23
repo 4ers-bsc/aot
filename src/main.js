@@ -8,6 +8,7 @@ import {
 import {
   getAssociatedTokenAddress,
   createTransferInstruction,
+  createAssociatedTokenAccountInstruction,
 } from "https://esm.sh/@solana/spl-token@0.3.11?bundle";
 
 const SUPABASE_URL =
@@ -472,17 +473,36 @@ async function depositEntryFee(matchId, numPlayers = 2) {
     const escrowPubkey = new PublicKey(ESCROW_WALLET);
     const playerPubkey = wallet.publicKey;
 
-    const playerAta = await getAssociatedTokenAddress(mintPubkey, playerPubkey);
+    // Find the player's actual token account holding FIGHT10 (may not be the canonical ATA)
+    const { value: playerAccounts } = await connection.getParsedTokenAccountsByOwner(
+      playerPubkey, { mint: mintPubkey }
+    );
+    if (!playerAccounts.length) throw new Error("No FIGHT10 token account found in wallet.");
+    // Use the account with the highest balance as source
+    playerAccounts.sort((a, b) =>
+      Number(BigInt(b.account.data.parsed.info.tokenAmount.amount) - BigInt(a.account.data.parsed.info.tokenAmount.amount))
+    );
+    const sourceAta = playerAccounts[0].pubkey;
+    console.log("[depositEntryFee] source token account:", sourceAta.toString(),
+      "amount:", playerAccounts[0].account.data.parsed.info.tokenAmount.uiAmount);
+
+    // Derive canonical escrow ATA; create it in the same tx if it doesn't exist
     const escrowAta = await getAssociatedTokenAddress(mintPubkey, escrowPubkey);
+    console.log("[depositEntryFee] escrow ATA:", escrowAta.toString());
+    const escrowAtaInfo = await connection.getAccountInfo(escrowAta);
+    console.log("[depositEntryFee] escrow ATA exists:", !!escrowAtaInfo);
 
     const { blockhash, lastValidBlockHeight } = await connection.getLatestBlockhash();
 
-    const tx = new Transaction({
-      recentBlockhash: blockhash,
-      feePayer: playerPubkey,
-    }).add(
-      createTransferInstruction(playerAta, escrowAta, playerPubkey, ENTRY_FEE_RAW)
-    );
+    const tx = new Transaction({ recentBlockhash: blockhash, feePayer: playerPubkey });
+
+    // Initialize escrow ATA if needed (player pays the ~0.002 SOL rent, one-time)
+    if (!escrowAtaInfo) {
+      console.log("[depositEntryFee] adding createAssociatedTokenAccount instruction for escrow ATA");
+      tx.add(createAssociatedTokenAccountInstruction(playerPubkey, escrowAta, escrowPubkey, mintPubkey));
+    }
+
+    tx.add(createTransferInstruction(sourceAta, escrowAta, playerPubkey, ENTRY_FEE_RAW));
 
     // Ask wallet to sign and broadcast
     const sig = await wallet.signAndSendTransaction(tx);
