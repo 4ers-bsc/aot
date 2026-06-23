@@ -287,6 +287,7 @@ function startDemo() {
   game.useAiFoe();          // single AI raider opponent
   game.generateMap("demo-" + Date.now());
   game.resetForMatch();
+  game.showMapToggle(true);
   game.setMatchPhase("countdown");
   game.setControllable(false);
   runMatchStart(() => {
@@ -615,6 +616,12 @@ async function enterArena(matchId) {
     })
     .on("broadcast", { event: "attack" }, ({ payload }) => game.receiveAttack(payload))
     .on("broadcast", { event: "start" }, () => beginMatch())
+    // Echo pings back so the sender can measure RTT
+    .on("broadcast", { event: "ping" }, ({ payload }) => {
+      if (payload?.from !== state.user?.id) {
+        state.channel.send({ type: "broadcast", event: "ping-echo", payload: { nonce: payload?.nonce } });
+      }
+    })
     .on("presence", { event: "sync" }, () => { loadRoster(matchId).catch((e) => console.error(e)); })
     .on("presence", { event: "leave" }, ({ leftPresences }) => {
       (leftPresences || []).forEach((p) => { if (state.remoteIds.has(p.user_id)) handleOpponentLeft(p.user_id); });
@@ -701,13 +708,39 @@ function matchDuration(max) {
 // "MATCH STARTING" transition so every client starts together.
 function startPingLoop() {
   stopPingLoop();
+
+  // Pending echo callbacks keyed by nonce
+  const pending = new Map();
+
+  // Listen for ping-echo on the current match channel
+  if (state.channel) {
+    state.channel.on("broadcast", { event: "ping-echo" }, ({ payload }) => {
+      const cb = pending.get(payload?.nonce);
+      if (cb) { cb(); pending.delete(payload?.nonce); }
+    });
+  }
+
   const probe = async () => {
-    try {
+    // Use Realtime broadcast round-trip when in a match channel
+    if (state.channel) {
+      const nonce = Math.random().toString(36).slice(2);
       const t0 = performance.now();
-      await supabase.from("profiles").select("user_id").eq("user_id", state.user?.id).limit(1);
-      game.setPing(Math.round(performance.now() - t0));
-    } catch (_) {}
+      const timeout = setTimeout(() => { pending.delete(nonce); }, 4000);
+      pending.set(nonce, () => {
+        clearTimeout(timeout);
+        game.setPing(Math.round(performance.now() - t0));
+      });
+      state.channel.send({ type: "broadcast", event: "ping", payload: { nonce, from: state.user?.id } });
+    } else {
+      // Fallback: plain Supabase HTTP round-trip
+      try {
+        const t0 = performance.now();
+        await supabase.from("profiles").select("user_id").eq("user_id", state.user?.id).limit(1);
+        game.setPing(Math.round(performance.now() - t0));
+      } catch (_) {}
+    }
   };
+
   probe();
   state.pingInterval = setInterval(probe, 3000);
 }
@@ -808,6 +841,8 @@ async function leaveMatch({ silent = false } = {}) {
   }
   await teardownMatch();
   game.clearAll();
+  game.showMapToggle(false);
+  game.setMapVariant("game");
   showLobby();
   if (!silent) setStatus(recordSuffix("Left the match."));
 }

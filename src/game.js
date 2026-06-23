@@ -34,6 +34,20 @@ const THEMES = {
     cursor: "%23e0473c",
     mm: { grid: "rgba(110,120,128,0.16)", border: "rgba(58,106,58,0.8)", cam: "rgba(47,138,47,0.5)", enemy: "#d23b3b", player: "#2f8a2f" }
   },
+  // "Golden Sands" variant — golden pixel ground, icy/snowy glass walls
+  golden: {
+    bg: 0x0c0a06,
+    ground: ["#c8940a", "#b8840a", "#d4a020", "#c09010", "#e0ac28", "#b07808", "#ca9818", "#d8a830", "#a87010", "#bc8c14", "#daa422", "#c49018"],
+    grid: [0x6b4a08, 0x9a6c10], gridOpacity: 0.45,
+    border: 0xffc830,
+    player: { boots: 0x2c4a2c, jacket: 0x4a8a45, helmet: 0x33572f, face: 0xcda882 },
+    enemy: { boots: 0x4a2222, jacket: 0xa83a32, helmet: 0x6a1f1f, face: 0xd0a884 },
+    bullet: 0xffe08a,
+    markerMove: [0x2f8a2f, 0x1f6f1f], markerAttack: [0xd23b3b, 0xa02020],
+    playerBar: "#33b14a", enemyBar: "#e0473c",
+    cursor: "%23e0473c",
+    mm: { grid: "rgba(180,150,40,0.18)", border: "rgba(255,200,48,0.8)", cam: "rgba(255,180,30,0.45)", enemy: "#d23b3b", player: "#2f8a2f" }
+  },
   lobby: {
     bg: 0x121212,
     ground: ["#3a3a3a", "#343434", "#2e2e2e", "#2a2a2a", "#404040", "#363636", "#444444", "#383838", "#303030", "#4a4a4a", "#2c2c2c", "#3d3d3d"],
@@ -150,11 +164,27 @@ export function createArenaGame(options) {
   );
   scene.add(border);
 
-  // -- Pixelated golden glass walls ------------------------------------------
-  (function buildGlassWedge() {
+  // -- Arena walls (disposable, theme-aware) ------------------------------------
+  const wallObjects = []; // tracks all wall scene objects for disposal
+
+  function buildArenaWalls(variant) {
+    // Dispose existing wall objects
+    wallObjects.forEach((obj) => {
+      scene.remove(obj);
+      if (obj.geometry) obj.geometry.dispose();
+      if (obj.material) {
+        if (obj.material.map) obj.material.map.dispose();
+        obj.material.dispose();
+      }
+    });
+    wallObjects.length = 0;
+
     const DEPTH = 10;
+    const addObj = (obj) => { scene.add(obj); wallObjects.push(obj); return obj; };
+
     // Dark backing behind each wall
-    const sideMat = new THREE.MeshStandardMaterial({ color: 0x0a0804, roughness: 0.98, metalness: 0.0 });
+    const backColor = variant === "golden" ? 0x060810 : 0x0a0804;
+    const sideMat = new THREE.MeshStandardMaterial({ color: backColor, roughness: 0.98, metalness: 0.0 });
     [
       { x: 0,         z: -MAP_HALF, ry: 0 },
       { x: 0,         z:  MAP_HALF, ry: Math.PI },
@@ -164,8 +194,9 @@ export function createArenaGame(options) {
       const wall = new THREE.Mesh(new THREE.PlaneGeometry(MAP_WORLD, DEPTH), sideMat);
       wall.position.set(x, -DEPTH / 2, z);
       wall.rotation.y = ry;
-      scene.add(wall);
+      addObj(wall);
     });
+
     // Bottom cap
     const btm = new THREE.Mesh(
       new THREE.PlaneGeometry(MAP_WORLD, MAP_WORLD),
@@ -173,61 +204,85 @@ export function createArenaGame(options) {
     );
     btm.rotation.x = Math.PI / 2;
     btm.position.y = -DEPTH;
-    scene.add(btm);
+    addObj(btm);
 
-    // Pixelated golden grid glass panels
-    // Each panel is MAP_WORLD wide × GH tall. We draw a pixel-art grid on a
-    // canvas: solid square cells with golden borders, tinted glass fill, all
-    // fading to transparent at the bottom.
-    const GH = 6;           // panel height in world units
-    const CELL = 8;         // pixels per grid cell on canvas
-    const PW = 256;         // canvas width in px  (≈ MAP_WORLD world units)
-    const PH = 64;          // canvas height in px (≈ GH world units)
+    // Glass panels — golden pixel grid (standard) or icy snow (golden map)
+    const GH = 6;
+    const CELL = 8;
+    const PW = 256;
+    const PH = 64;
     const gc = document.createElement("canvas");
     gc.width = PW; gc.height = PH;
     const gctx = gc.getContext("2d");
     gctx.imageSmoothingEnabled = false;
 
-    // Fill each cell with a dark amber-tinted glass colour, fading down
-    for (let row = 0; row < PH / CELL; row++) {
-      const rowAlpha = 1 - row / (PH / CELL); // 1 at top → 0 at bottom
-      for (let col = 0; col < PW / CELL; col++) {
-        // Slight variation per cell for the pixel/mosaic look
-        const va = 0.85 + Math.random() * 0.15;
-        const fillAlpha = rowAlpha * 0.28 * va;
-        gctx.fillStyle = `rgba(210,175,60,${fillAlpha.toFixed(3)})`;
-        gctx.fillRect(col * CELL + 1, row * CELL + 1, CELL - 2, CELL - 2);
-      }
-    }
-
-    // Draw golden border lines between cells (crisp pixel lines)
-    gctx.strokeStyle = "rgba(255, 210, 60, 0.0)"; // will be set per-line below
-    for (let row = 0; row <= PH / CELL; row++) {
-      const rowAlpha = 1 - row / (PH / CELL);
-      gctx.strokeStyle = `rgba(255, 200, 48, ${(rowAlpha * 0.72).toFixed(3)})`;
-      gctx.lineWidth = 1;
-      gctx.beginPath();
-      gctx.moveTo(0, row * CELL);
-      gctx.lineTo(PW, row * CELL);
-      gctx.stroke();
-    }
-    for (let col = 0; col <= PW / CELL; col++) {
-      // Vertical lines: use uniform opacity for crisp pillars
-      gctx.strokeStyle = "rgba(255, 200, 48, 0.55)";
-      gctx.lineWidth = 1;
-      // Fade each vertical line to 0 at the bottom by drawing small segments
+    if (variant === "golden") {
+      // Icy / snowy glass panels
       for (let row = 0; row < PH / CELL; row++) {
         const rowAlpha = 1 - row / (PH / CELL);
-        gctx.strokeStyle = `rgba(255, 200, 48, ${(rowAlpha * 0.55).toFixed(3)})`;
+        for (let col = 0; col < PW / CELL; col++) {
+          const va = 0.80 + Math.random() * 0.20;
+          const fillAlpha = rowAlpha * 0.30 * va;
+          // Ice blue-white tint
+          gctx.fillStyle = `rgba(190,220,255,${fillAlpha.toFixed(3)})`;
+          gctx.fillRect(col * CELL + 1, row * CELL + 1, CELL - 2, CELL - 2);
+        }
+      }
+      // Snow dots scattered on the glass
+      for (let i = 0; i < 80; i++) {
+        const sx = Math.random() * PW;
+        const sy = Math.random() * PH * 0.7;
+        const r = 0.5 + Math.random() * 1.5;
+        const a = (0.4 + Math.random() * 0.5) * (1 - sy / PH);
+        gctx.fillStyle = `rgba(255,255,255,${a.toFixed(3)})`;
         gctx.beginPath();
-        gctx.moveTo(col * CELL, row * CELL);
-        gctx.lineTo(col * CELL, (row + 1) * CELL);
-        gctx.stroke();
+        gctx.arc(sx, sy, r, 0, Math.PI * 2);
+        gctx.fill();
+      }
+      // Icy border lines
+      for (let row = 0; row <= PH / CELL; row++) {
+        const rowAlpha = 1 - row / (PH / CELL);
+        gctx.strokeStyle = `rgba(160,210,255,${(rowAlpha * 0.65).toFixed(3)})`;
+        gctx.lineWidth = 1;
+        gctx.beginPath(); gctx.moveTo(0, row * CELL); gctx.lineTo(PW, row * CELL); gctx.stroke();
+      }
+      for (let col = 0; col <= PW / CELL; col++) {
+        for (let row = 0; row < PH / CELL; row++) {
+          const rowAlpha = 1 - row / (PH / CELL);
+          gctx.strokeStyle = `rgba(160,210,255,${(rowAlpha * 0.50).toFixed(3)})`;
+          gctx.lineWidth = 1;
+          gctx.beginPath(); gctx.moveTo(col * CELL, row * CELL); gctx.lineTo(col * CELL, (row + 1) * CELL); gctx.stroke();
+        }
+      }
+    } else {
+      // Golden pixel grid glass panels
+      for (let row = 0; row < PH / CELL; row++) {
+        const rowAlpha = 1 - row / (PH / CELL);
+        for (let col = 0; col < PW / CELL; col++) {
+          const va = 0.85 + Math.random() * 0.15;
+          const fillAlpha = rowAlpha * 0.28 * va;
+          gctx.fillStyle = `rgba(210,175,60,${fillAlpha.toFixed(3)})`;
+          gctx.fillRect(col * CELL + 1, row * CELL + 1, CELL - 2, CELL - 2);
+        }
+      }
+      for (let row = 0; row <= PH / CELL; row++) {
+        const rowAlpha = 1 - row / (PH / CELL);
+        gctx.strokeStyle = `rgba(255, 200, 48, ${(rowAlpha * 0.72).toFixed(3)})`;
+        gctx.lineWidth = 1;
+        gctx.beginPath(); gctx.moveTo(0, row * CELL); gctx.lineTo(PW, row * CELL); gctx.stroke();
+      }
+      for (let col = 0; col <= PW / CELL; col++) {
+        for (let row = 0; row < PH / CELL; row++) {
+          const rowAlpha = 1 - row / (PH / CELL);
+          gctx.strokeStyle = `rgba(255, 200, 48, ${(rowAlpha * 0.55).toFixed(3)})`;
+          gctx.lineWidth = 1;
+          gctx.beginPath(); gctx.moveTo(col * CELL, row * CELL); gctx.lineTo(col * CELL, (row + 1) * CELL); gctx.stroke();
+        }
       }
     }
 
     const glassTex = new THREE.CanvasTexture(gc);
-    glassTex.magFilter = THREE.NearestFilter; // keep the pixel edges sharp
+    glassTex.magFilter = THREE.NearestFilter;
     glassTex.minFilter = THREE.NearestFilter;
     const glassMat = new THREE.MeshBasicMaterial({
       map: glassTex, transparent: true, side: THREE.DoubleSide, depthWrite: false
@@ -243,22 +298,21 @@ export function createArenaGame(options) {
       const panel = new THREE.Mesh(new THREE.PlaneGeometry(MAP_WORLD, GH), glassMat);
       panel.position.set(x, -GH / 2, z);
       panel.rotation.y = ry;
-      scene.add(panel);
+      addObj(panel);
     });
 
-    // Thick golden rim along the top edge of the arena
+    // Top rim
+    const rimColor = variant === "golden" ? 0x80c8ff : 0xffc830;
+    const rimColor2 = variant === "golden" ? 0x50aaee : 0xffaa00;
     const rimPts = [
       new THREE.Vector3(-MAP_HALF, 0.08, -MAP_HALF), new THREE.Vector3(MAP_HALF, 0.08, -MAP_HALF),
       new THREE.Vector3(MAP_HALF, 0.08,  MAP_HALF),  new THREE.Vector3(-MAP_HALF, 0.08,  MAP_HALF),
       new THREE.Vector3(-MAP_HALF, 0.08, -MAP_HALF),
     ];
-    const rim = new THREE.Line(
+    addObj(new THREE.Line(
       new THREE.BufferGeometry().setFromPoints(rimPts),
-      new THREE.LineBasicMaterial({ color: 0xffc830, transparent: true, opacity: 0.9 })
-    );
-    scene.add(rim);
-
-    // Second, slightly wider rim for a double-border glow effect
+      new THREE.LineBasicMaterial({ color: rimColor, transparent: true, opacity: 0.9 })
+    ));
     const rimPts2 = [
       new THREE.Vector3(-MAP_HALF - 0.05, 0.04, -MAP_HALF - 0.05),
       new THREE.Vector3( MAP_HALF + 0.05, 0.04, -MAP_HALF - 0.05),
@@ -266,12 +320,13 @@ export function createArenaGame(options) {
       new THREE.Vector3(-MAP_HALF - 0.05, 0.04,  MAP_HALF + 0.05),
       new THREE.Vector3(-MAP_HALF - 0.05, 0.04, -MAP_HALF - 0.05),
     ];
-    const rim2 = new THREE.Line(
+    addObj(new THREE.Line(
       new THREE.BufferGeometry().setFromPoints(rimPts2),
-      new THREE.LineBasicMaterial({ color: 0xffaa00, transparent: true, opacity: 0.38 })
-    );
-    scene.add(rim2);
-  })();
+      new THREE.LineBasicMaterial({ color: rimColor2, transparent: true, opacity: 0.38 })
+    ));
+  }
+
+  buildArenaWalls("game");
 
   // -- Pixelated FIGHT10 ground decals (black pixel squares, random) --------
   const fight10Groups = [];
@@ -973,7 +1028,7 @@ export function createArenaGame(options) {
 
   // -- HUD (attached reference set) -----------------------------------------
   const hud = buildHud();
-  const { hint, coords, mmCanvas, hotbar, slots, fpsEl, pingEl, overlay, renderDistBtn, matchTimerEl } = hud;
+  const { hint, coords, mmCanvas, hotbar, slots, fpsEl, pingEl, overlay, renderDistBtn, matchTimerEl, mapToggleBtn } = hud;
 
   let activeSlot = 1;
   function selectSlot(n) {
@@ -1004,6 +1059,14 @@ export function createArenaGame(options) {
   }
   hud.bindSettings({ settings, applyFog, applyMsaa, refreshHud, onCenter: () => { if (settings.centerCamera) following = true; } });
   applyFog(); applyMsaa(); refreshHud();
+
+  // Map variant toggle (demo only — shown/hidden by main.js via showMapToggle)
+  mapToggleBtn.addEventListener("click", () => {
+    const next = mapToggleBtn.dataset.variant === "golden" ? "game" : "golden";
+    applyTheme(next);
+    mapToggleBtn.dataset.variant = next;
+    mapToggleBtn.textContent = next === "golden" ? "🏔 Snowy" : "🏜 Golden";
+  });
   renderDistBtn.textContent = settings.renderDistance;
 
   // Minimap
@@ -1067,18 +1130,26 @@ export function createArenaGame(options) {
   }
 
   // -- Theme switch ---------------------------------------------------------
+  let currentMapVariant = "game"; // "game" | "golden"
+
   function applyTheme(name) {
     theme = THEMES[name] || THEMES.lobby;
     renderer.setClearColor(theme.bg, 1);
     scene.background = new THREE.Color(theme.bg);
     applyFog();
-    if (name === "game") makeFight10Decal();
+    if (name === "game" || name === "golden") makeFight10Decal();
     const newTex = makeGroundTex(theme.ground);
     ground.material.map.dispose();
     ground.material.map = newTex;
     ground.material.needsUpdate = true;
     buildGrid();
     border.material.color.setHex(theme.border);
+    // Rebuild walls to match variant ("golden" map gets icy walls, else golden pixel)
+    const wallVariant = (name === "golden") ? "golden" : "game";
+    if (wallVariant !== currentMapVariant) {
+      currentMapVariant = wallVariant;
+      buildArenaWalls(wallVariant);
+    }
     recolorFighter(player, theme.player);
     player.bar.color = theme.playerBar;
     recolorFighter(aiEnemy, theme.enemy);
@@ -1172,6 +1243,7 @@ export function createArenaGame(options) {
   // -- Loop -----------------------------------------------------------------
   let destroyed = false;
   let fpsAcc = 0, fpsFrames = 0;
+  let fpsLastTime = performance.now();
   const clock = new THREE.Clock();
   function animate() {
     if (destroyed) return;
@@ -1236,11 +1308,16 @@ export function createArenaGame(options) {
     setCursor(controllable && !player.dead && ((player.attackTarget && !player.attackTarget.dead) || player.atkAnim > 0));
 
     if (settings.fps) {
-      fpsAcc += dt; fpsFrames++;
-      if (fpsAcc >= 0.5) { fpsEl.textContent = "FPS " + Math.round(fpsFrames / fpsAcc); fpsAcc = 0; fpsFrames = 0; }
-    }
-    if (settings.ping) {
-      if (foeMode !== "net") pingEl.textContent = "-- ms";
+      fpsFrames++;
+      const now = performance.now();
+      const elapsed = now - fpsLastTime;
+      if (elapsed >= 500) {
+        const fps = Math.round(fpsFrames / (elapsed / 1000));
+        fpsEl.textContent = "FPS " + fps;
+        fpsEl.style.color = fps >= 50 ? "#6fcf6f" : fps >= 30 ? "#f0c040" : "#e04040";
+        fpsFrames = 0;
+        fpsLastTime = now;
+      }
     }
     const aliveRivals = foeList().filter((f) => f.connected && !f.dead).length;
     coords.textContent = `x ${player.group.position.x.toFixed(1)} · z ${player.group.position.z.toFixed(1)} · ${foeMode === "net" ? `rivals ${aliveRivals}` : `kills ${kills}`}`;
@@ -1264,6 +1341,13 @@ export function createArenaGame(options) {
       perspective = mode;
       controllable = mode === "player";
     },
+    setMapVariant(variant) {
+      const v = (variant === "golden") ? "golden" : "game";
+      applyTheme(v);
+      mapToggleBtn.dataset.variant = v;
+      mapToggleBtn.textContent = v === "golden" ? "🏔 Snowy" : "🏜 Golden";
+    },
+    showMapToggle(on) { mapToggleBtn.classList.toggle("hidden", !on); },
     setMatchPhase(phase) { matchPhase = phase; },
     setControllable(on) { controllable = !!on; },
     setMatchTimer(seconds) {
@@ -1397,7 +1481,12 @@ export function createArenaGame(options) {
       document.body.classList.remove("in-game");
       applyTheme("lobby");
     },
-    setPing(ms) { if (pingEl) pingEl.textContent = ms != null ? ms + " ms" : "-- ms"; },
+    setPing(ms) {
+      if (!pingEl) return;
+      if (ms == null) { pingEl.textContent = "-- ms"; pingEl.style.color = ""; return; }
+      pingEl.textContent = ms + " ms";
+      pingEl.style.color = ms < 80 ? "#6fcf6f" : ms < 160 ? "#f0c040" : "#e04040";
+    },
     openSettings() { overlay.classList.add("show"); },
     destroy() {
       destroyed = true;
@@ -1448,6 +1537,7 @@ function buildHud() {
     hotbar.appendChild(s);
   }
   const slots = Array.from(hotbar.querySelectorAll(".slot"));
+  const mapToggleBtn = add('<button class="map-toggle-btn game-ui hidden" title="Switch map" data-variant="game">🏜 Golden</button>');
   add('<button class="gear game-ui" title="Settings">&#9881;</button>');
   const gearBtn = root.querySelector(".gear");
   const fpsEl = add('<div class="game-fps game-ui">FPS --</div>');
@@ -1524,7 +1614,7 @@ function buildHud() {
     });
   }
 
-  return { root, hint, coords, matchTimerEl, mmCanvas, hotbar, slots, fpsEl, pingEl, overlay, renderDistBtn, bindSettings };
+  return { root, hint, coords, matchTimerEl, mmCanvas, hotbar, slots, fpsEl, pingEl, overlay, renderDistBtn, bindSettings, mapToggleBtn };
 }
 
 function clamp(v, min, max) {
@@ -1538,6 +1628,7 @@ function stubApi() {
     playerAlive: () => false, opponentCount: () => 0,
     useAiFoe: noop, usePvpFoes: noop, addOpponent: noop, removeOpponent: () => 0,
     clearRemote: noop, resetForMatch: noop, receivePlayerState: noop,
-    receiveAttack: noop, generateMap: noop, clearAll: noop, destroy: noop
+    receiveAttack: noop, generateMap: noop, clearAll: noop, destroy: noop,
+    setMapVariant: noop, showMapToggle: noop
   };
 }
