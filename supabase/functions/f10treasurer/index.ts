@@ -1,11 +1,5 @@
-// Payout Edge Function — uses npm: specifiers so Deno resolves Node built-ins.
-// Invoked by the match winner after finish_match() resolves.
-// Sends 90% of the total pot from escrow to the winner. 10% stays in treasury.
-//
-// Required Supabase secrets:
-//   ESCROW_PRIVATE_KEY  — base58 keypair of the escrow/treasury wallet
-//   FIGHT10_MINT        — SPL token mint address
-//   RPC_URL             — Solana RPC endpoint (mainnet-beta)
+// Payout Edge Function
+// Required Supabase secrets: ESCROW_PRIVATE_KEY (base58), FIGHT10_MINT, RPC_URL
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import {
@@ -20,19 +14,44 @@ import {
   createTransferInstruction,
   getMint,
   getAccount,
-  TOKEN_PROGRAM_ID,
-  TOKEN_2022_PROGRAM_ID,
   ASSOCIATED_TOKEN_PROGRAM_ID,
 } from "npm:@solana/spl-token@0.4.9";
-import bs58 from "npm:bs58@5.0.0";
 
-const TREASURY_CUT = 0.10;
+// Inline base58 decode — avoids bs58 npm ESM/CJS interop issues in Deno
+function base58Decode(str: string): Uint8Array {
+  const ALPHA = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";
+  const map = new Uint8Array(256).fill(255);
+  for (let i = 0; i < ALPHA.length; i++) map[ALPHA.charCodeAt(i)] = i;
+  const bytes: number[] = [0];
+  for (const ch of str) {
+    const v = map[ch.charCodeAt(0)];
+    if (v === 255) throw new Error("Invalid base58 char: " + ch);
+    let carry = v;
+    for (let j = bytes.length - 1; j >= 0; j--) {
+      carry += bytes[j] * 58;
+      bytes[j] = carry & 0xff;
+      carry >>= 8;
+    }
+    while (carry) { bytes.unshift(carry & 0xff); carry >>= 8; }
+  }
+  let zeros = 0;
+  while (str[zeros] === "1") zeros++;
+  return new Uint8Array([...new Array(zeros).fill(0), ...bytes]);
+}
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Methods": "POST, OPTIONS",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
+
+function errorResponse(message: string, status: number): Response {
+  console.error("errorResponse:", status, message);
+  return new Response(JSON.stringify({ ok: false, error: message }), {
+    status,
+    headers: { "Content-Type": "application/json", ...corsHeaders },
+  });
+}
 
 Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") {
@@ -54,153 +73,102 @@ Deno.serve(async (req: Request) => {
     if (authError || !user) return errorResponse("Unauthorized", 401);
 
     const adminClient = createClient(supabaseUrl, supabaseServiceKey);
-
     const body = await req.json();
     const matchId: string = body?.match_id;
     if (!matchId) return errorResponse("match_id is required", 400);
 
-    // Verify caller is the match winner
-    const { data: matchRow, error: matchErr } = await adminClient
-      .from("matches")
-      .select("id, status, winner_user_id, max_players, payout_tx")
-      .eq("id", matchId)
-      .maybeSingle();
+    console.log("Payout request — match:", matchId, "user:", user.id);
 
+    const { data: matchRow, error: matchErr } = await adminClient
+      .from("matches").select("id, status, winner_user_id, payout_tx").eq("id", matchId).maybeSingle();
     if (matchErr || !matchRow) return errorResponse("Match not found", 404);
     if (matchRow.status !== "finished") return errorResponse("Match is not finished", 400);
-    if (matchRow.winner_user_id !== user.id) return errorResponse("Only the winner may claim the prize", 403);
+    if (matchRow.winner_user_id !== user.id) return errorResponse("Only the winner may claim", 403);
     if (matchRow.payout_tx) return errorResponse("Prize already claimed", 409);
 
-    // Verify all players deposited
     const { data: players, error: playersErr } = await adminClient
-      .from("match_players")
-      .select("user_id, deposit_tx")
-      .eq("match_id", matchId);
-
+      .from("match_players").select("user_id, deposit_tx").eq("match_id", matchId);
     if (playersErr || !players) return errorResponse("Could not fetch match players", 500);
     const missing = players.filter((p) => !p.deposit_tx);
-    if (missing.length > 0) {
-      return errorResponse(`${missing.length} player(s) have not deposited`, 400);
-    }
+    if (missing.length > 0) return errorResponse(`${missing.length} player(s) have not deposited`, 400);
 
-    // Get winner wallet
-    const { data: profile, error: profileErr } = await adminClient
-      .from("profiles")
-      .select("wallet_address")
-      .eq("user_id", user.id)
-      .maybeSingle();
+    const { data: profile } = await adminClient
+      .from("profiles").select("wallet_address").eq("user_id", user.id).maybeSingle();
+    if (!profile?.wallet_address) return errorResponse("Winner wallet address not found", 400);
 
-    if (profileErr || !profile?.wallet_address) {
-      return errorResponse("Winner wallet address not found", 400);
-    }
-
-    const escrowPrivateKeyB58 = Deno.env.get("ESCROW_PRIVATE_KEY");
-    const fightMintStr = Deno.env.get("FIGHT10_MINT");
+    const escrowB58 = Deno.env.get("ESCROW_PRIVATE_KEY");
+    const mintStr = Deno.env.get("FIGHT10_MINT");
     const rpcUrl = Deno.env.get("RPC_URL") ?? "https://api.mainnet-beta.solana.com";
+    if (!escrowB58 || !mintStr) return errorResponse("Escrow configuration missing", 500);
 
-    if (!escrowPrivateKeyB58 || !fightMintStr) {
-      return errorResponse("Escrow configuration missing", 500);
-    }
-
-    const escrowKeypair = Keypair.fromSecretKey(bs58.decode(escrowPrivateKeyB58));
-    const mintPubkey = new PublicKey(fightMintStr);
+    console.log("Decoding escrow keypair…");
+    const escrowKeypair = Keypair.fromSecretKey(base58Decode(escrowB58));
+    const mintPubkey = new PublicKey(mintStr);
     const winnerPubkey = new PublicKey(profile.wallet_address);
     const connection = new Connection(rpcUrl, "confirmed");
 
-    // Detect token program (Token vs Token-2022) from the mint account owner
-    const mintAccountInfo = await connection.getAccountInfo(mintPubkey);
-    if (!mintAccountInfo) return errorResponse("Mint account not found", 500);
-    const tokenProgramId = mintAccountInfo.owner;
+    console.log("Fetching mint account…");
+    const mintAcct = await connection.getAccountInfo(mintPubkey);
+    if (!mintAcct) return errorResponse("Mint account not found on-chain", 500);
+    const tokenProgramId = mintAcct.owner;
+    console.log("Token program:", tokenProgramId.toString());
 
     const mintInfo = await getMint(connection, mintPubkey, "confirmed", tokenProgramId);
-    const decimals = mintInfo.decimals;
+    const { decimals } = mintInfo;
     const entryFeeRaw = BigInt(2500) * BigInt(10 ** decimals);
-
-    const numPlayers = BigInt(players.length);
-    const totalRaw = numPlayers * entryFeeRaw;
+    const totalRaw = BigInt(players.length) * entryFeeRaw;
     const winnerAmountRaw = (totalRaw * BigInt(900)) / BigInt(1000);
+    console.log("Payout amount (raw):", winnerAmountRaw.toString(), "to", profile.wallet_address);
 
-    // Find escrow's actual token account for this mint
-    const escrowAccounts = await connection.getParsedTokenAccountsByOwner(
-      escrowKeypair.publicKey,
-      { mint: mintPubkey },
-    );
-    if (escrowAccounts.value.length === 0) {
-      return errorResponse("Escrow has no token account for this mint", 500);
-    }
+    console.log("Finding escrow token account…");
+    const escrowAccounts = await connection.getParsedTokenAccountsByOwner(escrowKeypair.publicKey, { mint: mintPubkey });
+    if (escrowAccounts.value.length === 0) return errorResponse("Escrow has no token account for this mint", 500);
     const escrowTokenAccount = new PublicKey(escrowAccounts.value[0].pubkey);
+    console.log("Escrow token account:", escrowTokenAccount.toString());
 
-    // Winner's ATA (create if needed)
-    const winnerAta = await getAssociatedTokenAddress(
-      mintPubkey, winnerPubkey, false, tokenProgramId, ASSOCIATED_TOKEN_PROGRAM_ID,
-    );
-
+    const winnerAta = await getAssociatedTokenAddress(mintPubkey, winnerPubkey, false, tokenProgramId, ASSOCIATED_TOKEN_PROGRAM_ID);
     const tx = new Transaction();
 
     try {
       await getAccount(connection, winnerAta, "confirmed", tokenProgramId);
+      console.log("Winner ATA exists");
     } catch (_) {
-      tx.add(
-        createAssociatedTokenAccountInstruction(
-          escrowKeypair.publicKey,
-          winnerAta,
-          winnerPubkey,
-          mintPubkey,
-          tokenProgramId,
-          ASSOCIATED_TOKEN_PROGRAM_ID,
-        ),
-      );
+      console.log("Creating winner ATA:", winnerAta.toString());
+      tx.add(createAssociatedTokenAccountInstruction(
+        escrowKeypair.publicKey, winnerAta, winnerPubkey, mintPubkey, tokenProgramId, ASSOCIATED_TOKEN_PROGRAM_ID,
+      ));
     }
 
-    tx.add(
-      createTransferInstruction(
-        escrowTokenAccount,
-        winnerAta,
-        escrowKeypair.publicKey,
-        winnerAmountRaw,
-        [],
-        tokenProgramId,
-      ),
-    );
+    tx.add(createTransferInstruction(escrowTokenAccount, winnerAta, escrowKeypair.publicKey, winnerAmountRaw, [], tokenProgramId));
 
-    const { blockhash, lastValidBlockHeight } = await connection.getLatestBlockhash("confirmed");
+    const { blockhash } = await connection.getLatestBlockhash("confirmed");
     tx.recentBlockhash = blockhash;
     tx.feePayer = escrowKeypair.publicKey;
     tx.sign(escrowKeypair);
 
-    const rawTx = tx.serialize();
-    const payoutSig = await connection.sendRawTransaction(rawTx, { skipPreflight: false });
+    console.log("Sending payout tx…");
+    const payoutSig = await connection.sendRawTransaction(tx.serialize(), { skipPreflight: false });
+    console.log("Payout tx sent:", payoutSig);
 
-    // Poll for confirmation (no WebSocket dependency)
-    const start = Date.now();
-    while (Date.now() - start < 90000) {
+    // HTTP poll for confirmation
+    const deadline = Date.now() + 90000;
+    while (Date.now() < deadline) {
       const { value } = await connection.getSignatureStatuses([payoutSig]);
       const s = value[0];
-      if (s) {
-        if (s.err) throw new Error("Payout tx failed: " + JSON.stringify(s.err));
-        if (s.confirmationStatus === "confirmed" || s.confirmationStatus === "finalized") break;
-      }
+      if (s?.err) throw new Error("Payout tx failed: " + JSON.stringify(s.err));
+      if (s?.confirmationStatus === "confirmed" || s?.confirmationStatus === "finalized") break;
       await new Promise((r) => setTimeout(r, 2000));
     }
+    console.log("Payout confirmed:", payoutSig);
 
-    await adminClient
-      .from("matches")
-      .update({ payout_tx: payoutSig })
-      .eq("id", matchId);
+    await adminClient.from("matches").update({ payout_tx: payoutSig }).eq("id", matchId);
 
     return new Response(
       JSON.stringify({ ok: true, payout_tx: payoutSig, winner_amount: winnerAmountRaw.toString(), num_players: players.length, decimals }),
       { headers: { "Content-Type": "application/json", ...corsHeaders } },
     );
   } catch (err) {
-    console.error("Payout error:", err);
+    console.error("Unhandled payout error:", err);
     return errorResponse(String(err), 500);
   }
 });
-
-function errorResponse(message: string, status: number): Response {
-  return new Response(JSON.stringify({ ok: false, error: message }), {
-    status,
-    headers: { "Content-Type": "application/json", ...corsHeaders },
-  });
-}
