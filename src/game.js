@@ -1095,7 +1095,7 @@ export function createArenaGame(options) {
     raiderCountEl.textContent = next;
   });
   raiderCountCtrl.querySelector(".rc-plus").addEventListener("click", () => {
-    const next = Math.min(4, aiRaiders.length + 1);
+    const next = Math.min(10, aiRaiders.length + 1);
     while (aiRaiders.length < next) aiRaiders.push(makeAiRaider(aiRaiders.length));
     while (aiRaiders.length > next) disposeAiRaider(aiRaiders.pop());
     raiderCountEl.textContent = next;
@@ -1382,7 +1382,7 @@ export function createArenaGame(options) {
     showMapToggle(on) { mapToggleBtn.classList.toggle("hidden", !on); },
     showRaiderCount(on) { raiderCountCtrl.classList.toggle("hidden", !on); },
     setAiCount(n) {
-      const target = Math.max(1, Math.min(4, n));
+      const target = Math.max(1, Math.min(10, n));
       while (aiRaiders.length < target) aiRaiders.push(makeAiRaider(aiRaiders.length));
       while (aiRaiders.length > target) disposeAiRaider(aiRaiders.pop());
       raiderCountEl.textContent = target;
