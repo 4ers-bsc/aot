@@ -24,7 +24,7 @@ const THEMES = {
   game: {
     bg: 0xf0f2f5,
     fogColor: 0xf0f2f5,
-    ground: ["#ffffff", "#ffffff", "#f8f8f8", "#f4f4f4", "#f0f0f0", "#ebebeb", "#e4e4e4", "#e0e0e0", "#d8d8d8", "#d2d2d2", "#cccccc", "#c6c6c6"],
+    ground: ["#ffffff","#ffffff","#ffffff","#f8f8f8","#f4f4f4","#eeeeee","#e6e6e6","#dcdcdc","#d4d4d4","#c8c8c8","#bcbcbc","#b0b0b0","#a4a4a4","#989898","#8c8c8c","#808080"],
     grid: [0x999fa6, 0xaab0b6], gridOpacity: 0.28,
     border: 0x3a6a3a,
     player: { boots: 0x2c4a2c, jacket: 0x4a8a45, helmet: 0x33572f, face: 0xcda882 },
@@ -106,7 +106,8 @@ export function createArenaGame(options) {
 
   // -- Ground ---------------------------------------------------------------
   function makeGroundTex(palette) {
-    const px = 96;
+    // One pixel per tile (MAP_TILES = 50) so each block = one 2-unit tile on the ground
+    const px = MAP_TILES;
     const c = document.createElement("canvas");
     c.width = c.height = px;
     const ctx = c.getContext("2d");
@@ -119,8 +120,8 @@ export function createArenaGame(options) {
     const tex = new THREE.CanvasTexture(c);
     tex.magFilter = THREE.NearestFilter;
     tex.minFilter = THREE.NearestFilter;
-    tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
-    tex.repeat.set(MAP_WORLD / 24, MAP_WORLD / 24);
+    // No repeat — canvas stretches exactly across the whole ground plane
+    tex.wrapS = tex.wrapT = THREE.ClampToEdgeWrapping;
     return tex;
   }
   const ground = new THREE.Mesh(
@@ -241,7 +242,7 @@ export function createArenaGame(options) {
     fight10Groups.forEach((g) => scene.remove(g));
     fight10Groups.length = 0;
     const CW = 56, CH = 10;
-    for (let i = 0; i < 3; i++) {
+    for (let i = 0; i < 1; i++) {
       const dc = document.createElement("canvas");
       dc.width = CW; dc.height = CH;
       const dctx = dc.getContext("2d");
@@ -294,7 +295,7 @@ export function createArenaGame(options) {
         // Fade: full opacity near center (arena edge), transparent near outer edge
         const alpha = Math.max(0, 1 - (dist / maxDist) * 1.1);
         // Dot size shrinks slightly as alpha decreases (receding effect)
-        const r = 1.6 * (0.4 + 0.6 * alpha);
+        const r = 0.55 * (0.5 + 0.5 * alpha);
         dctx.globalAlpha = alpha * 0.7;
         dctx.fillStyle = "#c8d0da";
         dctx.beginPath();
@@ -952,7 +953,7 @@ export function createArenaGame(options) {
   });
 
   // Settings
-  const settings = { renderDistance: "Far", fog: true, msaa: true, animations: true, centerCamera: false, hideHud: false, fps: true, ping: true, location: false };
+  const settings = { renderDistance: "Far", fog: false, msaa: true, animations: true, centerCamera: false, hideHud: false, fps: true, ping: true, location: false };
   function applyFog() {
     if (settings.fog) { const r = RD_FOG[settings.renderDistance]; scene.fog = new THREE.Fog(theme.fogColor ?? theme.bg, r[0], r[1]); }
     else scene.fog = null;
