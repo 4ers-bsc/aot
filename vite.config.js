@@ -1,6 +1,7 @@
 import { defineConfig } from "vite";
 
 export default defineConfig({
+  publicDir: "assets",
   server: {
     host: true,
     // Must match the Supabase project's Site URL (http://localhost:3000) so the

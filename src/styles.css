@@ -229,17 +229,6 @@ textarea:focus {
   transform: translateX(-50%);
   text-align: center;
   pointer-events: none;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 6px;
-}
-
-.brand-logo {
-  width: clamp(48px, 6vw, 72px);
-  height: clamp(48px, 6vw, 72px);
-  object-fit: contain;
-  filter: drop-shadow(0 2px 8px rgba(0,0,0,0.6));
 }
 
 .brand-title {
