@@ -756,7 +756,12 @@ function beginMatch(skipCountdown = false) {
   state.started = true;
   if (state.match) state.match.status = "active";
   // Tell every other client to start too (presence sync alone can miss one).
-  state.channel?.send({ type: "broadcast", event: "start", payload: {} });
+  // Only the room-filler triggers the start broadcast; every other client that
+  // receives it and calls beginMatch() must NOT re-broadcast, otherwise each
+  // peer triggers another round of start events (O(N²) messages in a 10-player game).
+  if (state.iRoomFiller) {
+    state.channel?.send({ type: "broadcast", event: "start", payload: {} });
+  }
   hidePvpLobby();
   game.setView("game");
   game.generateMap(state.match?.id || "pvp");  // seed by match id so all clients match
