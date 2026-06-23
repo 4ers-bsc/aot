@@ -574,14 +574,32 @@ export function createArenaGame(options) {
   }
 
   const player = makeFighter({ name: "You", isPlayer: true, palette: theme.player, pos: new THREE.Vector3(-12, 0, 4), hp: 100, weapon: WEAPONS.sword, speed: 6.5, barColor: theme.playerBar });
-  // Demo AI raider (foeMode === "ai"). PvP uses the opponents map instead.
+  // Demo AI raiders (foeMode === "ai"). PvP uses the opponents map instead.
   const aiEnemy = makeFighter({ name: "Raider", palette: theme.enemy, pos: new THREE.Vector3(12, 0, -4), hp: 100, weapon: AI_WEAPON, speed: 4.6, barColor: theme.enemyBar });
+  const aiRaiders = [aiEnemy]; // grows/shrinks via setAiCount
   const opponents = new Map(); // userId -> networked fighter
   let foeMode = "ai"; // "ai" (demo) | "net" (pvp)
   const AI_AGGRO = 14;
 
   function foeList() {
-    return foeMode === "ai" ? [aiEnemy] : [...opponents.values()];
+    return foeMode === "ai" ? aiRaiders : [...opponents.values()];
+  }
+
+  function makeAiRaider(i) {
+    const sp = randomSpawn();
+    const f = makeFighter({
+      name: `Raider ${i + 1}`, palette: theme.enemy,
+      pos: new THREE.Vector3(sp.x, 0, sp.z), hp: 100,
+      weapon: AI_WEAPON, speed: 4.6, barColor: theme.enemyBar
+    });
+    f.networked = false;
+    f.connected = true;
+    return f;
+  }
+
+  function disposeAiRaider(f) {
+    f.bar.el.remove();
+    scene.remove(f.group);
   }
 
   // -- Map obstacles --------------------------------------------------------
@@ -833,21 +851,21 @@ export function createArenaGame(options) {
     }
     return true;
   }
-  function aiAttack() {
-    if (aiEnemy.cdTimer > 0 || player.dead || aiEnemy.hp <= 0) return;
-    const w = aiEnemy.weapon;
-    aiEnemy.cdTimer = w.cd;
-    aiEnemy.atkAnim = 0.32;
-    if (losBlocked(aiEnemy.group.position.x, aiEnemy.group.position.z, player.group.position.x, player.group.position.z)) return;
+  function aiAttackOne(e) {
+    if (e.cdTimer > 0 || player.dead || e.hp <= 0) return;
+    const w = e.weapon;
+    e.cdTimer = w.cd;
+    e.atkAnim = 0.32;
+    if (losBlocked(e.group.position.x, e.group.position.z, player.group.position.x, player.group.position.z)) return;
     let dmg = Math.max(1, Math.round(w.atk + (Math.random() * 2 - 1) * w.atkVar));
-    if (inRiver(aiEnemy.group.position.x, aiEnemy.group.position.z)) dmg = Math.max(1, Math.round(dmg * RIVER_ATK));
+    if (inRiver(e.group.position.x, e.group.position.z)) dmg = Math.max(1, Math.round(dmg * RIVER_ATK));
     applyDamage(player, dmg);
   }
   function killFighter(f) {
     f.dead = true;
     f.moving = false;
     f.deadTimer = f.isPlayer ? 1.8 : 2.2;
-    if (foeMode === "ai" && f === aiEnemy) kills++;
+    if (foeMode === "ai" && aiRaiders.includes(f)) kills++;
   }
   function handleDead(f, dt) {
     f.group.rotation.z = Math.min(Math.PI / 2, f.group.rotation.z + dt * 5);
@@ -899,18 +917,19 @@ export function createArenaGame(options) {
     }
   }
   function updateAi(dt) {
-    const e = aiEnemy;
-    if (e.dead) { handleDead(e, dt); return; }
-    if (e.cdTimer > 0) e.cdTimer -= dt;
-    if (e.atkAnim > 0) e.atkAnim -= dt;
-    e.moving = false;
-    regen(e, dt);
-    if (player.dead || !controllable) return;
-    const dx = player.group.position.x - e.group.position.x, dz = player.group.position.z - e.group.position.z;
-    const dist = Math.hypot(dx, dz);
-    if (dist <= AI_AGGRO) {
-      if (dist > e.weapon.range) moveStep(e, player.group.position.x, player.group.position.z, dt);
-      else { e.facing = Math.atan2(dx, dz); aiAttack(); }
+    for (const e of aiRaiders) {
+      if (e.dead) { handleDead(e, dt); continue; }
+      if (e.cdTimer > 0) e.cdTimer -= dt;
+      if (e.atkAnim > 0) e.atkAnim -= dt;
+      e.moving = false;
+      regen(e, dt);
+      if (player.dead || !controllable) continue;
+      const dx = player.group.position.x - e.group.position.x, dz = player.group.position.z - e.group.position.z;
+      const dist = Math.hypot(dx, dz);
+      if (dist <= AI_AGGRO) {
+        if (dist > e.weapon.range) moveStep(e, player.group.position.x, player.group.position.z, dt);
+        else { e.facing = Math.atan2(dx, dz); aiAttackOne(e); }
+      }
     }
   }
   function updateNetFoe(f, dt) {
@@ -1028,7 +1047,7 @@ export function createArenaGame(options) {
 
   // -- HUD (attached reference set) -----------------------------------------
   const hud = buildHud();
-  const { hint, coords, mmCanvas, hotbar, slots, fpsEl, pingEl, overlay, renderDistBtn, matchTimerEl, mapToggleBtn } = hud;
+  const { hint, coords, mmCanvas, hotbar, slots, fpsEl, pingEl, overlay, renderDistBtn, matchTimerEl, mapToggleBtn, raiderCountCtrl, raiderCountEl } = hud;
 
   let activeSlot = 1;
   function selectSlot(n) {
@@ -1066,6 +1085,20 @@ export function createArenaGame(options) {
     applyTheme(next);
     mapToggleBtn.dataset.variant = next;
     mapToggleBtn.textContent = next === "golden" ? "🏔 Snowy" : "🏜 Golden";
+  });
+
+  // Raider count control (demo only)
+  raiderCountCtrl.querySelector(".rc-minus").addEventListener("click", () => {
+    const next = Math.max(1, aiRaiders.length - 1);
+    while (aiRaiders.length < next) aiRaiders.push(makeAiRaider(aiRaiders.length));
+    while (aiRaiders.length > next) disposeAiRaider(aiRaiders.pop());
+    raiderCountEl.textContent = next;
+  });
+  raiderCountCtrl.querySelector(".rc-plus").addEventListener("click", () => {
+    const next = Math.min(10, aiRaiders.length + 1);
+    while (aiRaiders.length < next) aiRaiders.push(makeAiRaider(aiRaiders.length));
+    while (aiRaiders.length > next) disposeAiRaider(aiRaiders.pop());
+    raiderCountEl.textContent = next;
   });
   renderDistBtn.textContent = settings.renderDistance;
 
@@ -1152,8 +1185,7 @@ export function createArenaGame(options) {
     }
     recolorFighter(player, theme.player);
     player.bar.color = theme.playerBar;
-    recolorFighter(aiEnemy, theme.enemy);
-    aiEnemy.bar.color = theme.enemyBar;
+    aiRaiders.forEach((r) => { recolorFighter(r, theme.enemy); r.bar.color = theme.enemyBar; });
     opponents.forEach((o) => { recolorFighter(o, theme.enemy); o.bar.color = theme.enemyBar; });
     cursorAttack = !cursorAttack; setCursor(false);
   }
@@ -1186,7 +1218,7 @@ export function createArenaGame(options) {
   function buildStandings() {
     const list = [{ name: player.name, hp: Math.max(0, player.dead ? 0 : player.hp), me: true }];
     if (foeMode === "ai") {
-      if (aiEnemy.connected) list.push({ name: aiEnemy.name, hp: Math.max(0, aiEnemy.dead ? 0 : aiEnemy.hp), me: false });
+      aiRaiders.forEach((r) => { if (r.connected) list.push({ name: r.name, hp: Math.max(0, r.dead ? 0 : r.hp), me: false }); });
     } else {
       opponents.forEach((o) => { if (o.connected) list.push({ name: o.name, hp: Math.max(0, o.dead ? 0 : o.hp), me: false }); });
     }
@@ -1300,10 +1332,10 @@ export function createArenaGame(options) {
     }
 
     player.group.visible = player.connected;
-    aiEnemy.group.visible = foeMode === "ai" && aiEnemy.connected;
+    aiRaiders.forEach((r) => { r.group.visible = foeMode === "ai" && r.connected; });
     opponents.forEach((o) => { o.group.visible = foeMode === "net" && o.connected; });
     updateBar(player);
-    updateBar(aiEnemy);
+    aiRaiders.forEach((r) => updateBar(r));
     opponents.forEach((o) => updateBar(o));
     setCursor(controllable && !player.dead && ((player.attackTarget && !player.attackTarget.dead) || player.atkAnim > 0));
 
@@ -1348,6 +1380,13 @@ export function createArenaGame(options) {
       mapToggleBtn.textContent = v === "golden" ? "🏔 Snowy" : "🏜 Golden";
     },
     showMapToggle(on) { mapToggleBtn.classList.toggle("hidden", !on); },
+    showRaiderCount(on) { raiderCountCtrl.classList.toggle("hidden", !on); },
+    setAiCount(n) {
+      const target = Math.max(1, Math.min(10, n));
+      while (aiRaiders.length < target) aiRaiders.push(makeAiRaider(aiRaiders.length));
+      while (aiRaiders.length > target) disposeAiRaider(aiRaiders.pop());
+      raiderCountEl.textContent = target;
+    },
     setMatchPhase(phase) { matchPhase = phase; },
     setControllable(on) { controllable = !!on; },
     setMatchTimer(seconds) {
@@ -1370,6 +1409,8 @@ export function createArenaGame(options) {
     useAiFoe() {
       foeMode = "ai";
       clearOpponents();
+      // Keep only the first raider; extras cleared when count is set
+      while (aiRaiders.length > 1) disposeAiRaider(aiRaiders.pop());
       aiEnemy.networked = false;
       aiEnemy.connected = true;
       aiEnemy.name = "Raider";
@@ -1416,12 +1457,14 @@ export function createArenaGame(options) {
       player.group.position.set(ps.x, 0, ps.z);
       player.connected = true;
       if (foeMode === "ai") {
-        Object.assign(aiEnemy, { hp: aiEnemy.maxHp, dead: false, cdTimer: 0, atkAnim: 0, hurt: 0, moving: false });
-        aiEnemy.group.rotation.set(0, aiEnemy.group.rotation.y, 0);
-        const es = randomSpawn();
-        aiEnemy.group.position.set(es.x, 0, es.z);
-        aiEnemy.netTarget = { x: es.x, z: es.z };
-        aiEnemy.connected = true;
+        aiRaiders.forEach((r) => {
+          Object.assign(r, { hp: r.maxHp, dead: false, cdTimer: 0, atkAnim: 0, hurt: 0, moving: false });
+          r.group.rotation.set(0, r.group.rotation.y, 0);
+          const es = randomSpawn();
+          r.group.position.set(es.x, 0, es.z);
+          r.netTarget = { x: es.x, z: es.z };
+          r.connected = true;
+        });
       } else {
         opponents.forEach((o) => {
           Object.assign(o, { hp: o.maxHp, dead: false, cdTimer: 0, atkAnim: 0, hurt: 0, moving: false });
@@ -1472,6 +1515,8 @@ export function createArenaGame(options) {
       foeMode = "ai";
       clearOpponents();
       clearMap();
+      // Trim extra AI raiders back to 1
+      while (aiRaiders.length > 1) disposeAiRaider(aiRaiders.pop());
       aiEnemy.networked = false;
       aiEnemy.connected = false;
       aiEnemy.name = "Raider";
@@ -1492,7 +1537,7 @@ export function createArenaGame(options) {
       destroyed = true;
       ro.disconnect();
       player.bar.el.remove();
-      aiEnemy.bar.el.remove();
+      aiRaiders.forEach((r) => r.bar.el.remove());
       clearOpponents();
       hud.root.remove();
       renderer.dispose();
@@ -1538,6 +1583,8 @@ function buildHud() {
   }
   const slots = Array.from(hotbar.querySelectorAll(".slot"));
   const mapToggleBtn = add('<button class="map-toggle-btn game-ui hidden" title="Switch map" data-variant="game">🏜 Golden</button>');
+  const raiderCountCtrl = add('<div class="raider-count-ctrl game-ui hidden"><button class="rc-btn rc-minus">−</button><span class="rc-label"><span class="rc-num">1</span> Raiders</span><button class="rc-btn rc-plus">+</button></div>');
+  const raiderCountEl = raiderCountCtrl.querySelector(".rc-num");
   add('<button class="gear game-ui" title="Settings">&#9881;</button>');
   const gearBtn = root.querySelector(".gear");
   const fpsEl = add('<div class="game-fps game-ui">FPS --</div>');
@@ -1614,7 +1661,7 @@ function buildHud() {
     });
   }
 
-  return { root, hint, coords, matchTimerEl, mmCanvas, hotbar, slots, fpsEl, pingEl, overlay, renderDistBtn, bindSettings, mapToggleBtn };
+  return { root, hint, coords, matchTimerEl, mmCanvas, hotbar, slots, fpsEl, pingEl, overlay, renderDistBtn, bindSettings, mapToggleBtn, raiderCountCtrl, raiderCountEl };
 }
 
 function clamp(v, min, max) {
@@ -1629,6 +1676,6 @@ function stubApi() {
     useAiFoe: noop, usePvpFoes: noop, addOpponent: noop, removeOpponent: () => 0,
     clearRemote: noop, resetForMatch: noop, receivePlayerState: noop,
     receiveAttack: noop, generateMap: noop, clearAll: noop, destroy: noop,
-    setMapVariant: noop, showMapToggle: noop
+    setMapVariant: noop, showMapToggle: noop, showRaiderCount: noop, setAiCount: noop
   };
 }

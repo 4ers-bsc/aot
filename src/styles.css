@@ -1650,6 +1650,44 @@ body.in-game .game-hud-root {
 }
 .map-toggle-btn:hover { border-color: #ffc830; background: rgba(20, 28, 24, 0.85); }
 
+.raider-count-ctrl {
+  position: fixed;
+  top: 108px;
+  right: 16px;
+  z-index: 12;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 36px;
+  padding: 0 10px;
+  border-radius: 9px;
+  background: rgba(20, 28, 24, 0.6);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  backdrop-filter: blur(6px);
+  color: #dfeee0;
+  font-size: 13px;
+  font-weight: 600;
+  user-select: none;
+}
+.rc-btn {
+  background: none;
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  color: #dfeee0;
+  border-radius: 5px;
+  width: 24px;
+  height: 24px;
+  font-size: 16px;
+  line-height: 1;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: border-color 0.15s, background 0.15s;
+}
+.rc-btn:hover { border-color: #33b14a; background: rgba(51, 177, 74, 0.15); }
+.rc-label { color: rgba(220, 235, 220, 0.85); font-size: 12px; white-space: nowrap; }
+.rc-num { color: #ffe8a0; font-size: 15px; font-weight: 700; margin-right: 2px; }
+
 .game-fps,
 .game-ping {
   position: fixed;
@@ -1662,8 +1700,8 @@ body.in-game .game-hud-root {
   user-select: none;
 }
 
-.game-fps { top: 108px; }
-.game-ping { top: 126px; }
+.game-fps { top: 152px; }
+.game-ping { top: 170px; }
 
 /* Hide HUD toggle */
 .hud-hidden .hint,

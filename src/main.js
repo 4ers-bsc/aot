@@ -288,6 +288,7 @@ function startDemo() {
   game.generateMap("demo-" + Date.now());
   game.resetForMatch();
   game.showMapToggle(true);
+  game.showRaiderCount(true);
   game.setMatchPhase("countdown");
   game.setControllable(false);
   runMatchStart(() => {
@@ -842,6 +843,8 @@ async function leaveMatch({ silent = false } = {}) {
   await teardownMatch();
   game.clearAll();
   game.showMapToggle(false);
+  game.showRaiderCount(false);
+  game.setAiCount(1);
   game.setMapVariant("game");
   showLobby();
   if (!silent) setStatus(recordSuffix("Left the match."));
