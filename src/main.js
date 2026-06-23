@@ -510,24 +510,37 @@ async function getFight10Balance(walletAddress) {
   console.log("[getFight10Balance] mint:", FIGHT10_MINT);
   console.log("[getFight10Balance] RPC:", SOLANA_RPC_URL);
   try {
-    const connection = new Connection(SOLANA_RPC_URL, "confirmed");
-    const mintPubkey   = new PublicKey(FIGHT10_MINT);
+    const connection  = new Connection(SOLANA_RPC_URL, "confirmed");
+    const mintPubkey  = new PublicKey(FIGHT10_MINT);
     const walletPubkey = new PublicKey(walletAddress);
-    const ata = await getAssociatedTokenAddress(mintPubkey, walletPubkey);
-    console.log("[getFight10Balance] derived ATA:", ata.toString());
 
-    // Use web3.js directly — avoids spl-token's getAccount internals
-    const resp = await connection.getTokenAccountBalance(ata);
-    console.log("[getFight10Balance] getTokenAccountBalance response:", resp.value);
-    // resp.value.amount is a string of raw units (e.g. "2500000000")
-    return BigInt(resp.value.amount);
-  } catch (err) {
-    const msg = err?.message ?? String(err);
-    if (msg.includes("could not find account") || msg.includes("Account does not exist") || msg.includes("Invalid param")) {
-      console.log("[getFight10Balance] ATA does not exist on-chain — wallet holds 0 FIGHT10");
-    } else {
-      console.warn("[getFight10Balance] error:", err?.name, msg, err);
+    console.log("[getFight10Balance] calling getParsedTokenAccountsByOwner…");
+    const { value: accounts } = await connection.getParsedTokenAccountsByOwner(
+      walletPubkey,
+      { mint: mintPubkey }
+    );
+    console.log("[getFight10Balance] token accounts found:", accounts.length,
+      accounts.map((a) => ({
+        pubkey: a.pubkey.toString(),
+        amount: a.account.data.parsed.info.tokenAmount.amount,
+        uiAmount: a.account.data.parsed.info.tokenAmount.uiAmount,
+      }))
+    );
+
+    if (accounts.length === 0) {
+      console.log("[getFight10Balance] no token accounts found — wallet holds 0 FIGHT10");
+      return BigInt(0);
     }
+
+    // Sum all accounts (wallet may hold tokens across multiple accounts)
+    const total = accounts.reduce(
+      (sum, a) => sum + BigInt(a.account.data.parsed.info.tokenAmount.amount),
+      BigInt(0)
+    );
+    console.log("[getFight10Balance] total raw balance:", total.toString());
+    return total;
+  } catch (err) {
+    console.warn("[getFight10Balance] error:", err?.name, err?.message ?? err);
     return BigInt(0);
   }
 }
