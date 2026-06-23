@@ -1102,6 +1102,15 @@ body.in-game .log-feed { top: 58px; }
   color: #8a939c;
 }
 
+.pvp-size-waiting {
+  font-family: var(--font-head);
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: #4caf6e;
+  min-height: 14px;
+}
+
 @media (max-width: 460px) {
   .pvp-size-grid { grid-template-columns: 1fr; }
 }
