@@ -889,6 +889,12 @@ textarea:focus {
 }
 
 /* ===== Game over ===== */
+/* Block all underlying game interaction while the overlay is visible */
+.game-over:not(.hidden) ~ #arenaMount,
+body:has(.game-over:not(.hidden)) .arena-canvas {
+  pointer-events: none;
+}
+
 .game-over {
   position: fixed;
   inset: 0;
@@ -927,8 +933,17 @@ textarea:focus {
   line-height: 1;
 }
 
-.game-over-title.is-win { color: #ffffff; text-shadow: 0 0 24px rgba(255,255,255,0.35); }
+.game-over-title.is-win {
+  color: #f0e040;
+  text-shadow: 0 0 32px rgba(240,224,64,0.55), 0 0 8px rgba(240,224,64,0.35);
+  animation: win-title-glow 2s ease-in-out infinite;
+}
 .game-over-title.is-loss { color: #8c8c8c; }
+
+@keyframes win-title-glow {
+  0%, 100% { text-shadow: 0 0 32px rgba(240,224,64,0.55), 0 0 8px rgba(240,224,64,0.35); }
+  50%       { text-shadow: 0 0 52px rgba(240,224,64,0.85), 0 0 14px rgba(240,224,64,0.55); }
+}
 
 .game-over-reason {
   font-family: var(--font-head);
@@ -2194,16 +2209,40 @@ body.in-game .game-hud-root {
 }
 
 .game-over-prize {
-  font-family: var(--font-head);
-  font-size: 1.1rem;
-  font-weight: 700;
-  letter-spacing: 0.05em;
-  color: #f0e040;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
   text-align: center;
-  margin: 0.5rem 0 0.25rem;
-  padding: 0.4rem 1rem;
-  border: 1px solid rgba(240, 224, 64, 0.4);
-  border-radius: 6px;
-  background: rgba(240, 224, 64, 0.1);
-  text-shadow: 0 0 12px rgba(240, 224, 64, 0.5);
+  margin: 0.25rem 0;
+  padding: 14px 28px;
+  border: 2px solid rgba(240, 224, 64, 0.55);
+  border-radius: 10px;
+  background: rgba(240, 224, 64, 0.08);
+  box-shadow: 0 0 28px rgba(240, 224, 64, 0.18), inset 0 0 12px rgba(240, 224, 64, 0.06);
+  animation: prize-pulse 2.4s ease-in-out infinite;
+}
+
+@keyframes prize-pulse {
+  0%, 100% { box-shadow: 0 0 28px rgba(240,224,64,0.18), inset 0 0 12px rgba(240,224,64,0.06); }
+  50%       { box-shadow: 0 0 44px rgba(240,224,64,0.38), inset 0 0 18px rgba(240,224,64,0.14); }
+}
+
+.go-prize-label {
+  font-family: var(--font-head);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.24em;
+  color: rgba(240, 224, 64, 0.65);
+  text-transform: uppercase;
+}
+
+.go-prize-amount {
+  font-family: var(--font-display);
+  font-size: 1.7rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  color: #f0e040;
+  text-shadow: 0 0 20px rgba(240, 224, 64, 0.7);
+  line-height: 1.15;
 }

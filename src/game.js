@@ -24,8 +24,8 @@ const THEMES = {
   game: {
     bg: 0x08090c,
     ground: ["#ffffff", "#ffffff", "#ffffff", "#f4f4f4", "#f4f4f4", "#e2e2e2", "#d9d9d9", "#d9d9d9", "#c4c4c4", "#a8a8a8", "#8f8f8f", "#6f6f6f"],
-    grid: [0x808890, 0x9aa0a6], gridOpacity: 0.5,
-    border: 0x3a6a3a,
+    grid: [0x8a7030, 0xb89040], gridOpacity: 0.38,
+    border: 0xffc830,
     player: { boots: 0x2c4a2c, jacket: 0x4a8a45, helmet: 0x33572f, face: 0xcda882 },
     enemy: { boots: 0x4a2222, jacket: 0xa83a32, helmet: 0x6a1f1f, face: 0xd0a884 },
     bullet: 0xffe08a,
@@ -150,11 +150,11 @@ export function createArenaGame(options) {
   );
   scene.add(border);
 
-  // -- Glass wedge sides (fade downward, no stone ledge) --------------------
+  // -- Pixelated golden glass walls ------------------------------------------
   (function buildGlassWedge() {
     const DEPTH = 10;
-    // Dark inner side planes (same as original platform)
-    const sideMat = new THREE.MeshStandardMaterial({ color: 0x111113, roughness: 0.96, metalness: 0.04 });
+    // Dark backing behind each wall
+    const sideMat = new THREE.MeshStandardMaterial({ color: 0x0a0804, roughness: 0.98, metalness: 0.0 });
     [
       { x: 0,         z: -MAP_HALF, ry: 0 },
       { x: 0,         z:  MAP_HALF, ry: Math.PI },
@@ -169,49 +169,108 @@ export function createArenaGame(options) {
     // Bottom cap
     const btm = new THREE.Mesh(
       new THREE.PlaneGeometry(MAP_WORLD, MAP_WORLD),
-      new THREE.MeshStandardMaterial({ color: 0x030304, roughness: 1 })
+      new THREE.MeshStandardMaterial({ color: 0x030302, roughness: 1 })
     );
     btm.rotation.x = Math.PI / 2;
     btm.position.y = -DEPTH;
     scene.add(btm);
 
-    // Glass panels that fade downward outside the arena edge
+    // Pixelated golden grid glass panels
+    // Each panel is MAP_WORLD wide × GH tall. We draw a pixel-art grid on a
+    // canvas: solid square cells with golden borders, tinted glass fill, all
+    // fading to transparent at the bottom.
+    const GH = 6;           // panel height in world units
+    const CELL = 8;         // pixels per grid cell on canvas
+    const PW = 256;         // canvas width in px  (≈ MAP_WORLD world units)
+    const PH = 64;          // canvas height in px (≈ GH world units)
     const gc = document.createElement("canvas");
-    gc.width = 2; gc.height = 128;
+    gc.width = PW; gc.height = PH;
     const gctx = gc.getContext("2d");
-    const grad = gctx.createLinearGradient(0, 0, 0, 128);
-    grad.addColorStop(0,    "rgba(190, 215, 245, 0.45)");
-    grad.addColorStop(0.35, "rgba(170, 205, 240, 0.22)");
-    grad.addColorStop(1,    "rgba(150, 195, 235, 0.0)");
-    gctx.fillStyle = grad; gctx.fillRect(0, 0, 2, 128);
+    gctx.imageSmoothingEnabled = false;
+
+    // Fill each cell with a dark amber-tinted glass colour, fading down
+    for (let row = 0; row < PH / CELL; row++) {
+      const rowAlpha = 1 - row / (PH / CELL); // 1 at top → 0 at bottom
+      for (let col = 0; col < PW / CELL; col++) {
+        // Slight variation per cell for the pixel/mosaic look
+        const va = 0.85 + Math.random() * 0.15;
+        const fillAlpha = rowAlpha * 0.28 * va;
+        gctx.fillStyle = `rgba(210,175,60,${fillAlpha.toFixed(3)})`;
+        gctx.fillRect(col * CELL + 1, row * CELL + 1, CELL - 2, CELL - 2);
+      }
+    }
+
+    // Draw golden border lines between cells (crisp pixel lines)
+    gctx.strokeStyle = "rgba(255, 210, 60, 0.0)"; // will be set per-line below
+    for (let row = 0; row <= PH / CELL; row++) {
+      const rowAlpha = 1 - row / (PH / CELL);
+      gctx.strokeStyle = `rgba(255, 200, 48, ${(rowAlpha * 0.72).toFixed(3)})`;
+      gctx.lineWidth = 1;
+      gctx.beginPath();
+      gctx.moveTo(0, row * CELL);
+      gctx.lineTo(PW, row * CELL);
+      gctx.stroke();
+    }
+    for (let col = 0; col <= PW / CELL; col++) {
+      // Vertical lines: use uniform opacity for crisp pillars
+      gctx.strokeStyle = "rgba(255, 200, 48, 0.55)";
+      gctx.lineWidth = 1;
+      // Fade each vertical line to 0 at the bottom by drawing small segments
+      for (let row = 0; row < PH / CELL; row++) {
+        const rowAlpha = 1 - row / (PH / CELL);
+        gctx.strokeStyle = `rgba(255, 200, 48, ${(rowAlpha * 0.55).toFixed(3)})`;
+        gctx.beginPath();
+        gctx.moveTo(col * CELL, row * CELL);
+        gctx.lineTo(col * CELL, (row + 1) * CELL);
+        gctx.stroke();
+      }
+    }
+
     const glassTex = new THREE.CanvasTexture(gc);
+    glassTex.magFilter = THREE.NearestFilter; // keep the pixel edges sharp
+    glassTex.minFilter = THREE.NearestFilter;
     const glassMat = new THREE.MeshBasicMaterial({
       map: glassTex, transparent: true, side: THREE.DoubleSide, depthWrite: false
     });
-    const GH = 5;
-    [
+
+    const SIDES = [
       { x: 0,         z: -MAP_HALF, ry: 0 },
       { x: 0,         z:  MAP_HALF, ry: Math.PI },
       { x: -MAP_HALF, z: 0,         ry:  Math.PI / 2 },
       { x:  MAP_HALF, z: 0,         ry: -Math.PI / 2 },
-    ].forEach(({ x, z, ry }) => {
+    ];
+    SIDES.forEach(({ x, z, ry }) => {
       const panel = new THREE.Mesh(new THREE.PlaneGeometry(MAP_WORLD, GH), glassMat);
       panel.position.set(x, -GH / 2, z);
       panel.rotation.y = ry;
       scene.add(panel);
     });
 
-    // Rim glow along top edge
+    // Thick golden rim along the top edge of the arena
     const rimPts = [
-      new THREE.Vector3(-MAP_HALF, 0.06, -MAP_HALF), new THREE.Vector3(MAP_HALF, 0.06, -MAP_HALF),
-      new THREE.Vector3(MAP_HALF, 0.06,  MAP_HALF),  new THREE.Vector3(-MAP_HALF, 0.06,  MAP_HALF),
-      new THREE.Vector3(-MAP_HALF, 0.06, -MAP_HALF),
+      new THREE.Vector3(-MAP_HALF, 0.08, -MAP_HALF), new THREE.Vector3(MAP_HALF, 0.08, -MAP_HALF),
+      new THREE.Vector3(MAP_HALF, 0.08,  MAP_HALF),  new THREE.Vector3(-MAP_HALF, 0.08,  MAP_HALF),
+      new THREE.Vector3(-MAP_HALF, 0.08, -MAP_HALF),
     ];
     const rim = new THREE.Line(
       new THREE.BufferGeometry().setFromPoints(rimPts),
-      new THREE.LineBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.18 })
+      new THREE.LineBasicMaterial({ color: 0xffc830, transparent: true, opacity: 0.9 })
     );
     scene.add(rim);
+
+    // Second, slightly wider rim for a double-border glow effect
+    const rimPts2 = [
+      new THREE.Vector3(-MAP_HALF - 0.05, 0.04, -MAP_HALF - 0.05),
+      new THREE.Vector3( MAP_HALF + 0.05, 0.04, -MAP_HALF - 0.05),
+      new THREE.Vector3( MAP_HALF + 0.05, 0.04,  MAP_HALF + 0.05),
+      new THREE.Vector3(-MAP_HALF - 0.05, 0.04,  MAP_HALF + 0.05),
+      new THREE.Vector3(-MAP_HALF - 0.05, 0.04, -MAP_HALF - 0.05),
+    ];
+    const rim2 = new THREE.Line(
+      new THREE.BufferGeometry().setFromPoints(rimPts2),
+      new THREE.LineBasicMaterial({ color: 0xffaa00, transparent: true, opacity: 0.38 })
+    );
+    scene.add(rim2);
   })();
 
   // -- Pixelated FIGHT10 ground decals (black pixel squares, random) --------
@@ -1065,11 +1124,20 @@ export function createArenaGame(options) {
   }
   function checkResult() {
     if (foeMode !== "net" || matchPhase !== "active" || resultSent) return;
-    if (player.hp <= 0) { resultSent = true; options.onResultSuggestion?.("loss", buildStandings()); return; }
+    if (player.hp <= 0) {
+      resultSent = true;
+      controllable = false; // stop all input immediately
+      options.onResultSuggestion?.("loss", buildStandings());
+      return;
+    }
     if (opponents.size === 0) return; // no rivals yet
     let anyAlive = false;
     opponents.forEach((o) => { if (o.connected && !o.dead) anyAlive = true; });
-    if (!anyAlive && player.hp > 0) { resultSent = true; options.onResultSuggestion?.("win", buildStandings()); }
+    if (!anyAlive && player.hp > 0) {
+      resultSent = true;
+      controllable = false; // stop all input immediately
+      options.onResultSuggestion?.("win", buildStandings());
+    }
   }
 
   // -- Match timer ----------------------------------------------------------
@@ -1093,6 +1161,7 @@ export function createArenaGame(options) {
   function resolveByHp() {
     if (resultSent) return;
     resultSent = true;
+    controllable = false;
     const field = [{ id: localUserId ?? "", hp: player.dead ? -1 : player.hp, me: true, name: player.name }];
     opponents.forEach((o) => field.push({ id: o.userId, hp: o.dead ? -1 : o.hp, me: false, name: o.name }));
     field.sort((a, b) => b.hp - a.hp || String(a.id).localeCompare(String(b.id)));
