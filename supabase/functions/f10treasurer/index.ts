@@ -35,14 +35,12 @@ function base58Decode(str: string): Uint8Array {
   return new Uint8Array([...new Array(zeros).fill(0), ...bytes]);
 }
 
-// Decode base58 → PublicKey, left-padding to exactly 32 bytes.
-// web3.js's internal base-x decoder does NOT pad, so passes wrong length
-// to new PublicKey when the numerical value fits in < 32 bytes.
+// web3.js's internal base-x decoder does NOT pad to 32 bytes; do it manually.
 function pubkeyFromBase58(str: string): PublicKey {
   const raw = base58Decode(str.replace(/[^123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz]/g, ""));
-  if (raw.length > 32) throw new Error(`base58 too long: ${raw.length} bytes for "${str.slice(0, 8)}…"`);
+  if (raw.length > 32) throw new Error(`base58 too long: ${raw.length} bytes`);
   const padded = new Uint8Array(32);
-  padded.set(raw, 32 - raw.length); // left-pad with zeros
+  padded.set(raw, 32 - raw.length);
   return new PublicKey(padded);
 }
 
@@ -61,7 +59,6 @@ async function getATA(mint: PublicKey, owner: PublicKey, tokenProgram: PublicKey
   return address;
 }
 
-// SPL Transfer instruction (works for both Token and Token-2022)
 function transferInstruction(
   source: PublicKey,
   dest: PublicKey,
@@ -71,7 +68,6 @@ function transferInstruction(
 ): TransactionInstruction {
   const data = new Uint8Array(9);
   data[0] = 3; // Transfer instruction index
-  // Write u64 LE
   const lo = Number(amount & BigInt(0xffffffff));
   const hi = Number(amount >> BigInt(32));
   new DataView(data.buffer).setUint32(1, lo, true);
@@ -87,7 +83,6 @@ function transferInstruction(
   });
 }
 
-// Create ATA instruction
 function createATAInstruction(
   payer: PublicKey,
   ata: PublicKey,
@@ -118,7 +113,6 @@ const corsHeaders = {
 };
 
 function errorResponse(message: string, status: number): Response {
-  console.error("errorResponse:", status, message);
   return new Response(JSON.stringify({ ok: false, error: message }), {
     status,
     headers: { "Content-Type": "application/json", ...corsHeaders },
@@ -149,8 +143,6 @@ Deno.serve(async (req: Request) => {
     const matchId: string = body?.match_id;
     if (!matchId) return errorResponse("match_id is required", 400);
 
-    console.log("Payout request — match:", matchId, "user:", user.id);
-
     const { data: matchRow, error: matchErr } = await adminClient
       .from("matches").select("id, status, winner_user_id, payout_tx").eq("id", matchId).maybeSingle();
     if (matchErr || !matchRow) return errorResponse("Match not found", 404);
@@ -173,63 +165,40 @@ Deno.serve(async (req: Request) => {
     const rpcUrl   = Deno.env.get("RPC_URL") ?? "https://api.mainnet-beta.solana.com";
     if (!escrowB58 || !mintStr) return errorResponse("Escrow configuration missing", 500);
 
-    // Strip all non-base58 characters (catches hidden newlines, zero-width spaces, etc.)
     const B58_CHARS = /[^123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz]/g;
-    const cleanEscrow = escrowB58.replace(B58_CHARS, "");
-    const cleanMint   = mintStr.replace(B58_CHARS, "");
-    console.log("Mint (sanitized):", cleanMint);
-    console.log("Escrow key length:", cleanEscrow.length);
-
-    console.log("Decoding escrow keypair…");
-    const escrowKeypair = Keypair.fromSecretKey(base58Decode(cleanEscrow));
-    console.log("Escrow pubkey:", escrowKeypair.publicKey.toString());
-
-    const mintPubkey   = pubkeyFromBase58(cleanMint);
-    console.log("Mint pubkey ok:", mintPubkey.toString());
-    const rawWallet = (profile.wallet_address ?? "").split(":").pop() ?? "";
-    console.log("Winner wallet:", rawWallet.slice(0, 8), "…length:", rawWallet.length);
+    const escrowKeypair = Keypair.fromSecretKey(base58Decode(escrowB58.replace(B58_CHARS, "")));
+    const mintPubkey    = pubkeyFromBase58(mintStr.replace(B58_CHARS, ""));
+    const rawWallet     = (profile.wallet_address ?? "").split(":").pop() ?? "";
     if (!rawWallet) return errorResponse("Winner wallet address invalid", 400);
-    const winnerPubkey = pubkeyFromBase58(rawWallet);
-    console.log("Winner pubkey ok:", winnerPubkey.toString());
-    const connection  = new Connection(rpcUrl, "confirmed");
+    const winnerPubkey  = pubkeyFromBase58(rawWallet);
+    const connection    = new Connection(rpcUrl, "confirmed");
 
-    console.log("Fetching mint account to detect token program…");
     const mintAcct = await connection.getAccountInfo(mintPubkey);
     if (!mintAcct) return errorResponse("Mint account not found on-chain", 500);
 
     const tokenProgramId = mintAcct.owner.equals(TOKEN_2022_PROGRAM_ID)
       ? TOKEN_2022_PROGRAM_ID
       : TOKEN_PROGRAM_ID;
-    console.log("Token program:", tokenProgramId.equals(TOKEN_2022_PROGRAM_ID) ? "Token-2022" : "Token");
 
-    // Derive decimals from mint data (offset 44 for both Token and Token-2022)
     const decimals = mintAcct.data[44];
-    console.log("Decimals:", decimals);
 
-    const entryFeeRaw    = BigInt(2500) * BigInt(10 ** decimals);
-    const totalRaw       = BigInt(players.length) * entryFeeRaw;
+    const entryFeeRaw     = BigInt(2500) * BigInt(10 ** decimals);
+    const totalRaw        = BigInt(players.length) * entryFeeRaw;
     const winnerAmountRaw = (totalRaw * BigInt(900)) / BigInt(1000);
-    console.log("Payout:", winnerAmountRaw.toString(), "raw units →", profile.wallet_address);
 
-    console.log("Finding escrow token account…");
     const escrowAccounts = await connection.getParsedTokenAccountsByOwner(escrowKeypair.publicKey, { mint: mintPubkey });
     if (escrowAccounts.value.length === 0) return errorResponse("Escrow has no token account for this mint", 500);
     const escrowTokenAccount = new PublicKey(escrowAccounts.value[0].pubkey);
-    console.log("Escrow token account:", escrowTokenAccount.toString());
 
-    console.log("Finding winner token account…");
     const winnerAccounts = await connection.getParsedTokenAccountsByOwner(winnerPubkey, { mint: mintPubkey });
-    console.log("Winner token accounts found:", winnerAccounts.value.length);
 
     const tx = new Transaction();
     let winnerTokenAccount: PublicKey;
 
     if (winnerAccounts.value.length > 0) {
       winnerTokenAccount = new PublicKey(winnerAccounts.value[0].pubkey);
-      console.log("Winner token account:", winnerTokenAccount.toString());
     } else {
       winnerTokenAccount = await getATA(mintPubkey, winnerPubkey, tokenProgramId);
-      console.log("No token account found — creating ATA:", winnerTokenAccount.toString());
       tx.add(createATAInstruction(escrowKeypair.publicKey, winnerTokenAccount, winnerPubkey, mintPubkey, tokenProgramId));
     }
 
@@ -240,9 +209,7 @@ Deno.serve(async (req: Request) => {
     tx.feePayer = escrowKeypair.publicKey;
     tx.sign(escrowKeypair);
 
-    console.log("Sending payout tx…");
     const payoutSig = await connection.sendRawTransaction(tx.serialize(), { skipPreflight: false });
-    console.log("Payout tx sent:", payoutSig);
 
     const deadline = Date.now() + 90000;
     while (Date.now() < deadline) {
@@ -252,7 +219,6 @@ Deno.serve(async (req: Request) => {
       if (s?.confirmationStatus === "confirmed" || s?.confirmationStatus === "finalized") break;
       await new Promise((r) => setTimeout(r, 2000));
     }
-    console.log("Payout confirmed:", payoutSig);
 
     await adminClient.from("matches").update({ payout_tx: payoutSig }).eq("id", matchId);
 
@@ -261,7 +227,7 @@ Deno.serve(async (req: Request) => {
       { headers: { "Content-Type": "application/json", ...corsHeaders } },
     );
   } catch (err) {
-    console.error("Unhandled payout error:", err);
+    console.error("Payout error:", err);
     return errorResponse(String(err), 500);
   }
 });
