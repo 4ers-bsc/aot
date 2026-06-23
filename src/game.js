@@ -1172,6 +1172,7 @@ export function createArenaGame(options) {
   // -- Loop -----------------------------------------------------------------
   let destroyed = false;
   let fpsAcc = 0, fpsFrames = 0;
+  let fpsLastTime = performance.now();
   const clock = new THREE.Clock();
   function animate() {
     if (destroyed) return;
@@ -1236,11 +1237,16 @@ export function createArenaGame(options) {
     setCursor(controllable && !player.dead && ((player.attackTarget && !player.attackTarget.dead) || player.atkAnim > 0));
 
     if (settings.fps) {
-      fpsAcc += dt; fpsFrames++;
-      if (fpsAcc >= 0.5) { fpsEl.textContent = "FPS " + Math.round(fpsFrames / fpsAcc); fpsAcc = 0; fpsFrames = 0; }
-    }
-    if (settings.ping) {
-      if (foeMode !== "net") pingEl.textContent = "-- ms";
+      fpsFrames++;
+      const now = performance.now();
+      const elapsed = now - fpsLastTime;
+      if (elapsed >= 500) {
+        const fps = Math.round(fpsFrames / (elapsed / 1000));
+        fpsEl.textContent = "FPS " + fps;
+        fpsEl.style.color = fps >= 50 ? "#6fcf6f" : fps >= 30 ? "#f0c040" : "#e04040";
+        fpsFrames = 0;
+        fpsLastTime = now;
+      }
     }
     const aliveRivals = foeList().filter((f) => f.connected && !f.dead).length;
     coords.textContent = `x ${player.group.position.x.toFixed(1)} · z ${player.group.position.z.toFixed(1)} · ${foeMode === "net" ? `rivals ${aliveRivals}` : `kills ${kills}`}`;
@@ -1397,7 +1403,12 @@ export function createArenaGame(options) {
       document.body.classList.remove("in-game");
       applyTheme("lobby");
     },
-    setPing(ms) { if (pingEl) pingEl.textContent = ms != null ? ms + " ms" : "-- ms"; },
+    setPing(ms) {
+      if (!pingEl) return;
+      if (ms == null) { pingEl.textContent = "-- ms"; pingEl.style.color = ""; return; }
+      pingEl.textContent = ms + " ms";
+      pingEl.style.color = ms < 80 ? "#6fcf6f" : ms < 160 ? "#f0c040" : "#e04040";
+    },
     openSettings() { overlay.classList.add("show"); },
     destroy() {
       destroyed = true;
