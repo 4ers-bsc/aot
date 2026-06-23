@@ -186,8 +186,8 @@ Deno.serve(async (req: Request) => {
 
     const mintPubkey   = pubkeyFromBase58(cleanMint);
     console.log("Mint pubkey ok:", mintPubkey.toString());
-    const rawWallet = profile.wallet_address ?? "";
-    console.log("Winner wallet raw:", rawWallet.slice(0, 8), "length:", rawWallet.length);
+    const rawWallet = (profile.wallet_address ?? "").split(":").pop() ?? "";
+    console.log("Winner wallet:", rawWallet.slice(0, 8), "…length:", rawWallet.length);
     if (!rawWallet) return errorResponse("Winner wallet address invalid", 400);
     const winnerPubkey = pubkeyFromBase58(rawWallet);
     console.log("Winner pubkey ok:", winnerPubkey.toString());
