@@ -18,7 +18,7 @@ function base58Decode(str: string): Uint8Array {
   const ALPHA = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";
   const map = new Uint8Array(256).fill(255);
   for (let i = 0; i < ALPHA.length; i++) map[ALPHA.charCodeAt(i)] = i;
-  const bytes: number[] = [0];
+  const bytes: number[] = [];
   for (const ch of str) {
     const v = map[ch.charCodeAt(0)];
     if (v === 255) throw new Error("Invalid base58 char: " + ch);
@@ -33,6 +33,17 @@ function base58Decode(str: string): Uint8Array {
   let zeros = 0;
   while (str[zeros] === "1") zeros++;
   return new Uint8Array([...new Array(zeros).fill(0), ...bytes]);
+}
+
+// Decode base58 → PublicKey, left-padding to exactly 32 bytes.
+// web3.js's internal base-x decoder does NOT pad, so passes wrong length
+// to new PublicKey when the numerical value fits in < 32 bytes.
+function pubkeyFromBase58(str: string): PublicKey {
+  const raw = base58Decode(str.replace(/[^123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz]/g, ""));
+  if (raw.length > 32) throw new Error(`base58 too long: ${raw.length} bytes for "${str.slice(0, 8)}…"`);
+  const padded = new Uint8Array(32);
+  padded.set(raw, 32 - raw.length); // left-pad with zeros
+  return new PublicKey(padded);
 }
 
 // ---------------------------------------------------------------------------
@@ -173,12 +184,12 @@ Deno.serve(async (req: Request) => {
     const escrowKeypair = Keypair.fromSecretKey(base58Decode(cleanEscrow));
     console.log("Escrow pubkey:", escrowKeypair.publicKey.toString());
 
-    const mintPubkey   = new PublicKey(cleanMint);
+    const mintPubkey   = pubkeyFromBase58(cleanMint);
     console.log("Mint pubkey ok:", mintPubkey.toString());
-    const rawWallet = (profile.wallet_address ?? "").replace(B58_CHARS, "");
-    console.log("Winner wallet (sanitized):", rawWallet, "length:", rawWallet.length);
-    if (!rawWallet || rawWallet.length < 32) return errorResponse("Winner wallet address invalid", 400);
-    const winnerPubkey = new PublicKey(rawWallet);
+    const rawWallet = profile.wallet_address ?? "";
+    console.log("Winner wallet raw:", rawWallet.slice(0, 8), "length:", rawWallet.length);
+    if (!rawWallet) return errorResponse("Winner wallet address invalid", 400);
+    const winnerPubkey = pubkeyFromBase58(rawWallet);
     console.log("Winner pubkey ok:", winnerPubkey.toString());
     const connection  = new Connection(rpcUrl, "confirmed");
 
