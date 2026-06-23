@@ -188,7 +188,7 @@ export function createArenaGame(options) {
     const glassMat = new THREE.MeshBasicMaterial({
       map: glassTex, transparent: true, side: THREE.DoubleSide, depthWrite: false
     });
-    const GH = 14;
+    const GH = 5;
     [
       { x: 0,         z: -MAP_HALF, ry: 0 },
       { x: 0,         z:  MAP_HALF, ry: Math.PI },
