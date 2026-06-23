@@ -220,17 +220,24 @@ function getSolanaWallet() {
 
 async function signIn() {
   const wallet = getSolanaWallet();
+  console.log("[signIn] getSolanaWallet →", wallet
+    ? `found (isPhantom=${wallet.isPhantom}, isBackpack=${wallet.isBackpack}, publicKey=${wallet.publicKey?.toString() ?? "not connected yet"})`
+    : "null — no wallet extension detected");
   if (!wallet) {
     setStatus("No Solana wallet found. Install Phantom, Backpack, or Brave Wallet.");
     return;
   }
   try {
     setStatus("Approve the signature in your wallet…");
+    console.log("[signIn] calling wallet.connect()…");
     await wallet.connect();
+    console.log("[signIn] wallet.connect() resolved — publicKey:", wallet.publicKey?.toString());
+    console.log("[signIn] calling supabase.auth.signInWithWeb3…");
     const { error } = await supabase.auth.signInWithWeb3({ chain: "solana", statement: SIGN_IN_STATEMENT, wallet });
     if (error) throw error;
+    console.log("[signIn] signInWithWeb3 succeeded");
   } catch (error) {
-    console.error(error);
+    console.error("[signIn] error:", error);
     setStatus(error.message || "Wallet sign-in failed.");
   }
 }
@@ -242,6 +249,7 @@ async function signOut() {
 }
 
 async function handleSession(session) {
+  console.log("[handleSession] session user:", session?.user?.id ?? "none");
   state.user = session?.user ?? null;
 
   if (!state.user) {
@@ -254,15 +262,17 @@ async function handleSession(session) {
   }
 
   try {
+    console.log("[handleSession] syncing profile for user", state.user.id);
     await syncProfile();
+    console.log("[handleSession] profile synced:", state.profile);
   } catch (error) {
-    console.error(error);
+    console.error("[handleSession] syncProfile error:", error);
     setStatus(error.message || "Could not load profile.");
     return;
   }
   showLobby();
   setStatus(recordSuffix("Wallet connected — choose Demo Match or Play PvP."));
-  refreshFight10Balance().catch(() => {});
+  refreshFight10Balance().catch((e) => console.error("[handleSession] refreshFight10Balance error:", e));
 }
 
 async function syncProfile() {
@@ -497,14 +507,27 @@ async function depositEntryFee(matchId, numPlayers = 2) {
 }
 
 async function getFight10Balance(walletAddress) {
+  console.log("[getFight10Balance] wallet:", walletAddress);
+  console.log("[getFight10Balance] mint:", FIGHT10_MINT);
+  console.log("[getFight10Balance] RPC:", SOLANA_RPC_URL);
   try {
     const connection = new Connection(SOLANA_RPC_URL, "confirmed");
     const mintPubkey   = new PublicKey(FIGHT10_MINT);
     const walletPubkey = new PublicKey(walletAddress);
     const ata = await getAssociatedTokenAddress(mintPubkey, walletPubkey);
+    console.log("[getFight10Balance] derived ATA:", ata.toString());
     const account = await getAccount(connection, ata);
-    return account.amount; // bigint raw units
-  } catch (_) {
+    console.log("[getFight10Balance] ATA account data:", {
+      address: account.address.toString(),
+      mint: account.mint.toString(),
+      owner: account.owner.toString(),
+      amount: account.amount.toString(),
+      decimals: FIGHT10_DECIMALS,
+      displayBalance: (Number(account.amount) / 10 ** FIGHT10_DECIMALS).toFixed(FIGHT10_DECIMALS),
+    });
+    return account.amount;
+  } catch (err) {
+    console.warn("[getFight10Balance] error (returning 0):", err?.message ?? err);
     return BigInt(0);
   }
 }
@@ -518,16 +541,22 @@ function updatePrizePot(numPlayers) {
 }
 
 async function refreshFight10Balance() {
+  console.log("[refreshFight10Balance] starting…");
   const balEl = document.getElementById("fight10Balance");
-  if (!balEl || !state.user) return;
+  if (!balEl) { console.warn("[refreshFight10Balance] #fight10Balance element not found in DOM"); return; }
+  if (!state.user) { console.log("[refreshFight10Balance] no authenticated user, skipping"); return; }
   const wallet = getSolanaWallet();
-  if (!wallet?.publicKey) return;
+  console.log("[refreshFight10Balance] wallet publicKey:", wallet?.publicKey?.toString() ?? "none");
+  if (!wallet?.publicKey) { console.warn("[refreshFight10Balance] wallet not connected, cannot fetch balance"); return; }
   try {
     const raw = await getFight10Balance(wallet.publicKey.toString());
     const display = (Number(raw) / 10 ** FIGHT10_DECIMALS).toLocaleString(undefined, { maximumFractionDigits: 0 });
+    console.log("[refreshFight10Balance] display balance:", display, "$FIGHT10 — updating nav chip");
     balEl.textContent = display + " $FIGHT10";
     balEl.classList.remove("hidden");
-  } catch (_) {}
+  } catch (err) {
+    console.error("[refreshFight10Balance] unexpected error:", err);
+  }
 }
 
 async function enterArena(matchId) {
