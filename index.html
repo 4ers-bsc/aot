@@ -51,6 +51,18 @@
     </main>
   </div>
 
+  <!-- App loading splash -->
+  <div class="app-loading" id="appLoading">
+    <div class="app-loading-inner">
+      <div class="app-loading-brand">FIGHT10</div>
+      <div class="app-loading-spinner"></div>
+      <button class="app-loading-connect" id="appLoadingConnectBtn" type="button">Connect Wallet</button>
+    </div>
+  </div>
+
+  <!-- GL HF FIGHT banner -->
+  <div class="glhf-banner" id="glhfBanner">GL HF, FIGHT!</div>
+
   <!-- Match-starting transition (lobby full) -->
   <div class="match-starting" id="matchStarting">
     <div class="ms-spinner"></div>
@@ -104,6 +116,7 @@
     <div class="game-over-card">
       <div class="game-over-title" id="gameOverTitle">VICTORY</div>
       <div class="game-over-reason" id="gameOverReason"></div>
+      <div class="standings-list" id="gameOverStandings"></div>
       <div class="game-over-stats">
         <div class="go-name" id="gameOverName">Trench Rookie</div>
         <div class="go-record">
@@ -178,6 +191,7 @@
       <div class="tab-body">
         <button class="pause-btn pause-resume" id="resumeBtn" type="button">Resume</button>
         <button class="pause-btn" id="pauseHowToBtn" type="button">How to Play</button>
+        <button class="pause-btn" id="pauseSettingsBtn" type="button">Settings</button>
         <button class="pause-btn pause-leave" id="leaveMatchBtn" type="button">Leave Match</button>
       </div>
     </div>

@@ -88,8 +88,8 @@ const game = createArenaGame({
   onAttack: (attackEvent) => {
     state.channel?.send({ type: "broadcast", event: "attack", payload: attackEvent });
   },
-  onResultSuggestion: (result) => {
-    reportResult(result).catch((err) => console.error(err));
+  onResultSuggestion: (result, standings) => {
+    reportResult(result, { standings }).catch((err) => console.error(err));
   }
 });
 
@@ -138,6 +138,11 @@ function bindUi() {
     els.howToOverlay.classList.add("show");
   });
   els.leaveMatchBtn.addEventListener("click", () => { els.pauseOverlay.classList.remove("show"); leaveMatch(); });
+  document.getElementById("pauseSettingsBtn")?.addEventListener("click", () => {
+    els.pauseOverlay.classList.remove("show");
+    game.openSettings();
+  });
+  document.getElementById("appLoadingConnectBtn")?.addEventListener("click", signIn);
   window.addEventListener("keydown", (e) => {
     if (e.key !== "Escape") return;
     const open = document.querySelector(".overlay.show");
@@ -161,6 +166,8 @@ async function init() {
   });
   const { data } = await supabase.auth.getSession();
   await handleSession(data.session);
+  const loadingEl = document.getElementById("appLoading");
+  if (loadingEl) { loadingEl.classList.add("fade-out"); setTimeout(() => loadingEl.remove(), 420); }
 }
 
 // ---------------------------------------------------------------------------
@@ -241,6 +248,7 @@ function startDemo() {
     game.setMatchPhase("active");
     game.setControllable(true);
     setStatus("Demo match vs the computer. Click the battlefield to move.");
+    showGlhf();
   });
 }
 
@@ -265,7 +273,7 @@ function hidePvpLobby() {
   els.pvpLobby.classList.add("hidden");
 }
 
-function showGameOver(result, reason) {
+function showGameOver(result, reason, standings = []) {
   const win = result === "win";
   els.gameOverTitle.textContent = win ? "VICTORY" : "DEFEAT";
   els.gameOverTitle.classList.toggle("is-win", win);
@@ -274,7 +282,21 @@ function showGameOver(result, reason) {
   els.gameOverName.textContent = state.profile?.display_name || "Trench Rookie";
   els.gameOverWins.textContent = state.profile?.wins ?? 0;
   els.gameOverLosses.textContent = state.profile?.losses ?? 0;
+  renderStandings(standings);
   els.gameOver.classList.remove("hidden");
+}
+
+function renderStandings(standings) {
+  const el = document.getElementById("gameOverStandings");
+  if (!el) return;
+  if (!standings.length) { el.innerHTML = ""; return; }
+  el.innerHTML = standings.map((s) =>
+    `<div class="standing-row${s.me ? " standing-me" : ""}">` +
+    `<span class="standing-rank">#${s.rank}</span>` +
+    `<span class="standing-name">${escapeHtml(s.name)}</span>` +
+    `<span class="standing-hp">${s.hp} HP</span>` +
+    `</div>`
+  ).join("");
 }
 
 function hideGameOver() {
@@ -424,6 +446,7 @@ function beginMatch(skipCountdown = false) {
       game.setControllable(true);
       game.setMatchTimer(matchDuration(state.match?.maxPlayers || 2));
       setStatus("Fight! Last one standing wins.");
+      showGlhf();
     });
   }
 }
@@ -444,7 +467,7 @@ function handleOpponentLeft(userId) {
 
 // Free-for-all: only the winner writes the result (and finish_match marks the
 // loss for everyone else). Losers just show defeat and refresh their record.
-async function reportResult(result, { reason = "" } = {}) {
+async function reportResult(result, { reason = "", standings = [] } = {}) {
   if (state.match?.mode !== "pvp" || !state.match.id || state.match.finished) return;
   state.match.finished = true;
   try {
@@ -455,7 +478,7 @@ async function reportResult(result, { reason = "" } = {}) {
   } catch (error) {
     console.error(error);
   }
-  showGameOver(result, reason);
+  showGameOver(result, reason, standings);
 }
 
 async function leaveMatch({ silent = false } = {}) {
@@ -534,13 +557,18 @@ function renderProfileStats() {
   const into = Math.max(0, points - floorPts);
   els.profileLevel.textContent = level;
   els.profilePoints.textContent = points;
-  els.profileLevelFill.style.width = `${Math.min(100, (into / span) * 100)}%`;
-  els.profileLevelNext.textContent = `${into} / ${span} to level ${level + 1}`;
+  if (level >= 30) {
+    els.profileLevelFill.style.width = "100%";
+    els.profileLevelNext.textContent = "MAX LEVEL";
+  } else {
+    els.profileLevelFill.style.width = `${Math.min(100, (into / span) * 100)}%`;
+    els.profileLevelNext.textContent = `${into} / ${span} to level ${level + 1}`;
+  }
 }
 
 // Mirrors public.level_for_points(): level L is reached at 50*(L-1)*L points.
 function levelForPoints(p) {
-  return Math.max(1, Math.floor((1 + Math.sqrt(1 + 0.08 * Math.max(0, p))) / 2));
+  return Math.min(30, Math.max(1, Math.floor((1 + Math.sqrt(1 + 0.08 * Math.max(0, p))) / 2)));
 }
 function cumPointsForLevel(level) {
   return 50 * (level - 1) * level;
@@ -637,6 +665,20 @@ function runMatchStart(onDone) {
       onDone?.();
     }
   }, 1000);
+}
+
+function showGlhf() {
+  const el = document.getElementById("glhfBanner");
+  if (!el) return;
+  el.classList.remove("glhf-pop", "glhf-fade");
+  requestAnimationFrame(() => {
+    el.classList.add("glhf-pop");
+    setTimeout(() => {
+      el.classList.remove("glhf-pop");
+      el.classList.add("glhf-fade");
+      setTimeout(() => el.classList.remove("glhf-fade"), 420);
+    }, 1500);
+  });
 }
 
 function cancelMatchStart() {
