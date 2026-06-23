@@ -22,7 +22,7 @@ const AI_WEAPON = { id: "sword", name: "Sword", atk: 9, atkVar: 2, cd: 1.1, rang
 
 const THEMES = {
   game: {
-    bg: 0xe3e9ee,
+    bg: 0x08090c,
     ground: ["#ffffff", "#ffffff", "#ffffff", "#f4f4f4", "#f4f4f4", "#e2e2e2", "#d9d9d9", "#d9d9d9", "#c4c4c4", "#a8a8a8", "#8f8f8f", "#6f6f6f"],
     grid: [0x808890, 0x9aa0a6], gridOpacity: 0.5,
     border: 0x3a6a3a,
@@ -48,7 +48,7 @@ const THEMES = {
     mm: { grid: "rgba(255,255,255,0.08)", border: "rgba(255,255,255,0.5)", cam: "rgba(255,255,255,0.25)", enemy: "#9a9a9a", player: "#ffffff" }
   }
 };
-const RD_FOG = { Near: [20, 45], Medium: [35, 80], Far: [60, 130] };
+const RD_FOG = { Near: [18, 38], Medium: [30, 65], Far: [52, 100] };
 const RD_ORDER = ["Near", "Medium", "Far"];
 
 export function createArenaGame(options) {
@@ -149,6 +149,78 @@ export function createArenaGame(options) {
     new THREE.LineBasicMaterial({ color: theme.border })
   );
   scene.add(border);
+
+  // -- Floating platform (sides + bottom) -----------------------------------
+  (function buildPlatformEdge() {
+    const DEPTH = 10;
+    const sideMat = new THREE.MeshStandardMaterial({ color: 0x111113, roughness: 0.96, metalness: 0.04 });
+    [
+      { x: 0,         z: -MAP_HALF, ry: 0 },
+      { x: 0,         z:  MAP_HALF, ry: Math.PI },
+      { x: -MAP_HALF, z:  0,        ry:  Math.PI / 2 },
+      { x:  MAP_HALF, z:  0,        ry: -Math.PI / 2 },
+    ].forEach(({ x, z, ry }) => {
+      const wall = new THREE.Mesh(new THREE.PlaneGeometry(MAP_WORLD, DEPTH), sideMat);
+      wall.position.set(x, -DEPTH / 2, z);
+      wall.rotation.y = ry;
+      scene.add(wall);
+    });
+    // Bottom cap
+    const btm = new THREE.Mesh(
+      new THREE.PlaneGeometry(MAP_WORLD, MAP_WORLD),
+      new THREE.MeshStandardMaterial({ color: 0x030304, roughness: 1 })
+    );
+    btm.rotation.x = Math.PI / 2;
+    btm.position.y = -DEPTH;
+    scene.add(btm);
+    // Rim glow along top edge
+    const rimPts = [
+      new THREE.Vector3(-MAP_HALF, 0.06, -MAP_HALF), new THREE.Vector3(MAP_HALF, 0.06, -MAP_HALF),
+      new THREE.Vector3(MAP_HALF, 0.06,  MAP_HALF),  new THREE.Vector3(-MAP_HALF, 0.06,  MAP_HALF),
+      new THREE.Vector3(-MAP_HALF, 0.06, -MAP_HALF),
+    ];
+    const rim = new THREE.Line(
+      new THREE.BufferGeometry().setFromPoints(rimPts),
+      new THREE.LineBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.18 })
+    );
+    scene.add(rim);
+  })();
+
+  // -- Pixelated FIGHT10 ground decal (random each game) --------------------
+  let fight10Group = null;
+  function makeFight10Decal() {
+    if (fight10Group) { scene.remove(fight10Group); }
+    // Draw at tiny resolution — NearestFilter scales it up with chunky pixels
+    const CW = 56, CH = 10;
+    const dc = document.createElement("canvas");
+    dc.width = CW; dc.height = CH;
+    const dctx = dc.getContext("2d");
+    dctx.imageSmoothingEnabled = false;
+    dctx.clearRect(0, 0, CW, CH);
+    dctx.fillStyle = "#ffffff";
+    dctx.font = `bold ${CH}px monospace`;
+    dctx.textAlign = "center";
+    dctx.textBaseline = "middle";
+    dctx.fillText("FIGHT10", CW / 2, CH / 2);
+    const tex = new THREE.CanvasTexture(dc);
+    tex.magFilter = THREE.NearestFilter;
+    tex.minFilter = THREE.NearestFilter;
+    const mesh = new THREE.Mesh(
+      new THREE.PlaneGeometry(44, 7.8),
+      new THREE.MeshBasicMaterial({ map: tex, transparent: true, depthWrite: false, opacity: 0.11 })
+    );
+    mesh.rotation.x = -Math.PI / 2;
+    const safe = MAP_HALF - 26;
+    fight10Group = new THREE.Group();
+    fight10Group.position.set(
+      (Math.random() - 0.5) * 2 * safe,
+      0.04,
+      (Math.random() - 0.5) * 2 * safe
+    );
+    fight10Group.rotation.y = Math.floor(Math.random() * 4) * (Math.PI / 2);
+    fight10Group.add(mesh);
+    scene.add(fight10Group);
+  }
 
   // -- Snow -----------------------------------------------------------------
   const SNOW_COUNT = 1400, SNOW_AREA = 48, SNOW_TOP = 30;
@@ -846,6 +918,7 @@ export function createArenaGame(options) {
     renderer.setClearColor(theme.bg, 1);
     scene.background = new THREE.Color(theme.bg);
     applyFog();
+    if (name === "game") makeFight10Decal();
     const newTex = makeGroundTex(theme.ground);
     ground.material.map.dispose();
     ground.material.map = newTex;
