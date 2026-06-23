@@ -343,6 +343,8 @@ function showGameOver(result, reason, standings = [], prizeAmount = null) {
       prizeEl.classList.add("hidden");
     }
   }
+  // Hide menu button while payout is in-flight; show it for losses immediately
+  els.gameOverMenuBtn.classList.toggle("hidden", win && prizeAmount === "pending");
   els.gameOver.classList.remove("hidden");
 }
 
@@ -353,6 +355,8 @@ function updateGameOverPrize(prizeAmount) {
   prizeAmt.textContent = prizeAmount !== null
     ? prizeAmount.toLocaleString(undefined, { maximumFractionDigits: 0 }) + " $FIGHT10"
     : "Payout failed — contact support";
+  // Reveal menu button now that payout is settled
+  els.gameOverMenuBtn.classList.remove("hidden");
 }
 
 function renderStandings(standings) {
