@@ -124,13 +124,16 @@ Deno.serve(async (req: Request) => {
     return new Response(null, { status: 204, headers: corsHeaders });
   }
 
+  const supabaseUrl      = Deno.env.get("SUPABASE_URL")!;
+  const supabaseAnonKey  = Deno.env.get("SUPABASE_ANON_KEY")!;
+  const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+
+  let matchId = "";
+  let slotClaimed = false; // tracks whether we set payout_tx = 'pending'
+
   try {
     const authHeader = req.headers.get("Authorization");
     if (!authHeader) return errorResponse("Missing Authorization header", 401);
-
-    const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
-    const supabaseAnonKey = Deno.env.get("SUPABASE_ANON_KEY")!;
-    const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 
     const userClient = createClient(supabaseUrl, supabaseAnonKey, {
       global: { headers: { Authorization: authHeader } },
@@ -140,9 +143,10 @@ Deno.serve(async (req: Request) => {
 
     const adminClient = createClient(supabaseUrl, supabaseServiceKey);
     const body = await req.json();
-    const matchId: string = body?.match_id;
+    matchId = body?.match_id;
     if (!matchId) return errorResponse("match_id is required", 400);
 
+    // ── Validate match state ─────────────────────────────────────────────────
     const { data: matchRow, error: matchErr } = await adminClient
       .from("matches").select("id, status, winner_user_id, payout_tx").eq("id", matchId).maybeSingle();
     if (matchErr || !matchRow) return errorResponse("Match not found", 404);
@@ -150,22 +154,25 @@ Deno.serve(async (req: Request) => {
     if (matchRow.winner_user_id !== user.id) return errorResponse("Only the winner may claim", 403);
     if (matchRow.payout_tx) return errorResponse("Prize already claimed", 409);
 
+    // ── Verify all deposits exist ────────────────────────────────────────────
     const { data: players, error: playersErr } = await adminClient
       .from("match_players").select("user_id, deposit_tx").eq("match_id", matchId);
     if (playersErr || !players) return errorResponse("Could not fetch match players", 500);
     const missing = players.filter((p: any) => !p.deposit_tx);
     if (missing.length > 0) return errorResponse(`${missing.length} player(s) have not deposited`, 400);
 
+    // ── Fetch winner wallet ──────────────────────────────────────────────────
     const { data: profile } = await adminClient
       .from("profiles").select("wallet_address").eq("user_id", user.id).maybeSingle();
     if (!profile?.wallet_address) return errorResponse("Winner wallet address not found", 400);
 
+    // ── Escrow / mint config ─────────────────────────────────────────────────
     const escrowB58 = Deno.env.get("ESCROW_PRIVATE_KEY");
-    const mintStr  = Deno.env.get("FIGHT10_MINT");
-    const rpcUrl   = Deno.env.get("RPC_URL") ?? "https://api.mainnet-beta.solana.com";
+    const mintStr   = Deno.env.get("FIGHT10_MINT");
+    const rpcUrl    = Deno.env.get("RPC_URL") ?? "https://api.mainnet-beta.solana.com";
     if (!escrowB58 || !mintStr) return errorResponse("Escrow configuration missing", 500);
 
-    const B58_CHARS = /[^123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz]/g;
+    const B58_CHARS  = /[^123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz]/g;
     const escrowKeypair = Keypair.fromSecretKey(base58Decode(escrowB58.replace(B58_CHARS, "")));
     const mintPubkey    = pubkeyFromBase58(mintStr.replace(B58_CHARS, ""));
     const rawWallet     = (profile.wallet_address ?? "").split(":").pop() ?? "";
@@ -173,6 +180,29 @@ Deno.serve(async (req: Request) => {
     const winnerPubkey  = pubkeyFromBase58(rawWallet);
     const connection    = new Connection(rpcUrl, "confirmed");
 
+    // ── Verify each deposit tx is confirmed on-chain ─────────────────────────
+    // This ensures no fake or unconfirmed signatures were submitted via record_deposit.
+    const depositSigs = players.map((p: any) => p.deposit_tx as string);
+    const { value: sigStatuses } = await connection.getSignatureStatuses(depositSigs);
+    for (let i = 0; i < depositSigs.length; i++) {
+      const s = sigStatuses[i];
+      if (!s) return errorResponse(`Deposit ${i + 1} not found on-chain`, 400);
+      if (s.err) return errorResponse(`Deposit ${i + 1} failed on-chain`, 400);
+      if (s.confirmationStatus !== "confirmed" && s.confirmationStatus !== "finalized") {
+        return errorResponse(`Deposit ${i + 1} not yet confirmed`, 400);
+      }
+    }
+
+    // ── Atomically reserve the payout slot ───────────────────────────────────
+    // Uses claim_payout_slot() which does UPDATE … WHERE payout_tx IS NULL,
+    // so only one concurrent request can proceed to send a transaction.
+    // We use the user's JWT here (userClient) so the RPC's auth.uid() check passes.
+    const { data: slotOk, error: slotErr } = await userClient.rpc("claim_payout_slot", { p_match_id: matchId });
+    if (slotErr) return errorResponse("Could not reserve payout slot", 500);
+    if (!slotOk) return errorResponse("Prize already claimed", 409);
+    slotClaimed = true;
+
+    // ── On-chain token transfer ───────────────────────────────────────────────
     const mintAcct = await connection.getAccountInfo(mintPubkey);
     if (!mintAcct) return errorResponse("Mint account not found on-chain", 500);
 
@@ -181,7 +211,6 @@ Deno.serve(async (req: Request) => {
       : TOKEN_PROGRAM_ID;
 
     const decimals = mintAcct.data[44];
-
     const entryFeeRaw     = BigInt(2500) * BigInt(10 ** decimals);
     const totalRaw        = BigInt(players.length) * entryFeeRaw;
     const winnerAmountRaw = (totalRaw * BigInt(900)) / BigInt(1000);
@@ -211,6 +240,7 @@ Deno.serve(async (req: Request) => {
 
     const payoutSig = await connection.sendRawTransaction(tx.serialize(), { skipPreflight: false });
 
+    // Poll for confirmation
     const deadline = Date.now() + 90000;
     while (Date.now() < deadline) {
       const { value } = await connection.getSignatureStatuses([payoutSig]);
@@ -220,7 +250,9 @@ Deno.serve(async (req: Request) => {
       await new Promise((r) => setTimeout(r, 2000));
     }
 
+    // Replace 'pending' reservation with the real signature
     await adminClient.from("matches").update({ payout_tx: payoutSig }).eq("id", matchId);
+    slotClaimed = false; // no longer needs rollback
 
     return new Response(
       JSON.stringify({ ok: true, payout_tx: payoutSig, winner_amount: winnerAmountRaw.toString(), num_players: players.length, decimals }),
@@ -228,6 +260,19 @@ Deno.serve(async (req: Request) => {
     );
   } catch (err) {
     console.error("Payout error:", err);
+
+    // If we claimed the slot but the tx failed, release the reservation so the
+    // winner can retry — only clear if still 'pending' (not already set to a real sig).
+    if (slotClaimed && matchId) {
+      try {
+        const adminClient = createClient(supabaseUrl, supabaseServiceKey);
+        await adminClient.from("matches")
+          .update({ payout_tx: null })
+          .eq("id", matchId)
+          .eq("payout_tx", "pending");
+      } catch (_) { /* best-effort */ }
+    }
+
     return errorResponse(String(err), 500);
   }
 });

@@ -432,7 +432,10 @@ async function joinPvp(maxPlayers) {
     await enterArena(data.match_id);
   } catch (error) {
     hidePvpLobby();
-    console.error("[joinPvp] error:", error);
+    console.error("[joinPvp]", error);
+    try { await supabase.rpc("leave_my_matches"); } catch (_) {}
+    state.match = null;
+    state.seat = null;
     setStatus(error.message || "Could not join a PvP match.");
   }
 }
