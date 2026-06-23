@@ -1,5 +1,15 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { createArenaGame } from "./game.js";
+import {
+  Connection,
+  PublicKey,
+  Transaction,
+} from "https://esm.sh/@solana/web3.js@1.87.6?bundle";
+import {
+  getAssociatedTokenAddress,
+  createTransferInstruction,
+  getAccount,
+} from "https://esm.sh/@solana/spl-token@0.3.11?bundle";
 
 const SUPABASE_URL =
   import.meta.env?.VITE_SUPABASE_URL?.trim() || "https://sajvismyvcgaszjcafcr.supabase.co";
@@ -7,6 +17,17 @@ const SUPABASE_ANON_KEY =
   import.meta.env?.VITE_SUPABASE_ANON_KEY?.trim() || "";
 if (!SUPABASE_ANON_KEY) console.error("VITE_SUPABASE_ANON_KEY is not set — Supabase calls will fail.");
 const SIGN_IN_STATEMENT = "Sign in to Age of Trenches to play realtime trench duels.";
+
+// ---------------------------------------------------------------------------
+// FIGHT10 Tokenomics constants
+// Fill in FIGHT10_MINT and ESCROW_WALLET after Pump.fun deploy + keypair gen.
+// ---------------------------------------------------------------------------
+const FIGHT10_MINT    = import.meta.env?.VITE_FIGHT10_MINT?.trim()   || "<FIGHT10_MINT_ADDRESS>";
+const ESCROW_WALLET   = import.meta.env?.VITE_ESCROW_WALLET?.trim()  || "<ESCROW_WALLET_PUBKEY>";
+const SOLANA_RPC_URL  = import.meta.env?.VITE_SOLANA_RPC_URL?.trim() || "https://api.mainnet-beta.solana.com";
+const ENTRY_FEE       = 2500;         // FIGHT10 tokens per player
+const FIGHT10_DECIMALS = 6;           // Pump.fun mints always use 6 decimals
+const ENTRY_FEE_RAW   = BigInt(ENTRY_FEE) * BigInt(10 ** FIGHT10_DECIMALS);
 
 const els = {
   signInWalletBtn: document.getElementById("signInWalletBtn"),
@@ -241,6 +262,7 @@ async function handleSession(session) {
   }
   showLobby();
   setStatus(recordSuffix("Wallet connected — choose Demo Match or Play PvP."));
+  refreshFight10Balance().catch(() => {});
 }
 
 async function syncProfile() {
@@ -291,9 +313,11 @@ function hidePvpLobby() {
   clearInterval(pvpLobbyTimer);
   pvpLobbyTimer = null;
   els.pvpLobby.classList.add("hidden");
+  const potEl = document.getElementById("pvpPrizePool");
+  if (potEl) potEl.classList.add("hidden");
 }
 
-function showGameOver(result, reason, standings = []) {
+function showGameOver(result, reason, standings = [], prizeAmount = null) {
   const win = result === "win";
   els.gameOverTitle.textContent = win ? "VICTORY" : "DEFEAT";
   els.gameOverTitle.classList.toggle("is-win", win);
@@ -303,6 +327,17 @@ function showGameOver(result, reason, standings = []) {
   els.gameOverWins.textContent = state.profile?.wins ?? 0;
   els.gameOverLosses.textContent = state.profile?.losses ?? 0;
   renderStandings(standings);
+  // Prize display
+  const prizeEl  = document.getElementById("gameOverPrize");
+  const prizeAmt = document.getElementById("gameOverPrizeAmount");
+  if (prizeEl && prizeAmt) {
+    if (win && prizeAmount !== null) {
+      prizeAmt.textContent = prizeAmount.toLocaleString(undefined, { maximumFractionDigits: 0 });
+      prizeEl.classList.remove("hidden");
+    } else {
+      prizeEl.classList.add("hidden");
+    }
+  }
   els.gameOver.classList.remove("hidden");
 }
 
@@ -369,12 +404,130 @@ async function joinPvp(maxPlayers) {
     };
     state.iRoomFiller = data.status === "active";
     state.seat = data.seat;
+
+    // Show deposit prompt and gate matchmaking on confirmed on-chain transfer
+    const deposited = await depositEntryFee(data.match_id, size);
+    if (!deposited) {
+      hidePvpLobby();
+      try { await supabase.rpc("leave_my_matches"); } catch (_) {}
+      state.match = null;
+      state.seat = null;
+      setStatus("Deposit cancelled — you were not charged.");
+      return;
+    }
+
     await enterArena(data.match_id);
   } catch (error) {
     hidePvpLobby();
     console.error(error);
     setStatus(error.message || "Could not join a PvP match.");
   }
+}
+
+// ---------------------------------------------------------------------------
+// FIGHT10 deposit — transfer ENTRY_FEE from player wallet to escrow on-chain
+// Returns true if the deposit was confirmed and recorded, false if cancelled.
+// ---------------------------------------------------------------------------
+async function depositEntryFee(matchId, numPlayers = 2) {
+  const wallet = getSolanaWallet();
+  if (!wallet?.publicKey) {
+    setStatus("Wallet not connected — cannot deposit.");
+    return false;
+  }
+
+  // Check balance before prompting
+  setStatus("Checking $FIGHT10 balance…");
+  const balance = await getFight10Balance(wallet.publicKey.toString());
+  if (balance < ENTRY_FEE_RAW) {
+    const have = Number(balance) / 10 ** FIGHT10_DECIMALS;
+    setStatus(`Insufficient $FIGHT10 balance — need 2,500, have ${have.toFixed(0)}.`);
+    return false;
+  }
+
+  try {
+    updatePrizePot(numPlayers);
+    setStatus("Depositing 2,500 $FIGHT10… approve in wallet.");
+    els.pvpLobbyStatus.textContent = "Approve deposit in your wallet…";
+
+    const connection = new Connection(SOLANA_RPC_URL, "confirmed");
+    const mintPubkey   = new PublicKey(FIGHT10_MINT);
+    const escrowPubkey = new PublicKey(ESCROW_WALLET);
+    const playerPubkey = wallet.publicKey;
+
+    const playerAta = await getAssociatedTokenAddress(mintPubkey, playerPubkey);
+    const escrowAta = await getAssociatedTokenAddress(mintPubkey, escrowPubkey);
+
+    const { blockhash, lastValidBlockHeight } = await connection.getLatestBlockhash();
+
+    const tx = new Transaction({
+      recentBlockhash: blockhash,
+      feePayer: playerPubkey,
+    }).add(
+      createTransferInstruction(playerAta, escrowAta, playerPubkey, ENTRY_FEE_RAW)
+    );
+
+    // Ask wallet to sign and broadcast
+    const sig = await wallet.signAndSendTransaction(tx);
+    const txSig = sig?.signature ?? sig;
+
+    // Confirm on-chain
+    setStatus("Confirming deposit on-chain…");
+    els.pvpLobbyStatus.textContent = "Confirming on-chain…";
+    await connection.confirmTransaction({ signature: txSig, blockhash, lastValidBlockHeight }, "confirmed");
+
+    // Record in DB
+    const { error: recErr } = await supabase.rpc("record_deposit", {
+      p_match_id: matchId,
+      p_deposit_tx: txSig,
+    });
+    if (recErr) throw recErr;
+
+    setStatus("Deposit confirmed — entering arena.");
+    return true;
+  } catch (err) {
+    console.error("depositEntryFee:", err);
+    const msg = err?.message || String(err);
+    if (msg.includes("User rejected") || msg.includes("cancelled")) {
+      setStatus("Deposit cancelled.");
+    } else {
+      setStatus("Deposit failed: " + msg);
+    }
+    return false;
+  }
+}
+
+async function getFight10Balance(walletAddress) {
+  try {
+    const connection = new Connection(SOLANA_RPC_URL, "confirmed");
+    const mintPubkey   = new PublicKey(FIGHT10_MINT);
+    const walletPubkey = new PublicKey(walletAddress);
+    const ata = await getAssociatedTokenAddress(mintPubkey, walletPubkey);
+    const account = await getAccount(connection, ata);
+    return account.amount; // bigint raw units
+  } catch (_) {
+    return BigInt(0);
+  }
+}
+
+function updatePrizePot(numPlayers) {
+  const potEl = document.getElementById("pvpPrizePool");
+  const amtEl = document.getElementById("pvpPrizeAmount");
+  if (!potEl || !amtEl) return;
+  amtEl.textContent = (numPlayers * ENTRY_FEE).toLocaleString();
+  potEl.classList.remove("hidden");
+}
+
+async function refreshFight10Balance() {
+  const balEl = document.getElementById("fight10Balance");
+  if (!balEl || !state.user) return;
+  const wallet = getSolanaWallet();
+  if (!wallet?.publicKey) return;
+  try {
+    const raw = await getFight10Balance(wallet.publicKey.toString());
+    const display = (Number(raw) / 10 ** FIGHT10_DECIMALS).toLocaleString(undefined, { maximumFractionDigits: 0 });
+    balEl.textContent = display + " $FIGHT10";
+    balEl.classList.remove("hidden");
+  } catch (_) {}
 }
 
 async function enterArena(matchId) {
@@ -535,15 +688,26 @@ function handleOpponentLeft(userId) {
 async function reportResult(result, { reason = "", standings = [] } = {}) {
   if (state.match?.mode !== "pvp" || !state.match.id || state.match.finished) return;
   state.match.finished = true;
+  let prizeAmount = null;
   try {
     if (result === "win") {
       await supabase.rpc("finish_match", { p_match_id: state.match.id, p_winner_user_id: state.user.id });
+      // Claim prize
+      setStatus("Claiming prize…");
+      const { data: payoutData, error: payoutErr } = await supabase.functions.invoke("payout", {
+        body: { match_id: state.match.id },
+      });
+      if (payoutErr) {
+        console.error("Payout invoke error:", payoutErr);
+      } else if (payoutData?.winner_amount && payoutData?.decimals != null) {
+        prizeAmount = Number(BigInt(payoutData.winner_amount)) / 10 ** payoutData.decimals;
+      }
     }
     await syncProfile();
   } catch (error) {
     console.error(error);
   }
-  showGameOver(result, reason, standings);
+  showGameOver(result, reason, standings, prizeAmount);
 }
 
 async function leaveMatch({ silent = false } = {}) {
@@ -586,6 +750,8 @@ function showLobby() {
   toggle(els.demoBtn, connected);
   toggle(els.pvpBtn, connected);
   toggle(els.signOutBtn, connected);
+  const balEl = document.getElementById("fight10Balance");
+  if (balEl && !connected) balEl.classList.add("hidden");
 }
 
 // ---------------------------------------------------------------------------
