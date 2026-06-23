@@ -791,7 +791,7 @@ function startPingLoop() {
   const probe = async () => {
     try {
       const t0 = performance.now();
-      await supabase.from("profiles").select("id").limit(1);
+      await supabase.from("profiles").select("user_id").eq("user_id", state.user?.id).limit(1);
       game.setPing(Math.round(performance.now() - t0));
     } catch (_) {}
   };
