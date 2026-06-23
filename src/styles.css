@@ -229,6 +229,17 @@ textarea:focus {
   transform: translateX(-50%);
   text-align: center;
   pointer-events: none;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+}
+
+.brand-logo {
+  width: clamp(48px, 6vw, 72px);
+  height: clamp(48px, 6vw, 72px);
+  object-fit: contain;
+  filter: drop-shadow(0 2px 8px rgba(0,0,0,0.6));
 }
 
 .brand-title {
@@ -1413,6 +1424,14 @@ body.in-game .game-hud-root {
   transition: border-color 0.15s ease, transform 0.1s ease, box-shadow 0.15s ease;
 }
 
+.slot-icon {
+  width: 34px;
+  height: 34px;
+  object-fit: contain;
+  filter: drop-shadow(0 1px 3px rgba(0,0,0,0.7));
+  pointer-events: none;
+}
+
 .slot:hover { transform: translateY(-2px); }
 
 .slot.active {
@@ -1778,6 +1797,13 @@ body.in-game .game-hud-root {
   flex-direction: column;
   align-items: center;
   gap: 32px;
+}
+
+.app-loading-logo {
+  width: clamp(72px, 12vw, 110px);
+  height: clamp(72px, 12vw, 110px);
+  object-fit: contain;
+  filter: drop-shadow(0 4px 16px rgba(0,0,0,0.7));
 }
 
 .app-loading-brand {

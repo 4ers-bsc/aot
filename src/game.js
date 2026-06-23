@@ -1204,11 +1204,12 @@ function buildHud() {
   const mmCanvas = add('<canvas class="game-minimap game-ui"></canvas>');
   const hotbar = add('<div class="hotbar game-ui"></div>');
   for (let n = 1; n <= 5; n++) {
-    const glyph = n === 1 ? "&#9876;" : n === 2 ? "&#128299;" : "";
+    const imgSrc = n === 1 ? "/assets/sword.png" : n === 2 ? "/assets/pistol.png" : "";
+    const imgTag = imgSrc ? `<img src="${imgSrc}" class="slot-icon" alt="" />` : "";
     const s = document.createElement("div");
     s.className = "slot" + (n === 1 ? " active" : "");
     s.dataset.slot = String(n);
-    s.innerHTML = `${glyph}<span class="num">${n}</span>`;
+    s.innerHTML = `${imgTag}<span class="num">${n}</span>`;
     hotbar.appendChild(s);
   }
   const slots = Array.from(hotbar.querySelectorAll(".slot"));
