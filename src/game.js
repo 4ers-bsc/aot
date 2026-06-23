@@ -952,7 +952,7 @@ export function createArenaGame(options) {
   });
 
   // Settings
-  const settings = { renderDistance: "Far", fog: true, msaa: true, animations: true, centerCamera: false, hideHud: false, fps: true, ping: true, location: false };
+  const settings = { renderDistance: "Far", fog: false, msaa: true, animations: true, centerCamera: false, hideHud: false, fps: true, ping: true, location: false };
   function applyFog() {
     if (settings.fog) { const r = RD_FOG[settings.renderDistance]; scene.fog = new THREE.Fog(theme.fogColor ?? theme.bg, r[0], r[1]); }
     else scene.fog = null;
