@@ -69,13 +69,13 @@ function transferInstruction(
   amount: bigint,
   tokenProgram: PublicKey,
 ): TransactionInstruction {
-  const data = Buffer.alloc(9);
-  data.writeUInt8(3, 0); // Transfer instruction index
+  const data = new Uint8Array(9);
+  data[0] = 3; // Transfer instruction index
   // Write u64 LE
   const lo = Number(amount & BigInt(0xffffffff));
   const hi = Number(amount >> BigInt(32));
-  data.writeUInt32LE(lo, 1);
-  data.writeUInt32LE(hi, 5);
+  new DataView(data.buffer).setUint32(1, lo, true);
+  new DataView(data.buffer).setUint32(5, hi, true);
   return new TransactionInstruction({
     programId: tokenProgram,
     keys: [
@@ -105,7 +105,7 @@ function createATAInstruction(
       { pubkey: SystemProgram.programId,     isSigner: false, isWritable: false },
       { pubkey: tokenProgram,                isSigner: false, isWritable: false },
     ],
-    data: Buffer.alloc(0),
+    data: new Uint8Array(0),
   });
 }
 
@@ -186,8 +186,8 @@ Deno.serve(async (req: Request) => {
 
     const mintPubkey   = pubkeyFromBase58(cleanMint);
     console.log("Mint pubkey ok:", mintPubkey.toString());
-    const rawWallet = profile.wallet_address ?? "";
-    console.log("Winner wallet raw:", rawWallet.slice(0, 8), "length:", rawWallet.length);
+    const rawWallet = (profile.wallet_address ?? "").split(":").pop() ?? "";
+    console.log("Winner wallet:", rawWallet.slice(0, 8), "…length:", rawWallet.length);
     if (!rawWallet) return errorResponse("Winner wallet address invalid", 400);
     const winnerPubkey = pubkeyFromBase58(rawWallet);
     console.log("Winner pubkey ok:", winnerPubkey.toString());
@@ -217,20 +217,23 @@ Deno.serve(async (req: Request) => {
     const escrowTokenAccount = new PublicKey(escrowAccounts.value[0].pubkey);
     console.log("Escrow token account:", escrowTokenAccount.toString());
 
-    const winnerAta = await getATA(mintPubkey, winnerPubkey, tokenProgramId);
-    console.log("Winner ATA:", winnerAta.toString());
+    console.log("Finding winner token account…");
+    const winnerAccounts = await connection.getParsedTokenAccountsByOwner(winnerPubkey, { mint: mintPubkey });
+    console.log("Winner token accounts found:", winnerAccounts.value.length);
 
     const tx = new Transaction();
+    let winnerTokenAccount: PublicKey;
 
-    const winnerAtaInfo = await connection.getAccountInfo(winnerAta);
-    if (!winnerAtaInfo) {
-      console.log("Winner ATA does not exist — adding create instruction");
-      tx.add(createATAInstruction(escrowKeypair.publicKey, winnerAta, winnerPubkey, mintPubkey, tokenProgramId));
+    if (winnerAccounts.value.length > 0) {
+      winnerTokenAccount = new PublicKey(winnerAccounts.value[0].pubkey);
+      console.log("Winner token account:", winnerTokenAccount.toString());
     } else {
-      console.log("Winner ATA exists");
+      winnerTokenAccount = await getATA(mintPubkey, winnerPubkey, tokenProgramId);
+      console.log("No token account found — creating ATA:", winnerTokenAccount.toString());
+      tx.add(createATAInstruction(escrowKeypair.publicKey, winnerTokenAccount, winnerPubkey, mintPubkey, tokenProgramId));
     }
 
-    tx.add(transferInstruction(escrowTokenAccount, winnerAta, escrowKeypair.publicKey, winnerAmountRaw, tokenProgramId));
+    tx.add(transferInstruction(escrowTokenAccount, winnerTokenAccount, escrowKeypair.publicKey, winnerAmountRaw, tokenProgramId));
 
     const { blockhash } = await connection.getLatestBlockhash("confirmed");
     tx.recentBlockhash = blockhash;
