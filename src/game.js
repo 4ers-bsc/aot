@@ -22,9 +22,10 @@ const AI_WEAPON = { id: "sword", name: "Sword", atk: 9, atkVar: 2, cd: 1.1, rang
 
 const THEMES = {
   game: {
-    bg: 0x08090c,
-    ground: ["#ffffff", "#ffffff", "#ffffff", "#f4f4f4", "#f4f4f4", "#e2e2e2", "#d9d9d9", "#d9d9d9", "#c4c4c4", "#a8a8a8", "#8f8f8f", "#6f6f6f"],
-    grid: [0x808890, 0x9aa0a6], gridOpacity: 0.5,
+    bg: 0xf0f2f5,
+    fogColor: 0xf0f2f5,
+    ground: ["#ffffff", "#ffffff", "#f8f8f8", "#f4f4f4", "#f0f0f0", "#ebebeb", "#e4e4e4", "#e0e0e0", "#d8d8d8", "#d2d2d2", "#cccccc", "#c6c6c6"],
+    grid: [0x999fa6, 0xaab0b6], gridOpacity: 0.28,
     border: 0x3a6a3a,
     player: { boots: 0x2c4a2c, jacket: 0x4a8a45, helmet: 0x33572f, face: 0xcda882 },
     enemy: { boots: 0x4a2222, jacket: 0xa83a32, helmet: 0x6a1f1f, face: 0xd0a884 },
@@ -35,9 +36,10 @@ const THEMES = {
     mm: { grid: "rgba(110,120,128,0.16)", border: "rgba(58,106,58,0.8)", cam: "rgba(47,138,47,0.5)", enemy: "#d23b3b", player: "#2f8a2f" }
   },
   lobby: {
-    bg: 0x121212,
+    bg: 0x0a0a0c,
+    fogColor: 0x0a0a0c,
     ground: ["#3a3a3a", "#343434", "#2e2e2e", "#2a2a2a", "#404040", "#363636", "#444444", "#383838", "#303030", "#4a4a4a", "#2c2c2c", "#3d3d3d"],
-    grid: [0x5a5a5a, 0x404040], gridOpacity: 0.32,
+    grid: [0x5a5a5a, 0x404040], gridOpacity: 0.18,
     border: 0x808080,
     player: { boots: 0x8f8f8f, jacket: 0xdedede, helmet: 0xf3f3f3, face: 0xb6b6b6 },
     enemy: { boots: 0x242424, jacket: 0x4a4a4a, helmet: 0x1c1c1c, face: 0x6a6a6a },
@@ -81,7 +83,7 @@ export function createArenaGame(options) {
   // -- Scene ----------------------------------------------------------------
   const scene = new THREE.Scene();
   scene.background = new THREE.Color(theme.bg);
-  scene.fog = new THREE.Fog(theme.bg, RD_FOG.Far[0], RD_FOG.Far[1]);
+  scene.fog = new THREE.Fog(theme.fogColor ?? theme.bg, RD_FOG.Far[0], RD_FOG.Far[1]);
 
   const FRUSTUM = 16;
   let dim = size();
@@ -140,87 +142,184 @@ export function createArenaGame(options) {
   }
   buildGrid();
 
+  const borderLinePts = [
+    new THREE.Vector3(-MAP_HALF, 0.02, -MAP_HALF), new THREE.Vector3(MAP_HALF, 0.02, -MAP_HALF),
+    new THREE.Vector3(MAP_HALF, 0.02, MAP_HALF), new THREE.Vector3(-MAP_HALF, 0.02, MAP_HALF),
+    new THREE.Vector3(-MAP_HALF, 0.02, -MAP_HALF)
+  ];
   const border = new THREE.Line(
-    new THREE.BufferGeometry().setFromPoints([
-      new THREE.Vector3(-MAP_HALF, 0.02, -MAP_HALF), new THREE.Vector3(MAP_HALF, 0.02, -MAP_HALF),
-      new THREE.Vector3(MAP_HALF, 0.02, MAP_HALF), new THREE.Vector3(-MAP_HALF, 0.02, MAP_HALF),
-      new THREE.Vector3(-MAP_HALF, 0.02, -MAP_HALF)
-    ]),
-    new THREE.LineBasicMaterial({ color: theme.border })
+    new THREE.BufferGeometry().setFromPoints(borderLinePts),
+    new THREE.LineBasicMaterial({ color: theme.border, transparent: true, opacity: 0 })
   );
-  scene.add(border);
+  scene.add(border); // kept for applyTheme reference; invisible
 
-  // -- Floating platform (sides + bottom) -----------------------------------
-  (function buildPlatformEdge() {
-    const DEPTH = 10;
-    const sideMat = new THREE.MeshStandardMaterial({ color: 0x111113, roughness: 0.96, metalness: 0.04 });
-    [
-      { x: 0,         z: -MAP_HALF, ry: 0 },
-      { x: 0,         z:  MAP_HALF, ry: Math.PI },
-      { x: -MAP_HALF, z:  0,        ry:  Math.PI / 2 },
-      { x:  MAP_HALF, z:  0,        ry: -Math.PI / 2 },
-    ].forEach(({ x, z, ry }) => {
-      const wall = new THREE.Mesh(new THREE.PlaneGeometry(MAP_WORLD, DEPTH), sideMat);
-      wall.position.set(x, -DEPTH / 2, z);
-      wall.rotation.y = ry;
-      scene.add(wall);
+  // -- Stone ledge + glass walls --------------------------------------------
+  (function buildArenaEdge() {
+    const LW = 4.0;   // ledge width/depth
+    const LH = 1.8;   // ledge height above ground
+    const SH = 0.32;  // snow cap height
+    const SO = 0.22;  // snow overhang past stone edge
+
+    const stoneMat = new THREE.MeshStandardMaterial({
+      color: 0x7a7e88, roughness: 0.96, metalness: 0.04, flatShading: true
     });
-    // Bottom cap
+    const snowMat = new THREE.MeshStandardMaterial({
+      color: 0xdde8f2, roughness: 0.82, metalness: 0.0
+    });
+
+    const H = MAP_HALF;
+    // sides: [w, d, cx, cz]
+    const sides = [
+      [MAP_WORLD, LW, 0, -(H + LW / 2)],
+      [MAP_WORLD, LW, 0,  (H + LW / 2)],
+      [LW, MAP_WORLD, -(H + LW / 2), 0],
+      [LW, MAP_WORLD,  (H + LW / 2), 0],
+    ];
+    const corners = [
+      [-(H + LW / 2), -(H + LW / 2)],
+      [ (H + LW / 2), -(H + LW / 2)],
+      [-(H + LW / 2),  (H + LW / 2)],
+      [ (H + LW / 2),  (H + LW / 2)],
+    ];
+    [...sides.map(([w, d, cx, cz]) => ({ w, d, cx, cz })),
+     ...corners.map(([cx, cz]) => ({ w: LW, d: LW, cx, cz }))
+    ].forEach(({ w, d, cx, cz }) => {
+      const stone = new THREE.Mesh(new THREE.BoxGeometry(w, LH, d), stoneMat);
+      stone.position.set(cx, LH / 2, cz);
+      stone.castShadow = true; stone.receiveShadow = true;
+      scene.add(stone);
+
+      const snowCap = new THREE.Mesh(new THREE.BoxGeometry(w + SO * 2, SH, d + SO * 2), snowMat);
+      snowCap.position.set(cx, LH + SH / 2, cz);
+      snowCap.castShadow = true; snowCap.receiveShadow = true;
+      scene.add(snowCap);
+    });
+
+    // Glass panels that fade downward outside the stone ledge
+    const gc = document.createElement("canvas");
+    gc.width = 2; gc.height = 128;
+    const gctx = gc.getContext("2d");
+    const grad = gctx.createLinearGradient(0, 0, 0, 128);
+    grad.addColorStop(0,    "rgba(190, 215, 245, 0.45)");
+    grad.addColorStop(0.35, "rgba(170, 205, 240, 0.25)");
+    grad.addColorStop(1,    "rgba(150, 195, 235, 0.0)");
+    gctx.fillStyle = grad; gctx.fillRect(0, 0, 2, 128);
+    const glassTex = new THREE.CanvasTexture(gc);
+
+    const glassMat = new THREE.MeshBasicMaterial({
+      map: glassTex, transparent: true, side: THREE.DoubleSide, depthWrite: false
+    });
+
+    const GH = 16;
+    const GW = MAP_WORLD + LW * 2 + 4;
+    const off = H + LW;
+    [
+      { x: 0,    z: -off, ry: 0 },
+      { x: 0,    z:  off, ry: Math.PI },
+      { x: -off, z: 0,    ry:  Math.PI / 2 },
+      { x:  off, z: 0,    ry: -Math.PI / 2 },
+    ].forEach(({ x, z, ry }) => {
+      const panel = new THREE.Mesh(new THREE.PlaneGeometry(GW, GH), glassMat);
+      panel.position.set(x, -GH / 2, z);
+      panel.rotation.y = ry;
+      scene.add(panel);
+    });
+
+    // Dark bottom cap
     const btm = new THREE.Mesh(
-      new THREE.PlaneGeometry(MAP_WORLD, MAP_WORLD),
-      new THREE.MeshStandardMaterial({ color: 0x030304, roughness: 1 })
+      new THREE.PlaneGeometry(MAP_WORLD + LW * 2, MAP_WORLD + LW * 2),
+      new THREE.MeshStandardMaterial({ color: 0x020203, roughness: 1 })
     );
     btm.rotation.x = Math.PI / 2;
-    btm.position.y = -DEPTH;
+    btm.position.y = -GH;
     scene.add(btm);
-    // Rim glow along top edge
-    const rimPts = [
-      new THREE.Vector3(-MAP_HALF, 0.06, -MAP_HALF), new THREE.Vector3(MAP_HALF, 0.06, -MAP_HALF),
-      new THREE.Vector3(MAP_HALF, 0.06,  MAP_HALF),  new THREE.Vector3(-MAP_HALF, 0.06,  MAP_HALF),
-      new THREE.Vector3(-MAP_HALF, 0.06, -MAP_HALF),
-    ];
-    const rim = new THREE.Line(
-      new THREE.BufferGeometry().setFromPoints(rimPts),
-      new THREE.LineBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.18 })
-    );
-    scene.add(rim);
   })();
 
-  // -- Pixelated FIGHT10 ground decal (random each game) --------------------
-  let fight10Group = null;
+  // -- Pixelated FIGHT10 ground decals (black pixel squares, random) --------
+  const fight10Groups = [];
   function makeFight10Decal() {
-    if (fight10Group) { scene.remove(fight10Group); }
-    // Draw at tiny resolution — NearestFilter scales it up with chunky pixels
+    fight10Groups.forEach((g) => scene.remove(g));
+    fight10Groups.length = 0;
     const CW = 56, CH = 10;
-    const dc = document.createElement("canvas");
-    dc.width = CW; dc.height = CH;
-    const dctx = dc.getContext("2d");
-    dctx.imageSmoothingEnabled = false;
-    dctx.clearRect(0, 0, CW, CH);
-    dctx.fillStyle = "#ffffff";
-    dctx.font = `bold ${CH}px monospace`;
-    dctx.textAlign = "center";
-    dctx.textBaseline = "middle";
-    dctx.fillText("FIGHT10", CW / 2, CH / 2);
-    const tex = new THREE.CanvasTexture(dc);
-    tex.magFilter = THREE.NearestFilter;
-    tex.minFilter = THREE.NearestFilter;
-    const mesh = new THREE.Mesh(
-      new THREE.PlaneGeometry(44, 7.8),
-      new THREE.MeshBasicMaterial({ map: tex, transparent: true, depthWrite: false, opacity: 0.11 })
-    );
-    mesh.rotation.x = -Math.PI / 2;
-    const safe = MAP_HALF - 26;
-    fight10Group = new THREE.Group();
-    fight10Group.position.set(
-      (Math.random() - 0.5) * 2 * safe,
-      0.04,
-      (Math.random() - 0.5) * 2 * safe
-    );
-    fight10Group.rotation.y = Math.floor(Math.random() * 4) * (Math.PI / 2);
-    fight10Group.add(mesh);
-    scene.add(fight10Group);
+    for (let i = 0; i < 3; i++) {
+      const dc = document.createElement("canvas");
+      dc.width = CW; dc.height = CH;
+      const dctx = dc.getContext("2d");
+      dctx.imageSmoothingEnabled = false;
+      dctx.clearRect(0, 0, CW, CH);
+      dctx.fillStyle = "#000000";
+      dctx.font = `bold ${CH}px monospace`;
+      dctx.textAlign = "center";
+      dctx.textBaseline = "middle";
+      dctx.fillText("FIGHT10", CW / 2, CH / 2);
+      const tex = new THREE.CanvasTexture(dc);
+      tex.magFilter = THREE.NearestFilter;
+      tex.minFilter = THREE.NearestFilter;
+      const mesh = new THREE.Mesh(
+        new THREE.PlaneGeometry(40, 7.2),
+        new THREE.MeshBasicMaterial({ map: tex, transparent: true, depthWrite: false, opacity: 0.22 })
+      );
+      mesh.rotation.x = -Math.PI / 2;
+      const safe = MAP_HALF - 22;
+      const grp = new THREE.Group();
+      grp.position.set(
+        (Math.random() - 0.5) * 2 * safe,
+        0.04,
+        (Math.random() - 0.5) * 2 * safe
+      );
+      grp.rotation.y = Math.floor(Math.random() * 4) * (Math.PI / 2);
+      grp.add(mesh);
+      scene.add(grp);
+      fight10Groups.push(grp);
+    }
   }
+
+  // -- Outer dot plane (black field with receding white dots beyond the ledge) --
+  (function buildOuterDotPlane() {
+    const SIZE = 320;
+    const PX = 512;
+    const dc = document.createElement("canvas");
+    dc.width = dc.height = PX;
+    const dctx = dc.getContext("2d");
+    dctx.fillStyle = "#000000";
+    dctx.fillRect(0, 0, PX, PX);
+    // Dot grid — spacing 16px, dots radius 1.8px, fade toward edges
+    const SPACING = 14;
+    const cx = PX / 2, cy = PX / 2;
+    const maxDist = Math.sqrt(cx * cx + cy * cy);
+    for (let y = SPACING / 2; y < PX; y += SPACING) {
+      for (let x = SPACING / 2; x < PX; x += SPACING) {
+        const dx = x - cx, dy = y - cy;
+        const dist = Math.sqrt(dx * dx + dy * dy);
+        // Fade: full opacity near center (arena edge), transparent near outer edge
+        const alpha = Math.max(0, 1 - (dist / maxDist) * 1.1);
+        // Dot size shrinks slightly as alpha decreases (receding effect)
+        const r = 1.6 * (0.4 + 0.6 * alpha);
+        dctx.globalAlpha = alpha * 0.7;
+        dctx.fillStyle = "#c8d0da";
+        dctx.beginPath();
+        dctx.arc(x, y, r, 0, Math.PI * 2);
+        dctx.fill();
+      }
+    }
+    dctx.globalAlpha = 1;
+    // Hole mask: punch out arena area (centre square) to transparent so arena floor shows
+    const arenaFrac = (MAP_WORLD / SIZE);
+    const arenaPx = arenaFrac * PX;
+    const ao = (PX - arenaPx) / 2;
+    dctx.globalCompositeOperation = "destination-out";
+    dctx.fillRect(ao, ao, arenaPx, arenaPx);
+
+    const tex = new THREE.CanvasTexture(dc);
+    tex.wrapS = tex.wrapT = THREE.ClampToEdgeWrapping;
+    const plane = new THREE.Mesh(
+      new THREE.PlaneGeometry(SIZE, SIZE),
+      new THREE.MeshBasicMaterial({ map: tex, transparent: true, depthWrite: false })
+    );
+    plane.rotation.x = -Math.PI / 2;
+    plane.position.y = -0.01;
+    scene.add(plane);
+  })();
 
   // -- Snow -----------------------------------------------------------------
   const SNOW_COUNT = 1400, SNOW_AREA = 48, SNOW_TOP = 30;
@@ -319,16 +418,29 @@ export function createArenaGame(options) {
   function makeFighter(cfg) {
     const P = cfg.palette;
     const g = new THREE.Group();
-    const legL = limb(0.34, 0.9, 0.34, P.boots), legR = limb(0.34, 0.9, 0.34, P.boots);
-    legL.position.set(-0.22, 0.9, 0); legR.position.set(0.22, 0.9, 0);
-    const torso = box(0.92, 0.92, 0.52, P.jacket); torso.position.y = 1.36;
-    const armL = limb(0.28, 0.86, 0.28, P.jacket), armR = limb(0.28, 0.86, 0.28, P.jacket);
-    armL.position.set(-0.6, 1.74, 0); armR.position.set(0.6, 1.74, 0);
-    const head = box(0.56, 0.56, 0.56, P.face); head.position.y = 2.1;
-    const helmet = box(0.66, 0.26, 0.66, P.helmet); helmet.position.y = 2.4;
+    // Legs — slightly chunkier
+    const legL = limb(0.36, 0.94, 0.36, P.boots), legR = limb(0.36, 0.94, 0.36, P.boots);
+    legL.position.set(-0.22, 0.94, 0); legR.position.set(0.22, 0.94, 0);
+    // Torso — barrel-chest
+    const torso = box(1.0, 1.0, 0.58, P.jacket); torso.position.y = 1.42;
+    // Shoulder pads
+    const shlL = box(0.28, 0.28, 0.44, P.helmet); shlL.position.set(-0.64, 1.82, 0);
+    const shlR = box(0.28, 0.28, 0.44, P.helmet); shlR.position.set( 0.64, 1.82, 0);
+    // Arms
+    const armL = limb(0.28, 0.82, 0.28, P.jacket), armR = limb(0.28, 0.82, 0.28, P.jacket);
+    armL.position.set(-0.64, 1.68, 0); armR.position.set(0.64, 1.68, 0);
+    // Head + full helmet
+    const head = box(0.58, 0.46, 0.54, P.face); head.position.y = 2.18;
+    const helmet = box(0.70, 0.50, 0.68, P.helmet); helmet.position.y = 2.44;
+    // Visor — dark horizontal strip on front of helmet
+    const visor = new THREE.Mesh(
+      new THREE.BoxGeometry(0.52, 0.16, 0.08),
+      new THREE.MeshStandardMaterial({ color: 0x111820, roughness: 0.4, metalness: 0.6 })
+    );
+    visor.position.set(0, 2.46, 0.36);
     const swordMesh = makeSword(); armR.add(swordMesh);
     const pistolMesh = makePistol(); pistolMesh.visible = false; armR.add(pistolMesh);
-    g.add(legL, legR, torso, armL, armR, head, helmet);
+    g.add(legL, legR, torso, shlL, shlR, armL, armR, head, helmet, visor);
     g.position.copy(cfg.pos);
     g.visible = false;
     scene.add(g);
@@ -344,7 +456,7 @@ export function createArenaGame(options) {
       parts: {
         boots: [legL.mesh.material, legR.mesh.material],
         jacket: [torso.material, armL.mesh.material, armR.mesh.material],
-        helmet: [helmet.material],
+        helmet: [helmet.material, shlL.material, shlR.material],
         face: [head.material]
       },
       bar: makeBar(cfg.barColor)
@@ -442,10 +554,14 @@ export function createArenaGame(options) {
   }
   function addTree(x, z) {
     const g = new THREE.Group();
-    const trunk = box(0.5, 1.6, 0.5, 0x6b4a2a); trunk.position.y = 0.8;
-    const f1 = box(2.0, 1.4, 2.0, 0x356b32); f1.position.y = 2.0;
-    const f2 = box(1.3, 1.2, 1.3, 0x2c5a29); f2.position.y = 3.0;
-    g.add(trunk, f1, f2);
+    const trunk = box(0.5, 1.6, 0.5, 0x5c3d1e); trunk.position.y = 0.8;
+    const f1 = box(2.0, 1.4, 2.0, 0x2d5e2a); f1.position.y = 2.0;
+    const f2 = box(1.3, 1.2, 1.3, 0x254f22); f2.position.y = 3.0;
+    // Snow layers: sit on top of each foliage tier, slightly wider to droop
+    const sn1 = box(2.2, 0.3, 2.2, 0xdde9f5); sn1.position.y = 2.85;
+    const sn2 = box(1.45, 0.26, 1.45, 0xe4eef7); sn2.position.y = 3.72;
+    const snTop = box(0.55, 0.2, 0.55, 0xf0f6ff); snTop.position.y = 4.24;
+    g.add(trunk, f1, f2, sn1, sn2, snTop);
     g.position.set(x, 0, z);
     mapGroup.add(g);
     solids.push({ x, z, r: 1.1 });
@@ -838,7 +954,7 @@ export function createArenaGame(options) {
   // Settings
   const settings = { renderDistance: "Far", fog: true, msaa: true, animations: true, centerCamera: false, hideHud: false, fps: true, ping: true, location: false };
   function applyFog() {
-    if (settings.fog) { const r = RD_FOG[settings.renderDistance]; scene.fog = new THREE.Fog(theme.bg, r[0], r[1]); }
+    if (settings.fog) { const r = RD_FOG[settings.renderDistance]; scene.fog = new THREE.Fog(theme.fogColor ?? theme.bg, r[0], r[1]); }
     else scene.fog = null;
   }
   function applyMsaa() { renderer.setPixelRatio(settings.msaa ? Math.min(window.devicePixelRatio, 2) : 1); }
