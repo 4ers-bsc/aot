@@ -694,7 +694,7 @@ async function reportResult(result, { reason = "", standings = [] } = {}) {
       await supabase.rpc("finish_match", { p_match_id: state.match.id, p_winner_user_id: state.user.id });
       // Claim prize
       setStatus("Claiming prize…");
-      const { data: payoutData, error: payoutErr } = await supabase.functions.invoke("payout", {
+      const { data: payoutData, error: payoutErr } = await supabase.functions.invoke("f10treasurer", {
         body: { match_id: state.match.id },
       });
       if (payoutErr) {
