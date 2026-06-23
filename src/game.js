@@ -1204,7 +1204,7 @@ function buildHud() {
   const mmCanvas = add('<canvas class="game-minimap game-ui"></canvas>');
   const hotbar = add('<div class="hotbar game-ui"></div>');
   for (let n = 1; n <= 5; n++) {
-    const imgSrc = n === 1 ? "/assets/sword.png" : n === 2 ? "/assets/pistol.png" : "";
+    const imgSrc = n === 1 ? "/sword.png" : n === 2 ? "/pistol.png" : "";
     const imgTag = imgSrc ? `<img src="${imgSrc}" class="slot-icon" alt="" />` : "";
     const s = document.createElement("div");
     s.className = "slot" + (n === 1 ? " active" : "");
