@@ -22,10 +22,9 @@ const AI_WEAPON = { id: "sword", name: "Sword", atk: 9, atkVar: 2, cd: 1.1, rang
 
 const THEMES = {
   game: {
-    bg: 0xf0f2f5,
-    fogColor: 0xf0f2f5,
-    ground: ["#ffffff","#ffffff","#ffffff","#f8f8f8","#f4f4f4","#eeeeee","#e6e6e6","#dcdcdc","#d4d4d4","#c8c8c8","#bcbcbc","#b0b0b0","#a4a4a4","#989898","#8c8c8c","#808080"],
-    grid: [0x999fa6, 0xaab0b6], gridOpacity: 0.28,
+    bg: 0x08090c,
+    ground: ["#ffffff", "#ffffff", "#ffffff", "#f4f4f4", "#f4f4f4", "#e2e2e2", "#d9d9d9", "#d9d9d9", "#c4c4c4", "#a8a8a8", "#8f8f8f", "#6f6f6f"],
+    grid: [0x808890, 0x9aa0a6], gridOpacity: 0.5,
     border: 0x3a6a3a,
     player: { boots: 0x2c4a2c, jacket: 0x4a8a45, helmet: 0x33572f, face: 0xcda882 },
     enemy: { boots: 0x4a2222, jacket: 0xa83a32, helmet: 0x6a1f1f, face: 0xd0a884 },
@@ -36,10 +35,9 @@ const THEMES = {
     mm: { grid: "rgba(110,120,128,0.16)", border: "rgba(58,106,58,0.8)", cam: "rgba(47,138,47,0.5)", enemy: "#d23b3b", player: "#2f8a2f" }
   },
   lobby: {
-    bg: 0x0a0a0c,
-    fogColor: 0x0a0a0c,
+    bg: 0x121212,
     ground: ["#3a3a3a", "#343434", "#2e2e2e", "#2a2a2a", "#404040", "#363636", "#444444", "#383838", "#303030", "#4a4a4a", "#2c2c2c", "#3d3d3d"],
-    grid: [0x5a5a5a, 0x404040], gridOpacity: 0.18,
+    grid: [0x5a5a5a, 0x404040], gridOpacity: 0.32,
     border: 0x808080,
     player: { boots: 0x8f8f8f, jacket: 0xdedede, helmet: 0xf3f3f3, face: 0xb6b6b6 },
     enemy: { boots: 0x242424, jacket: 0x4a4a4a, helmet: 0x1c1c1c, face: 0x6a6a6a },
@@ -83,7 +81,7 @@ export function createArenaGame(options) {
   // -- Scene ----------------------------------------------------------------
   const scene = new THREE.Scene();
   scene.background = new THREE.Color(theme.bg);
-  scene.fog = new THREE.Fog(theme.fogColor ?? theme.bg, RD_FOG.Far[0], RD_FOG.Far[1]);
+  scene.fog = new THREE.Fog(theme.bg, RD_FOG.Far[0], RD_FOG.Far[1]);
 
   const FRUSTUM = 16;
   let dim = size();
@@ -106,8 +104,7 @@ export function createArenaGame(options) {
 
   // -- Ground ---------------------------------------------------------------
   function makeGroundTex(palette) {
-    // One pixel per tile (MAP_TILES = 50) so each block = one 2-unit tile on the ground
-    const px = MAP_TILES;
+    const px = 96;
     const c = document.createElement("canvas");
     c.width = c.height = px;
     const ctx = c.getContext("2d");
@@ -120,8 +117,8 @@ export function createArenaGame(options) {
     const tex = new THREE.CanvasTexture(c);
     tex.magFilter = THREE.NearestFilter;
     tex.minFilter = THREE.NearestFilter;
-    // No repeat — canvas stretches exactly across the whole ground plane
-    tex.wrapS = tex.wrapT = THREE.ClampToEdgeWrapping;
+    tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+    tex.repeat.set(MAP_WORLD / 24, MAP_WORLD / 24);
     return tex;
   }
   const ground = new THREE.Mesh(
@@ -143,97 +140,78 @@ export function createArenaGame(options) {
   }
   buildGrid();
 
-  const borderLinePts = [
-    new THREE.Vector3(-MAP_HALF, 0.02, -MAP_HALF), new THREE.Vector3(MAP_HALF, 0.02, -MAP_HALF),
-    new THREE.Vector3(MAP_HALF, 0.02, MAP_HALF), new THREE.Vector3(-MAP_HALF, 0.02, MAP_HALF),
-    new THREE.Vector3(-MAP_HALF, 0.02, -MAP_HALF)
-  ];
   const border = new THREE.Line(
-    new THREE.BufferGeometry().setFromPoints(borderLinePts),
-    new THREE.LineBasicMaterial({ color: theme.border, transparent: true, opacity: 0 })
+    new THREE.BufferGeometry().setFromPoints([
+      new THREE.Vector3(-MAP_HALF, 0.02, -MAP_HALF), new THREE.Vector3(MAP_HALF, 0.02, -MAP_HALF),
+      new THREE.Vector3(MAP_HALF, 0.02, MAP_HALF), new THREE.Vector3(-MAP_HALF, 0.02, MAP_HALF),
+      new THREE.Vector3(-MAP_HALF, 0.02, -MAP_HALF)
+    ]),
+    new THREE.LineBasicMaterial({ color: theme.border })
   );
-  scene.add(border); // kept for applyTheme reference; invisible
+  scene.add(border);
 
-  // -- Stone ledge + glass walls --------------------------------------------
-  (function buildArenaEdge() {
-    const LW = 4.0;   // ledge width/depth
-    const LH = 1.8;   // ledge height above ground
-    const SH = 0.32;  // snow cap height
-    const SO = 0.22;  // snow overhang past stone edge
-
-    const stoneMat = new THREE.MeshStandardMaterial({
-      color: 0x7a7e88, roughness: 0.96, metalness: 0.04, flatShading: true
+  // -- Glass wedge sides (fade downward, no stone ledge) --------------------
+  (function buildGlassWedge() {
+    const DEPTH = 10;
+    // Dark inner side planes (same as original platform)
+    const sideMat = new THREE.MeshStandardMaterial({ color: 0x111113, roughness: 0.96, metalness: 0.04 });
+    [
+      { x: 0,         z: -MAP_HALF, ry: 0 },
+      { x: 0,         z:  MAP_HALF, ry: Math.PI },
+      { x: -MAP_HALF, z: 0,         ry:  Math.PI / 2 },
+      { x:  MAP_HALF, z: 0,         ry: -Math.PI / 2 },
+    ].forEach(({ x, z, ry }) => {
+      const wall = new THREE.Mesh(new THREE.PlaneGeometry(MAP_WORLD, DEPTH), sideMat);
+      wall.position.set(x, -DEPTH / 2, z);
+      wall.rotation.y = ry;
+      scene.add(wall);
     });
-    const snowMat = new THREE.MeshStandardMaterial({
-      color: 0xdde8f2, roughness: 0.82, metalness: 0.0
-    });
+    // Bottom cap
+    const btm = new THREE.Mesh(
+      new THREE.PlaneGeometry(MAP_WORLD, MAP_WORLD),
+      new THREE.MeshStandardMaterial({ color: 0x030304, roughness: 1 })
+    );
+    btm.rotation.x = Math.PI / 2;
+    btm.position.y = -DEPTH;
+    scene.add(btm);
 
-    const H = MAP_HALF;
-    // sides: [w, d, cx, cz]
-    const sides = [
-      [MAP_WORLD, LW, 0, -(H + LW / 2)],
-      [MAP_WORLD, LW, 0,  (H + LW / 2)],
-      [LW, MAP_WORLD, -(H + LW / 2), 0],
-      [LW, MAP_WORLD,  (H + LW / 2), 0],
-    ];
-    const corners = [
-      [-(H + LW / 2), -(H + LW / 2)],
-      [ (H + LW / 2), -(H + LW / 2)],
-      [-(H + LW / 2),  (H + LW / 2)],
-      [ (H + LW / 2),  (H + LW / 2)],
-    ];
-    [...sides.map(([w, d, cx, cz]) => ({ w, d, cx, cz })),
-     ...corners.map(([cx, cz]) => ({ w: LW, d: LW, cx, cz }))
-    ].forEach(({ w, d, cx, cz }) => {
-      const stone = new THREE.Mesh(new THREE.BoxGeometry(w, LH, d), stoneMat);
-      stone.position.set(cx, LH / 2, cz);
-      stone.castShadow = true; stone.receiveShadow = true;
-      scene.add(stone);
-
-      const snowCap = new THREE.Mesh(new THREE.BoxGeometry(w + SO * 2, SH, d + SO * 2), snowMat);
-      snowCap.position.set(cx, LH + SH / 2, cz);
-      snowCap.castShadow = true; snowCap.receiveShadow = true;
-      scene.add(snowCap);
-    });
-
-    // Glass panels that fade downward outside the stone ledge
+    // Glass panels that fade downward outside the arena edge
     const gc = document.createElement("canvas");
     gc.width = 2; gc.height = 128;
     const gctx = gc.getContext("2d");
     const grad = gctx.createLinearGradient(0, 0, 0, 128);
     grad.addColorStop(0,    "rgba(190, 215, 245, 0.45)");
-    grad.addColorStop(0.35, "rgba(170, 205, 240, 0.25)");
+    grad.addColorStop(0.35, "rgba(170, 205, 240, 0.22)");
     grad.addColorStop(1,    "rgba(150, 195, 235, 0.0)");
     gctx.fillStyle = grad; gctx.fillRect(0, 0, 2, 128);
     const glassTex = new THREE.CanvasTexture(gc);
-
     const glassMat = new THREE.MeshBasicMaterial({
       map: glassTex, transparent: true, side: THREE.DoubleSide, depthWrite: false
     });
-
-    const GH = 16;
-    const GW = MAP_WORLD + LW * 2 + 4;
-    const off = H + LW;
+    const GH = 14;
     [
-      { x: 0,    z: -off, ry: 0 },
-      { x: 0,    z:  off, ry: Math.PI },
-      { x: -off, z: 0,    ry:  Math.PI / 2 },
-      { x:  off, z: 0,    ry: -Math.PI / 2 },
+      { x: 0,         z: -MAP_HALF, ry: 0 },
+      { x: 0,         z:  MAP_HALF, ry: Math.PI },
+      { x: -MAP_HALF, z: 0,         ry:  Math.PI / 2 },
+      { x:  MAP_HALF, z: 0,         ry: -Math.PI / 2 },
     ].forEach(({ x, z, ry }) => {
-      const panel = new THREE.Mesh(new THREE.PlaneGeometry(GW, GH), glassMat);
+      const panel = new THREE.Mesh(new THREE.PlaneGeometry(MAP_WORLD, GH), glassMat);
       panel.position.set(x, -GH / 2, z);
       panel.rotation.y = ry;
       scene.add(panel);
     });
 
-    // Dark bottom cap
-    const btm = new THREE.Mesh(
-      new THREE.PlaneGeometry(MAP_WORLD + LW * 2, MAP_WORLD + LW * 2),
-      new THREE.MeshStandardMaterial({ color: 0x020203, roughness: 1 })
+    // Rim glow along top edge
+    const rimPts = [
+      new THREE.Vector3(-MAP_HALF, 0.06, -MAP_HALF), new THREE.Vector3(MAP_HALF, 0.06, -MAP_HALF),
+      new THREE.Vector3(MAP_HALF, 0.06,  MAP_HALF),  new THREE.Vector3(-MAP_HALF, 0.06,  MAP_HALF),
+      new THREE.Vector3(-MAP_HALF, 0.06, -MAP_HALF),
+    ];
+    const rim = new THREE.Line(
+      new THREE.BufferGeometry().setFromPoints(rimPts),
+      new THREE.LineBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.18 })
     );
-    btm.rotation.x = Math.PI / 2;
-    btm.position.y = -GH;
-    scene.add(btm);
+    scene.add(rim);
   })();
 
   // -- Pixelated FIGHT10 ground decals (black pixel squares, random) --------
@@ -955,7 +933,7 @@ export function createArenaGame(options) {
   // Settings
   const settings = { renderDistance: "Far", fog: false, msaa: true, animations: true, centerCamera: false, hideHud: false, fps: true, ping: true, location: false };
   function applyFog() {
-    if (settings.fog) { const r = RD_FOG[settings.renderDistance]; scene.fog = new THREE.Fog(theme.fogColor ?? theme.bg, r[0], r[1]); }
+    if (settings.fog) { const r = RD_FOG[settings.renderDistance]; scene.fog = new THREE.Fog(theme.bg, r[0], r[1]); }
     else scene.fog = null;
   }
   function applyMsaa() { renderer.setPixelRatio(settings.msaa ? Math.min(window.devicePixelRatio, 2) : 1); }
