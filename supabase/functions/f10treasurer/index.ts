@@ -217,20 +217,23 @@ Deno.serve(async (req: Request) => {
     const escrowTokenAccount = new PublicKey(escrowAccounts.value[0].pubkey);
     console.log("Escrow token account:", escrowTokenAccount.toString());
 
-    const winnerAta = await getATA(mintPubkey, winnerPubkey, tokenProgramId);
-    console.log("Winner ATA:", winnerAta.toString());
+    console.log("Finding winner token account…");
+    const winnerAccounts = await connection.getParsedTokenAccountsByOwner(winnerPubkey, { mint: mintPubkey });
+    console.log("Winner token accounts found:", winnerAccounts.value.length);
 
     const tx = new Transaction();
+    let winnerTokenAccount: PublicKey;
 
-    const winnerAtaInfo = await connection.getAccountInfo(winnerAta);
-    if (!winnerAtaInfo) {
-      console.log("Winner ATA does not exist — adding create instruction");
-      tx.add(createATAInstruction(escrowKeypair.publicKey, winnerAta, winnerPubkey, mintPubkey, tokenProgramId));
+    if (winnerAccounts.value.length > 0) {
+      winnerTokenAccount = new PublicKey(winnerAccounts.value[0].pubkey);
+      console.log("Winner token account:", winnerTokenAccount.toString());
     } else {
-      console.log("Winner ATA exists");
+      winnerTokenAccount = await getATA(mintPubkey, winnerPubkey, tokenProgramId);
+      console.log("No token account found — creating ATA:", winnerTokenAccount.toString());
+      tx.add(createATAInstruction(escrowKeypair.publicKey, winnerTokenAccount, winnerPubkey, mintPubkey, tokenProgramId));
     }
 
-    tx.add(transferInstruction(escrowTokenAccount, winnerAta, escrowKeypair.publicKey, winnerAmountRaw, tokenProgramId));
+    tx.add(transferInstruction(escrowTokenAccount, winnerTokenAccount, escrowKeypair.publicKey, winnerAmountRaw, tokenProgramId));
 
     const { blockhash } = await connection.getLatestBlockhash("confirmed");
     tx.recentBlockhash = blockhash;
