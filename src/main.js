@@ -4,7 +4,8 @@ import { createArenaGame } from "./game.js";
 const SUPABASE_URL =
   import.meta.env?.VITE_SUPABASE_URL?.trim() || "https://sajvismyvcgaszjcafcr.supabase.co";
 const SUPABASE_ANON_KEY =
-  import.meta.env?.VITE_SUPABASE_ANON_KEY?.trim() || "sb_publishable_M1p6wWP5G9feHWa70BX3aw_5bIVZHTU";
+  import.meta.env?.VITE_SUPABASE_ANON_KEY?.trim() || "";
+if (!SUPABASE_ANON_KEY) console.error("VITE_SUPABASE_ANON_KEY is not set — Supabase calls will fail.");
 const SIGN_IN_STATEMENT = "Sign in to Age of Trenches to play realtime trench duels.";
 
 const els = {
@@ -75,7 +76,8 @@ const state = {
   seat: null,
   remoteIds: new Set(),
   started: false,
-  channel: null
+  channel: null,
+  iRoomFiller: false
 };
 
 const game = createArenaGame({
@@ -288,7 +290,7 @@ async function joinPvp(maxPlayers) {
   if (!state.user) { signIn(); return; }
   const size = [2, 5, 10].includes(maxPlayers) ? maxPlayers : 2;
   try {
-    showPvpLobby(`Finding a ${size}-player match…`, size);
+    showPvpLobby(`Finding a ${size}-player match…`);
     const { data, error } = await supabase.rpc("join_pvp_match", { p_max_players: size, p_display_name: null });
     if (error) throw error;
     state.match = {
@@ -296,6 +298,7 @@ async function joinPvp(maxPlayers) {
       status: data.status === "active" ? "active" : "waiting",
       maxPlayers: data.max_players || size
     };
+    state.iRoomFiller = data.status === "active";
     state.seat = data.seat;
     await enterArena(data.match_id);
   } catch (error) {
@@ -357,9 +360,10 @@ async function loadRoster(matchId) {
 
   renderLobbyPlayers(players, max);
 
-  const isActive = matchRow?.status === "active" || players.length >= max;
+  const isActive = matchRow?.status === "active";
   if (isActive) {
-    beginMatch();
+    const isLateSync = !state.iRoomFiller && state.match?.status !== "active";
+    beginMatch(isLateSync);
   } else {
     els.pvpLobbyStatus.textContent = "Waiting for players…";
     els.pvpLobbyMeta.textContent = `${players.length} / ${max} players`;
@@ -395,7 +399,7 @@ function matchDuration(max) {
 
 // Flip from the waiting lobby into the live arena (once only), behind a short
 // "MATCH STARTING" transition so every client starts together.
-function beginMatch() {
+function beginMatch(skipCountdown = false) {
   if (state.started) return;
   state.started = true;
   if (state.match) state.match.status = "active";
@@ -407,12 +411,21 @@ function beginMatch() {
   game.resetForMatch();
   game.setMatchPhase("countdown");
   game.setControllable(false);
-  runMatchStart(() => {
+  if (skipCountdown) {
+    // Late joiner who missed the "start" broadcast — match already in progress,
+    // drop straight into active rather than showing a stale countdown.
     game.setMatchPhase("active");
     game.setControllable(true);
     game.setMatchTimer(matchDuration(state.match?.maxPlayers || 2));
     setStatus("Fight! Last one standing wins.");
-  });
+  } else {
+    runMatchStart(() => {
+      game.setMatchPhase("active");
+      game.setControllable(true);
+      game.setMatchTimer(matchDuration(state.match?.maxPlayers || 2));
+      setStatus("Fight! Last one standing wins.");
+    });
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -467,6 +480,7 @@ async function teardownMatch(keepMatch = false) {
   }
   state.remoteIds.clear();
   state.started = false;
+  state.iRoomFiller = false;
   game.clearRemote();
   if (!keepMatch) { state.match = null; state.seat = null; }
 }

@@ -377,7 +377,7 @@ export function createArenaGame(options) {
     mapGroup.add(g);
     solids.push({ x, z, r: 1.1 });
   }
-  function addMountain(x, z) {
+  function addMountain(x, z, rng) {
     const g = new THREE.Group();
     // Rocky base + snow-capped cone.
     const rock = new THREE.Mesh(
@@ -391,7 +391,7 @@ export function createArenaGame(options) {
     );
     snow.position.y = 2.6; snow.castShadow = true;
     g.add(rock, snow);
-    g.rotation.y = Math.random() * Math.PI;
+    g.rotation.y = rng() * Math.PI;
     g.position.set(x, 0, z);
     mapGroup.add(g);
     solids.push({ x, z, r: 1.9 });
@@ -426,7 +426,7 @@ export function createArenaGame(options) {
       }
     };
     scatter(18, addTree, 2.4);
-    scatter(8, addMountain, 3.4);
+    scatter(8, (x, z) => addMountain(x, z, rng), 3.4);
   }
   // A free, dry spawn point anywhere on the map.
   function randomSpawn() {
@@ -586,7 +586,7 @@ export function createArenaGame(options) {
   function regen(f, dt) {
     if (f.hp >= f.maxHp || f.dead) { f.regenAcc = 0; return; }
     f.regenAcc += dt;
-    if (f.regenAcc >= 2) { const add = Math.floor(f.regenAcc / 2); f.hp = Math.min(f.maxHp, f.hp + add); f.regenAcc -= add * 2; }
+    if (f.regenAcc >= 2) { f.hp = Math.min(f.maxHp, f.hp + 1); f.regenAcc -= 2; }
   }
   function nearestFoe() {
     let best = null, bestD = Infinity;
@@ -828,8 +828,6 @@ export function createArenaGame(options) {
     if (player.connected && !player.dead) arrow(mmCtx, wToMM(player.group.position.x), wToMM(player.group.position.z), player.group.rotation.y, theme.mm.player);
   }
 
-  setTimeout(() => { hint.style.opacity = "0"; }, 6000);
-
   // Attack cursor
   let cursorAttack = false;
   function cursorUrl() {
@@ -916,7 +914,7 @@ export function createArenaGame(options) {
   function resolveByHp() {
     if (resultSent) return;
     resultSent = true;
-    const field = [{ id: localUserId || "me", hp: player.dead ? -1 : player.hp, me: true }];
+    const field = [{ id: localUserId ?? "", hp: player.dead ? -1 : player.hp, me: true }];
     opponents.forEach((o) => field.push({ id: o.userId, hp: o.dead ? -1 : o.hp, me: false }));
     field.sort((a, b) => b.hp - a.hp || String(a.id).localeCompare(String(b.id)));
     options.onResultSuggestion?.(field[0].me ? "win" : "loss");
@@ -993,8 +991,12 @@ export function createArenaGame(options) {
       if (fpsAcc >= 0.5) { fpsEl.textContent = "FPS " + Math.round(fpsFrames / fpsAcc); fpsAcc = 0; fpsFrames = 0; }
     }
     if (settings.ping) {
-      pingTimer -= dt;
-      if (pingTimer <= 0) { pingTimer = 2; pingEl.textContent = (22 + Math.round(Math.random() * 16)) + " ms"; }
+      if (foeMode === "net") {
+        pingTimer -= dt;
+        if (pingTimer <= 0) { pingTimer = 2; pingEl.textContent = (22 + Math.round(Math.random() * 16)) + " ms"; }
+      } else {
+        pingEl.textContent = "-- ms";
+      }
     }
     const aliveRivals = foeList().filter((f) => f.connected && !f.dead).length;
     coords.textContent = `x ${player.group.position.x.toFixed(1)} · z ${player.group.position.z.toFixed(1)} · ${foeMode === "net" ? `rivals ${aliveRivals}` : `kills ${kills}`}`;
@@ -1012,6 +1014,7 @@ export function createArenaGame(options) {
       document.body.classList.toggle("in-game", viewIsGame);
       applyTheme(viewIsGame ? "game" : "lobby");
       showTimer();
+      if (viewIsGame) setTimeout(() => { hint.style.opacity = "0"; }, 6000);
     },
     setMode(mode) {
       perspective = mode;
@@ -1062,7 +1065,9 @@ export function createArenaGame(options) {
       f.networked = true;
       f.connected = true;
       opponents.set(userId, f);
-      placeOpponents();
+      const sp = randomSpawn();
+      f.group.position.set(sp.x, 0, sp.z);
+      f.netTarget = { x: sp.x, z: sp.z };
     },
     removeOpponent(userId) {
       const f = opponents.get(userId);
@@ -1116,18 +1121,20 @@ export function createArenaGame(options) {
     },
     receiveAttack(payload) {
       if (!payload || foeMode !== "net") return;
+      const maxWeaponDmg = Math.max(...Object.values(WEAPONS).map((w) => w.atk + w.atkVar));
+      const dmg = Math.min(Math.max(0, payload.dmg || 0), maxWeaponDmg);
       const attacker = payload.fromId ? opponents.get(payload.fromId) : null;
       if (payload.targetId === localUserId) {
         if (player.dead) return;
         if (attacker) attacker.atkAnim = 0.32;
-        if (payload.ranged && attacker) fireBullet(attacker, player, payload.dmg || 0, true);
-        else applyDamage(player, payload.dmg || 0);
+        if (payload.ranged && attacker) fireBullet(attacker, player, dmg, true);
+        else applyDamage(player, dmg);
       } else {
         const target = opponents.get(payload.targetId);
         if (!target || target.dead) return;
         if (attacker) attacker.atkAnim = 0.32;
-        if (payload.ranged && attacker) fireBullet(attacker, target, payload.dmg || 0, true);
-        else applyDamage(target, payload.dmg || 0);
+        if (payload.ranged && attacker) fireBullet(attacker, target, dmg, true);
+        else applyDamage(target, dmg);
       }
     },
     generateMap(seed) { generateMap(seed); },
