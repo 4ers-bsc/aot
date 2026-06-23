@@ -598,8 +598,7 @@ export function createArenaGame(options) {
   }
 
   function disposeAiRaider(f) {
-    f.bar.el.remove();
-    scene.remove(f.group);
+    disposeFighter(f);
   }
 
   // -- Map obstacles --------------------------------------------------------
@@ -735,7 +734,12 @@ export function createArenaGame(options) {
       const z = (Math.random() * 2 - 1) * (MAP_HALF - 3);
       if (!inRiver(x, z) && !collidesSolid(x, z, BODY_R + 0.4)) return { x, z };
     }
-    return { x: 0, z: 0 };
+    // All 80 attempts failed — pick any random position rather than stacking
+    // every overflow fighter at the origin (which causes instant kills).
+    return {
+      x: (Math.random() * 2 - 1) * (MAP_HALF - 3),
+      z: (Math.random() * 2 - 1) * (MAP_HALF - 3),
+    };
   }
 
   // -- State ----------------------------------------------------------------
@@ -816,14 +820,16 @@ export function createArenaGame(options) {
   function updateBullets(dt) {
     for (let i = bullets.length - 1; i >= 0; i--) {
       const b = bullets[i];
-      const d = b.target.clone().sub(b.mesh.position);
-      const dist = d.length(), step = b.speed * dt;
+      _bulletDir.subVectors(b.target, b.mesh.position);
+      const dist = _bulletDir.length(), step = b.speed * dt;
       if (dist <= step || dist < 0.5) {
         if (b.def && !b.def.dead) applyDamage(b.def, b.dmg);
         scene.remove(b.mesh);
+        b.mesh.geometry.dispose();
+        b.mesh.material.dispose();
         bullets.splice(i, 1);
       } else {
-        b.mesh.position.addScaledVector(d.normalize(), step);
+        b.mesh.position.addScaledVector(_bulletDir.normalize(), step);
       }
     }
   }
@@ -965,6 +971,8 @@ export function createArenaGame(options) {
 
   // -- Health bars ----------------------------------------------------------
   const _bv = new THREE.Vector3();
+  const _sunOffset = new THREE.Vector3(20, 40, 12); // pre-alloc: reused every frame
+  const _bulletDir = new THREE.Vector3();            // pre-alloc: reused per bullet per frame
   function updateBar(f) {
     if (!viewIsGame || !f.connected || f.dead || settings.hideHud) { f.bar.el.style.display = "none"; return; }
     const rect = mount.getBoundingClientRect();
@@ -1311,7 +1319,7 @@ export function createArenaGame(options) {
     camCenter.z = Math.max(-MAP_HALF, Math.min(MAP_HALF, camCenter.z));
     camera.position.set(camCenter.x + CAM_OFFSET.x, CAM_OFFSET.y, camCenter.z + CAM_OFFSET.z);
     camera.lookAt(camCenter.x, 1, camCenter.z);
-    sun.position.copy(player.group.position).add(new THREE.Vector3(20, 40, 12));
+    sun.position.copy(player.group.position).add(_sunOffset);
     sun.target.position.copy(player.group.position);
 
     const sp = snowGeo.attributes.position.array, t = clock.elapsedTime;
@@ -1450,7 +1458,7 @@ export function createArenaGame(options) {
     resetForMatch() {
       resultSent = false;
       matchTimerOn = false; showTimer();
-      bullets.splice(0).forEach((b) => scene.remove(b.mesh));
+      bullets.splice(0).forEach((b) => { scene.remove(b.mesh); b.mesh.geometry.dispose(); b.mesh.material.dispose(); });
       Object.assign(player, { hp: player.maxHp, dead: false, cdTimer: 0, atkAnim: 0, hurt: 0, moving: false, attackTarget: null, target: null });
       player.group.rotation.set(0, player.group.rotation.y, 0);
       const ps = randomSpawn();
@@ -1492,9 +1500,14 @@ export function createArenaGame(options) {
     },
     receiveAttack(payload) {
       if (!payload || foeMode !== "net") return;
-      const maxWeaponDmg = Math.max(...Object.values(WEAPONS).map((w) => w.atk + w.atkVar));
-      const dmg = Math.min(Math.max(0, payload.dmg || 0), maxWeaponDmg);
       const attacker = payload.fromId ? opponents.get(payload.fromId) : null;
+      // Clamp to the attacker's known weapon cap; fall back to the global max
+      // only when the sender is unknown so a cheating client can't send sniper
+      // damage while holding a sword.
+      const weaponCap = attacker?.weapon
+        ? attacker.weapon.atk + attacker.weapon.atkVar
+        : Math.max(...Object.values(WEAPONS).map((w) => w.atk + w.atkVar));
+      const dmg = Math.min(Math.max(0, payload.dmg || 0), weaponCap);
       if (payload.targetId === localUserId) {
         if (player.dead) return;
         if (attacker) attacker.atkAnim = 0.32;

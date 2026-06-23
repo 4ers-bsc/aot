@@ -107,7 +107,7 @@ function createATAInstruction(
 // ---------------------------------------------------------------------------
 
 const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Origin": Deno.env.get("APP_ORIGIN") || "*",
   "Access-Control-Allow-Methods": "POST, OPTIONS",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
@@ -180,8 +180,22 @@ Deno.serve(async (req: Request) => {
     const winnerPubkey  = pubkeyFromBase58(rawWallet);
     const connection    = new Connection(rpcUrl, "confirmed");
 
+    // ── Resolve mint → token program, decimals, escrow ATA ──────────────────
+    // Done early so the same values are reused for both deposit verification
+    // and the payout transfer, avoiding a redundant getAccountInfo call later.
+    const mintAcct = await connection.getAccountInfo(mintPubkey);
+    if (!mintAcct) return errorResponse("Mint account not found on-chain", 500);
+    const tokenProgramId = mintAcct.owner.equals(TOKEN_2022_PROGRAM_ID)
+      ? TOKEN_2022_PROGRAM_ID : TOKEN_PROGRAM_ID;
+    const decimals       = mintAcct.data[44];
+    const entryFeeRaw    = BigInt(2500) * BigInt(10 ** decimals);
+    const entryFeeAmtStr = entryFeeRaw.toString();
+    const escrowAta      = await getATA(mintPubkey, escrowKeypair.publicKey, tokenProgramId);
+    const escrowAtaStr   = escrowAta.toString();
+    const tokenProgStr   = tokenProgramId.toString();
+    const tok2022Str     = TOKEN_2022_PROGRAM_ID.toString();
+
     // ── Verify each deposit tx is confirmed on-chain ─────────────────────────
-    // This ensures no fake or unconfirmed signatures were submitted via record_deposit.
     const depositSigs = players.map((p: any) => p.deposit_tx as string);
     const { value: sigStatuses } = await connection.getSignatureStatuses(depositSigs);
     for (let i = 0; i < depositSigs.length; i++) {
@@ -190,6 +204,42 @@ Deno.serve(async (req: Request) => {
       if (s.err) return errorResponse(`Deposit ${i + 1} failed on-chain`, 400);
       if (s.confirmationStatus !== "confirmed" && s.confirmationStatus !== "finalized") {
         return errorResponse(`Deposit ${i + 1} not yet confirmed`, 400);
+      }
+    }
+
+    // ── Verify each deposit tx transferred the correct amount to escrow ──────
+    // Parses the on-chain instruction data to confirm mint, destination, and
+    // exact amount — a confirmed-but-unrelated tx signature cannot pass this.
+    for (let i = 0; i < depositSigs.length; i++) {
+      const parsed = await connection.getParsedTransaction(depositSigs[i], {
+        commitment: "confirmed",
+        maxSupportedTransactionVersion: 0,
+      });
+      if (!parsed) return errorResponse(`Deposit ${i + 1} could not be parsed`, 400);
+
+      // Include inner instructions to handle CPI-wrapped transfers
+      const topLevel = parsed.transaction.message.instructions as any[];
+      const inner    = (parsed.meta?.innerInstructions ?? []).flatMap((ii: any) => ii.instructions);
+
+      const valid = [...topLevel, ...inner].some((ix: any) => {
+        if (ix.programId !== tokenProgStr && ix.programId !== tok2022Str) return false;
+        if (!ix.parsed) return false;
+        const { type, info } = ix.parsed;
+        if (type === "transfer") {
+          return info.destination === escrowAtaStr && info.amount === entryFeeAmtStr;
+        }
+        if (type === "transferChecked") {
+          return info.destination === escrowAtaStr &&
+                 info.tokenAmount?.amount === entryFeeAmtStr;
+        }
+        return false;
+      });
+
+      if (!valid) {
+        return errorResponse(
+          `Deposit ${i + 1} does not contain a valid FIGHT10 transfer to escrow`,
+          400,
+        );
       }
     }
 
@@ -203,15 +253,7 @@ Deno.serve(async (req: Request) => {
     slotClaimed = true;
 
     // ── On-chain token transfer ───────────────────────────────────────────────
-    const mintAcct = await connection.getAccountInfo(mintPubkey);
-    if (!mintAcct) return errorResponse("Mint account not found on-chain", 500);
-
-    const tokenProgramId = mintAcct.owner.equals(TOKEN_2022_PROGRAM_ID)
-      ? TOKEN_2022_PROGRAM_ID
-      : TOKEN_PROGRAM_ID;
-
-    const decimals = mintAcct.data[44];
-    const entryFeeRaw     = BigInt(2500) * BigInt(10 ** decimals);
+    // mintAcct / tokenProgramId / decimals / entryFeeRaw already resolved above.
     const totalRaw        = BigInt(players.length) * entryFeeRaw;
     const winnerAmountRaw = (totalRaw * BigInt(900)) / BigInt(1000);
 
