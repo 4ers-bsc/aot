@@ -55,10 +55,16 @@
   <!-- App loading splash -->
   <div class="app-loading" id="appLoading">
     <div class="app-loading-inner">
-      <img src="/logo.png" alt="FIGHT10" class="app-loading-logo" />
+      <div class="app-loading-logo-wrap">
+        <img src="/logo.png" alt="FIGHT10" class="app-loading-logo" />
+        <div class="app-loading-ring"></div>
+      </div>
       <div class="app-loading-brand">FIGHT10</div>
-      <div class="app-loading-spinner"></div>
-      <button class="app-loading-connect" id="appLoadingConnectBtn" type="button">Connect Wallet</button>
+      <div class="app-loading-tagline">Last One Standing</div>
+      <div class="app-loading-bar-track">
+        <div class="app-loading-bar-fill" id="loadingBarFill"></div>
+      </div>
+      <div class="app-loading-status" id="loadingStatus">Initialising…</div>
     </div>
   </div>
 
