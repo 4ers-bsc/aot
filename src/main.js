@@ -516,18 +516,29 @@ async function getFight10Balance(walletAddress) {
     const walletPubkey = new PublicKey(walletAddress);
     const ata = await getAssociatedTokenAddress(mintPubkey, walletPubkey);
     console.log("[getFight10Balance] derived ATA:", ata.toString());
-    const account = await getAccount(connection, ata);
-    console.log("[getFight10Balance] ATA account data:", {
-      address: account.address.toString(),
-      mint: account.mint.toString(),
-      owner: account.owner.toString(),
-      amount: account.amount.toString(),
-      decimals: FIGHT10_DECIMALS,
-      displayBalance: (Number(account.amount) / 10 ** FIGHT10_DECIMALS).toFixed(FIGHT10_DECIMALS),
-    });
-    return account.amount;
+    try {
+      const account = await getAccount(connection, ata);
+      console.log("[getFight10Balance] ATA account data:", {
+        address: account.address.toString(),
+        mint: account.mint.toString(),
+        owner: account.owner.toString(),
+        amount: account.amount.toString(),
+        decimals: FIGHT10_DECIMALS,
+        displayBalance: (Number(account.amount) / 10 ** FIGHT10_DECIMALS).toFixed(FIGHT10_DECIMALS),
+      });
+      return account.amount;
+    } catch (accountErr) {
+      const name = accountErr?.name ?? accountErr?.constructor?.name ?? "";
+      const msg  = accountErr?.message ?? String(accountErr);
+      if (name === "TokenAccountNotFoundError" || msg.includes("could not find account") || msg.includes("Account does not exist")) {
+        console.log("[getFight10Balance] ATA does not exist on-chain — wallet holds 0 FIGHT10 (no token account created yet)");
+      } else {
+        console.warn("[getFight10Balance] getAccount error:", name, msg, accountErr);
+      }
+      return BigInt(0);
+    }
   } catch (err) {
-    console.warn("[getFight10Balance] error (returning 0):", err?.message ?? err);
+    console.warn("[getFight10Balance] setup error (bad mint/RPC?):", err?.name, err?.message ?? err);
     return BigInt(0);
   }
 }
