@@ -444,6 +444,21 @@ async function joinPvp(maxPlayers) {
 
 // ---------------------------------------------------------------------------
 // FIGHT10 deposit — transfer ENTRY_FEE from player wallet to escrow on-chain
+// Poll getSignatureStatuses over HTTP — confirmTransaction uses WebSockets which break in browsers.
+async function pollTxConfirmation(sig, timeoutMs = 90000) {
+  const start = Date.now();
+  while (Date.now() - start < timeoutMs) {
+    const { value } = await connection.getSignatureStatuses([sig]);
+    const status = value[0];
+    if (status) {
+      if (status.err) throw new Error("Transaction failed on-chain: " + JSON.stringify(status.err));
+      if (status.confirmationStatus === "confirmed" || status.confirmationStatus === "finalized") return status;
+    }
+    await new Promise(r => setTimeout(r, 2000));
+  }
+  throw new Error(`Tx not confirmed after ${timeoutMs / 1000}s — sig: ${sig}`);
+}
+
 // Returns true if the deposit was confirmed and recorded, false if cancelled.
 // ---------------------------------------------------------------------------
 async function depositEntryFee(matchId, numPlayers = 2) {
@@ -563,11 +578,9 @@ async function depositEntryFee(matchId, numPlayers = 2) {
 
     setStatus("Confirming deposit on-chain…");
     els.pvpLobbyStatus.textContent = "Confirming on-chain…";
-    console.log("[depositEntryFee] waiting for confirmation…");
-    const confirmation = await connection.confirmTransaction(txSig, "confirmed");
-    console.log("[depositEntryFee] confirmation result:", confirmation.value);
-    if (confirmation.value.err) throw new Error("Transaction failed to confirm: " + JSON.stringify(confirmation.value.err));
-    console.log("[depositEntryFee] ✓ confirmed on-chain");
+    console.log("[depositEntryFee] polling for confirmation (HTTP, no WebSocket)…");
+    const confirmStatus = await pollTxConfirmation(txSig);
+    console.log("[depositEntryFee] ✓ confirmed on-chain — status:", confirmStatus.confirmationStatus);
 
     console.log("[depositEntryFee] recording deposit in DB — match:", matchId, "tx:", txSig);
     const { error: recErr } = await supabase.rpc("record_deposit", {
