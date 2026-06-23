@@ -162,12 +162,19 @@ Deno.serve(async (req: Request) => {
     const rpcUrl   = Deno.env.get("RPC_URL") ?? "https://api.mainnet-beta.solana.com";
     if (!escrowB58 || !mintStr) return errorResponse("Escrow configuration missing", 500);
 
+    // Strip all non-base58 characters (catches hidden newlines, zero-width spaces, etc.)
+    const B58_CHARS = /[^123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz]/g;
+    const cleanEscrow = escrowB58.replace(B58_CHARS, "");
+    const cleanMint   = mintStr.replace(B58_CHARS, "");
+    console.log("Mint (sanitized):", cleanMint);
+    console.log("Escrow key length:", cleanEscrow.length);
+
     console.log("Decoding escrow keypair…");
-    const escrowKeypair = Keypair.fromSecretKey(base58Decode(escrowB58.trim()));
+    const escrowKeypair = Keypair.fromSecretKey(base58Decode(cleanEscrow));
     console.log("Escrow pubkey:", escrowKeypair.publicKey.toString());
 
-    const mintPubkey  = new PublicKey(mintStr.trim());
-    const winnerPubkey = new PublicKey(profile.wallet_address);
+    const mintPubkey   = new PublicKey(cleanMint);
+    const winnerPubkey = new PublicKey(profile.wallet_address.replace(B58_CHARS, ""));
     const connection  = new Connection(rpcUrl, "confirmed");
 
     console.log("Fetching mint account to detect token program…");
