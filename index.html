@@ -20,35 +20,71 @@
       <div class="world-glitch world-glitch-a"></div>
       <div class="world-glitch world-glitch-b"></div>
 
-      <header class="brand-header">
-        <h1 class="brand-title">FIGHT10</h1>
-      </header>
-      <div class="top-actions">
-        <button class="connect-pill hidden" id="profileBtn" type="button">Profile</button>
-        <button class="connect-pill" id="signInWalletBtn" type="button">Connect Wallet</button>
+      <!-- 3D canvas (background) -->
+      <div id="arenaMount" class="arena-mount"></div>
+
+      <!-- ===== Top nav ===== -->
+      <nav class="site-nav">
+        <div class="site-nav-brand">FIGHT10</div>
+        <div class="site-nav-actions">
+          <button class="nav-profile-btn hidden" id="profileBtn" type="button">
+            <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M8 8a3 3 0 1 0 0-6 3 3 0 0 0 0 6zm-5 6a5 5 0 0 1 10 0H3z"/></svg>
+            PROFILE
+          </button>
+          <button class="nav-connect-btn" id="signInWalletBtn" type="button">Connect Wallet</button>
+          <a class="x-nav" href="#" aria-label="Twitter / X">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor"><path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-4.714-6.231-5.401 6.231H2.748l7.73-8.835L1.254 2.25H8.08l4.259 5.63 5.905-5.63zm-1.161 17.52h1.833L7.084 4.126H5.117z"/></svg>
+          </a>
+        </div>
+      </nav>
+
+      <!-- ===== Hero ===== -->
+      <section class="hero-section">
+        <div class="hero-title-block">
+          <div class="hero-big-fight">FIGHT</div>
+          <div class="hero-big-10">10</div>
+        </div>
+        <p class="hero-tagline">Last One Standing — A tactical isometric arena. Every fighter spawns with the same health, the same attack, and the same weapons — no advantages, pure skill. Connect your Solana wallet, then drop into a demo match against the computer or queue for 2, 5, or 10-player PvP. <strong>Winner takes it all.</strong></p>
+      </section>
+
+      <!-- ===== Action buttons ===== -->
+      <div class="home-actions">
+        <button class="home-btn home-btn-secondary hidden" id="demoBtn" type="button">DEMO MATCH</button>
+        <button class="home-btn home-btn-primary" id="connectWalletBtn" type="button">Connect Wallet</button>
+        <button class="home-btn home-btn-primary hidden" id="pvpBtn" type="button">PLAY PVP</button>
+        <button class="home-btn home-btn-secondary" id="howToPlayBtn" type="button">HOW TO PLAY</button>
+        <button class="home-btn home-btn-ghost hidden" id="signOutBtn" type="button">Sign Out</button>
       </div>
 
-      <section class="arena-panel">
-        <div id="arenaMount" class="arena-mount"></div>
-        <section class="hero-panel">
-          <h2 class="hero-title">Last One Standing</h2>
-          <p class="hero-copy">
-            A tactical isometric arena. Every fighter spawns with the
-            <strong>same health, the same attack, and the same weapons</strong> —
-            no advantages, pure skill. Connect your Solana wallet, then drop into a
-            demo match against the computer or queue for 2, 5, or 10-player PvP.
-            <strong>Winner takes it all.</strong>
-          </p>
-          <div class="hero-actions">
-            <button class="hero-primary" id="connectWalletBtn" type="button">Connect Wallet</button>
-            <button class="hero-secondary hidden" id="demoBtn" type="button">Demo Match</button>
-            <button class="hero-primary hidden" id="pvpBtn" type="button">Play PvP</button>
-            <button class="hero-secondary" id="howToPlayBtn" type="button">How to Play</button>
-            <button class="hero-ghost hidden" id="signOutBtn" type="button">Sign Out</button>
-          </div>
-        </section>
-      </section>
-      <div class="micro-footer">Same kit for everyone. Winner takes it all.</div>
+      <!-- ===== Info strip ===== -->
+      <div class="info-strip">
+        <div class="info-tile">
+          <svg class="info-tile-icon" width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="3"/><line x1="12" y1="2" x2="12" y2="5"/><line x1="12" y1="19" x2="12" y2="22"/><line x1="2" y1="12" x2="5" y2="12"/><line x1="19" y1="12" x2="22" y2="12"/></svg>
+          <div class="info-tile-label">SKILL BASED</div>
+          <div class="info-tile-desc">No pay to win.<br>Just you and your aim.</div>
+        </div>
+        <div class="info-tile">
+          <svg class="info-tile-icon" width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+          <div class="info-tile-label">FAST MATCHES</div>
+          <div class="info-tile-desc">Jump in.<br>Fight. Win.</div>
+        </div>
+        <div class="info-tile">
+          <svg class="info-tile-icon" width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M14.5 2l7 7-10 10.5L4 12z"/><path d="M2 22l4-4"/></svg>
+          <div class="info-tile-label">SAME KIT</div>
+          <div class="info-tile-desc">Same weapons.<br>Same health.</div>
+        </div>
+        <div class="info-tile">
+          <svg class="info-tile-icon" width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M6 9H4.5a2.5 2.5 0 0 1 0-5H6"/><path d="M18 9h1.5a2.5 2.5 0 0 0 0-5H18"/><path d="M4 22h16"/><path d="M10 14.66V17c0 .55-.47.98-.97 1.21C7.85 18.75 7 20.24 7 22"/><path d="M14 14.66V17c0 .55.47.98.97 1.21C16.15 18.75 17 20.24 17 22"/><path d="M18 2H6v7a6 6 0 0 0 12 0V2z"/></svg>
+          <div class="info-tile-label">RANK UP</div>
+          <div class="info-tile-desc">Climb the leaderboard.<br>Prove yourself.</div>
+        </div>
+        <div class="info-tile info-tile-multiplier">
+          <div class="info-tile-multi">2× &middot; 5× &middot; 10×</div>
+          <div class="info-tile-label">YOUR HOLDING</div>
+          <div class="info-tile-desc">Hold more, earn more<br>every match you play.</div>
+        </div>
+      </div>
+
     </main>
   </div>
 
