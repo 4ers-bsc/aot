@@ -69,13 +69,13 @@ function transferInstruction(
   amount: bigint,
   tokenProgram: PublicKey,
 ): TransactionInstruction {
-  const data = Buffer.alloc(9);
-  data.writeUInt8(3, 0); // Transfer instruction index
+  const data = new Uint8Array(9);
+  data[0] = 3; // Transfer instruction index
   // Write u64 LE
   const lo = Number(amount & BigInt(0xffffffff));
   const hi = Number(amount >> BigInt(32));
-  data.writeUInt32LE(lo, 1);
-  data.writeUInt32LE(hi, 5);
+  new DataView(data.buffer).setUint32(1, lo, true);
+  new DataView(data.buffer).setUint32(5, hi, true);
   return new TransactionInstruction({
     programId: tokenProgram,
     keys: [
@@ -105,7 +105,7 @@ function createATAInstruction(
       { pubkey: SystemProgram.programId,     isSigner: false, isWritable: false },
       { pubkey: tokenProgram,                isSigner: false, isWritable: false },
     ],
-    data: Buffer.alloc(0),
+    data: new Uint8Array(0),
   });
 }
 
