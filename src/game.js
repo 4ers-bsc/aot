@@ -461,13 +461,12 @@ export function createArenaGame(options) {
     const lim = MAP_HALF - 0.5;
     const nx = Math.max(-lim, Math.min(lim, px + dx / dist * step));
     const nz = Math.max(-lim, Math.min(lim, pz + dz / dist * step));
-    // Trees / snow mountains block movement — slide along whichever axis is free.
-    if (!collidesSolid(nx, nz, BODY_R)) { f.group.position.x = nx; f.group.position.z = nz; }
-    else if (!collidesSolid(nx, pz, BODY_R)) { f.group.position.x = nx; }
-    else if (!collidesSolid(px, nz, BODY_R)) { f.group.position.z = nz; }
     f.facing = Math.atan2(dx, dz);
-    f.walkPhase += dt * f.speed * 1.6;
-    f.moving = true;
+    if (!collidesSolid(nx, nz, BODY_R)) {
+      f.group.position.x = nx; f.group.position.z = nz;
+      f.walkPhase += dt * f.speed * 1.6;
+      f.moving = true;
+    }
     return false;
   }
   // Networked opponent interpolation: snap on big jumps (teleport / first
@@ -722,8 +721,8 @@ export function createArenaGame(options) {
   let isDown = false, dragging = false, sx = 0, sy = 0, lx = 0, ly = 0;
   const panRight = new THREE.Vector3(), panUp = new THREE.Vector3();
   const canvas = renderer.domElement;
-  canvas.addEventListener("pointerdown", (e) => { isDown = true; dragging = false; sx = lx = e.clientX; sy = ly = e.clientY; });
-  window.addEventListener("pointermove", (e) => {
+  canvas.addEventListener("pointerdown", (e) => { canvas.setPointerCapture(e.pointerId); isDown = true; dragging = false; sx = lx = e.clientX; sy = ly = e.clientY; });
+  canvas.addEventListener("pointermove", (e) => {
     if (!isDown) return;
     if (settings.centerCamera) { lx = e.clientX; ly = e.clientY; return; }
     if (!dragging && Math.hypot(e.clientX - sx, e.clientY - sy) > 5) { dragging = true; following = false; }
@@ -737,7 +736,7 @@ export function createArenaGame(options) {
     }
     lx = e.clientX; ly = e.clientY;
   });
-  window.addEventListener("pointerup", (e) => { if (!isDown) return; isDown = false; if (!dragging) handleTap(e.clientX, e.clientY); });
+  canvas.addEventListener("pointerup", (e) => { if (!isDown) return; isDown = false; if (!dragging) handleTap(e.clientX, e.clientY); });
   const ZOOM_MIN = 0.4, ZOOM_MAX = 3.2;
   canvas.addEventListener("wheel", (e) => {
     e.preventDefault();
@@ -884,13 +883,23 @@ export function createArenaGame(options) {
   }
 
   // -- Result detection -----------------------------------------------------
+  function buildStandings() {
+    const list = [{ name: player.name, hp: Math.max(0, player.dead ? 0 : player.hp), me: true }];
+    if (foeMode === "ai") {
+      if (aiEnemy.connected) list.push({ name: aiEnemy.name, hp: Math.max(0, aiEnemy.dead ? 0 : aiEnemy.hp), me: false });
+    } else {
+      opponents.forEach((o) => { if (o.connected) list.push({ name: o.name, hp: Math.max(0, o.dead ? 0 : o.hp), me: false }); });
+    }
+    list.sort((a, b) => b.hp - a.hp);
+    return list.map((f, i) => ({ rank: i + 1, ...f }));
+  }
   function checkResult() {
     if (foeMode !== "net" || matchPhase !== "active" || resultSent) return;
-    if (player.hp <= 0) { resultSent = true; options.onResultSuggestion?.("loss"); return; }
+    if (player.hp <= 0) { resultSent = true; options.onResultSuggestion?.("loss", buildStandings()); return; }
     if (opponents.size === 0) return; // no rivals yet
     let anyAlive = false;
     opponents.forEach((o) => { if (o.connected && !o.dead) anyAlive = true; });
-    if (!anyAlive && player.hp > 0) { resultSent = true; options.onResultSuggestion?.("win"); }
+    if (!anyAlive && player.hp > 0) { resultSent = true; options.onResultSuggestion?.("win", buildStandings()); }
   }
 
   // -- Match timer ----------------------------------------------------------
@@ -914,10 +923,11 @@ export function createArenaGame(options) {
   function resolveByHp() {
     if (resultSent) return;
     resultSent = true;
-    const field = [{ id: localUserId ?? "", hp: player.dead ? -1 : player.hp, me: true }];
-    opponents.forEach((o) => field.push({ id: o.userId, hp: o.dead ? -1 : o.hp, me: false }));
+    const field = [{ id: localUserId ?? "", hp: player.dead ? -1 : player.hp, me: true, name: player.name }];
+    opponents.forEach((o) => field.push({ id: o.userId, hp: o.dead ? -1 : o.hp, me: false, name: o.name }));
     field.sort((a, b) => b.hp - a.hp || String(a.id).localeCompare(String(b.id)));
-    options.onResultSuggestion?.(field[0].me ? "win" : "loss");
+    const standings = field.map((f, i) => ({ rank: i + 1, name: f.name, hp: Math.max(0, f.hp), me: f.me }));
+    options.onResultSuggestion?.(field[0].me ? "win" : "loss", standings);
   }
 
   // -- Loop -----------------------------------------------------------------
@@ -1153,6 +1163,7 @@ export function createArenaGame(options) {
       document.body.classList.remove("in-game");
       applyTheme("lobby");
     },
+    openSettings() { overlay.classList.add("show"); },
     destroy() {
       destroyed = true;
       ro.disconnect();
