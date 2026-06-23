@@ -9,7 +9,9 @@ import {
   getAssociatedTokenAddress,
   createTransferInstruction,
   createAssociatedTokenAccountInstruction,
-} from "https://esm.sh/@solana/spl-token@0.3.11?bundle";
+  TOKEN_PROGRAM_ID,
+  ASSOCIATED_TOKEN_PROGRAM_ID,
+} from "https://esm.sh/@solana/spl-token@0.3.5?bundle";
 
 const SUPABASE_URL =
   import.meta.env?.VITE_SUPABASE_URL?.trim() || "https://sajvismyvcgaszjcafcr.supabase.co";
@@ -473,45 +475,61 @@ async function depositEntryFee(matchId, numPlayers = 2) {
     const escrowPubkey = new PublicKey(ESCROW_WALLET);
     const playerPubkey = wallet.publicKey;
 
-    // Find the player's actual token account holding FIGHT10 (may not be the canonical ATA)
-    const { value: playerAccounts } = await connection.getParsedTokenAccountsByOwner(
-      playerPubkey, { mint: mintPubkey }
-    );
-    if (!playerAccounts.length) throw new Error("No FIGHT10 token account found in wallet.");
-    // Use the account with the highest balance as source
-    playerAccounts.sort((a, b) =>
-      Number(BigInt(b.account.data.parsed.info.tokenAmount.amount) - BigInt(a.account.data.parsed.info.tokenAmount.amount))
-    );
-    const sourceAta = playerAccounts[0].pubkey;
+    // Find the player's actual token account for FIGHT10 (may not be the canonical ATA)
+    const tokenAccounts = await connection.getTokenAccountsByOwner(playerPubkey, { mint: mintPubkey });
+    if (!tokenAccounts.value.length) throw new Error("No FIGHT10 token account found in wallet.");
+    // Pick the account with the highest balance as source
+    let sourceAta = tokenAccounts.value[0].pubkey;
+    if (tokenAccounts.value.length > 1) {
+      const infos = await Promise.all(
+        tokenAccounts.value.map((a) => connection.getParsedAccountInfo(a.pubkey))
+      );
+      let max = BigInt(0);
+      tokenAccounts.value.forEach((a, i) => {
+        const amt = BigInt(infos[i].value.data.parsed.info.tokenAmount.amount);
+        if (amt > max) { max = amt; sourceAta = a.pubkey; }
+      });
+    }
+    const sourceInfo = await connection.getParsedAccountInfo(sourceAta);
     console.log("[depositEntryFee] source token account:", sourceAta.toString(),
-      "amount:", playerAccounts[0].account.data.parsed.info.tokenAmount.uiAmount);
+      "uiAmount:", sourceInfo.value.data.parsed.info.tokenAmount.uiAmount);
 
-    // Derive canonical escrow ATA; create it in the same tx if it doesn't exist
-    const escrowAta = await getAssociatedTokenAddress(mintPubkey, escrowPubkey);
+    // Canonical escrow ATA — create it in the same tx if it doesn't exist yet (one-time)
+    const escrowAta = await getAssociatedTokenAddress(mintPubkey, escrowPubkey, false,
+      TOKEN_PROGRAM_ID, ASSOCIATED_TOKEN_PROGRAM_ID);
     console.log("[depositEntryFee] escrow ATA:", escrowAta.toString());
     const escrowAtaInfo = await connection.getAccountInfo(escrowAta);
     console.log("[depositEntryFee] escrow ATA exists:", !!escrowAtaInfo);
 
-    const { blockhash, lastValidBlockHeight } = await connection.getLatestBlockhash();
-
-    const tx = new Transaction({ recentBlockhash: blockhash, feePayer: playerPubkey });
-
-    // Initialize escrow ATA if needed (player pays the ~0.002 SOL rent, one-time)
+    const instructions = [];
     if (!escrowAtaInfo) {
-      console.log("[depositEntryFee] adding createAssociatedTokenAccount instruction for escrow ATA");
-      tx.add(createAssociatedTokenAccountInstruction(playerPubkey, escrowAta, escrowPubkey, mintPubkey));
+      console.log("[depositEntryFee] prepending createAssociatedTokenAccount for escrow");
+      instructions.push(createAssociatedTokenAccountInstruction(
+        playerPubkey, escrowAta, escrowPubkey, mintPubkey,
+        TOKEN_PROGRAM_ID, ASSOCIATED_TOKEN_PROGRAM_ID
+      ));
     }
+    instructions.push(createTransferInstruction(
+      sourceAta, escrowAta, playerPubkey, ENTRY_FEE_RAW, [], TOKEN_PROGRAM_ID
+    ));
 
-    tx.add(createTransferInstruction(sourceAta, escrowAta, playerPubkey, ENTRY_FEE_RAW));
+    const { blockhash } = await connection.getLatestBlockhash();
+    const tx = new Transaction().add(...instructions);
+    tx.feePayer = playerPubkey;
+    tx.recentBlockhash = blockhash;
 
-    // Ask wallet to sign and broadcast
-    const sig = await wallet.signAndSendTransaction(tx);
-    const txSig = sig?.signature ?? sig;
+    // Sign then send raw (matches working MASQ pattern)
+    console.log("[depositEntryFee] requesting wallet signature…");
+    const signedTx = await wallet.signTransaction(tx);
+    console.log("[depositEntryFee] sending raw transaction…");
+    const txSig = await connection.sendRawTransaction(signedTx.serialize());
+    console.log("[depositEntryFee] tx sent:", txSig);
 
     // Confirm on-chain
     setStatus("Confirming deposit on-chain…");
     els.pvpLobbyStatus.textContent = "Confirming on-chain…";
-    await connection.confirmTransaction({ signature: txSig, blockhash, lastValidBlockHeight }, "confirmed");
+    const confirmation = await connection.confirmTransaction(txSig, "confirmed");
+    if (confirmation.value.err) throw new Error("Transaction failed to confirm: " + JSON.stringify(confirmation.value.err));
 
     // Record in DB
     const { error: recErr } = await supabase.rpc("record_deposit", {
