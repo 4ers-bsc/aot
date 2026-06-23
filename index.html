@@ -86,19 +86,22 @@
     <div class="panel pvp-size-panel">
       <div class="panel-head">Choose Battle<button class="close" id="pvpSizeClose" type="button">&times;</button></div>
       <div class="tab-body">
-        <p class="pvp-size-copy">Free-for-all — last fighter standing wins. The match begins once the room is full.</p>
+        <p class="pvp-size-copy">Free-for-all — last fighter standing wins. The match begins once the room is full. Entry fee: <strong>2,500 $FIGHT10</strong> per player · winner takes 90%.</p>
         <div class="pvp-size-grid">
           <button class="pvp-size-btn" data-size="2" type="button">
             <span class="pvp-size-num">2</span>
             <span class="pvp-size-label">Duel</span>
+            <span class="pvp-size-pot">4,500 $FIGHT10</span>
           </button>
           <button class="pvp-size-btn" data-size="5" type="button">
             <span class="pvp-size-num">5</span>
             <span class="pvp-size-label">Skirmish</span>
+            <span class="pvp-size-pot">11,250 $FIGHT10</span>
           </button>
           <button class="pvp-size-btn" data-size="10" type="button">
             <span class="pvp-size-num">10</span>
             <span class="pvp-size-label">Warzone</span>
+            <span class="pvp-size-pot">22,500 $FIGHT10</span>
           </button>
         </div>
       </div>
@@ -114,6 +117,7 @@
       </div>
       <div class="pvp-lobby-status" id="pvpLobbyStatus">Searching for an opponent…</div>
       <div class="pvp-lobby-meta" id="pvpLobbyMeta"></div>
+      <div class="pvp-prize-pot hidden" id="pvpPrizePot"></div>
       <div class="lobby-players" id="lobbyPlayers"></div>
       <button class="pvp-lobby-cancel" id="pvpCancelBtn" type="button">Cancel</button>
     </div>
@@ -124,6 +128,7 @@
     <div class="game-over-card">
       <div class="game-over-title" id="gameOverTitle">VICTORY</div>
       <div class="game-over-reason" id="gameOverReason"></div>
+      <div class="go-payout hidden" id="gameOverPayout"></div>
       <div class="standings-list" id="gameOverStandings"></div>
       <div class="game-over-stats">
         <div class="go-name" id="gameOverName">Trench Rookie</div>

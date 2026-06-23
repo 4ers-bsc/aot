@@ -951,6 +951,34 @@ body.in-game .log-feed { top: 58px; }
   color: #8a939c;
 }
 
+.pvp-size-pot {
+  font-family: var(--font-head);
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  color: #c8a227;
+  margin-top: 2px;
+}
+
+/* Prize pot line shown in the waiting lobby */
+.pvp-prize-pot {
+  font-family: var(--font-head);
+  font-size: 12px;
+  letter-spacing: 0.08em;
+  color: #c8a227;
+  text-align: center;
+  margin: 8px 0 4px;
+}
+
+/* Payout confirmation on game-over card */
+.go-payout {
+  font-family: var(--font-head);
+  font-size: 14px;
+  letter-spacing: 0.08em;
+  color: #c8a227;
+  text-align: center;
+  margin: 8px 0 4px;
+}
+
 @media (max-width: 460px) {
   .pvp-size-grid { grid-template-columns: 1fr; }
 }
