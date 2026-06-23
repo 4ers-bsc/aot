@@ -142,8 +142,7 @@ function bindUi() {
     els.pauseOverlay.classList.remove("show");
     game.openSettings();
   });
-  document.getElementById("appLoadingConnectBtn")?.addEventListener("click", signIn);
-  window.addEventListener("keydown", (e) => {
+window.addEventListener("keydown", (e) => {
     if (e.key !== "Escape") return;
     const open = document.querySelector(".overlay.show");
     if (open) { open.classList.remove("show"); return; } // close topmost overlay
@@ -158,6 +157,18 @@ function selectProfileTab(tab) {
 }
 
 async function init() {
+  const fillEl    = document.getElementById("loadingBarFill");
+  const statusEl  = document.getElementById("loadingStatus");
+  const loadingEl = document.getElementById("appLoading");
+
+  // Ease the bar toward a ceiling of 85% while async work runs.
+  let progress = 0;
+  const tick = setInterval(() => {
+    progress += (85 - progress) * 0.06;
+    if (fillEl) fillEl.style.width = progress.toFixed(1) + "%";
+  }, 50);
+
+  if (statusEl) statusEl.textContent = "Connecting…";
   supabase.auth.onAuthStateChange((_event, session) => {
     handleSession(session).catch((error) => {
       console.error(error);
@@ -165,9 +176,16 @@ async function init() {
     });
   });
   const { data } = await supabase.auth.getSession();
+  if (statusEl) statusEl.textContent = "Loading profile…";
   await handleSession(data.session);
-  const loadingEl = document.getElementById("appLoading");
-  if (loadingEl) { loadingEl.classList.add("fade-out"); setTimeout(() => loadingEl.remove(), 420); }
+
+  // Snap to 100 % then fade out.
+  clearInterval(tick);
+  if (fillEl) { fillEl.style.transition = "width 0.25s ease"; fillEl.style.width = "100%"; }
+  if (statusEl) statusEl.textContent = "Ready";
+  setTimeout(() => {
+    if (loadingEl) { loadingEl.classList.add("fade-out"); setTimeout(() => loadingEl.remove(), 500); }
+  }, 350);
 }
 
 // ---------------------------------------------------------------------------
