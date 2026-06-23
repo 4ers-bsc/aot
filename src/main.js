@@ -357,7 +357,6 @@ async function enterArena(matchId) {
   game.setLocalUser({ userId: state.user.id, displayName: state.profile?.display_name || "You" });
   game.usePvpFoes();
   game.setMatchPhase("waiting");
-  game.resetForMatch();
 
   state.channel = supabase.channel(`match-${matchId}`, {
     config: { broadcast: { self: false }, presence: { key: state.user.id } }
