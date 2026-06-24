@@ -653,7 +653,14 @@ export function createArenaGame(options) {
   }
   function inRiver(x, z) {
     if (!river) return false;
-    const v = river.axis === "x" ? x : z;
+    let v;
+    switch (river.axis) {
+      case "x":     v = x; break;
+      case "z":     v = z; break;
+      case "diag1": v = (x + z) * 0.707; break;
+      case "diag2": v = (x - z) * 0.707; break;
+      default: return false;
+    }
     return v >= river.min && v <= river.max;
   }
   function collidesSolid(x, z, selfR) {
@@ -684,6 +691,26 @@ export function createArenaGame(options) {
     }
     solids = [];
     river = null;
+  }
+  function addTower(x, z) {
+    const g = new THREE.Group();
+    // Stone base
+    const base = box(4.0, 0.5, 4.0, 0x6a6a6a); base.position.y = 0.25;
+    // Tall tower body
+    const body = box(3.2, 11.0, 3.2, 0x787878); body.position.y = 6.0;
+    // Parapet ring at top
+    const par  = box(3.8, 0.6, 3.8, 0x848484); par.position.y = 11.8;
+    // Snow blanket on parapet
+    const psnow = box(3.9, 0.22, 3.9, 0xdde9f5); psnow.position.y = 12.22;
+    // 4 corner battlements with snow caps
+    [[-1.3,-1.3],[-1.3,1.3],[1.3,-1.3],[1.3,1.3]].forEach(([bx, bz]) => {
+      const bt  = box(1.0, 1.4, 1.0, 0x7a7a7a); bt.position.set(bx, 12.9, bz); g.add(bt);
+      const bsn = box(1.1, 0.22, 1.1, 0xe4eef7); bsn.position.set(bx, 13.71, bz); g.add(bsn);
+    });
+    g.add(base, body, par, psnow);
+    g.position.set(x, 0, z);
+    mapGroup.add(g);
+    solids.push({ x, z, r: 2.2 });
   }
   function addTree(x, z) {
     const g = new THREE.Group();
@@ -719,24 +746,52 @@ export function createArenaGame(options) {
     solids.push({ x, z, r: 1.9 });
   }
   function buildRiver(rng) {
-    const axis = rng() < 0.5 ? "x" : "z";
-    const half = 5 + rng() * 2;
-    const center = (rng() * 2 - 1) * (MAP_HALF - 16);
-    river = { axis, min: center - half, max: center + half };
-    const w = half * 2;
-    const geo = new THREE.PlaneGeometry(axis === "x" ? w : MAP_WORLD, axis === "x" ? MAP_WORLD : w);
-    const plane = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({
-      color: 0x3d7fb0, transparent: true, opacity: 0.72, roughness: 0.2, metalness: 0.1
-    }));
-    plane.rotation.x = -Math.PI / 2;
-    plane.position.set(axis === "x" ? center : 0, 0.05, axis === "x" ? 0 : center);
-    plane.receiveShadow = true;
-    mapGroup.add(plane);
+    const axisRoll = rng();
+    const half     = 5 + rng() * 6;               // half-width 5–11 → river 10–22 u wide
+    const center   = (rng() * 2 - 1) * (MAP_HALF - 12); // ±38 u
+    const w        = half * 2;
+    const DLEN     = MAP_WORLD * 1.45;             // long enough to cover the map diagonally
+    const mat = new THREE.MeshStandardMaterial({ color: 0x3d7fb0, transparent: true, opacity: 0.72, roughness: 0.2, metalness: 0.1 });
+    const gRiv = new THREE.Group();
+
+    if (axisRoll < 0.25) {
+      river = { axis: "x", min: center - half, max: center + half };
+      const plane = new THREE.Mesh(new THREE.PlaneGeometry(w, MAP_WORLD), mat);
+      plane.rotation.x = -Math.PI / 2; plane.receiveShadow = true;
+      gRiv.position.set(center, 0.05, 0);
+      gRiv.add(plane);
+    } else if (axisRoll < 0.5) {
+      river = { axis: "z", min: center - half, max: center + half };
+      const plane = new THREE.Mesh(new THREE.PlaneGeometry(MAP_WORLD, w), mat);
+      plane.rotation.x = -Math.PI / 2; plane.receiveShadow = true;
+      gRiv.position.set(0, 0.05, center);
+      gRiv.add(plane);
+    } else if (axisRoll < 0.75) {
+      // Diagonal — band where (x+z)*0.707 ∈ [min, max]; strip runs at 135°
+      river = { axis: "diag1", min: center - half, max: center + half };
+      const plane = new THREE.Mesh(new THREE.PlaneGeometry(w, DLEN), mat);
+      plane.rotation.x = -Math.PI / 2; plane.receiveShadow = true;
+      gRiv.position.set(center * 0.707, 0.05, center * 0.707);
+      gRiv.rotation.y = Math.PI / 4;
+      gRiv.add(plane);
+    } else {
+      // Diagonal — band where (x-z)*0.707 ∈ [min, max]; strip runs at 45°
+      river = { axis: "diag2", min: center - half, max: center + half };
+      const plane = new THREE.Mesh(new THREE.PlaneGeometry(w, DLEN), mat);
+      plane.rotation.x = -Math.PI / 2; plane.receiveShadow = true;
+      gRiv.position.set(center * 0.707, 0.05, -center * 0.707);
+      gRiv.rotation.y = -Math.PI / 4;
+      gRiv.add(plane);
+    }
+    mapGroup.add(gRiv);
   }
   function generateMap(seedStr) {
     clearMap();
     const rng = makeRng(seedStr || "demo");
     buildRiver(rng);
+    // Four snowy watchtowers, one at each corner — always present
+    const tOff = MAP_HALF - 5;
+    [[-tOff,-tOff],[-tOff,tOff],[tOff,-tOff],[tOff,tOff]].forEach(([tx,tz]) => addTower(tx,tz));
     const scatter = (count, adder, gap) => {
       let made = 0, tries = 0;
       while (made < count && tries < count * 40) {
@@ -1186,9 +1241,22 @@ export function createArenaGame(options) {
       mmSCtx.beginPath(); mmSCtx.moveTo(0, p); mmSCtx.lineTo(MM, p); mmSCtx.stroke();
     }
     if (river) {
+      const wPx = (river.max - river.min) * mmScale;
+      mmSCtx.save();
       mmSCtx.fillStyle = "rgba(61,127,176,0.55)";
-      if (river.axis === "x") mmSCtx.fillRect(wToMM(river.min), 0, (river.max - river.min) * mmScale, MM);
-      else mmSCtx.fillRect(0, wToMM(river.min), MM, (river.max - river.min) * mmScale);
+      mmSCtx.translate(MM / 2, MM / 2);
+      if (river.axis === "x") {
+        mmSCtx.fillRect(river.min * mmScale, -MM, wPx, MM * 2);
+      } else if (river.axis === "z") {
+        mmSCtx.fillRect(-MM, river.min * mmScale, MM * 2, wPx);
+      } else if (river.axis === "diag1") {
+        mmSCtx.rotate(Math.PI / 4);
+        mmSCtx.fillRect(river.min * mmScale, -MM, wPx, MM * 2);
+      } else {
+        mmSCtx.rotate(-Math.PI / 4);
+        mmSCtx.fillRect(river.min * mmScale, -MM, wPx, MM * 2);
+      }
+      mmSCtx.restore();
     }
     mmSCtx.fillStyle = "rgba(40,46,40,0.7)";
     for (const s of solids) {
