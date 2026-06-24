@@ -15,8 +15,8 @@ const EMIT_MS = 50;
 
 const WEAPONS = {
   sword:  { id: "sword",   name: "Sword",   atk: 25, atkVar: 3, cd: 0.7,  range: 2.4, ranged: false },
-  pistol: { id: "pistol",  name: "Pistol",  atk: 15, atkVar: 4, cd: 0.9,  range: 18,  ranged: true  },
-  sniper: { id: "sniper",  name: "Sniper",  atk: 20, atkVar: 2, cd: 2.2,  range: 60,  ranged: true  },
+  pistol: { id: "pistol",  name: "Pistol",  atk: 15, atkVar: 4, cd: 0.9,  range: 18,  ranged: true,  bulletSpeed: 46, bulletSize: 0.13, chargeTime: 0    },
+  sniper: { id: "sniper",  name: "Sniper",  atk: 20, atkVar: 2, cd: 2.2,  range: 60,  ranged: true,  bulletSpeed: 90, bulletSize: 0.22, chargeTime: 0.45 },
 };
 const AI_WEAPON = { id: "sword", name: "Sword", atk: 9, atkVar: 2, cd: 1.1, range: 2.4, ranged: false };
 
@@ -500,6 +500,20 @@ export function createArenaGame(options) {
     g.rotation.x = -0.05;
     return g;
   }
+  function makeSniper() {
+    const g = new THREE.Group();
+    const body   = box(0.10, 0.12, 0.50, 0x1a1c22); body.position.set(0,     0,     0.15);
+    const barrel = box(0.06, 0.06, 0.50, 0x0d0f12); barrel.position.set(0,   0.02,  0.52);
+    const stock  = box(0.10, 0.10, 0.28, 0x5c3d1e); stock.position.set(0,    0,    -0.22);
+    const cheek  = box(0.10, 0.06, 0.16, 0x5c3d1e); cheek.position.set(0,    0.08, -0.14);
+    const scope  = box(0.07, 0.07, 0.30, 0x111418); scope.position.set(0,    0.12,  0.10);
+    const lens   = box(0.07, 0.07, 0.04, 0x1e3a4a); lens.position.set(0,     0.12,  0.28);
+    const grip   = box(0.10, 0.18, 0.10, 0x2a2e33); grip.position.set(0,    -0.10,  0.05); grip.rotation.x = 0.35;
+    g.add(body, barrel, stock, cheek, scope, lens, grip);
+    g.position.set(-0.05, -0.82, 0.05);
+    g.rotation.x = -0.08;
+    return g;
+  }
   function makeBar(barColor) {
     const el = document.createElement("div");
     el.className = "bar game-ui";
@@ -537,6 +551,7 @@ export function createArenaGame(options) {
     visor.position.set(0, 2.46, 0.36);
     const swordMesh = makeSword(); armR.add(swordMesh);
     const pistolMesh = makePistol(); pistolMesh.visible = false; armR.add(pistolMesh);
+    const sniperMesh = makeSniper(); sniperMesh.visible = false; armR.add(sniperMesh);
     g.add(legL, legR, torso, shlL, shlR, armL, armR, head, helmet, visor);
     g.position.copy(cfg.pos);
     g.visible = false;
@@ -544,9 +559,9 @@ export function createArenaGame(options) {
     const f = {
       userId: cfg.userId || null,
       name: cfg.name, isPlayer: !!cfg.isPlayer, group: g,
-      legL, legR, armL, armR, swordMesh, pistolMesh,
+      legL, legR, armL, armR, swordMesh, pistolMesh, sniperMesh,
       maxHp: cfg.hp, hp: cfg.hp, weapon: cfg.weapon, speed: cfg.speed,
-      cdTimer: 0, atkAnim: 0, hurt: 0, regenAcc: 0,
+      cdTimer: 0, atkAnim: 0, hurt: 0, regenAcc: 0, chargeTimer: 0,
       moving: false, facing: 0, walkPhase: 0,
       target: null, attackTarget: null, dead: false, deadTimer: 0,
       connected: false, networked: false, netTarget: null,
@@ -563,7 +578,8 @@ export function createArenaGame(options) {
   }
   function updateWeaponVis(f) {
     if (f.swordMesh)  f.swordMesh.visible  = f.weapon.id === "sword";
-    if (f.pistolMesh) f.pistolMesh.visible = f.weapon.id !== "sword";
+    if (f.pistolMesh) f.pistolMesh.visible = f.weapon.id === "pistol";
+    if (f.sniperMesh) f.sniperMesh.visible = f.weapon.id === "sniper";
   }
   function recolorFighter(f, palette) {
     Object.keys(f.parts).forEach((key) => f.parts[key].forEach((mat) => mat.color.setHex(palette[key])));
@@ -817,12 +833,16 @@ export function createArenaGame(options) {
     if (def.hp <= 0) killFighter(def);
     if (def === player && foeMode === "net") emitState();
   }
-  function fireBullet(att, def, dmg, deal) {
-    const b = new THREE.Mesh(new THREE.SphereGeometry(0.13, 8, 8), new THREE.MeshBasicMaterial({ color: theme.bullet }));
+  function fireBullet(att, def, dmg, deal, weapon) {
+    const isSniper    = weapon?.id === "sniper";
+    const bulletSize  = weapon?.bulletSize  ?? 0.13;
+    const bulletSpeed = weapon?.bulletSpeed ?? 46;
+    const bulletColor = isSniper ? 0xe8f8ff : theme.bullet;
+    const b = new THREE.Mesh(new THREE.SphereGeometry(bulletSize, 8, 8), new THREE.MeshBasicMaterial({ color: bulletColor }));
     const fx = Math.sin(att.facing), fz = Math.cos(att.facing);
     b.position.set(att.group.position.x + fx * 0.8, 1.5, att.group.position.z + fz * 0.8);
     scene.add(b);
-    bullets.push({ mesh: b, def: deal ? def : null, dmg, speed: 46, target: new THREE.Vector3(def.group.position.x, 1.45, def.group.position.z) });
+    bullets.push({ mesh: b, def: deal ? def : null, dmg, speed: bulletSpeed, target: new THREE.Vector3(def.group.position.x, 1.45, def.group.position.z) });
   }
   function updateBullets(dt) {
     for (let i = bullets.length - 1; i >= 0; i--) {
@@ -855,11 +875,11 @@ export function createArenaGame(options) {
       // Optimistic: apply the same damage locally and tell everyone. All
       // clients compute from the identical dmg, so the target's bar drops
       // instantly here instead of after a network round-trip.
-      if (w.ranged) fireBullet(player, def, dmg, true);
+      if (w.ranged) fireBullet(player, def, dmg, true, w);
       else applyDamage(def, dmg);
       options.onAttack?.({ fromId: localUserId, targetId: def.userId, weapon: w.id, dmg, ranged: !!w.ranged });
     } else {
-      if (w.ranged) fireBullet(player, def, dmg, true);
+      if (w.ranged) fireBullet(player, def, dmg, true, w);
       else applyDamage(def, dmg);
     }
     return true;
@@ -917,15 +937,34 @@ export function createArenaGame(options) {
     regen(p, dt);
     p.moving = false;
     if (!controllable) return;
-    // Melee or ranged: close to weapon range, then face the target and fire
-    // exactly once. Clearing the target after the strike stops auto-repeat.
+    // Melee or ranged: close to weapon range, then face the target and fire.
+    // Sniper requires holding still for chargeTime before the shot is released.
     if (p.attackTarget && !p.attackTarget.dead && p.attackTarget.connected) {
       const e = p.attackTarget;
       const dx = e.group.position.x - p.group.position.x, dz = e.group.position.z - p.group.position.z;
-      if (Math.hypot(dx, dz) > p.weapon.range) moveStep(p, e.group.position.x, e.group.position.z, dt);
-      else { p.facing = Math.atan2(dx, dz); if (playerAttack(e)) p.attackTarget = null; }
+      const dist = Math.hypot(dx, dz);
+      if (dist > p.weapon.range) {
+        p.chargeTimer = 0;
+        moveStep(p, e.group.position.x, e.group.position.z, dt);
+      } else {
+        p.facing = Math.atan2(dx, dz);
+        const ct = p.weapon.chargeTime ?? 0;
+        if (ct > 0 && p.cdTimer <= 0) {
+          // Sniper: stand still, hold aim pose, then fire after chargeTime.
+          p.chargeTimer += dt;
+          p.atkAnim = Math.max(p.atkAnim, 0.1);
+          if (p.chargeTimer >= ct) {
+            p.chargeTimer = 0;
+            if (playerAttack(e)) p.attackTarget = null;
+          }
+        } else {
+          p.chargeTimer = 0;
+          if (playerAttack(e)) p.attackTarget = null;
+        }
+      }
     } else {
       p.attackTarget = null;
+      p.chargeTimer = 0;
       if (p.target && moveStep(p, p.target.x, p.target.z, dt)) p.target = null;
     }
   }
@@ -1073,9 +1112,9 @@ export function createArenaGame(options) {
     if (n < 1 || n > 5) return;
     activeSlot = n;
     slots.forEach((s) => s.classList.toggle("active", parseInt(s.dataset.slot, 10) === n));
-    if (n === 1) { player.weapon = WEAPONS.sword; updateWeaponVis(player); }
-    else if (n === 2) { player.weapon = WEAPONS.pistol; player.attackTarget = null; updateWeaponVis(player); }
-    else if (n === 3) { player.weapon = WEAPONS.sniper; player.attackTarget = null; updateWeaponVis(player); }
+    if (n === 1) { player.weapon = WEAPONS.sword; player.chargeTimer = 0; updateWeaponVis(player); }
+    else if (n === 2) { player.weapon = WEAPONS.pistol; player.attackTarget = null; player.chargeTimer = 0; updateWeaponVis(player); }
+    else if (n === 3) { player.weapon = WEAPONS.sniper; player.attackTarget = null; player.chargeTimer = 0; updateWeaponVis(player); }
   }
   slots.forEach((s) => s.addEventListener("click", () => selectSlot(parseInt(s.dataset.slot, 10))));
   function _onKeyDown(e) {
@@ -1486,7 +1525,7 @@ export function createArenaGame(options) {
       resultSent = false;
       matchTimerOn = false; showTimer();
       bullets.splice(0).forEach((b) => { scene.remove(b.mesh); b.mesh.geometry.dispose(); b.mesh.material.dispose(); });
-      Object.assign(player, { hp: player.maxHp, dead: false, cdTimer: 0, atkAnim: 0, hurt: 0, moving: false, attackTarget: null, target: null });
+      Object.assign(player, { hp: player.maxHp, dead: false, cdTimer: 0, atkAnim: 0, hurt: 0, moving: false, attackTarget: null, target: null, chargeTimer: 0 });
       player.group.rotation.set(0, player.group.rotation.y, 0);
       const ps = randomSpawn();
       player.group.position.set(ps.x, 0, ps.z);
@@ -1542,13 +1581,13 @@ export function createArenaGame(options) {
       if (payload.targetId === localUserId) {
         if (player.dead) return;
         if (attacker) attacker.atkAnim = 0.32;
-        if (payload.ranged && attacker) fireBullet(attacker, player, dmg, true);
+        if (payload.ranged && attacker) fireBullet(attacker, player, dmg, true, attacker.weapon);
         else applyDamage(player, dmg);
       } else {
         const target = opponents.get(payload.targetId);
         if (!target || target.dead) return;
         if (attacker) attacker.atkAnim = 0.32;
-        if (payload.ranged && attacker) fireBullet(attacker, target, dmg, true);
+        if (payload.ranged && attacker) fireBullet(attacker, target, dmg, true, attacker.weapon);
         else applyDamage(target, dmg);
       }
     },
