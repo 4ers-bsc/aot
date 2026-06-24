@@ -702,18 +702,33 @@ export function createArenaGame(options) {
   }
   function addTower(x, z) {
     const g = new THREE.Group();
-    // Stone base
-    const base = box(4.0, 0.5, 4.0, 0x6a6a6a); base.position.y = 0.25;
-    // Tall tower body
-    const body = box(3.2, 11.0, 3.2, 0x787878); body.position.y = 6.0;
-    // Parapet ring at top
-    const par  = box(3.8, 0.6, 3.8, 0x848484); par.position.y = 11.8;
-    // Snow blanket on parapet
+    // Vintage weathered stone palette — warm tawny grey
+    const base = box(4.0, 0.5, 4.0, 0x6e6050); base.position.y = 0.25;
+    const body = box(3.2, 11.0, 3.2, 0x8a7a68); body.position.y = 6.0;
+    const par  = box(3.8, 0.6,  3.8, 0x7a6e58); par.position.y  = 11.8;
     const psnow = box(3.9, 0.22, 3.9, 0xdde9f5); psnow.position.y = 12.22;
-    // 4 corner battlements with snow caps
-    [[-1.3,-1.3],[-1.3,1.3],[1.3,-1.3],[1.3,1.3]].forEach(([bx, bz]) => {
-      const bt  = box(1.0, 1.4, 1.0, 0x7a7a7a); bt.position.set(bx, 12.9, bz); g.add(bt);
-      const bsn = box(1.1, 0.22, 1.1, 0xe4eef7); bsn.position.set(bx, 13.71, bz); g.add(bsn);
+    // 4 corner battlements with snow caps — slightly irregular heights for age
+    [[-1.3,-1.3,1.40],[-1.3,1.3,1.55],[1.3,-1.3,1.50],[1.3,1.3,1.35]].forEach(([bx, bz, bh]) => {
+      const bt  = box(1.0, bh,  1.0, 0x7a6e58); bt.position.set(bx, 12.2 + bh / 2, bz); g.add(bt);
+      const bsn = box(1.1, 0.22, 1.1, 0xe4eef7); bsn.position.set(bx, 12.2 + bh + 0.11, bz); g.add(bsn);
+    });
+    // Moss/age horizontal bands — subtle greenish-grey staining
+    const ms1 = box(3.22, 0.28, 3.22, 0x566050); ms1.position.y = 1.9;  g.add(ms1);
+    const ms2 = box(3.22, 0.18, 3.22, 0x4c5848); ms2.position.y = 5.6;  g.add(ms2);
+    const ms3 = box(3.22, 0.14, 3.22, 0x556050); ms3.position.y = 9.8;  g.add(ms3);
+    // Battle dents — dark recessed patches on the four tower faces
+    [
+      // [posX, posY, posZ, boxW, boxH, boxD]
+      [  1.63,  3.2,  0.0,  0.14, 1.1, 0.65 ],  // +X face, mid-low
+      [  1.63,  7.5,  0.4,  0.14, 0.7, 0.50 ],  // +X face, mid-high
+      [ -1.63,  5.0, -0.3,  0.14, 0.9, 0.70 ],  // -X face, mid
+      [ -1.63,  8.8,  0.6,  0.14, 0.5, 0.45 ],  // -X face, high
+      [  0.2,   9.1,  1.63, 0.90, 0.6, 0.14 ],  // +Z face, high
+      [ -0.5,   4.6,  1.63, 0.80, 1.0, 0.14 ],  // +Z face, mid
+      [  0.6,   2.1, -1.63, 0.60, 0.8, 0.14 ],  // -Z face, low
+      [ -0.3,   7.2, -1.63, 0.75, 0.55,0.14 ],  // -Z face, mid-high
+    ].forEach(([px, py, pz, pw, ph, pd]) => {
+      const d = box(pw, ph, pd, 0x2a2018); d.position.set(px, py, pz); g.add(d);
     });
     // Gold F10 cloth draped flat on top of the tower
     const clothCanvas = document.createElement("canvas");
@@ -818,13 +833,20 @@ export function createArenaGame(options) {
       const dx = b.x - a.x, dz = b.z - a.z;
       const segLen = Math.hypot(dx, dz);
       if (segLen < 0.01) continue;
-      const mx = (a.x + b.x) / 2, mz = (a.z + b.z) / 2;
+      // Don't extend past the entry/exit map-edge waypoints; only extend at interior joints
+      const extA = (i === 0)               ? 0 : hw * 0.3;
+      const extB = (i === wps.length - 2)  ? 0 : hw * 0.3;
+      const totalLen = segLen + extA + extB;
+      // Shift centre toward the longer-extended end so the plane covers [A-extA, B+extB]
+      const ux = dx / segLen, uz = dz / segLen;
+      const mx = (a.x + b.x) / 2 + ux * (extB - extA) / 2;
+      const mz = (a.z + b.z) / 2 + uz * (extB - extA) / 2;
       const seg = new THREE.Group();
       seg.position.set(mx, 0.05, mz);
       // atan2(-dx, dz) aligns the plane's local-Z (height after rotation.x=-π/2) with (dx, dz)
       seg.rotation.y = Math.atan2(-dx, dz);
       const plane = new THREE.Mesh(
-        new THREE.PlaneGeometry(hw * 2, segLen + hw * 0.6),
+        new THREE.PlaneGeometry(hw * 2, totalLen),
         mat,
       );
       plane.rotation.x = -Math.PI / 2;
