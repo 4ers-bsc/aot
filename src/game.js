@@ -1372,7 +1372,7 @@ export function createArenaGame(options) {
     if (foe) {
       if (player.weapon.isGrenade) {
         // Frag equipped — throw grenade to foe's feet instead of pursuing
-        if (player.cdTimer > 0) return;
+        if (fragCd > 0) return;
         const tx = foe.group.position.x, tz = foe.group.position.z;
         const dist = Math.hypot(tx - player.group.position.x, tz - player.group.position.z);
         if (dist > player.weapon.range) {
@@ -1382,7 +1382,7 @@ export function createArenaGame(options) {
           return;
         }
         const dmg = Math.max(1, Math.round(player.weapon.atk + (Math.random() * 2 - 1) * player.weapon.atkVar));
-        player.cdTimer = player.weapon.cd;
+        fragCd = WEAPONS.frag.cd;
         player.atkAnim = 0.32;
         fireGrenade(player, tx, tz, dmg);
         setMarker(tx, tz, 0xff8800, 0xcc5500);
@@ -1401,7 +1401,7 @@ export function createArenaGame(options) {
       const tx = Math.max(-lim, Math.min(lim, (Math.floor(hit.x / TILE) + 0.5) * TILE));
       const tz = Math.max(-lim, Math.min(lim, (Math.floor(hit.z / TILE) + 0.5) * TILE));
       if (player.weapon.isGrenade) {
-        if (player.cdTimer > 0) return;
+        if (fragCd > 0) return;
         const dist = Math.hypot(tx - player.group.position.x, tz - player.group.position.z);
         if (dist > player.weapon.range) {
           player.attackTarget = null;
@@ -1412,7 +1412,7 @@ export function createArenaGame(options) {
           return;
         }
         const dmg = Math.max(1, Math.round(player.weapon.atk + (Math.random() * 2 - 1) * player.weapon.atkVar));
-        player.cdTimer = player.weapon.cd;
+        fragCd = WEAPONS.frag.cd;
         player.atkAnim = 0.32;
         fireGrenade(player, tx, tz, dmg);
         setMarker(tx, tz, 0xff8800, 0xcc5500);
@@ -1458,6 +1458,9 @@ export function createArenaGame(options) {
   // -- HUD (attached reference set) -----------------------------------------
   const hud = buildHud();
   const { hint, coords, mmCanvas, hotbar, slots, fpsEl, pingEl, overlay, renderDistBtn, matchTimerEl, mapToggleBtn, raiderCountCtrl, raiderCountEl, scorePanel, weaponPanel } = hud;
+
+  // Separate frag cooldown — never pollutes the active weapon's cdTimer
+  let fragCd = 0;
 
   // Weapon stat pikes — normalised 0-100 against max values across all weapons
   const _wImg = { sword: "/sword.png", pistol: "/pistol.png", sniper: "/sniper.png", frag: "/frag.png" };
@@ -1797,14 +1800,23 @@ export function createArenaGame(options) {
     updateGrenades(dt);
     updateExplosions(dt);
 
-    // Cooldown swirl — show how much of the active weapon CD remains
-    if (player.weapon && player.weapon.cd > 0) {
-      const cdFrac = Math.min(1, Math.max(0, player.cdTimer / player.weapon.cd));
-      slots.forEach((s, i) => {
-        const cd = s.querySelector(".slot-cd");
-        if (cd) cd.style.setProperty("--cd", i === activeSlot - 1 ? cdFrac : 0);
-      });
-    }
+    // Tick frag's independent cooldown
+    if (fragCd > 0) fragCd = Math.max(0, fragCd - dt);
+
+    // Cooldown swirl — slot 1 uses fragCd, active slot uses player.cdTimer
+    slots.forEach((s, i) => {
+      const cd = s.querySelector(".slot-cd");
+      if (!cd) return;
+      if (i === 0) {
+        cd.style.setProperty("--cd", Math.min(1, Math.max(0, fragCd / WEAPONS.frag.cd)));
+      } else {
+        const isActive = i === activeSlot - 1;
+        const frac = (isActive && player.weapon && player.weapon.cd > 0)
+          ? Math.min(1, Math.max(0, player.cdTimer / player.weapon.cd))
+          : 0;
+        cd.style.setProperty("--cd", frac);
+      }
+    });
 
     if (perspective === "player") {
       emitAcc += dt * 1000;
