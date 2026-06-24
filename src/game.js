@@ -12,6 +12,10 @@ const MAP_TILES = 50;
 const MAP_WORLD = MAP_TILES * TILE; // 100
 const MAP_HALF = MAP_WORLD / 2; // 50
 const EMIT_MS = 50;
+function escapeHtml(s) {
+  return String(s ?? "").replace(/[&<>"']/g, (c) =>
+    ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+}
 
 const WEAPONS = {
   sword:  { id: "sword",   name: "Sword",   atk: 25, atkVar: 3, cd: 0.7,  range: 2.4, ranged: false },
@@ -19,6 +23,8 @@ const WEAPONS = {
   sniper: { id: "sniper",  name: "Sniper",  atk: 20, atkVar: 2, cd: 2.2,  range: 60,  ranged: true,  bulletSpeed: 90, bulletSize: 0.22, chargeTime: 0.45 },
   frag:   { id: "frag",    name: "Frag",    atk: 22, atkVar: 4, cd: 3.5,  range: 35,  ranged: false, isGrenade: true, fuseTime: 1.0, blastRadius: 5 },
 };
+Object.values(WEAPONS).forEach(Object.freeze);
+Object.freeze(WEAPONS);
 const WEAPON_LIST = Object.values(WEAPONS).filter((w) => !w.isGrenade);
 function randomAiWeapon() { return WEAPON_LIST[Math.floor(Math.random() * WEAPON_LIST.length)]; }
 
@@ -1462,7 +1468,7 @@ export function createArenaGame(options) {
           const pct = Math.round(Math.max(0, f.hp) / f.maxHp * 100);
           const barCol = f === player ? "#33b14a" : "#e0473c";
           return `<div class="sp-row">
-            <span class="sp-name">${f.name || "Player"}</span>
+            <span class="sp-name">${escapeHtml(f.name || "Player")}</span>
             <div class="sp-bar-wrap"><div class="sp-bar" style="width:${pct}%;background:${barCol}"></div></div>
             <span class="sp-hp">${Math.max(0, f.hp)}/${f.maxHp}</span>
           </div>`;
