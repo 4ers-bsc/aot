@@ -1054,7 +1054,7 @@ export function createArenaGame(options) {
     raycaster.setFromCamera(pointer, camera);
     const foe = pickFoe();
     if (foe) {
-      following = true;
+      if (settings.centerCamera) following = true;
       setMarker(foe.group.position.x, foe.group.position.z, theme.markerAttack[0], theme.markerAttack[1]);
       player.target = null;
       player.attackTarget = foe; // pursue into range (melee or ranged), then fire
