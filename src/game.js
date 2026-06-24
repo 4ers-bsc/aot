@@ -1370,6 +1370,20 @@ export function createArenaGame(options) {
     raycaster.setFromCamera(pointer, camera);
     const foe = pickFoe();
     if (foe) {
+      if (player.weapon.isGrenade) {
+        // Frag equipped — throw grenade to foe's feet instead of pursuing
+        if (player.cdTimer > 0) return;
+        const tx = foe.group.position.x, tz = foe.group.position.z;
+        const dist = Math.hypot(tx - player.group.position.x, tz - player.group.position.z);
+        if (dist > player.weapon.range) return;
+        const dmg = Math.max(1, Math.round(player.weapon.atk + (Math.random() * 2 - 1) * player.weapon.atkVar));
+        player.cdTimer = player.weapon.cd;
+        player.atkAnim = 0.32;
+        fireGrenade(player, tx, tz, dmg);
+        setMarker(tx, tz, 0xff8800, 0xcc5500);
+        selectSlot(prevSlot !== 1 ? prevSlot : 2);
+        return;
+      }
       if (settings.centerCamera) following = true;
       setMarker(foe.group.position.x, foe.group.position.z, theme.markerAttack[0], theme.markerAttack[1]);
       player.target = null;
@@ -1434,6 +1448,7 @@ export function createArenaGame(options) {
   const { hint, coords, mmCanvas, hotbar, slots, fpsEl, pingEl, overlay, renderDistBtn, matchTimerEl, mapToggleBtn, raiderCountCtrl, raiderCountEl, scorePanel, weaponPanel } = hud;
 
   // Weapon stat pikes — normalised 0-100 against max values across all weapons
+  const _wImg = { sword: "/sword.png", pistol: "/pistol.png", sniper: "/sniper.png", frag: "/ammo.png" };
   const _wStats = {
     sword:  { pwr: 89, rng:  4, spd: 100, aoe:  0 },
     pistol: { pwr: 54, rng: 30, spd:  78, aoe:  0 },
@@ -1442,17 +1457,19 @@ export function createArenaGame(options) {
   };
   function renderWeaponPanel(w) {
     const s = _wStats[w.id] || _wStats.sword;
+    const img = _wImg[w.id] || "";
     const bars = [
-      { lbl: "PWR", pct: s.pwr, col: "#ff4422", dim: "rgba(255,68,34,0.3)" },
-      { lbl: "RNG", pct: s.rng, col: "#44aaff", dim: "rgba(68,170,255,0.3)" },
-      { lbl: "SPD", pct: s.spd, col: "#ffcc22", dim: "rgba(255,204,34,0.3)" },
-      { lbl: "AOE", pct: s.aoe, col: "#ff8833", dim: "rgba(255,136,51,0.3)" },
+      { lbl: "PWR", pct: s.pwr },
+      { lbl: "RNG", pct: s.rng },
+      { lbl: "SPD", pct: s.spd },
+      { lbl: "AOE", pct: s.aoe },
     ];
     weaponPanel.innerHTML =
+      `<img src="${img}" class="wp-icon" alt="${w.name}" />` +
       `<div class="wp-name">${w.name.toUpperCase()}</div>` +
       `<div class="wp-stats">${bars.map((b) =>
         `<div class="wp-stat">` +
-        `<div class="wp-bar-wrap"><div class="wp-bar" style="height:${Math.max(4, b.pct)}%;--g:${b.col};--gd:${b.dim}"></div></div>` +
+        `<div class="wp-bar-wrap"><div class="wp-bar" style="height:${Math.max(4, b.pct)}%"></div></div>` +
         `<div class="wp-lbl">${b.lbl}</div></div>`
       ).join("")}</div>`;
   }
@@ -2079,13 +2096,12 @@ function buildHud() {
   const hotbar = add('<div class="hotbar game-ui"></div>');
   for (let n = 1; n <= 5; n++) {
     // slot order: 1=frag, 2=sword, 3=pistol, 4=sniper, 5=empty
-    const imgSrc = n === 2 ? "/sword.png" : n === 3 ? "/pistol.png" : n === 4 ? "/sniper.png" : "";
+    const imgSrc = n === 1 ? "/ammo.png" : n === 2 ? "/sword.png" : n === 3 ? "/pistol.png" : n === 4 ? "/sniper.png" : "";
     const imgTag = imgSrc ? `<img src="${imgSrc}" class="slot-icon" alt="" />` : "";
-    const fragTag = n === 1 ? `<span class="slot-frag-lbl">FRAG</span>` : "";
     const s = document.createElement("div");
     s.className = "slot" + (n === 2 ? " active" : ""); // start on sword
     s.dataset.slot = String(n);
-    s.innerHTML = `${imgTag}${fragTag}<span class="num">${n}</span><div class="slot-cd"></div>`;
+    s.innerHTML = `${imgTag}<span class="num">${n}</span><div class="slot-cd"></div>`;
     hotbar.appendChild(s);
   }
   const slots = Array.from(hotbar.querySelectorAll(".slot"));
