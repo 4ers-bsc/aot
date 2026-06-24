@@ -14,9 +14,9 @@ const MAP_HALF = MAP_WORLD / 2; // 50
 const EMIT_MS = 50;
 
 const WEAPONS = {
-  sword:  { id: "sword",   name: "Sword",   atk: 20, atkVar: 3, cd: 0.7,  range: 2.4, ranged: false },
+  sword:  { id: "sword",   name: "Sword",   atk: 25, atkVar: 3, cd: 0.7,  range: 2.4, ranged: false },
   pistol: { id: "pistol",  name: "Pistol",  atk: 15, atkVar: 4, cd: 0.9,  range: 18,  ranged: true  },
-  sniper: { id: "sniper",  name: "Sniper",  atk: 25, atkVar: 2, cd: 2.2,  range: 40,  ranged: true  },
+  sniper: { id: "sniper",  name: "Sniper",  atk: 20, atkVar: 2, cd: 2.2,  range: 60,  ranged: true  },
 };
 const AI_WEAPON = { id: "sword", name: "Sword", atk: 9, atkVar: 2, cd: 1.1, range: 2.4, ranged: false };
 
