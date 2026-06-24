@@ -18,7 +18,8 @@ const WEAPONS = {
   pistol: { id: "pistol",  name: "Pistol",  atk: 15, atkVar: 4, cd: 0.9,  range: 18,  ranged: true,  bulletSpeed: 46, bulletSize: 0.13, chargeTime: 0    },
   sniper: { id: "sniper",  name: "Sniper",  atk: 20, atkVar: 2, cd: 2.2,  range: 60,  ranged: true,  bulletSpeed: 90, bulletSize: 0.22, chargeTime: 0.45 },
 };
-const AI_WEAPON = { id: "sword", name: "Sword", atk: 9, atkVar: 2, cd: 1.1, range: 2.4, ranged: false };
+const WEAPON_LIST = Object.values(WEAPONS);
+function randomAiWeapon() { return WEAPON_LIST[Math.floor(Math.random() * WEAPON_LIST.length)]; }
 
 const THEMES = {
   game: {
@@ -595,7 +596,7 @@ export function createArenaGame(options) {
 
   const player = makeFighter({ name: "You", isPlayer: true, palette: theme.player, pos: new THREE.Vector3(-12, 0, 4), hp: 100, weapon: WEAPONS.sword, speed: 6.5, barColor: theme.playerBar });
   // Demo AI raiders (foeMode === "ai"). PvP uses the opponents map instead.
-  const aiEnemy = makeFighter({ name: "Raider", palette: theme.enemy, pos: new THREE.Vector3(12, 0, -4), hp: 100, weapon: AI_WEAPON, speed: 4.6, barColor: theme.enemyBar });
+  const aiEnemy = makeFighter({ name: "Raider", palette: theme.enemy, pos: new THREE.Vector3(12, 0, -4), hp: 100, weapon: randomAiWeapon(), speed: 4.6, barColor: theme.enemyBar });
   const aiRaiders = [aiEnemy]; // grows/shrinks via setAiCount
   const opponents = new Map(); // userId -> networked fighter
   let foeMode = "ai"; // "ai" (demo) | "net" (pvp)
@@ -613,10 +614,11 @@ export function createArenaGame(options) {
     const f = makeFighter({
       name: `Raider ${i + 1}`, palette: theme.enemy,
       pos: new THREE.Vector3(sp.x, 0, sp.z), hp: 100,
-      weapon: AI_WEAPON, speed: 4.6, barColor: theme.enemyBar
+      weapon: randomAiWeapon(), speed: 4.6, barColor: theme.enemyBar
     });
     f.networked = false;
     f.connected = true;
+    updateWeaponVis(f);
     return f;
   }
 
@@ -636,6 +638,7 @@ export function createArenaGame(options) {
   let solids = [];        // { x, z, r } — blocks movement + line of sight
   let riverSegments = []; // array of {x,z} waypoints defining the river centre-line
   let riverHalfW = 0;     // half-width of the river for capsule checks
+  let bridge = null;      // { cx, cz, halfLen, halfWid, cosA, sinA } for on-bridge test
 
   function makeRng(seedStr) {
     const str = String(seedStr);
@@ -699,6 +702,7 @@ export function createArenaGame(options) {
     solids = [];
     riverSegments = [];
     riverHalfW = 0;
+    bridge = null;
   }
   function addTower(x, z) {
     const g = new THREE.Group();
@@ -757,6 +761,22 @@ export function createArenaGame(options) {
     mapGroup.add(g);
     solids.push({ x, z, r: 2.2 });
   }
+  function addGrass(x, z, rng) {
+    const g = new THREE.Group();
+    const count = 2 + Math.floor(rng() * 3); // 2–4 blades
+    for (let i = 0; i < count; i++) {
+      const ox = (rng() * 2 - 1) * 0.4, oz = (rng() * 2 - 1) * 0.4;
+      const h  = 0.3 + rng() * 0.35;
+      const col = rng() < 0.5 ? 0x4a7a38 : 0x5a8a42;
+      const blade = box(0.12, h, 0.12, col);
+      blade.position.set(ox, h / 2, oz);
+      blade.rotation.y = rng() * Math.PI;
+      g.add(blade);
+    }
+    g.position.set(x, 0, z);
+    mapGroup.add(g);
+    // No solid entry — grass is purely decorative
+  }
   function addTree(x, z) {
     const g = new THREE.Group();
     const trunk = box(0.5, 1.6, 0.5, 0x5c3d1e); trunk.position.y = 0.8;
@@ -811,7 +831,16 @@ export function createArenaGame(options) {
       const post = box(0.24, 1.1, 0.24, 0x5E3A1E); post.position.set(px, 0.55, pz); g.add(post);
     });
     mapGroup.add(g);
-    // Bridge is walkable — intentionally not added to solids
+    // Record bridge footprint for on-bridge speed check (local X = span, local Z = depth)
+    const flowLen = Math.hypot(flowDx, flowDz) || 1;
+    const angle   = Math.atan2(-flowDx, flowDz); // same rotation applied to group
+    bridge = { cx, cz, halfLen: bLen / 2 + 0.5, halfWid: bWid / 2 + 0.3, cosA: Math.cos(angle), sinA: Math.sin(angle) };
+  }
+  function onBridge(x, z) {
+    if (!bridge) return false;
+    const lx = (x - bridge.cx) * bridge.cosA  + (z - bridge.cz) * bridge.sinA;
+    const lz = (x - bridge.cx) * -bridge.sinA + (z - bridge.cz) * bridge.cosA;
+    return Math.abs(lx) <= bridge.halfLen && Math.abs(lz) <= bridge.halfWid;
   }
   function addRiverBoulder(x, z, rng) {
     const g = new THREE.Group();
@@ -865,71 +894,66 @@ export function createArenaGame(options) {
     }
     riverSegments = wps;
 
-    // Draw river as a smooth Catmull-Rom bezier stroke on a canvas texture.
-    // This gives organic rounded edges instead of rectangular segments.
-    const CS  = 512;
-    const rc  = document.createElement("canvas");
-    rc.width  = CS; rc.height = CS;
-    const rctx = rc.getContext("2d");
+    // Draw river as a pixelated grid-stamp texture — square-edged, no curves.
+    // Sample the polyline every ~0.5 world units, snap to a grid cell, and fill
+    // a solid square per cell.  Two passes: a slightly wider dark outer border
+    // first, then the main water colour on top.
+    const CELL_W = 2;   // world units per pixel cell
+    const CS     = Math.ceil(MAP_WORLD / CELL_W); // canvas size in cells (=50)
+    const rc     = document.createElement("canvas");
+    rc.width     = CS; rc.height = CS;
+    const rctx   = rc.getContext("2d");
+    rctx.imageSmoothingEnabled = false;
 
-    // world → canvas pixel
-    const toU = (wx) => (wx + MAP_HALF) / MAP_WORLD * CS;
-    const toV = (wz) => (wz + MAP_HALF) / MAP_WORLD * CS;
-    const pts  = wps.map((wp) => ({ u: toU(wp.x), v: toV(wp.z) }));
-    const lw   = hw * 2 / MAP_WORLD * CS;  // line width in pixels
+    const toCell = (w) => Math.floor((w + MAP_HALF) / CELL_W);
+    const hwCell = Math.ceil(hw / CELL_W);
 
-    // Catmull-Rom control point helper
-    const crBez = (i) => {
-      const p0 = pts[Math.max(0, i - 1)];
-      const p1 = pts[i];
-      const p2 = pts[i + 1];
-      const p3 = pts[Math.min(pts.length - 1, i + 2)];
-      return {
-        cp1u: p1.u + (p2.u - p0.u) / 6,
-        cp1v: p1.v + (p2.v - p0.v) / 6,
-        cp2u: p2.u - (p3.u - p1.u) / 6,
-        cp2v: p2.v - (p3.v - p1.v) / 6,
-      };
-    };
-
-    const drawPath = () => {
-      rctx.beginPath();
-      rctx.moveTo(pts[0].u, pts[0].v);
-      for (let i = 0; i < pts.length - 1; i++) {
-        const { cp1u, cp1v, cp2u, cp2v } = crBez(i);
-        rctx.bezierCurveTo(cp1u, cp1v, cp2u, cp2v, pts[i + 1].u, pts[i + 1].v);
+    const stampCells = (extraR, color) => {
+      rctx.fillStyle = color;
+      const seen = new Set();
+      for (let i = 0; i < wps.length - 1; i++) {
+        const a = wps[i], b = wps[i + 1];
+        const dx = b.x - a.x, dz = b.z - a.z;
+        const steps = Math.ceil(Math.hypot(dx, dz) / (CELL_W * 0.6));
+        for (let s = 0; s <= steps; s++) {
+          const t  = s / steps;
+          const cu = toCell(a.x + dx * t);
+          const cv = toCell(a.z + dz * t);
+          const r  = hwCell + extraR;
+          for (let du = -r; du <= r; du++) {
+            for (let dv = -r; dv <= r; dv++) {
+              const key = `${cu + du},${cv + dv}`;
+              if (seen.has(key)) continue;
+              seen.add(key);
+              rctx.fillRect(cu + du, cv + dv, 1, 1);
+            }
+          }
+        }
       }
     };
 
-    // Outer soft shadow for depth
-    rctx.save();
-    rctx.strokeStyle = "rgba(20, 60, 100, 0.35)";
-    rctx.lineWidth = lw + 10;
-    rctx.lineCap = "round";
-    rctx.lineJoin = "round";
-    drawPath();
-    rctx.stroke();
-    rctx.restore();
-
-    // Main water body
-    rctx.save();
-    rctx.strokeStyle = "rgba(55, 120, 175, 0.88)";
-    rctx.lineWidth = lw;
-    rctx.lineCap = "round";
-    rctx.lineJoin = "round";
-    drawPath();
-    rctx.stroke();
-    rctx.restore();
-
-    // Inner highlight — lighter centre strip for water sheen
-    rctx.save();
-    rctx.strokeStyle = "rgba(110, 180, 220, 0.30)";
-    rctx.lineWidth = lw * 0.35;
-    rctx.lineCap = "round";
-    rctx.lineJoin = "round";
-    drawPath();
-    rctx.stroke();
-    rctx.restore();
+    stampCells(1, "rgba(20,60,100,0.55)");   // dark border (1 cell wider)
+    stampCells(0, "rgba(60,125,178,0.92)");  // main water body
+    // Inner highlight strip (half-width)
+    {
+      rctx.fillStyle = "rgba(110,180,220,0.28)";
+      const seen = new Set();
+      const hr = Math.max(1, Math.floor(hwCell * 0.4));
+      for (let i = 0; i < wps.length - 1; i++) {
+        const a = wps[i], b = wps[i + 1];
+        const dx = b.x - a.x, dz = b.z - a.z;
+        const steps = Math.ceil(Math.hypot(dx, dz) / (CELL_W * 0.6));
+        for (let s = 0; s <= steps; s++) {
+          const t = s / steps;
+          const cu = toCell(a.x + dx * t), cv = toCell(a.z + dz * t);
+          for (let du = -hr; du <= hr; du++) for (let dv = -hr; dv <= hr; dv++) {
+            const key = `${cu + du},${cv + dv}`;
+            if (seen.has(key)) continue; seen.add(key);
+            rctx.fillRect(cu + du, cv + dv, 1, 1);
+          }
+        }
+      }
+    }
 
     const tex   = new THREE.CanvasTexture(rc);
     const plane = new THREE.Mesh(
@@ -986,6 +1010,7 @@ export function createArenaGame(options) {
     };
     scatter(18, addTree, 2.4);
     scatter(8, (x, z) => addMountain(x, z, rng), 3.4);
+    scatter(45, (x, z) => addGrass(x, z, rng), 0.6);
   }
   // A free, dry spawn point anywhere on the map.
   function randomSpawn() {
@@ -1020,7 +1045,7 @@ export function createArenaGame(options) {
     const dx = tx - px, dz = tz - pz;
     const dist = Math.hypot(dx, dz);
     if (dist <= ARRIVE) return true;
-    const slow = inRiver(px, pz) ? RIVER_SLOW : 1;
+    const slow = (inRiver(px, pz) && !onBridge(px, pz)) ? RIVER_SLOW : 1;
     const step = Math.min(f.speed * slow * dt, dist);
     const lim = MAP_HALF - 0.5;
     const nx = Math.max(-lim, Math.min(lim, px + dx / dist * step));
@@ -1129,7 +1154,8 @@ export function createArenaGame(options) {
     if (losBlocked(e.group.position.x, e.group.position.z, player.group.position.x, player.group.position.z)) return;
     let dmg = Math.max(1, Math.round(w.atk + (Math.random() * 2 - 1) * w.atkVar));
     if (inRiver(e.group.position.x, e.group.position.z)) dmg = Math.max(1, Math.round(dmg * RIVER_ATK));
-    applyDamage(player, dmg);
+    if (w.ranged) fireBullet(e, player, dmg, false, w);
+    else applyDamage(player, dmg);
   }
   function killFighter(f) {
     f.dead = true;
@@ -1741,7 +1767,8 @@ export function createArenaGame(options) {
       aiEnemy.networked = false;
       aiEnemy.connected = true;
       aiEnemy.name = "Raider";
-      aiEnemy.weapon = AI_WEAPON;
+      aiEnemy.weapon = randomAiWeapon();
+      updateWeaponVis(aiEnemy);
     },
     // PvP: switch to networked opponents.
     usePvpFoes() {
