@@ -460,6 +460,16 @@ export function createArenaGame(options) {
   marker.position.y = 0.02;
   scene.add(marker);
   let markerLife = 0;
+
+  // Frag range ring — shown when frag weapon is active
+  const fragRing = new THREE.Mesh(
+    new THREE.RingGeometry(WEAPONS.frag.range - 0.18, WEAPONS.frag.range + 0.18, 72),
+    new THREE.MeshBasicMaterial({ color: 0xff8833, transparent: true, opacity: 0.55, side: THREE.DoubleSide, depthWrite: false })
+  );
+  fragRing.rotation.x = -Math.PI / 2;
+  fragRing.position.y = 0.09;
+  fragRing.visible = false;
+  scene.add(fragRing);
   function setMarker(x, z, fillCol, edgeCol) {
     marker.position.set(x, 0.02, z);
     markerFill.material.color.setHex(fillCol);
@@ -1184,6 +1194,7 @@ export function createArenaGame(options) {
     f.moving = false;
     f.deadTimer = f.isPlayer ? 1.8 : 2.2;
     if (foeMode === "ai" && aiRaiders.includes(f)) kills++;
+    if (f.isPlayer) fragRing.visible = false;
   }
   function handleDead(f, dt) {
     f.group.rotation.z = Math.min(Math.PI / 2, f.group.rotation.z + dt * 5);
@@ -1198,7 +1209,7 @@ export function createArenaGame(options) {
     f.cdTimer = 0; f.atkAnim = 0; f.hurt = 0; f.moving = false;
     const sp = randomSpawn();
     f.group.position.set(sp.x, 0, sp.z);
-    if (f.isPlayer) { f.attackTarget = null; f.target = null; camCenter.set(sp.x, 0, sp.z); }
+    if (f.isPlayer) { f.attackTarget = null; f.target = null; camCenter.set(sp.x, 0, sp.z); fragRing.visible = player.weapon?.isGrenade ?? false; }
   }
   function regen(f, dt) {
     if (f.hp >= f.maxHp || f.dead) { f.regenAcc = 0; return; }
@@ -1379,9 +1390,7 @@ export function createArenaGame(options) {
         player.atkAnim = 0.32;
         fireGrenade(player, tx, tz, dmg);
         setMarker(tx, tz, 0xff8800, 0xcc5500);
-        // Auto-revert to previous weapon after throwing
-        const restore = prevSlot !== 4 ? prevSlot : 1;
-        setTimeout(() => selectSlot(restore), 120);
+        selectSlot(prevSlot !== 1 ? prevSlot : 2);
         return;
       }
       player.attackTarget = null;
@@ -1422,18 +1431,44 @@ export function createArenaGame(options) {
 
   // -- HUD (attached reference set) -----------------------------------------
   const hud = buildHud();
-  const { hint, coords, mmCanvas, hotbar, slots, fpsEl, pingEl, overlay, renderDistBtn, matchTimerEl, mapToggleBtn, raiderCountCtrl, raiderCountEl, scorePanel } = hud;
+  const { hint, coords, mmCanvas, hotbar, slots, fpsEl, pingEl, overlay, renderDistBtn, matchTimerEl, mapToggleBtn, raiderCountCtrl, raiderCountEl, scorePanel, weaponPanel } = hud;
 
-  let activeSlot = 1, prevSlot = 1;
+  // Weapon stat pikes — normalised 0-100 against max values across all weapons
+  const _wStats = {
+    sword:  { pwr: 89, rng:  4, spd: 100, aoe:  0 },
+    pistol: { pwr: 54, rng: 30, spd:  78, aoe:  0 },
+    sniper: { pwr: 71, rng:100, spd:  32, aoe:  0 },
+    frag:   { pwr: 79, rng: 58, spd:  20, aoe: 100 },
+  };
+  function renderWeaponPanel(w) {
+    const s = _wStats[w.id] || _wStats.sword;
+    const bars = [
+      { lbl: "PWR", pct: s.pwr, col: "#ff4422", dim: "rgba(255,68,34,0.3)" },
+      { lbl: "RNG", pct: s.rng, col: "#44aaff", dim: "rgba(68,170,255,0.3)" },
+      { lbl: "SPD", pct: s.spd, col: "#ffcc22", dim: "rgba(255,204,34,0.3)" },
+      { lbl: "AOE", pct: s.aoe, col: "#ff8833", dim: "rgba(255,136,51,0.3)" },
+    ];
+    weaponPanel.innerHTML =
+      `<div class="wp-name">${w.name.toUpperCase()}</div>` +
+      `<div class="wp-stats">${bars.map((b) =>
+        `<div class="wp-stat">` +
+        `<div class="wp-bar-wrap"><div class="wp-bar" style="height:${Math.max(4, b.pct)}%;--g:${b.col};--gd:${b.dim}"></div></div>` +
+        `<div class="wp-lbl">${b.lbl}</div></div>`
+      ).join("")}</div>`;
+  }
+
+  let activeSlot = 2, prevSlot = 2;
   function selectSlot(n) {
     if (n < 1 || n > 5) return;
     if (activeSlot !== n) prevSlot = activeSlot;
     activeSlot = n;
     slots.forEach((s) => s.classList.toggle("active", parseInt(s.dataset.slot, 10) === n));
-    if (n === 1) { player.weapon = WEAPONS.sword; player.chargeTimer = 0; updateWeaponVis(player); }
-    else if (n === 2) { player.weapon = WEAPONS.pistol; player.attackTarget = null; player.chargeTimer = 0; updateWeaponVis(player); }
-    else if (n === 3) { player.weapon = WEAPONS.sniper; player.attackTarget = null; player.chargeTimer = 0; updateWeaponVis(player); }
-    else if (n === 4) { player.weapon = WEAPONS.frag; player.attackTarget = null; player.chargeTimer = 0; updateWeaponVis(player); }
+    fragRing.visible = false;
+    if (n === 1) { player.weapon = WEAPONS.frag;   player.attackTarget = null; player.chargeTimer = 0; updateWeaponVis(player); fragRing.visible = !player.dead; }
+    else if (n === 2) { player.weapon = WEAPONS.sword;  player.chargeTimer = 0; updateWeaponVis(player); }
+    else if (n === 3) { player.weapon = WEAPONS.pistol; player.attackTarget = null; player.chargeTimer = 0; updateWeaponVis(player); }
+    else if (n === 4) { player.weapon = WEAPONS.sniper; player.attackTarget = null; player.chargeTimer = 0; updateWeaponVis(player); }
+    renderWeaponPanel(player.weapon);
   }
   slots.forEach((s) => s.addEventListener("click", () => selectSlot(parseInt(s.dataset.slot, 10))));
   function _onKeyDown(e) {
@@ -1802,6 +1837,13 @@ export function createArenaGame(options) {
     const aliveRivals = foeList().filter((f) => f.connected && !f.dead).length;
     coords.textContent = `x ${player.group.position.x.toFixed(1)} · z ${player.group.position.z.toFixed(1)} · ${foeMode === "net" ? `rivals ${aliveRivals}` : `kills ${kills}`}`;
 
+    // Frag range ring — follow player, pulse opacity
+    if (fragRing.visible) {
+      fragRing.position.x = player.group.position.x;
+      fragRing.position.z = player.group.position.z;
+      fragRing.material.opacity = 0.35 + 0.25 * Math.abs(Math.sin(clock.elapsedTime * 2.8));
+    }
+
     drawMinimap();
     renderer.render(scene, camera);
     requestAnimationFrame(animate);
@@ -1815,7 +1857,7 @@ export function createArenaGame(options) {
       document.body.classList.toggle("in-game", viewIsGame);
       applyTheme(viewIsGame ? "game" : "lobby");
       showTimer();
-      if (viewIsGame) setTimeout(() => { hint.style.opacity = "0"; }, 6000);
+      if (viewIsGame) { setTimeout(() => { hint.style.opacity = "0"; }, 6000); renderWeaponPanel(player.weapon); }
     },
     setMode(mode) {
       perspective = mode;
@@ -2036,11 +2078,12 @@ function buildHud() {
   const mmCanvas = add('<canvas class="game-minimap game-ui"></canvas>');
   const hotbar = add('<div class="hotbar game-ui"></div>');
   for (let n = 1; n <= 5; n++) {
-    const imgSrc = n === 1 ? "/sword.png" : n === 2 ? "/pistol.png" : n === 3 ? "/sniper.png" : "";
+    // slot order: 1=frag, 2=sword, 3=pistol, 4=sniper, 5=empty
+    const imgSrc = n === 2 ? "/sword.png" : n === 3 ? "/pistol.png" : n === 4 ? "/sniper.png" : "";
     const imgTag = imgSrc ? `<img src="${imgSrc}" class="slot-icon" alt="" />` : "";
-    const fragTag = n === 4 ? `<span class="slot-frag-lbl">FRAG</span>` : "";
+    const fragTag = n === 1 ? `<span class="slot-frag-lbl">FRAG</span>` : "";
     const s = document.createElement("div");
-    s.className = "slot" + (n === 1 ? " active" : "");
+    s.className = "slot" + (n === 2 ? " active" : ""); // start on sword
     s.dataset.slot = String(n);
     s.innerHTML = `${imgTag}${fragTag}<span class="num">${n}</span><div class="slot-cd"></div>`;
     hotbar.appendChild(s);
@@ -2050,6 +2093,7 @@ function buildHud() {
   const raiderCountCtrl = add('<div class="raider-count-ctrl game-ui hidden"><button class="rc-btn rc-minus">−</button><span class="rc-label"><span class="rc-num">1</span> Raiders</span><button class="rc-btn rc-plus">+</button></div>');
   const raiderCountEl = raiderCountCtrl.querySelector(".rc-num");
   const scorePanel = add('<div class="score-panel game-ui hidden"></div>');
+  const weaponPanel = add('<div class="wpanel game-ui"></div>');
   add('<button class="gear game-ui" title="Settings">&#9881;</button>');
   const gearBtn = root.querySelector(".gear");
   const fpsEl = add('<div class="game-fps game-ui">FPS --</div>');
@@ -2126,7 +2170,7 @@ function buildHud() {
     });
   }
 
-  return { root, hint, coords, matchTimerEl, mmCanvas, hotbar, slots, fpsEl, pingEl, overlay, renderDistBtn, bindSettings, mapToggleBtn, raiderCountCtrl, raiderCountEl, scorePanel };
+  return { root, hint, coords, matchTimerEl, mmCanvas, hotbar, slots, fpsEl, pingEl, overlay, renderDistBtn, bindSettings, mapToggleBtn, raiderCountCtrl, raiderCountEl, scorePanel, weaponPanel };
 }
 
 function clamp(v, min, max) {
