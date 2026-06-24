@@ -278,12 +278,11 @@ async function syncProfile() {
 // Demo match — vs the computer (no networking, no DB)
 // ---------------------------------------------------------------------------
 function startDemo() {
-  if (!state.user) { signIn(); return; }
   state.match = { mode: "demo", status: "active", finished: false };
   state.remoteIds.clear();
   state.started = true;
   game.setView("game");
-  game.setLocalUser({ userId: state.user.id, displayName: state.profile?.display_name || "You" });
+  game.setLocalUser({ userId: state.user?.id ?? null, displayName: state.profile?.display_name || "You" });
   game.useAiFoe();          // single AI raider opponent
   game.generateMap("demo-" + Date.now());
   game.resetForMatch();
@@ -878,7 +877,7 @@ function showLobby() {
   toggle(els.signInWalletBtn, !connected);
   toggle(els.howToPlayBtn, true);
   toggle(els.profileBtn, connected);
-  toggle(els.demoBtn, connected);
+  toggle(els.demoBtn, true);
   toggle(els.pvpBtn, connected);
   toggle(els.signOutBtn, connected);
   const balEl = document.getElementById("fight10Balance");
