@@ -1250,7 +1250,24 @@ export function createArenaGame(options) {
     } else {
       p.attackTarget = null;
       p.chargeTimer = 0;
-      if (p.target && moveStep(p, p.target.x, p.target.z, dt)) p.target = null;
+      const anyWasd = wasd.w || wasd.a || wasd.s || wasd.d;
+      if (anyWasd) {
+        // Derive screen-right and screen-up projected on ground from camera matrix
+        camera.updateMatrixWorld(false);
+        _wasdR.setFromMatrixColumn(camera.matrixWorld, 0); _wasdR.y = 0; _wasdR.normalize();
+        _wasdF.setFromMatrixColumn(camera.matrixWorld, 1); _wasdF.y = 0; _wasdF.normalize();
+        let mdx = 0, mdz = 0;
+        if (wasd.w) { mdx += _wasdF.x; mdz += _wasdF.z; }
+        if (wasd.s) { mdx -= _wasdF.x; mdz -= _wasdF.z; }
+        if (wasd.a) { mdx -= _wasdR.x; mdz -= _wasdR.z; }
+        if (wasd.d) { mdx += _wasdR.x; mdz += _wasdR.z; }
+        const mlen = Math.hypot(mdx, mdz) || 1;
+        moveStep(p, p.group.position.x + mdx / mlen * 200, p.group.position.z + mdz / mlen * 200, dt);
+        p.target = null;
+        following = true;
+      } else {
+        if (p.target && moveStep(p, p.target.x, p.target.z, dt)) p.target = null;
+      }
     }
   }
   function updateAi(dt) {
@@ -1304,6 +1321,9 @@ export function createArenaGame(options) {
   const _bv = new THREE.Vector3();
   const _sunOffset = new THREE.Vector3(20, 40, 12); // pre-alloc: reused every frame
   const _bulletDir = new THREE.Vector3();            // pre-alloc: reused per bullet per frame
+  const _wasdR = new THREE.Vector3();
+  const _wasdF = new THREE.Vector3();
+  const wasd = { w: false, a: false, s: false, d: false };
   function updateBar(f) {
     if (!viewIsGame || !f.connected || f.dead || settings.hideHud) { f.bar.el.style.display = "none"; return; }
     const rect = mount.getBoundingClientRect();
@@ -1359,6 +1379,9 @@ export function createArenaGame(options) {
         player.atkAnim = 0.32;
         fireGrenade(player, tx, tz, dmg);
         setMarker(tx, tz, 0xff8800, 0xcc5500);
+        // Auto-revert to previous weapon after throwing
+        const restore = prevSlot !== 4 ? prevSlot : 1;
+        setTimeout(() => selectSlot(restore), 120);
         return;
       }
       player.attackTarget = null;
@@ -1401,9 +1424,10 @@ export function createArenaGame(options) {
   const hud = buildHud();
   const { hint, coords, mmCanvas, hotbar, slots, fpsEl, pingEl, overlay, renderDistBtn, matchTimerEl, mapToggleBtn, raiderCountCtrl, raiderCountEl, scorePanel } = hud;
 
-  let activeSlot = 1;
+  let activeSlot = 1, prevSlot = 1;
   function selectSlot(n) {
     if (n < 1 || n > 5) return;
+    if (activeSlot !== n) prevSlot = activeSlot;
     activeSlot = n;
     slots.forEach((s) => s.classList.toggle("active", parseInt(s.dataset.slot, 10) === n));
     if (n === 1) { player.weapon = WEAPONS.sword; player.chargeTimer = 0; updateWeaponVis(player); }
@@ -1413,6 +1437,10 @@ export function createArenaGame(options) {
   }
   slots.forEach((s) => s.addEventListener("click", () => selectSlot(parseInt(s.dataset.slot, 10))));
   function _onKeyDown(e) {
+    if (e.key === "w" || e.key === "W") { wasd.w = true; e.preventDefault(); }
+    if (e.key === "a" || e.key === "A") { wasd.a = true; }
+    if (e.key === "s" || e.key === "S") { wasd.s = true; e.preventDefault(); }
+    if (e.key === "d" || e.key === "D") { wasd.d = true; }
     if (e.key >= "1" && e.key <= "5") selectSlot(parseInt(e.key, 10));
     if (e.key === "Tab") {
       e.preventDefault();
@@ -1432,6 +1460,10 @@ export function createArenaGame(options) {
   }
   function _onKeyUp(e) {
     if (e.key === "Tab") scorePanel.classList.add("hidden");
+    if (e.key === "w" || e.key === "W") wasd.w = false;
+    if (e.key === "a" || e.key === "A") wasd.a = false;
+    if (e.key === "s" || e.key === "S") wasd.s = false;
+    if (e.key === "d" || e.key === "D") wasd.d = false;
   }
   window.addEventListener("keydown", _onKeyDown);
   window.addEventListener("keyup", _onKeyUp);

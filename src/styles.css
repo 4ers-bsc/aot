@@ -1594,8 +1594,8 @@ body.in-game .game-hud-root {
 .slot:hover { transform: translateY(-2px); }
 
 .slot.active {
-  border-color: #33b14a;
-  box-shadow: 0 0 0 1px #33b14a, 0 0 12px rgba(51, 177, 74, 0.45);
+  border-color: #e03333;
+  box-shadow: 0 0 0 1px #e03333, 0 0 14px rgba(224, 51, 51, 0.55);
 }
 
 .slot .num {
