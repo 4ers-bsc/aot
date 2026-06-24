@@ -152,7 +152,9 @@ Deno.serve(async (req: Request) => {
     if (matchErr || !matchRow) return errorResponse("Match not found", 404);
     if (matchRow.status !== "finished") return errorResponse("Match is not finished", 400);
     if (matchRow.winner_user_id !== user.id) return errorResponse("Only the winner may claim", 403);
-    if (matchRow.payout_tx) return errorResponse("Prize already claimed", 409);
+    // Allow stale 'pending' reservations to fall through; claim_payout_slot
+    // will auto-release them if >10 minutes old (Fix 4).
+    if (matchRow.payout_tx && matchRow.payout_tx !== "pending") return errorResponse("Prize already claimed", 409);
 
     // ── Verify all deposits exist ────────────────────────────────────────────
     const { data: players, error: playersErr } = await adminClient
@@ -210,11 +212,18 @@ Deno.serve(async (req: Request) => {
     // ── Verify each deposit tx transferred the correct amount to escrow ──────
     // Parses the on-chain instruction data to confirm mint, destination, and
     // exact amount — a confirmed-but-unrelated tx signature cannot pass this.
+    // All fetches run in parallel to minimise latency (Fix 3/12).
+    const parsedTxs = await Promise.all(
+      depositSigs.map((sig) =>
+        connection.getParsedTransaction(sig, {
+          commitment: "confirmed",
+          maxSupportedTransactionVersion: 0,
+        })
+      )
+    );
+
     for (let i = 0; i < depositSigs.length; i++) {
-      const parsed = await connection.getParsedTransaction(depositSigs[i], {
-        commitment: "confirmed",
-        maxSupportedTransactionVersion: 0,
-      });
+      const parsed = parsedTxs[i];
       if (!parsed) return errorResponse(`Deposit ${i + 1} could not be parsed`, 400);
 
       // Include inner instructions to handle CPI-wrapped transfers

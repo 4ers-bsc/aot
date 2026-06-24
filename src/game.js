@@ -331,40 +331,44 @@ export function createArenaGame(options) {
   // -- Pixelated FIGHT10 ground decals (black pixel squares, random) --------
   const fight10Groups = [];
   function makeFight10Decal() {
-    fight10Groups.forEach((g) => scene.remove(g));
+    fight10Groups.forEach((g) => {
+      g.traverse((o) => {
+        if (o.geometry) o.geometry.dispose();
+        if (o.material) { if (o.material.map) o.material.map.dispose(); o.material.dispose(); }
+      });
+      scene.remove(g);
+    });
     fight10Groups.length = 0;
     const CW = 56, CH = 10;
-    for (let i = 0; i < 1; i++) {
-      const dc = document.createElement("canvas");
-      dc.width = CW; dc.height = CH;
-      const dctx = dc.getContext("2d");
-      dctx.imageSmoothingEnabled = false;
-      dctx.clearRect(0, 0, CW, CH);
-      dctx.fillStyle = "#000000";
-      dctx.font = `bold ${CH}px monospace`;
-      dctx.textAlign = "center";
-      dctx.textBaseline = "middle";
-      dctx.fillText("FIGHT10", CW / 2, CH / 2);
-      const tex = new THREE.CanvasTexture(dc);
-      tex.magFilter = THREE.NearestFilter;
-      tex.minFilter = THREE.NearestFilter;
-      const mesh = new THREE.Mesh(
-        new THREE.PlaneGeometry(40, 7.2),
-        new THREE.MeshBasicMaterial({ map: tex, transparent: true, depthWrite: false, opacity: 0.22 })
-      );
-      mesh.rotation.x = -Math.PI / 2;
-      const safe = MAP_HALF - 22;
-      const grp = new THREE.Group();
-      grp.position.set(
-        (Math.random() - 0.5) * 2 * safe,
-        0.04,
-        (Math.random() - 0.5) * 2 * safe
-      );
-      grp.rotation.y = Math.floor(Math.random() * 4) * (Math.PI / 2);
-      grp.add(mesh);
-      scene.add(grp);
-      fight10Groups.push(grp);
-    }
+    const dc = document.createElement("canvas");
+    dc.width = CW; dc.height = CH;
+    const dctx = dc.getContext("2d");
+    dctx.imageSmoothingEnabled = false;
+    dctx.clearRect(0, 0, CW, CH);
+    dctx.fillStyle = "#000000";
+    dctx.font = `bold ${CH}px monospace`;
+    dctx.textAlign = "center";
+    dctx.textBaseline = "middle";
+    dctx.fillText("FIGHT10", CW / 2, CH / 2);
+    const tex = new THREE.CanvasTexture(dc);
+    tex.magFilter = THREE.NearestFilter;
+    tex.minFilter = THREE.NearestFilter;
+    const mesh = new THREE.Mesh(
+      new THREE.PlaneGeometry(40, 7.2),
+      new THREE.MeshBasicMaterial({ map: tex, transparent: true, depthWrite: false, opacity: 0.22 })
+    );
+    mesh.rotation.x = -Math.PI / 2;
+    const safe = MAP_HALF - 22;
+    const grp = new THREE.Group();
+    grp.position.set(
+      (Math.random() - 0.5) * 2 * safe,
+      0.04,
+      (Math.random() - 0.5) * 2 * safe
+    );
+    grp.rotation.y = Math.floor(Math.random() * 4) * (Math.PI / 2);
+    grp.add(mesh);
+    scene.add(grp);
+    fight10Groups.push(grp);
   }
 
   // -- Outer dot plane (black field with receding white dots beyond the ledge) --
@@ -581,8 +585,11 @@ export function createArenaGame(options) {
   let foeMode = "ai"; // "ai" (demo) | "net" (pvp)
   const AI_AGGRO = 14;
 
+  let _foeCache = null;
   function foeList() {
-    return foeMode === "ai" ? aiRaiders : [...opponents.values()];
+    if (_foeCache) return _foeCache;
+    _foeCache = foeMode === "ai" ? aiRaiders : [...opponents.values()];
+    return _foeCache;
   }
 
   function makeAiRaider(i) {
@@ -655,7 +662,7 @@ export function createArenaGame(options) {
   }
   function clearMap() {
     while (mapGroup.children.length) {
-      const c = mapGroup.children.pop();
+      const c = mapGroup.children[0];
       c.traverse((o) => { if (o.geometry) o.geometry.dispose(); if (o.material) o.material.dispose(); });
       mapGroup.remove(c);
     }
@@ -1030,8 +1037,8 @@ export function createArenaGame(options) {
   let isDown = false, dragging = false, sx = 0, sy = 0, lx = 0, ly = 0;
   const panRight = new THREE.Vector3(), panUp = new THREE.Vector3();
   const canvas = renderer.domElement;
-  canvas.addEventListener("pointerdown", (e) => { canvas.setPointerCapture(e.pointerId); isDown = true; dragging = false; sx = lx = e.clientX; sy = ly = e.clientY; });
-  canvas.addEventListener("pointermove", (e) => {
+  function _onPointerDown(e) { canvas.setPointerCapture(e.pointerId); isDown = true; dragging = false; sx = lx = e.clientX; sy = ly = e.clientY; }
+  function _onPointerMove(e) {
     if (!isDown) return;
     if (settings.centerCamera) { lx = e.clientX; ly = e.clientY; return; }
     if (!dragging && Math.hypot(e.clientX - sx, e.clientY - sy) > 5) { dragging = true; following = false; }
@@ -1044,14 +1051,18 @@ export function createArenaGame(options) {
       camCenter.addScaledVector(panUp, dy * wpp);
     }
     lx = e.clientX; ly = e.clientY;
-  });
-  canvas.addEventListener("pointerup", (e) => { if (!isDown) return; isDown = false; if (!dragging) handleTap(e.clientX, e.clientY); });
+  }
+  function _onPointerUp(e) { if (!isDown) return; isDown = false; if (!dragging) handleTap(e.clientX, e.clientY); }
   const ZOOM_MIN = 0.4, ZOOM_MAX = 3.2;
-  canvas.addEventListener("wheel", (e) => {
+  function _onWheel(e) {
     e.preventDefault();
     camera.zoom = Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, camera.zoom * Math.exp(-e.deltaY * 0.0012)));
     camera.updateProjectionMatrix();
-  }, { passive: false });
+  }
+  canvas.addEventListener("pointerdown", _onPointerDown);
+  canvas.addEventListener("pointermove", _onPointerMove);
+  canvas.addEventListener("pointerup", _onPointerUp);
+  canvas.addEventListener("wheel", _onWheel, { passive: false });
 
   // -- HUD (attached reference set) -----------------------------------------
   const hud = buildHud();
@@ -1067,9 +1078,10 @@ export function createArenaGame(options) {
     else if (n === 3) { player.weapon = WEAPONS.sniper; player.attackTarget = null; updateWeaponVis(player); }
   }
   slots.forEach((s) => s.addEventListener("click", () => selectSlot(parseInt(s.dataset.slot, 10))));
-  window.addEventListener("keydown", (e) => {
+  function _onKeyDown(e) {
     if (e.key >= "1" && e.key <= "5") selectSlot(parseInt(e.key, 10));
-  });
+  }
+  window.addEventListener("keydown", _onKeyDown);
 
   // Settings
   const settings = { renderDistance: "Far", fog: false, msaa: true, animations: true, centerCamera: false, hideHud: false, fps: true, ping: true, location: false };
@@ -1118,6 +1130,36 @@ export function createArenaGame(options) {
   mmCtx.scale(mmDpr, mmDpr);
   const mmScale = MM / MAP_WORLD;
   const wToMM = (w) => (w + MAP_HALF) * mmScale;
+
+  // Offscreen canvas for static minimap elements (grid, river, solids, border).
+  // Rebuilt after generateMap() or applyTheme(); composited each frame.
+  const mmStatic = document.createElement("canvas");
+  mmStatic.width = MM * mmDpr; mmStatic.height = MM * mmDpr;
+  const mmSCtx = mmStatic.getContext("2d");
+  mmSCtx.scale(mmDpr, mmDpr);
+
+  function buildMinimapStatic() {
+    mmSCtx.clearRect(0, 0, MM, MM);
+    mmSCtx.strokeStyle = theme.mm.grid; mmSCtx.lineWidth = 1;
+    for (let g = -MAP_HALF; g <= MAP_HALF + 0.01; g += TILE * 5) {
+      const p = wToMM(g);
+      mmSCtx.beginPath(); mmSCtx.moveTo(p, 0); mmSCtx.lineTo(p, MM); mmSCtx.stroke();
+      mmSCtx.beginPath(); mmSCtx.moveTo(0, p); mmSCtx.lineTo(MM, p); mmSCtx.stroke();
+    }
+    if (river) {
+      mmSCtx.fillStyle = "rgba(61,127,176,0.55)";
+      if (river.axis === "x") mmSCtx.fillRect(wToMM(river.min), 0, (river.max - river.min) * mmScale, MM);
+      else mmSCtx.fillRect(0, wToMM(river.min), MM, (river.max - river.min) * mmScale);
+    }
+    mmSCtx.fillStyle = "rgba(40,46,40,0.7)";
+    for (const s of solids) {
+      mmSCtx.fillRect(wToMM(s.x) - 1.5, wToMM(s.z) - 1.5, 3, 3);
+    }
+    mmSCtx.strokeStyle = theme.mm.border; mmSCtx.lineWidth = 1.5;
+    mmSCtx.strokeRect(0.75, 0.75, MM - 1.5, MM - 1.5);
+  }
+  buildMinimapStatic();
+
   function arrow(ctx, x, y, ry, color) {
     const hx = Math.sin(ry), hy = Math.cos(ry), px = -hy, py = hx;
     ctx.fillStyle = color;
@@ -1130,23 +1172,7 @@ export function createArenaGame(options) {
   }
   function drawMinimap() {
     mmCtx.clearRect(0, 0, MM, MM);
-    mmCtx.strokeStyle = theme.mm.grid; mmCtx.lineWidth = 1;
-    for (let g = -MAP_HALF; g <= MAP_HALF + 0.01; g += TILE * 5) {
-      const p = wToMM(g);
-      mmCtx.beginPath(); mmCtx.moveTo(p, 0); mmCtx.lineTo(p, MM); mmCtx.stroke();
-      mmCtx.beginPath(); mmCtx.moveTo(0, p); mmCtx.lineTo(MM, p); mmCtx.stroke();
-    }
-    if (river) {
-      mmCtx.fillStyle = "rgba(61,127,176,0.55)";
-      if (river.axis === "x") mmCtx.fillRect(wToMM(river.min), 0, (river.max - river.min) * mmScale, MM);
-      else mmCtx.fillRect(0, wToMM(river.min), MM, (river.max - river.min) * mmScale);
-    }
-    mmCtx.fillStyle = "rgba(40,46,40,0.7)";
-    for (const s of solids) {
-      mmCtx.fillRect(wToMM(s.x) - 1.5, wToMM(s.z) - 1.5, 3, 3);
-    }
-    mmCtx.strokeStyle = theme.mm.border; mmCtx.lineWidth = 1.5;
-    mmCtx.strokeRect(0.75, 0.75, MM - 1.5, MM - 1.5);
+    mmCtx.drawImage(mmStatic, 0, 0, MM, MM);
     mmCtx.strokeStyle = theme.mm.cam; mmCtx.lineWidth = 1;
     mmCtx.strokeRect(wToMM(camCenter.x) - 9, wToMM(camCenter.z) - 9, 18, 18);
     mmCtx.fillStyle = theme.mm.enemy;
@@ -1196,6 +1222,7 @@ export function createArenaGame(options) {
     aiRaiders.forEach((r) => { recolorFighter(r, theme.enemy); r.bar.color = theme.enemyBar; });
     opponents.forEach((o) => { recolorFighter(o, theme.enemy); o.bar.color = theme.enemyBar; });
     cursorAttack = !cursorAttack; setCursor(false);
+    buildMinimapStatic();
   }
 
   // -- Resize ---------------------------------------------------------------
@@ -1275,7 +1302,7 @@ export function createArenaGame(options) {
     controllable = false;
     const field = [{ id: localUserId ?? "", hp: player.dead ? -1 : player.hp, me: true, name: player.name }];
     opponents.forEach((o) => field.push({ id: o.userId, hp: o.dead ? -1 : o.hp, me: false, name: o.name }));
-    field.sort((a, b) => b.hp - a.hp || String(a.id).localeCompare(String(b.id)));
+    field.sort((a, b) => b.hp - a.hp || (a.id < b.id ? -1 : 1));
     const standings = field.map((f, i) => ({ rank: i + 1, name: f.name, hp: Math.max(0, f.hp), me: f.me }));
     options.onResultSuggestion?.(field[0].me ? "win" : "loss", standings);
   }
@@ -1287,6 +1314,7 @@ export function createArenaGame(options) {
   const clock = new THREE.Clock();
   function animate() {
     if (destroyed) return;
+    _foeCache = null; // invalidate per-frame foeList() cache
     const dt = Math.min(clock.getDelta(), 0.05);
 
     updatePlayer(dt);
@@ -1405,7 +1433,6 @@ export function createArenaGame(options) {
       showTimer();
     },
     playerAlive() { return !player.dead && player.hp > 0; },
-    opponentCount() { return opponents.size; },
     setLocalUser({ userId, displayName }) {
       perspective = "player";
       controllable = true;
@@ -1488,15 +1515,19 @@ export function createArenaGame(options) {
       if (!f) return;
       f.connected = true;
       f.netTarget = { x: clamp(snap.x, -MAP_HALF, MAP_HALF), z: clamp(snap.z, -MAP_HALF, MAP_HALF) };
-      f.maxHp = snap.maxHp ?? f.maxHp;
+      // maxHp is fixed at fighter creation — never trust the network for it.
       // HP only drops within a match (no respawns). Take the lower of our
       // optimistic value and their authoritative report to avoid bounce-back.
       const snapHp = clamp(snap.hp ?? f.hp, 0, f.maxHp);
+      const prevHp = f.hp;
       f.hp = Math.min(f.hp, snapHp);
       if (typeof snap.facing === "number") f.facing = snap.facing;
       if (snap.weapon && WEAPONS[snap.weapon]) { f.weapon = WEAPONS[snap.weapon]; updateWeaponVis(f); }
       if (snap.name) f.name = snap.name;
-      if (f.hp <= 0 && !f.dead) killFighter(f);
+      // Only trigger kill from a state packet when HP was already critically low.
+      // A spoofed jump from healthy to 0 would be blocked here; real deaths arrive
+      // via receiveAttack → applyDamage → killFighter with proper validation.
+      if (f.hp <= 0 && !f.dead && prevHp <= 15) killFighter(f);
     },
     receiveAttack(payload) {
       if (!payload || foeMode !== "net") return;
@@ -1521,7 +1552,7 @@ export function createArenaGame(options) {
         else applyDamage(target, dmg);
       }
     },
-    generateMap(seed) { generateMap(seed); },
+    generateMap(seed) { generateMap(seed); buildMinimapStatic(); },
     clearAll() {
       perspective = "offline";
       controllable = false;
@@ -1549,6 +1580,11 @@ export function createArenaGame(options) {
     destroy() {
       destroyed = true;
       ro.disconnect();
+      canvas.removeEventListener("pointerdown", _onPointerDown);
+      canvas.removeEventListener("pointermove", _onPointerMove);
+      canvas.removeEventListener("pointerup", _onPointerUp);
+      canvas.removeEventListener("wheel", _onWheel);
+      window.removeEventListener("keydown", _onKeyDown);
       player.bar.el.remove();
       aiRaiders.forEach((r) => r.bar.el.remove());
       clearOpponents();
@@ -1685,7 +1721,7 @@ function stubApi() {
   const noop = () => {};
   return {
     setView: noop, setMode: noop, setMatchPhase: noop, setControllable: noop, setMatchTimer: noop, setLocalUser: noop,
-    playerAlive: () => false, opponentCount: () => 0,
+    playerAlive: () => false,
     useAiFoe: noop, usePvpFoes: noop, addOpponent: noop, removeOpponent: () => 0,
     clearRemote: noop, resetForMatch: noop, receivePlayerState: noop,
     receiveAttack: noop, generateMap: noop, clearAll: noop, destroy: noop,
