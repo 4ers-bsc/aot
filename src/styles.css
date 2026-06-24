@@ -1607,6 +1607,80 @@ body.in-game .game-hud-root {
   font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
 }
 
+.slot-cd {
+  position: absolute;
+  inset: 0;
+  border-radius: 8px;
+  background: conic-gradient(rgba(0, 0, 0, 0.62) calc(var(--cd, 0) * 360deg), transparent 0deg);
+  pointer-events: none;
+  z-index: 2;
+}
+
+.slot-frag-lbl {
+  font-size: 8px;
+  font-weight: bold;
+  color: rgba(255, 200, 80, 0.92);
+  letter-spacing: 0.5px;
+  line-height: 1;
+  z-index: 1;
+}
+
+.score-panel {
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  z-index: 30;
+  background: rgba(0, 0, 0, 0.9);
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 10px;
+  min-width: 300px;
+  padding: 18px 22px;
+  backdrop-filter: blur(10px);
+  pointer-events: none;
+}
+.score-panel.hidden { display: none; }
+.sp-title {
+  color: #fff;
+  font-size: 13px;
+  letter-spacing: 3px;
+  text-align: center;
+  margin-bottom: 14px;
+  opacity: 0.7;
+}
+.sp-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+.sp-name {
+  color: #e0e0e0;
+  font-size: 12px;
+  min-width: 90px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.sp-bar-wrap {
+  flex: 1;
+  height: 7px;
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 4px;
+  overflow: hidden;
+}
+.sp-bar {
+  height: 100%;
+  border-radius: 4px;
+}
+.sp-hp {
+  color: #888;
+  font-size: 11px;
+  min-width: 55px;
+  text-align: right;
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+}
+
 /* Settings gear + FPS / ping */
 .gear {
   position: fixed;

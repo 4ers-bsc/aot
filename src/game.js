@@ -17,8 +17,9 @@ const WEAPONS = {
   sword:  { id: "sword",   name: "Sword",   atk: 25, atkVar: 3, cd: 0.7,  range: 2.4, ranged: false },
   pistol: { id: "pistol",  name: "Pistol",  atk: 15, atkVar: 4, cd: 0.9,  range: 18,  ranged: true,  bulletSpeed: 46, bulletSize: 0.13, chargeTime: 0    },
   sniper: { id: "sniper",  name: "Sniper",  atk: 20, atkVar: 2, cd: 2.2,  range: 60,  ranged: true,  bulletSpeed: 90, bulletSize: 0.22, chargeTime: 0.45 },
+  frag:   { id: "frag",    name: "Frag",    atk: 22, atkVar: 4, cd: 3.5,  range: 35,  ranged: false, isGrenade: true, fuseTime: 1.0, blastRadius: 5 },
 };
-const WEAPON_LIST = Object.values(WEAPONS);
+const WEAPON_LIST = Object.values(WEAPONS).filter((w) => !w.isGrenade);
 function randomAiWeapon() { return WEAPON_LIST[Math.floor(Math.random() * WEAPON_LIST.length)]; }
 
 const THEMES = {
@@ -638,7 +639,6 @@ export function createArenaGame(options) {
   let solids = [];        // { x, z, r } — blocks movement + line of sight
   let riverSegments = []; // array of {x,z} waypoints defining the river centre-line
   let riverHalfW = 0;     // half-width of the river for capsule checks
-  let bridge = null;      // { cx, cz, halfLen, halfWid, cosA, sinA } for on-bridge test
 
   function makeRng(seedStr) {
     const str = String(seedStr);
@@ -702,7 +702,6 @@ export function createArenaGame(options) {
     solids = [];
     riverSegments = [];
     riverHalfW = 0;
-    bridge = null;
   }
   function addTower(x, z) {
     const g = new THREE.Group();
@@ -740,6 +739,29 @@ export function createArenaGame(options) {
     g.position.set(x, 0, z);
     mapGroup.add(g);
     solids.push({ x, z, r: 2.2 });
+  }
+  function addTowerSnowGrass(cx, cz, rng) {
+    const count = 6 + Math.floor(rng() * 5);
+    for (let i = 0; i < count; i++) {
+      const angle = rng() * Math.PI * 2;
+      const dist  = 3.2 + rng() * 3.8;
+      const px = cx + Math.cos(angle) * dist;
+      const pz = cz + Math.sin(angle) * dist;
+      if (Math.abs(px) > MAP_HALF - 1 || Math.abs(pz) > MAP_HALF - 1) continue;
+      const g = new THREE.Group();
+      const bladeCount = 2 + Math.floor(rng() * 3);
+      for (let j = 0; j < bladeCount; j++) {
+        const ox = (rng() * 2 - 1) * 0.4, oz = (rng() * 2 - 1) * 0.4;
+        const h  = 0.28 + rng() * 0.32;
+        const col = rng() < 0.5 ? 0xc8dce0 : 0xa8c8b8;
+        const blade = box(0.12, h, 0.12, col);
+        blade.position.set(ox, h / 2, oz);
+        blade.rotation.y = rng() * Math.PI;
+        g.add(blade);
+      }
+      g.position.set(px, 0, pz);
+      mapGroup.add(g);
+    }
   }
   function addGrass(x, z, rng) {
     const g = new THREE.Group();
@@ -789,37 +811,6 @@ export function createArenaGame(options) {
     g.position.set(x, 0, z);
     mapGroup.add(g);
     solids.push({ x, z, r: 1.9 });
-  }
-  function addBridge(cx, cz, flowDx, flowDz, riverHW) {
-    const g = new THREE.Group();
-    g.position.set(cx, 0, cz);
-    // atan2(-flowDx, flowDz) aligns local-Z with river flow; local-X = perpendicular (bridge span)
-    g.rotation.y = Math.atan2(-flowDx, flowDz);
-    const bLen = riverHW * 2 + 12; // span = full river width + 6u overhang on each bank
-    const bWid = 4.5;               // width along river flow
-    const yDk  = 0.35;              // deck sits above the water surface
-    // Deck base
-    const deck = box(bLen, 0.30, bWid, 0x8B6040); deck.position.y = yDk; g.add(deck);
-    // Individual planks
-    for (let px = -bLen / 2 + 0.45; px < bLen / 2; px += 1.1) {
-      const plank = box(0.82, 0.32, bWid - 0.12, 0x7A5232); plank.position.set(px, yDk + 0.03, 0); g.add(plank);
-    }
-    // Side railings
-    const rl = box(bLen, 0.60, 0.18, 0x6B4422); rl.position.set(0, yDk + 0.60, -bWid / 2); g.add(rl);
-    const rr = box(bLen, 0.60, 0.18, 0x6B4422); rr.position.set(0, yDk + 0.60,  bWid / 2); g.add(rr);
-    // Corner posts
-    [[-bLen / 2, -bWid / 2], [-bLen / 2, bWid / 2], [bLen / 2, -bWid / 2], [bLen / 2, bWid / 2]].forEach(([px, pz]) => {
-      const post = box(0.26, 1.2, 0.26, 0x5E3A1E); post.position.set(px, yDk + 0.60, pz); g.add(post);
-    });
-    mapGroup.add(g);
-    const angle = Math.atan2(-flowDx, flowDz);
-    bridge = { cx, cz, halfLen: bLen / 2, halfWid: bWid / 2 + 0.4, cosA: Math.cos(angle), sinA: Math.sin(angle) };
-  }
-  function onBridge(x, z) {
-    if (!bridge) return false;
-    const lx = (x - bridge.cx) * bridge.cosA  + (z - bridge.cz) * bridge.sinA;
-    const lz = (x - bridge.cx) * -bridge.sinA + (z - bridge.cz) * bridge.cosA;
-    return Math.abs(lx) <= bridge.halfLen && Math.abs(lz) <= bridge.halfWid;
   }
   function addRiverBoulder(x, z, rng) {
     const g = new THREE.Group();
@@ -925,15 +916,7 @@ export function createArenaGame(options) {
     plane.receiveShadow = false;
     mapGroup.add(plane);
 
-    // Wooden bridge at a random interior crossing point
-    const bSegIdx  = 1 + Math.floor(rng() * 2);           // segment 1 or 2 (interior)
-    const bT       = 0.2 + rng() * 0.6;                   // 20–80% along segment
-    const bA = wps[bSegIdx], bB = wps[bSegIdx + 1];
-    const bridgeCx = bA.x + (bB.x - bA.x) * bT;
-    const bridgeCz = bA.z + (bB.z - bA.z) * bT;
-    addBridge(bridgeCx, bridgeCz, bB.x - bA.x, bB.z - bA.z, hw);
-
-    // Snowy boulders scattered on the river (avoid bridge area)
+    // Snowy boulders scattered on the river
     for (let attempt = 0, count = 0; attempt < 80 && count < 5; attempt++) {
       const si = Math.floor(rng() * (wps.length - 1));
       const t  = rng();
@@ -944,7 +927,6 @@ export function createArenaGame(options) {
       const perpX = -fdz / flen, perpZ = fdx / flen;
       const off = (rng() * 2 - 1) * hw * 0.55;
       const bx = cx + perpX * off, bz = cz + perpZ * off;
-      if (Math.hypot(bx - bridgeCx, bz - bridgeCz) < hw * 1.8) continue;
       if (!inRiver(bx, bz)) continue;
       if (collidesSolid(bx, bz, 2.2)) continue;
       addRiverBoulder(bx, bz, rng);
@@ -957,7 +939,10 @@ export function createArenaGame(options) {
     buildRiver(rng);
     // Four snowy watchtowers, one at each corner — always present
     const tOff = MAP_HALF - 5;
-    [[-tOff,-tOff],[-tOff,tOff],[tOff,-tOff],[tOff,tOff]].forEach(([tx,tz]) => addTower(tx,tz));
+    [[-tOff,-tOff],[-tOff,tOff],[tOff,-tOff],[tOff,tOff]].forEach(([tx,tz]) => {
+      addTower(tx, tz);
+      addTowerSnowGrass(tx, tz, rng);
+    });
     const scatter = (count, adder, gap) => {
       let made = 0, tries = 0;
       while (made < count && tries < count * 40) {
@@ -1005,7 +990,7 @@ export function createArenaGame(options) {
     const dx = tx - px, dz = tz - pz;
     const dist = Math.hypot(dx, dz);
     if (dist <= ARRIVE) return true;
-    const slow = (inRiver(px, pz) && !onBridge(px, pz)) ? RIVER_SLOW : 1;
+    const slow = inRiver(px, pz) ? RIVER_SLOW : 1;
     const step = Math.min(f.speed * slow * dt, dist);
     const lim = MAP_HALF - 0.5;
     const nx = Math.max(-lim, Math.min(lim, px + dx / dist * step));
@@ -1056,15 +1041,22 @@ export function createArenaGame(options) {
     if (def === player && foeMode === "net") emitState();
   }
   function fireBullet(att, def, dmg, deal, weapon) {
-    const isSniper    = weapon?.id === "sniper";
     const bulletSize  = weapon?.bulletSize  ?? 0.13;
     const bulletSpeed = weapon?.bulletSpeed ?? 46;
-    const bulletColor = isSniper ? 0xe8f8ff : theme.bullet;
-    const b = new THREE.Mesh(new THREE.SphereGeometry(bulletSize, 8, 8), new THREE.MeshBasicMaterial({ color: bulletColor }));
+    const bGroup = new THREE.Group();
+    const baseM = new THREE.Mesh(
+      new THREE.SphereGeometry(bulletSize * 1.35, 6, 5),
+      new THREE.MeshBasicMaterial({ color: 0x0a0a0a })
+    );
+    const tipM = new THREE.Mesh(
+      new THREE.SphereGeometry(bulletSize, 6, 5),
+      new THREE.MeshBasicMaterial({ color: 0xFFD700 })
+    );
+    bGroup.add(baseM, tipM);
     const fx = Math.sin(att.facing), fz = Math.cos(att.facing);
-    b.position.set(att.group.position.x + fx * 0.8, 1.5, att.group.position.z + fz * 0.8);
-    scene.add(b);
-    bullets.push({ mesh: b, def: deal ? def : null, dmg, speed: bulletSpeed, target: new THREE.Vector3(def.group.position.x, 1.45, def.group.position.z) });
+    bGroup.position.set(att.group.position.x + fx * 0.8, 1.5, att.group.position.z + fz * 0.8);
+    scene.add(bGroup);
+    bullets.push({ mesh: bGroup, def: deal ? def : null, dmg, speed: bulletSpeed, target: new THREE.Vector3(def.group.position.x, 1.45, def.group.position.z) });
   }
   function updateBullets(dt) {
     for (let i = bullets.length - 1; i >= 0; i--) {
@@ -1074,11 +1066,81 @@ export function createArenaGame(options) {
       if (dist <= step || dist < 0.5) {
         if (b.def && !b.def.dead) applyDamage(b.def, b.dmg);
         scene.remove(b.mesh);
-        b.mesh.geometry.dispose();
-        b.mesh.material.dispose();
+        b.mesh.traverse((o) => { if (o.geometry) o.geometry.dispose(); if (o.material) o.material.dispose(); });
         bullets.splice(i, 1);
       } else {
         b.mesh.position.addScaledVector(_bulletDir.normalize(), step);
+      }
+    }
+  }
+
+  const grenades = [];
+  const explosions = [];
+  function fireGrenade(att, tx, tz, dmg) {
+    const sx = att.group.position.x, sz = att.group.position.z;
+    const dist = Math.hypot(tx - sx, tz - sz);
+    const duration = Math.max(0.5, dist / 22);
+    const mesh = new THREE.Mesh(
+      new THREE.SphereGeometry(0.24, 6, 5),
+      new THREE.MeshBasicMaterial({ color: 0x222222 })
+    );
+    mesh.position.set(sx, 1.3, sz);
+    scene.add(mesh);
+    grenades.push({ mesh, sx, sz, tx, tz, elapsed: 0, duration, phase: "flying", fuseTimer: 0, dmg, deal: att === player });
+  }
+  function updateGrenades(dt) {
+    for (let i = grenades.length - 1; i >= 0; i--) {
+      const g = grenades[i];
+      if (g.phase === "flying") {
+        g.elapsed += dt;
+        const t = Math.min(1, g.elapsed / g.duration);
+        g.mesh.position.set(
+          g.sx + (g.tx - g.sx) * t,
+          1.0 + 4.5 * Math.sin(Math.PI * t),
+          g.sz + (g.tz - g.sz) * t
+        );
+        if (t >= 1) { g.phase = "fuse"; g.fuseTimer = 0; }
+      } else {
+        g.fuseTimer += dt;
+        g.mesh.visible = (Math.floor(g.fuseTimer * 10) % 2 === 0);
+        if (g.fuseTimer >= 1.0) {
+          // AOE explosion
+          const allFighters = [player, ...foeList()];
+          for (const f of allFighters) {
+            if (f.dead || !f.connected) continue;
+            if (f === player && g.deal) continue; // player doesn't self-damage
+            if (f !== player && !g.deal) continue; // AI grenade only hits player
+            const d = Math.hypot(f.group.position.x - g.tx, f.group.position.z - g.tz);
+            if (d <= 5) {
+              const dmg = Math.max(1, Math.round(g.dmg * (1 - d / 5)));
+              applyDamage(f, dmg);
+            }
+          }
+          // Explosion flash
+          const flashGeo = new THREE.SphereGeometry(5, 8, 6);
+          const flashMat = new THREE.MeshBasicMaterial({ color: 0xff8800, transparent: true, opacity: 0.75 });
+          const flash = new THREE.Mesh(flashGeo, flashMat);
+          flash.position.set(g.tx, 1, g.tz);
+          scene.add(flash);
+          explosions.push({ mesh: flash, t: 0 });
+          scene.remove(g.mesh);
+          g.mesh.geometry.dispose(); g.mesh.material.dispose();
+          grenades.splice(i, 1);
+        }
+      }
+    }
+  }
+  function updateExplosions(dt) {
+    for (let i = explosions.length - 1; i >= 0; i--) {
+      const ex = explosions[i];
+      ex.t += dt;
+      if (ex.t >= 0.45) {
+        scene.remove(ex.mesh);
+        ex.mesh.geometry.dispose(); ex.mesh.material.dispose();
+        explosions.splice(i, 1);
+      } else {
+        ex.mesh.material.opacity = 0.75 * (1 - ex.t / 0.45);
+        ex.mesh.scale.setScalar(1 + ex.t * 3);
       }
     }
   }
@@ -1288,10 +1350,19 @@ export function createArenaGame(options) {
       const lim = MAP_HALF - TILE / 2;
       const tx = Math.max(-lim, Math.min(lim, (Math.floor(hit.x / TILE) + 0.5) * TILE));
       const tz = Math.max(-lim, Math.min(lim, (Math.floor(hit.z / TILE) + 0.5) * TILE));
+      if (player.weapon.isGrenade) {
+        if (player.cdTimer > 0) return;
+        const dist = Math.hypot(tx - player.group.position.x, tz - player.group.position.z);
+        if (dist > player.weapon.range) return;
+        const dmg = Math.max(1, Math.round(player.weapon.atk + (Math.random() * 2 - 1) * player.weapon.atkVar));
+        player.cdTimer = player.weapon.cd;
+        player.atkAnim = 0.32;
+        fireGrenade(player, tx, tz, dmg);
+        setMarker(tx, tz, 0xff8800, 0xcc5500);
+        return;
+      }
       player.attackTarget = null;
       player.target = new THREE.Vector3(tx, 0, tz);
-      // Don't recenter the camera on the character for a move order; the
-      // player can pan freely (Center Camera setting still forces follow).
       if (settings.centerCamera) following = true;
       setMarker(tx, tz, theme.markerMove[0], theme.markerMove[1]);
     }
@@ -1328,7 +1399,7 @@ export function createArenaGame(options) {
 
   // -- HUD (attached reference set) -----------------------------------------
   const hud = buildHud();
-  const { hint, coords, mmCanvas, hotbar, slots, fpsEl, pingEl, overlay, renderDistBtn, matchTimerEl, mapToggleBtn, raiderCountCtrl, raiderCountEl } = hud;
+  const { hint, coords, mmCanvas, hotbar, slots, fpsEl, pingEl, overlay, renderDistBtn, matchTimerEl, mapToggleBtn, raiderCountCtrl, raiderCountEl, scorePanel } = hud;
 
   let activeSlot = 1;
   function selectSlot(n) {
@@ -1338,12 +1409,32 @@ export function createArenaGame(options) {
     if (n === 1) { player.weapon = WEAPONS.sword; player.chargeTimer = 0; updateWeaponVis(player); }
     else if (n === 2) { player.weapon = WEAPONS.pistol; player.attackTarget = null; player.chargeTimer = 0; updateWeaponVis(player); }
     else if (n === 3) { player.weapon = WEAPONS.sniper; player.attackTarget = null; player.chargeTimer = 0; updateWeaponVis(player); }
+    else if (n === 4) { player.weapon = WEAPONS.frag; player.attackTarget = null; player.chargeTimer = 0; updateWeaponVis(player); }
   }
   slots.forEach((s) => s.addEventListener("click", () => selectSlot(parseInt(s.dataset.slot, 10))));
   function _onKeyDown(e) {
     if (e.key >= "1" && e.key <= "5") selectSlot(parseInt(e.key, 10));
+    if (e.key === "Tab") {
+      e.preventDefault();
+      const all = [player, ...foeList()];
+      scorePanel.innerHTML = '<div class="sp-title">SCOREBOARD</div>' +
+        all.filter((f) => f.connected).map((f) => {
+          const pct = Math.round(Math.max(0, f.hp) / f.maxHp * 100);
+          const barCol = f === player ? "#33b14a" : "#e0473c";
+          return `<div class="sp-row">
+            <span class="sp-name">${f.name || "Player"}</span>
+            <div class="sp-bar-wrap"><div class="sp-bar" style="width:${pct}%;background:${barCol}"></div></div>
+            <span class="sp-hp">${Math.max(0, f.hp)}/${f.maxHp}</span>
+          </div>`;
+        }).join('');
+      scorePanel.classList.remove("hidden");
+    }
+  }
+  function _onKeyUp(e) {
+    if (e.key === "Tab") scorePanel.classList.add("hidden");
   }
   window.addEventListener("keydown", _onKeyDown);
+  window.addEventListener("keyup", _onKeyUp);
 
   // Settings
   const settings = { renderDistance: "Far", fog: false, msaa: true, animations: true, centerCamera: false, hideHud: false, fps: true, ping: true, location: false };
@@ -1607,6 +1698,17 @@ export function createArenaGame(options) {
       foeList().forEach((f) => { f.group.rotation.y = f.facing; });
     }
     updateBullets(dt);
+    updateGrenades(dt);
+    updateExplosions(dt);
+
+    // Cooldown swirl — show how much of the active weapon CD remains
+    if (player.weapon && player.weapon.cd > 0) {
+      const cdFrac = Math.min(1, Math.max(0, player.cdTimer / player.weapon.cd));
+      slots.forEach((s, i) => {
+        const cd = s.querySelector(".slot-cd");
+        if (cd) cd.style.setProperty("--cd", i === activeSlot - 1 ? cdFrac : 0);
+      });
+    }
 
     if (perspective === "player") {
       emitAcc += dt * 1000;
@@ -1864,6 +1966,7 @@ export function createArenaGame(options) {
       canvas.removeEventListener("pointerup", _onPointerUp);
       canvas.removeEventListener("wheel", _onWheel);
       window.removeEventListener("keydown", _onKeyDown);
+      window.removeEventListener("keyup", _onKeyUp);
       player.bar.el.remove();
       aiRaiders.forEach((r) => r.bar.el.remove());
       clearOpponents();
@@ -1903,16 +2006,18 @@ function buildHud() {
   for (let n = 1; n <= 5; n++) {
     const imgSrc = n === 1 ? "/sword.png" : n === 2 ? "/pistol.png" : n === 3 ? "/sniper.png" : "";
     const imgTag = imgSrc ? `<img src="${imgSrc}" class="slot-icon" alt="" />` : "";
+    const fragTag = n === 4 ? `<span class="slot-frag-lbl">FRAG</span>` : "";
     const s = document.createElement("div");
     s.className = "slot" + (n === 1 ? " active" : "");
     s.dataset.slot = String(n);
-    s.innerHTML = `${imgTag}<span class="num">${n}</span>`;
+    s.innerHTML = `${imgTag}${fragTag}<span class="num">${n}</span><div class="slot-cd"></div>`;
     hotbar.appendChild(s);
   }
   const slots = Array.from(hotbar.querySelectorAll(".slot"));
   const mapToggleBtn = add('<button class="map-toggle-btn game-ui hidden" title="Switch map" data-variant="game">🏜 Golden</button>');
   const raiderCountCtrl = add('<div class="raider-count-ctrl game-ui hidden"><button class="rc-btn rc-minus">−</button><span class="rc-label"><span class="rc-num">1</span> Raiders</span><button class="rc-btn rc-plus">+</button></div>');
   const raiderCountEl = raiderCountCtrl.querySelector(".rc-num");
+  const scorePanel = add('<div class="score-panel game-ui hidden"></div>');
   add('<button class="gear game-ui" title="Settings">&#9881;</button>');
   const gearBtn = root.querySelector(".gear");
   const fpsEl = add('<div class="game-fps game-ui">FPS --</div>');
@@ -1989,7 +2094,7 @@ function buildHud() {
     });
   }
 
-  return { root, hint, coords, matchTimerEl, mmCanvas, hotbar, slots, fpsEl, pingEl, overlay, renderDistBtn, bindSettings, mapToggleBtn, raiderCountCtrl, raiderCountEl };
+  return { root, hint, coords, matchTimerEl, mmCanvas, hotbar, slots, fpsEl, pingEl, overlay, renderDistBtn, bindSettings, mapToggleBtn, raiderCountCtrl, raiderCountEl, scorePanel };
 }
 
 function clamp(v, min, max) {
