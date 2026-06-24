@@ -1773,25 +1773,71 @@ body.in-game .game-hud-root {
 
 .gear:hover { transform: rotate(45deg); border-color: #33b14a; }
 
-.map-toggle-btn {
+.keys-info-btn {
   position: fixed;
   top: 64px;
   right: 16px;
   z-index: 12;
-  padding: 0 14px;
-  height: 36px;
+  width: 40px;
+  height: 40px;
   border-radius: 9px;
   background: rgba(20, 28, 24, 0.6);
-  color: #ffe8a0;
-  border: 1px solid rgba(255, 200, 48, 0.35);
+  color: #dfeee0;
+  border: 1px solid rgba(255, 255, 255, 0.18);
   backdrop-filter: blur(6px);
-  font-size: 13px;
-  font-weight: 600;
+  font-size: 18px;
+  font-weight: 700;
   cursor: pointer;
-  white-space: nowrap;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   transition: border-color 0.15s, background 0.15s;
 }
-.map-toggle-btn:hover { border-color: #ffc830; background: rgba(20, 28, 24, 0.85); }
+.keys-info-btn:hover { border-color: #33b14a; background: rgba(20, 28, 24, 0.85); }
+
+.keys-info-panel {
+  position: fixed;
+  top: 112px;
+  right: 16px;
+  z-index: 12;
+  background: rgba(8, 12, 10, 0.92);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 10px;
+  backdrop-filter: blur(8px);
+  padding: 10px 14px 12px;
+  min-width: 200px;
+}
+.ki-title {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  color: rgba(255, 255, 255, 0.4);
+  margin-bottom: 8px;
+}
+.ki-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 3px 0;
+  border-bottom: 1px solid rgba(255,255,255,0.05);
+}
+.ki-row:last-child { border-bottom: none; }
+.ki-key {
+  font-size: 11px;
+  font-weight: 600;
+  color: #fff;
+  background: rgba(255,255,255,0.08);
+  border: 1px solid rgba(255,255,255,0.18);
+  border-radius: 4px;
+  padding: 1px 6px;
+  white-space: nowrap;
+}
+.ki-desc {
+  font-size: 11px;
+  color: rgba(255,255,255,0.55);
+  text-align: right;
+}
 
 .raider-count-ctrl {
   position: fixed;
