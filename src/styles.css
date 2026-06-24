@@ -1570,9 +1570,9 @@ body.in-game .game-hud-root {
   height: 52px;
   border-radius: 8px;
   position: relative;
-  background: rgba(20, 28, 24, 0.55);
-  border: 1px solid rgba(255, 255, 255, 0.18);
-  backdrop-filter: blur(6px);
+  background: rgba(0, 0, 0, 0.92);
+  border: 1px solid rgba(255, 255, 255, 0.20);
+  box-shadow: 0 2px 8px rgba(0,0,0,0.8), inset 0 1px 0 rgba(255,255,255,0.07);
   cursor: pointer;
   display: flex;
   align-items: center;
@@ -1587,7 +1587,7 @@ body.in-game .game-hud-root {
   width: 34px;
   height: 34px;
   object-fit: contain;
-  filter: brightness(0) drop-shadow(0 1px 3px rgba(0,0,0,0.7));
+  filter: brightness(0) invert(1) drop-shadow(0 1px 3px rgba(0,0,0,0.8));
   pointer-events: none;
 }
 

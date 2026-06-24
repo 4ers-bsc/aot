@@ -706,33 +706,13 @@ export function createArenaGame(options) {
   }
   function addTower(x, z) {
     const g = new THREE.Group();
-    // Vintage weathered stone palette — warm tawny grey
-    const base = box(4.0, 0.5, 4.0, 0x6e6050); base.position.y = 0.25;
-    const body = box(3.2, 11.0, 3.2, 0x8a7a68); body.position.y = 6.0;
-    const par  = box(3.8, 0.6,  3.8, 0x7a6e58); par.position.y  = 11.8;
+    const base  = box(4.0, 0.5,  4.0, 0x6a6a6a); base.position.y  = 0.25;
+    const body  = box(3.2, 11.0, 3.2, 0x787878); body.position.y  = 6.0;
+    const par   = box(3.8, 0.6,  3.8, 0x848484); par.position.y   = 11.8;
     const psnow = box(3.9, 0.22, 3.9, 0xdde9f5); psnow.position.y = 12.22;
-    // 4 corner battlements with snow caps — slightly irregular heights for age
-    [[-1.3,-1.3,1.40],[-1.3,1.3,1.55],[1.3,-1.3,1.50],[1.3,1.3,1.35]].forEach(([bx, bz, bh]) => {
-      const bt  = box(1.0, bh,  1.0, 0x7a6e58); bt.position.set(bx, 12.2 + bh / 2, bz); g.add(bt);
-      const bsn = box(1.1, 0.22, 1.1, 0xe4eef7); bsn.position.set(bx, 12.2 + bh + 0.11, bz); g.add(bsn);
-    });
-    // Moss/age horizontal bands — subtle greenish-grey staining
-    const ms1 = box(3.22, 0.28, 3.22, 0x566050); ms1.position.y = 1.9;  g.add(ms1);
-    const ms2 = box(3.22, 0.18, 3.22, 0x4c5848); ms2.position.y = 5.6;  g.add(ms2);
-    const ms3 = box(3.22, 0.14, 3.22, 0x556050); ms3.position.y = 9.8;  g.add(ms3);
-    // Battle dents — dark recessed patches on the four tower faces
-    [
-      // [posX, posY, posZ, boxW, boxH, boxD]
-      [  1.63,  3.2,  0.0,  0.14, 1.1, 0.65 ],  // +X face, mid-low
-      [  1.63,  7.5,  0.4,  0.14, 0.7, 0.50 ],  // +X face, mid-high
-      [ -1.63,  5.0, -0.3,  0.14, 0.9, 0.70 ],  // -X face, mid
-      [ -1.63,  8.8,  0.6,  0.14, 0.5, 0.45 ],  // -X face, high
-      [  0.2,   9.1,  1.63, 0.90, 0.6, 0.14 ],  // +Z face, high
-      [ -0.5,   4.6,  1.63, 0.80, 1.0, 0.14 ],  // +Z face, mid
-      [  0.6,   2.1, -1.63, 0.60, 0.8, 0.14 ],  // -Z face, low
-      [ -0.3,   7.2, -1.63, 0.75, 0.55,0.14 ],  // -Z face, mid-high
-    ].forEach(([px, py, pz, pw, ph, pd]) => {
-      const d = box(pw, ph, pd, 0x2a2018); d.position.set(px, py, pz); g.add(d);
+    [[-1.3,-1.3],[-1.3,1.3],[1.3,-1.3],[1.3,1.3]].forEach(([bx, bz]) => {
+      const bt  = box(1.0, 1.4,  1.0, 0x7a7a7a); bt.position.set(bx, 12.9,  bz); g.add(bt);
+      const bsn = box(1.1, 0.22, 1.1, 0xe4eef7); bsn.position.set(bx, 13.71, bz); g.add(bsn);
     });
     // Gold F10 cloth draped flat on top of the tower
     const clothCanvas = document.createElement("canvas");
@@ -815,26 +795,25 @@ export function createArenaGame(options) {
     g.position.set(cx, 0, cz);
     // atan2(-flowDx, flowDz) aligns local-Z with river flow; local-X = perpendicular (bridge span)
     g.rotation.y = Math.atan2(-flowDx, flowDz);
-    const bLen = riverHW * 2 + 6;  // span across river + a little extra
-    const bWid = 4.2;               // width along river (planks run this direction)
+    const bLen = riverHW * 2 + 12; // span = full river width + 6u overhang on each bank
+    const bWid = 4.5;               // width along river flow
+    const yDk  = 0.35;              // deck sits above the water surface
     // Deck base
-    const deck = box(bLen, 0.28, bWid, 0x8B6040); deck.position.y = 0.14; g.add(deck);
-    // Individual planks for visual detail
+    const deck = box(bLen, 0.30, bWid, 0x8B6040); deck.position.y = yDk; g.add(deck);
+    // Individual planks
     for (let px = -bLen / 2 + 0.45; px < bLen / 2; px += 1.1) {
-      const plank = box(0.82, 0.30, bWid - 0.12, 0x7A5232); plank.position.set(px, 0.17, 0); g.add(plank);
+      const plank = box(0.82, 0.32, bWid - 0.12, 0x7A5232); plank.position.set(px, yDk + 0.03, 0); g.add(plank);
     }
-    // Side railings (along river flow direction — local Z)
-    const rl = box(bLen, 0.55, 0.18, 0x6B4422); rl.position.set(0, 0.56, -bWid / 2); g.add(rl);
-    const rr = box(bLen, 0.55, 0.18, 0x6B4422); rr.position.set(0, 0.56,  bWid / 2); g.add(rr);
-    // Four corner posts
+    // Side railings
+    const rl = box(bLen, 0.60, 0.18, 0x6B4422); rl.position.set(0, yDk + 0.60, -bWid / 2); g.add(rl);
+    const rr = box(bLen, 0.60, 0.18, 0x6B4422); rr.position.set(0, yDk + 0.60,  bWid / 2); g.add(rr);
+    // Corner posts
     [[-bLen / 2, -bWid / 2], [-bLen / 2, bWid / 2], [bLen / 2, -bWid / 2], [bLen / 2, bWid / 2]].forEach(([px, pz]) => {
-      const post = box(0.24, 1.1, 0.24, 0x5E3A1E); post.position.set(px, 0.55, pz); g.add(post);
+      const post = box(0.26, 1.2, 0.26, 0x5E3A1E); post.position.set(px, yDk + 0.60, pz); g.add(post);
     });
     mapGroup.add(g);
-    // Record bridge footprint for on-bridge speed check (local X = span, local Z = depth)
-    const flowLen = Math.hypot(flowDx, flowDz) || 1;
-    const angle   = Math.atan2(-flowDx, flowDz); // same rotation applied to group
-    bridge = { cx, cz, halfLen: bLen / 2 + 0.5, halfWid: bWid / 2 + 0.3, cosA: Math.cos(angle), sinA: Math.sin(angle) };
+    const angle = Math.atan2(-flowDx, flowDz);
+    bridge = { cx, cz, halfLen: bLen / 2, halfWid: bWid / 2 + 0.4, cosA: Math.cos(angle), sinA: Math.sin(angle) };
   }
   function onBridge(x, z) {
     if (!bridge) return false;
@@ -894,66 +873,47 @@ export function createArenaGame(options) {
     }
     riverSegments = wps;
 
-    // Draw river as a pixelated grid-stamp texture — square-edged, no curves.
-    // Sample the polyline every ~0.5 world units, snap to a grid cell, and fill
-    // a solid square per cell.  Two passes: a slightly wider dark outer border
-    // first, then the main water colour on top.
-    const CELL_W = 2;   // world units per pixel cell
-    const CS     = Math.ceil(MAP_WORLD / CELL_W); // canvas size in cells (=50)
-    const rc     = document.createElement("canvas");
-    rc.width     = CS; rc.height = CS;
-    const rctx   = rc.getContext("2d");
-    rctx.imageSmoothingEnabled = false;
+    // Smooth Catmull-Rom bezier canvas texture — organic rounded edges.
+    const CS  = 512;
+    const rc  = document.createElement("canvas");
+    rc.width  = CS; rc.height = CS;
+    const rctx = rc.getContext("2d");
 
-    const toCell = (w) => Math.floor((w + MAP_HALF) / CELL_W);
-    const hwCell = Math.ceil(hw / CELL_W);
+    const toU = (wx) => (wx + MAP_HALF) / MAP_WORLD * CS;
+    const toV = (wz) => (wz + MAP_HALF) / MAP_WORLD * CS;
+    const pts  = wps.map((wp) => ({ u: toU(wp.x), v: toV(wp.z) }));
+    const lw   = hw * 2 / MAP_WORLD * CS;
 
-    const stampCells = (extraR, color) => {
-      rctx.fillStyle = color;
-      const seen = new Set();
-      for (let i = 0; i < wps.length - 1; i++) {
-        const a = wps[i], b = wps[i + 1];
-        const dx = b.x - a.x, dz = b.z - a.z;
-        const steps = Math.ceil(Math.hypot(dx, dz) / (CELL_W * 0.6));
-        for (let s = 0; s <= steps; s++) {
-          const t  = s / steps;
-          const cu = toCell(a.x + dx * t);
-          const cv = toCell(a.z + dz * t);
-          const r  = hwCell + extraR;
-          for (let du = -r; du <= r; du++) {
-            for (let dv = -r; dv <= r; dv++) {
-              const key = `${cu + du},${cv + dv}`;
-              if (seen.has(key)) continue;
-              seen.add(key);
-              rctx.fillRect(cu + du, cv + dv, 1, 1);
-            }
-          }
-        }
+    const crBez = (i) => {
+      const p0 = pts[Math.max(0, i - 1)];
+      const p1 = pts[i];
+      const p2 = pts[i + 1];
+      const p3 = pts[Math.min(pts.length - 1, i + 2)];
+      return {
+        cp1u: p1.u + (p2.u - p0.u) / 6, cp1v: p1.v + (p2.v - p0.v) / 6,
+        cp2u: p2.u - (p3.u - p1.u) / 6, cp2v: p2.v - (p3.v - p1.v) / 6,
+      };
+    };
+    const drawPath = () => {
+      rctx.beginPath();
+      rctx.moveTo(pts[0].u, pts[0].v);
+      for (let i = 0; i < pts.length - 1; i++) {
+        const { cp1u, cp1v, cp2u, cp2v } = crBez(i);
+        rctx.bezierCurveTo(cp1u, cp1v, cp2u, cp2v, pts[i + 1].u, pts[i + 1].v);
       }
     };
 
-    stampCells(1, "rgba(20,60,100,0.55)");   // dark border (1 cell wider)
-    stampCells(0, "rgba(60,125,178,0.92)");  // main water body
-    // Inner highlight strip (half-width)
-    {
-      rctx.fillStyle = "rgba(110,180,220,0.28)";
-      const seen = new Set();
-      const hr = Math.max(1, Math.floor(hwCell * 0.4));
-      for (let i = 0; i < wps.length - 1; i++) {
-        const a = wps[i], b = wps[i + 1];
-        const dx = b.x - a.x, dz = b.z - a.z;
-        const steps = Math.ceil(Math.hypot(dx, dz) / (CELL_W * 0.6));
-        for (let s = 0; s <= steps; s++) {
-          const t = s / steps;
-          const cu = toCell(a.x + dx * t), cv = toCell(a.z + dz * t);
-          for (let du = -hr; du <= hr; du++) for (let dv = -hr; dv <= hr; dv++) {
-            const key = `${cu + du},${cv + dv}`;
-            if (seen.has(key)) continue; seen.add(key);
-            rctx.fillRect(cu + du, cv + dv, 1, 1);
-          }
-        }
-      }
-    }
+    rctx.save(); rctx.strokeStyle = "rgba(20,60,100,0.35)";
+    rctx.lineWidth = lw + 10; rctx.lineCap = "round"; rctx.lineJoin = "round";
+    drawPath(); rctx.stroke(); rctx.restore();
+
+    rctx.save(); rctx.strokeStyle = "rgba(55,120,175,0.88)";
+    rctx.lineWidth = lw; rctx.lineCap = "round"; rctx.lineJoin = "round";
+    drawPath(); rctx.stroke(); rctx.restore();
+
+    rctx.save(); rctx.strokeStyle = "rgba(110,180,220,0.30)";
+    rctx.lineWidth = lw * 0.35; rctx.lineCap = "round"; rctx.lineJoin = "round";
+    drawPath(); rctx.stroke(); rctx.restore();
 
     const tex   = new THREE.CanvasTexture(rc);
     const plane = new THREE.Mesh(
