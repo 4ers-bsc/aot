@@ -790,6 +790,46 @@ export function createArenaGame(options) {
     mapGroup.add(g);
     solids.push({ x, z, r: 1.9 });
   }
+  function addBridge(cx, cz, flowDx, flowDz, riverHW) {
+    const g = new THREE.Group();
+    g.position.set(cx, 0, cz);
+    // atan2(-flowDx, flowDz) aligns local-Z with river flow; local-X = perpendicular (bridge span)
+    g.rotation.y = Math.atan2(-flowDx, flowDz);
+    const bLen = riverHW * 2 + 6;  // span across river + a little extra
+    const bWid = 4.2;               // width along river (planks run this direction)
+    // Deck base
+    const deck = box(bLen, 0.28, bWid, 0x8B6040); deck.position.y = 0.14; g.add(deck);
+    // Individual planks for visual detail
+    for (let px = -bLen / 2 + 0.45; px < bLen / 2; px += 1.1) {
+      const plank = box(0.82, 0.30, bWid - 0.12, 0x7A5232); plank.position.set(px, 0.17, 0); g.add(plank);
+    }
+    // Side railings (along river flow direction — local Z)
+    const rl = box(bLen, 0.55, 0.18, 0x6B4422); rl.position.set(0, 0.56, -bWid / 2); g.add(rl);
+    const rr = box(bLen, 0.55, 0.18, 0x6B4422); rr.position.set(0, 0.56,  bWid / 2); g.add(rr);
+    // Four corner posts
+    [[-bLen / 2, -bWid / 2], [-bLen / 2, bWid / 2], [bLen / 2, -bWid / 2], [bLen / 2, bWid / 2]].forEach(([px, pz]) => {
+      const post = box(0.24, 1.1, 0.24, 0x5E3A1E); post.position.set(px, 0.55, pz); g.add(post);
+    });
+    mapGroup.add(g);
+    // Bridge is walkable — intentionally not added to solids
+  }
+  function addRiverBoulder(x, z, rng) {
+    const g = new THREE.Group();
+    const sz = 1.1 + rng() * 0.8;
+    const rock = new THREE.Mesh(
+      new THREE.SphereGeometry(sz, 6, 5),
+      new THREE.MeshStandardMaterial({ color: 0x7a7875, roughness: 1, flatShading: true }),
+    );
+    rock.position.y = sz * 0.45;
+    rock.rotation.set(rng() * 0.6, rng() * Math.PI * 2, rng() * 0.6);
+    rock.castShadow = true;
+    const snowCap = box(sz * 1.3, sz * 0.32, sz * 1.3, 0xdde9f5);
+    snowCap.position.y = sz * 1.0;
+    g.add(rock, snowCap);
+    g.position.set(x, 0, z);
+    mapGroup.add(g);
+    solids.push({ x, z, r: sz * 1.05 });
+  }
   function buildRiver(rng) {
     const hw    = 7 + rng() * 5;                    // half-width 7–12 → river 14–24 u wide
     riverHalfW  = hw;
@@ -900,6 +940,32 @@ export function createArenaGame(options) {
     plane.position.y  = 0.05;
     plane.receiveShadow = false;
     mapGroup.add(plane);
+
+    // Wooden bridge at a random interior crossing point
+    const bSegIdx  = 1 + Math.floor(rng() * 2);           // segment 1 or 2 (interior)
+    const bT       = 0.2 + rng() * 0.6;                   // 20–80% along segment
+    const bA = wps[bSegIdx], bB = wps[bSegIdx + 1];
+    const bridgeCx = bA.x + (bB.x - bA.x) * bT;
+    const bridgeCz = bA.z + (bB.z - bA.z) * bT;
+    addBridge(bridgeCx, bridgeCz, bB.x - bA.x, bB.z - bA.z, hw);
+
+    // Snowy boulders scattered on the river (avoid bridge area)
+    for (let attempt = 0, count = 0; attempt < 80 && count < 5; attempt++) {
+      const si = Math.floor(rng() * (wps.length - 1));
+      const t  = rng();
+      const a  = wps[si], b = wps[si + 1];
+      const cx = a.x + (b.x - a.x) * t, cz = a.z + (b.z - a.z) * t;
+      const fdx = b.x - a.x, fdz = b.z - a.z;
+      const flen = Math.hypot(fdx, fdz) || 1;
+      const perpX = -fdz / flen, perpZ = fdx / flen;
+      const off = (rng() * 2 - 1) * hw * 0.55;
+      const bx = cx + perpX * off, bz = cz + perpZ * off;
+      if (Math.hypot(bx - bridgeCx, bz - bridgeCz) < hw * 1.8) continue;
+      if (!inRiver(bx, bz)) continue;
+      if (collidesSolid(bx, bz, 2.2)) continue;
+      addRiverBoulder(bx, bz, rng);
+      count++;
+    }
   }
   function generateMap(seedStr) {
     clearMap();
@@ -1357,18 +1423,25 @@ export function createArenaGame(options) {
       mmSCtx.beginPath(); mmSCtx.moveTo(0, p); mmSCtx.lineTo(MM, p); mmSCtx.stroke();
     }
     if (riverSegments.length > 1) {
-      mmSCtx.save();
-      mmSCtx.strokeStyle = "rgba(61,127,176,0.55)";
-      mmSCtx.lineWidth = riverHalfW * 2 * mmScale;
-      mmSCtx.lineCap = "round";
-      mmSCtx.lineJoin = "round";
-      mmSCtx.beginPath();
-      mmSCtx.moveTo(wToMM(riverSegments[0].x), wToMM(riverSegments[0].z));
-      for (let i = 1; i < riverSegments.length; i++) {
-        mmSCtx.lineTo(wToMM(riverSegments[i].x), wToMM(riverSegments[i].z));
+      // Pixelated river — sample the polyline and stamp grid-snapped squares
+      const CELL   = 5;   // minimap pixels per block (matches screenshot style)
+      const hwSnap = Math.ceil(riverHalfW * mmScale / CELL) * CELL;
+      mmSCtx.fillStyle = "rgba(61,127,176,0.62)";
+      const seen = new Set();
+      for (let i = 0; i < riverSegments.length - 1; i++) {
+        const a = riverSegments[i], b = riverSegments[i + 1];
+        const dx = b.x - a.x, dz = b.z - a.z;
+        const steps = Math.ceil(Math.hypot(dx, dz) / 0.8);
+        for (let s = 0; s <= steps; s++) {
+          const t  = s / steps;
+          const mx = Math.round(wToMM(a.x + dx * t) / CELL) * CELL;
+          const mz = Math.round(wToMM(a.z + dz * t) / CELL) * CELL;
+          const key = `${mx},${mz}`;
+          if (seen.has(key)) continue;
+          seen.add(key);
+          mmSCtx.fillRect(mx - hwSnap, mz - hwSnap, hwSnap * 2, hwSnap * 2);
+        }
       }
-      mmSCtx.stroke();
-      mmSCtx.restore();
     }
     mmSCtx.fillStyle = "rgba(40,46,40,0.7)";
     for (const s of solids) {
