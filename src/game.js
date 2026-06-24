@@ -791,70 +791,115 @@ export function createArenaGame(options) {
     solids.push({ x, z, r: 1.9 });
   }
   function buildRiver(rng) {
-    const hw    = 6 + rng() * 5;                    // half-width 6–11 → river 12–22 u wide
+    const hw    = 7 + rng() * 5;                    // half-width 7–12 → river 14–24 u wide
     riverHalfW  = hw;
-    const limit = MAP_HALF - hw - 3;                 // keep bends safely inside map
-    const horiz = rng() < 0.5;                       // true = flows left-right (X), false = top-bottom (Z)
+    const limit = MAP_HALF - hw - 2;                 // keep bends inside map
+    const horiz = rng() < 0.5;
 
-    // Clamp lateral offset within map bounds
     const clampLat = (v) => Math.max(-limit, Math.min(limit, v));
 
-    // Base lateral centre + 2 random bends; entry/exit anchored at opposite edges
-    const c0 = clampLat((rng() * 2 - 1) * limit * 0.6);
-    const c1 = clampLat(c0 + (rng() * 2 - 1) * limit * 0.55);
-    const c2 = clampLat(c0 + (rng() * 2 - 1) * limit * 0.55);
-    const c3 = clampLat((rng() * 2 - 1) * limit * 0.5);
+    // 5 waypoints for a natural S-curve / meander
+    const c0 = clampLat((rng() * 2 - 1) * limit * 0.55);
+    const c1 = clampLat(c0 + (rng() * 2 - 1) * limit * 0.65);
+    const c2 = clampLat(c0 + (rng() * 2 - 1) * limit * 0.70);
+    const c3 = clampLat(c2 + (rng() * 2 - 1) * limit * 0.55);
+    const c4 = clampLat((rng() * 2 - 1) * limit * 0.50);
 
     let wps;
     if (horiz) {
-      // River flows along X; lateral = Z
       wps = [
         { x: -MAP_HALF,        z: c0 },
-        { x: -MAP_HALF * 0.38, z: c1 },
-        { x:  MAP_HALF * 0.38, z: c2 },
-        { x:  MAP_HALF,        z: c3 },
+        { x: -MAP_HALF * 0.5,  z: c1 },
+        { x:  0,               z: c2 },
+        { x:  MAP_HALF * 0.5,  z: c3 },
+        { x:  MAP_HALF,        z: c4 },
       ];
     } else {
-      // River flows along Z; lateral = X
       wps = [
         { x: c0, z: -MAP_HALF        },
-        { x: c1, z: -MAP_HALF * 0.38 },
-        { x: c2, z:  MAP_HALF * 0.38 },
-        { x: c3, z:  MAP_HALF        },
+        { x: c1, z: -MAP_HALF * 0.5  },
+        { x: c2, z:  0               },
+        { x: c3, z:  MAP_HALF * 0.5  },
+        { x: c4, z:  MAP_HALF        },
       ];
     }
     riverSegments = wps;
 
-    const mat = new THREE.MeshStandardMaterial({ color: 0x3d7fb0, transparent: true, opacity: 0.72, roughness: 0.2, metalness: 0.1 });
-    const gRiv = new THREE.Group();
+    // Draw river as a smooth Catmull-Rom bezier stroke on a canvas texture.
+    // This gives organic rounded edges instead of rectangular segments.
+    const CS  = 512;
+    const rc  = document.createElement("canvas");
+    rc.width  = CS; rc.height = CS;
+    const rctx = rc.getContext("2d");
 
-    for (let i = 0; i < wps.length - 1; i++) {
-      const a = wps[i], b = wps[i + 1];
-      const dx = b.x - a.x, dz = b.z - a.z;
-      const segLen = Math.hypot(dx, dz);
-      if (segLen < 0.01) continue;
-      // Don't extend past the entry/exit map-edge waypoints; only extend at interior joints
-      const extA = (i === 0)               ? 0 : hw * 0.3;
-      const extB = (i === wps.length - 2)  ? 0 : hw * 0.3;
-      const totalLen = segLen + extA + extB;
-      // Shift centre toward the longer-extended end so the plane covers [A-extA, B+extB]
-      const ux = dx / segLen, uz = dz / segLen;
-      const mx = (a.x + b.x) / 2 + ux * (extB - extA) / 2;
-      const mz = (a.z + b.z) / 2 + uz * (extB - extA) / 2;
-      const seg = new THREE.Group();
-      seg.position.set(mx, 0.05, mz);
-      // atan2(-dx, dz) aligns the plane's local-Z (height after rotation.x=-π/2) with (dx, dz)
-      seg.rotation.y = Math.atan2(-dx, dz);
-      const plane = new THREE.Mesh(
-        new THREE.PlaneGeometry(hw * 2, totalLen),
-        mat,
-      );
-      plane.rotation.x = -Math.PI / 2;
-      plane.receiveShadow = true;
-      seg.add(plane);
-      gRiv.add(seg);
-    }
-    mapGroup.add(gRiv);
+    // world → canvas pixel
+    const toU = (wx) => (wx + MAP_HALF) / MAP_WORLD * CS;
+    const toV = (wz) => (wz + MAP_HALF) / MAP_WORLD * CS;
+    const pts  = wps.map((wp) => ({ u: toU(wp.x), v: toV(wp.z) }));
+    const lw   = hw * 2 / MAP_WORLD * CS;  // line width in pixels
+
+    // Catmull-Rom control point helper
+    const crBez = (i) => {
+      const p0 = pts[Math.max(0, i - 1)];
+      const p1 = pts[i];
+      const p2 = pts[i + 1];
+      const p3 = pts[Math.min(pts.length - 1, i + 2)];
+      return {
+        cp1u: p1.u + (p2.u - p0.u) / 6,
+        cp1v: p1.v + (p2.v - p0.v) / 6,
+        cp2u: p2.u - (p3.u - p1.u) / 6,
+        cp2v: p2.v - (p3.v - p1.v) / 6,
+      };
+    };
+
+    const drawPath = () => {
+      rctx.beginPath();
+      rctx.moveTo(pts[0].u, pts[0].v);
+      for (let i = 0; i < pts.length - 1; i++) {
+        const { cp1u, cp1v, cp2u, cp2v } = crBez(i);
+        rctx.bezierCurveTo(cp1u, cp1v, cp2u, cp2v, pts[i + 1].u, pts[i + 1].v);
+      }
+    };
+
+    // Outer soft shadow for depth
+    rctx.save();
+    rctx.strokeStyle = "rgba(20, 60, 100, 0.35)";
+    rctx.lineWidth = lw + 10;
+    rctx.lineCap = "round";
+    rctx.lineJoin = "round";
+    drawPath();
+    rctx.stroke();
+    rctx.restore();
+
+    // Main water body
+    rctx.save();
+    rctx.strokeStyle = "rgba(55, 120, 175, 0.88)";
+    rctx.lineWidth = lw;
+    rctx.lineCap = "round";
+    rctx.lineJoin = "round";
+    drawPath();
+    rctx.stroke();
+    rctx.restore();
+
+    // Inner highlight — lighter centre strip for water sheen
+    rctx.save();
+    rctx.strokeStyle = "rgba(110, 180, 220, 0.30)";
+    rctx.lineWidth = lw * 0.35;
+    rctx.lineCap = "round";
+    rctx.lineJoin = "round";
+    drawPath();
+    rctx.stroke();
+    rctx.restore();
+
+    const tex   = new THREE.CanvasTexture(rc);
+    const plane = new THREE.Mesh(
+      new THREE.PlaneGeometry(MAP_WORLD, MAP_WORLD),
+      new THREE.MeshBasicMaterial({ map: tex, transparent: true, depthWrite: false }),
+    );
+    plane.rotation.x = -Math.PI / 2;
+    plane.position.y  = 0.05;
+    plane.receiveShadow = false;
+    mapGroup.add(plane);
   }
   function generateMap(seedStr) {
     clearMap();
