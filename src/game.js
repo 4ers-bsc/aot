@@ -1375,7 +1375,12 @@ export function createArenaGame(options) {
         if (player.cdTimer > 0) return;
         const tx = foe.group.position.x, tz = foe.group.position.z;
         const dist = Math.hypot(tx - player.group.position.x, tz - player.group.position.z);
-        if (dist > player.weapon.range) return;
+        if (dist > player.weapon.range) {
+          player.target = new THREE.Vector3(tx, 0, tz);
+          setMarker(tx, tz, theme.markerMove[0], theme.markerMove[1]);
+          selectSlot(prevSlot !== 1 ? prevSlot : 2);
+          return;
+        }
         const dmg = Math.max(1, Math.round(player.weapon.atk + (Math.random() * 2 - 1) * player.weapon.atkVar));
         player.cdTimer = player.weapon.cd;
         player.atkAnim = 0.32;
@@ -1398,7 +1403,14 @@ export function createArenaGame(options) {
       if (player.weapon.isGrenade) {
         if (player.cdTimer > 0) return;
         const dist = Math.hypot(tx - player.group.position.x, tz - player.group.position.z);
-        if (dist > player.weapon.range) return;
+        if (dist > player.weapon.range) {
+          player.attackTarget = null;
+          player.target = new THREE.Vector3(tx, 0, tz);
+          if (settings.centerCamera) following = true;
+          setMarker(tx, tz, theme.markerMove[0], theme.markerMove[1]);
+          selectSlot(prevSlot !== 1 ? prevSlot : 2);
+          return;
+        }
         const dmg = Math.max(1, Math.round(player.weapon.atk + (Math.random() * 2 - 1) * player.weapon.atkVar));
         player.cdTimer = player.weapon.cd;
         player.atkAnim = 0.32;
