@@ -1448,7 +1448,7 @@ export function createArenaGame(options) {
   const { hint, coords, mmCanvas, hotbar, slots, fpsEl, pingEl, overlay, renderDistBtn, matchTimerEl, mapToggleBtn, raiderCountCtrl, raiderCountEl, scorePanel, weaponPanel } = hud;
 
   // Weapon stat pikes — normalised 0-100 against max values across all weapons
-  const _wImg = { sword: "/sword.png", pistol: "/pistol.png", sniper: "/sniper.png", frag: "/ammo.png" };
+  const _wImg = { sword: "/sword.png", pistol: "/pistol.png", sniper: "/sniper.png", frag: "/frag.png" };
   const _wStats = {
     sword:  { pwr: 89, rng:  4, spd: 100, aoe:  0 },
     pistol: { pwr: 54, rng: 30, spd:  78, aoe:  0 },
@@ -2096,7 +2096,7 @@ function buildHud() {
   const hotbar = add('<div class="hotbar game-ui"></div>');
   for (let n = 1; n <= 5; n++) {
     // slot order: 1=frag, 2=sword, 3=pistol, 4=sniper, 5=empty
-    const imgSrc = n === 1 ? "/ammo.png" : n === 2 ? "/sword.png" : n === 3 ? "/pistol.png" : n === 4 ? "/sniper.png" : "";
+    const imgSrc = n === 1 ? "/frag.png" : n === 2 ? "/sword.png" : n === 3 ? "/pistol.png" : n === 4 ? "/sniper.png" : "";
     const imgTag = imgSrc ? `<img src="${imgSrc}" class="slot-icon" alt="" />` : "";
     const s = document.createElement("div");
     s.className = "slot" + (n === 2 ? " active" : ""); // start on sword

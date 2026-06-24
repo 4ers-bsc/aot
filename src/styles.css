@@ -1685,7 +1685,7 @@ body.in-game .game-hud-root {
 .wpanel {
   position: fixed;
   right: 18px;
-  bottom: 90px;
+  bottom: 18px;
   z-index: 10;
   background: #000;
   border: 1px solid rgba(255, 255, 255, 0.14);
