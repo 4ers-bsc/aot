@@ -800,24 +800,35 @@ function handleOpponentLeft(userId) {
   }
 }
 
-// Free-for-all: only the winner writes the result (and finish_match marks the
-// loss for everyone else). Losers just show defeat and refresh their record.
+// All players submit their final HP as a witness report. The server-side
+// finish_match function tallies all witness reports and crowns the winner
+// itself — no client can pass its own user_id as winner.
 async function reportResult(result, { reason = "", standings = [] } = {}) {
   if (state.match?.mode !== "pvp" || !state.match.id || state.match.finished) return;
   state.match.finished = true;
 
+  // Every participant (winner and losers alike) submits their final HP so the
+  // server can independently determine who survived. p_final_hp = 0 means dead.
+  const finalHp = result === "win" ? (standings.find((s) => s.me)?.hp ?? 1) : 0;
+  try {
+    await supabase.rpc("finish_match", {
+      p_match_id: state.match.id,
+      p_final_hp: Math.max(0, Math.round(finalHp)),
+    });
+  } catch (e) {
+    console.error("finish_match witness error:", e);
+  }
+
   if (result !== "win") {
-    // Losers: show defeat immediately, no payout involved
     try { await syncProfile(); } catch (e) { console.error(e); }
     showGameOver(result, reason, standings, null);
     return;
   }
 
-  // Winner: show game-over right away with a "processing" state, then fill in prize
+  // Winner: show game-over with "processing" state, then fill in prize once treasurer confirms
   showGameOver(result, reason, standings, "pending");
   let prizeAmount = null;
   try {
-    await supabase.rpc("finish_match", { p_match_id: state.match.id, p_winner_user_id: state.user.id });
     setStatus("Claiming prize…");
     const { data: payoutData, error: payoutErr } = await supabase.functions.invoke("f10treasurer", {
       body: { match_id: state.match.id },
@@ -831,7 +842,6 @@ async function reportResult(result, { reason = "", standings = [] } = {}) {
   } catch (error) {
     console.error(error);
   }
-  // Update prize display now that we have the result
   updateGameOverPrize(prizeAmount);
 }
 
