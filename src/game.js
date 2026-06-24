@@ -500,6 +500,20 @@ export function createArenaGame(options) {
     g.rotation.x = -0.05;
     return g;
   }
+  function makeSniper() {
+    const g = new THREE.Group();
+    const body   = box(0.10, 0.12, 0.50, 0x1a1c22); body.position.set(0,     0,     0.15);
+    const barrel = box(0.06, 0.06, 0.50, 0x0d0f12); barrel.position.set(0,   0.02,  0.52);
+    const stock  = box(0.10, 0.10, 0.28, 0x5c3d1e); stock.position.set(0,    0,    -0.22);
+    const cheek  = box(0.10, 0.06, 0.16, 0x5c3d1e); cheek.position.set(0,    0.08, -0.14);
+    const scope  = box(0.07, 0.07, 0.30, 0x111418); scope.position.set(0,    0.12,  0.10);
+    const lens   = box(0.07, 0.07, 0.04, 0x1e3a4a); lens.position.set(0,     0.12,  0.28);
+    const grip   = box(0.10, 0.18, 0.10, 0x2a2e33); grip.position.set(0,    -0.10,  0.05); grip.rotation.x = 0.35;
+    g.add(body, barrel, stock, cheek, scope, lens, grip);
+    g.position.set(-0.05, -0.82, 0.05);
+    g.rotation.x = -0.08;
+    return g;
+  }
   function makeBar(barColor) {
     const el = document.createElement("div");
     el.className = "bar game-ui";
@@ -537,6 +551,7 @@ export function createArenaGame(options) {
     visor.position.set(0, 2.46, 0.36);
     const swordMesh = makeSword(); armR.add(swordMesh);
     const pistolMesh = makePistol(); pistolMesh.visible = false; armR.add(pistolMesh);
+    const sniperMesh = makeSniper(); sniperMesh.visible = false; armR.add(sniperMesh);
     g.add(legL, legR, torso, shlL, shlR, armL, armR, head, helmet, visor);
     g.position.copy(cfg.pos);
     g.visible = false;
@@ -544,7 +559,7 @@ export function createArenaGame(options) {
     const f = {
       userId: cfg.userId || null,
       name: cfg.name, isPlayer: !!cfg.isPlayer, group: g,
-      legL, legR, armL, armR, swordMesh, pistolMesh,
+      legL, legR, armL, armR, swordMesh, pistolMesh, sniperMesh,
       maxHp: cfg.hp, hp: cfg.hp, weapon: cfg.weapon, speed: cfg.speed,
       cdTimer: 0, atkAnim: 0, hurt: 0, regenAcc: 0, chargeTimer: 0,
       moving: false, facing: 0, walkPhase: 0,
@@ -563,7 +578,8 @@ export function createArenaGame(options) {
   }
   function updateWeaponVis(f) {
     if (f.swordMesh)  f.swordMesh.visible  = f.weapon.id === "sword";
-    if (f.pistolMesh) f.pistolMesh.visible = f.weapon.id !== "sword";
+    if (f.pistolMesh) f.pistolMesh.visible = f.weapon.id === "pistol";
+    if (f.sniperMesh) f.sniperMesh.visible = f.weapon.id === "sniper";
   }
   function recolorFighter(f, palette) {
     Object.keys(f.parts).forEach((key) => f.parts[key].forEach((mat) => mat.color.setHex(palette[key])));
