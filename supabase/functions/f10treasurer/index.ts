@@ -219,7 +219,13 @@ Deno.serve(async (req: Request) => {
 
     // ── Verify each deposit tx is confirmed on-chain ─────────────────────────
     const depositSigs = players.map((p: any) => p.deposit_tx as string);
-    const { value: sigStatuses } = await connection.getSignatureStatuses(depositSigs);
+    // searchTransactionHistory is required: deposits happen in the lobby/join phase,
+    // so by payout time the signatures are a full match old. Without this flag
+    // getSignatureStatuses only checks the ~300-slot (~2 min) recent status cache and
+    // returns null for any match longer than that → a spurious "not found on-chain" 400.
+    const { value: sigStatuses } = await connection.getSignatureStatuses(depositSigs, {
+      searchTransactionHistory: true,
+    });
     for (let i = 0; i < depositSigs.length; i++) {
       const s = sigStatuses[i];
       if (!s) return errorResponse(`Deposit ${i + 1} not found on-chain`, 400);
