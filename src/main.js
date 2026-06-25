@@ -379,12 +379,12 @@ function updateGameOverPrize(prizeAmount) {
 // supabase-js wraps a non-2xx edge-function response in a FunctionsHttpError whose
 // .context is the raw Response — the useful { ok, error } body is only reachable by
 // reading that. Without this the console only shows the generic "non-2xx" message.
-async function describePayoutError(payoutErr) {
+async function describeEdgeError(fnErr) {
   try {
-    const body = await payoutErr?.context?.json?.();
+    const body = await fnErr?.context?.json?.();
     if (body?.error) return body.error;
   } catch (_) { /* body not JSON or already consumed */ }
-  return payoutErr?.message || "Unknown payout error";
+  return fnErr?.message || "Unknown error";
 }
 
 // Fix 10: allow winner to retry a failed payout without reloading the page.
@@ -403,7 +403,7 @@ async function retryPayout() {
     if (!payoutErr && payoutData?.winner_amount && payoutData?.decimals != null) {
       prizeAmount = Number(payoutData.winner_amount) / 10 ** payoutData.decimals;
     }
-    if (payoutErr) console.error("Retry payout error:", await describePayoutError(payoutErr));
+    if (payoutErr) console.error("Retry payout error:", await describeEdgeError(payoutErr));
   } catch (err) {
     console.error("Retry payout error:", err);
   }
@@ -491,13 +491,15 @@ async function joinPvp(maxPlayers) {
       showPvpLobby("Retrying queue entry with confirmed deposit…");
     }
 
-    // ── Step 2: enter the queue with the confirmed deposit ────────────────────
+    // ── Step 2: verify the deposit on-chain + enter the queue ─────────────────
+    // f10deposit verifies the deposit on-chain ONCE here (and records it as
+    // verified) so the treasurer doesn't have to re-verify it at payout time.
     showPvpLobby(`Finding a ${size}-player match…`);
-    const { data, error } = await supabase.rpc("join_pvp_match", {
-      p_max_players: size,
-      p_deposit_tx: txSig,
+    const { data, error } = await supabase.functions.invoke("f10deposit", {
+      body: { max_players: size, deposit_tx: txSig },
     });
-    if (error) throw error;
+    if (error) throw new Error(await describeEdgeError(error));
+    if (!data?.match_id) throw new Error(data?.error || "Could not join a PvP match.");
 
     // Joined successfully — clear the pending deposit.
     state.pendingDepositTx = null;
@@ -548,7 +550,7 @@ async function pollTxConfirmation(connection, sig, timeoutMs = 90000) {
 
 // Transfers 2500 FIGHT10 to the escrow on-chain and waits for confirmation.
 // Returns the confirmed tx signature on success, or null if cancelled/failed.
-// Does NOT record the deposit in the DB — that happens inside join_pvp_match().
+// Does NOT record the deposit in the DB — that happens inside the f10deposit edge function.
 async function depositEntryFee(numPlayers = 2) {
   const wallet = getSolanaWallet();
   if (!wallet?.publicKey) {
@@ -959,7 +961,7 @@ async function reportResult(result, { reason = "", standings = [] } = {}) {
       body: { match_id: state.match.id },
     });
     if (payoutErr) {
-      console.error("Payout invoke error:", await describePayoutError(payoutErr));
+      console.error("Payout invoke error:", await describeEdgeError(payoutErr));
     } else if (payoutData?.winner_amount && payoutData?.decimals != null) {
       prizeAmount = Number(payoutData.winner_amount) / 10 ** payoutData.decimals;
     }

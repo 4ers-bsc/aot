@@ -162,7 +162,7 @@ Deno.serve(async (req: Request) => {
 
     // ── Verify all deposits exist ────────────────────────────────────────────
     const { data: players, error: playersErr } = await adminClient
-      .from("match_players").select("user_id, deposit_tx").eq("match_id", matchId);
+      .from("match_players").select("user_id, deposit_tx, deposit_verified").eq("match_id", matchId);
     if (playersErr || !players) return errorResponse("Could not fetch match players", 500);
     const missing = players.filter((p: any) => !p.deposit_tx);
     if (missing.length > 0) return errorResponse(`${missing.length} player(s) have not deposited`, 400);
@@ -205,66 +205,83 @@ Deno.serve(async (req: Request) => {
     const escrowTokenAccount = new PublicKey(escrowAccounts.value[0].pubkey);
     const escrowAtaStr       = escrowTokenAccount.toString();
 
-    // ── Verify each deposit tx is confirmed on-chain ─────────────────────────
-    const depositSigs = players.map((p: any) => p.deposit_tx as string);
-    // searchTransactionHistory is required: deposits happen in the lobby/join phase,
-    // so by payout time the signatures are a full match old. Without this flag
-    // getSignatureStatuses only checks the ~300-slot (~2 min) recent status cache and
-    // returns null for any match longer than that → a spurious "not found on-chain" 400.
-    const { value: sigStatuses } = await connection.getSignatureStatuses(depositSigs, {
-      searchTransactionHistory: true,
-    });
-    for (let i = 0; i < depositSigs.length; i++) {
-      const s = sigStatuses[i];
-      if (!s) return errorResponse(`Deposit ${i + 1} not found on-chain`, 400);
-      if (s.err) return errorResponse(`Deposit ${i + 1} failed on-chain`, 400);
-      if (s.confirmationStatus !== "confirmed" && s.confirmationStatus !== "finalized") {
-        return errorResponse(`Deposit ${i + 1} not yet confirmed`, 400);
-      }
-    }
-
-    // ── Verify each deposit tx transferred the correct amount to escrow ──────
-    // Parses the on-chain instruction data to confirm mint, destination, and
-    // exact amount — a confirmed-but-unrelated tx signature cannot pass this.
-    // All fetches run in parallel to minimise latency (Fix 3/12).
-    const parsedTxs = await Promise.all(
-      depositSigs.map((sig) =>
-        connection.getParsedTransaction(sig, {
-          commitment: "confirmed",
-          maxSupportedTransactionVersion: 0,
-        })
-      )
-    );
-
-    for (let i = 0; i < depositSigs.length; i++) {
-      const parsed = parsedTxs[i];
-      if (!parsed) return errorResponse(`Deposit ${i + 1} could not be parsed`, 400);
-
-      // Include inner instructions to handle CPI-wrapped transfers
-      const topLevel = parsed.transaction.message.instructions as any[];
-      const inner    = (parsed.meta?.innerInstructions ?? []).flatMap((ii: any) => ii.instructions);
-
-      const valid = [...topLevel, ...inner].some((ix: any) => {
-        const prog = ix.programId?.toString();
-        if (prog !== tokenProgStr && prog !== tok2022Str) return false;
-        if (!ix.parsed) return false;
-        const { type, info } = ix.parsed;
-        if (type === "transfer") {
-          return info.destination === escrowAtaStr && info.amount === entryFeeAmtStr;
-        }
-        if (type === "transferChecked") {
-          return info.destination === escrowAtaStr &&
-                 info.tokenAmount?.amount === entryFeeAmtStr;
-        }
-        return false;
+    // ── Verify deposits ──────────────────────────────────────────────────────
+    // Deposits are verified on-chain once, at deposit time, by the f10deposit
+    // edge function, which sets match_players.deposit_verified = true. Here we
+    // trust that flag, so in the common case payout does ZERO on-chain deposit
+    // verification — eliminating the slow/fragile getSignatureStatuses +
+    // getParsedTransaction round-trips that previously ran for every deposit and
+    // were the source of spurious post-game payout 400s.
+    //
+    // Fallback: any deposit not yet flagged (recorded before f10deposit existed,
+    // or joined while bypassing it) is verified on-chain here and back-filled, so
+    // legacy / in-flight matches still pay out correctly.
+    const unverified = players.filter((p: any) => !p.deposit_verified);
+    if (unverified.length > 0) {
+      const depositSigs = unverified.map((p: any) => p.deposit_tx as string);
+      // searchTransactionHistory is required: deposits happen in the lobby/join
+      // phase, so by payout time the signatures are a full match old. Without it
+      // getSignatureStatuses only checks the ~300-slot (~2 min) recent status
+      // cache and returns null for any longer match → a spurious "not found" 400.
+      const { value: sigStatuses } = await connection.getSignatureStatuses(depositSigs, {
+        searchTransactionHistory: true,
       });
-
-      if (!valid) {
-        return errorResponse(
-          `Deposit ${i + 1} does not contain a valid FIGHT10 transfer to escrow`,
-          400,
-        );
+      for (let i = 0; i < depositSigs.length; i++) {
+        const s = sigStatuses[i];
+        if (!s) return errorResponse(`Deposit ${i + 1} not found on-chain`, 400);
+        if (s.err) return errorResponse(`Deposit ${i + 1} failed on-chain`, 400);
+        if (s.confirmationStatus !== "confirmed" && s.confirmationStatus !== "finalized") {
+          return errorResponse(`Deposit ${i + 1} not yet confirmed`, 400);
+        }
       }
+
+      // Parses the on-chain instruction data to confirm mint, destination, and
+      // exact amount — a confirmed-but-unrelated tx signature cannot pass this.
+      const parsedTxs = await Promise.all(
+        depositSigs.map((sig) =>
+          connection.getParsedTransaction(sig, {
+            commitment: "confirmed",
+            maxSupportedTransactionVersion: 0,
+          })
+        )
+      );
+
+      for (let i = 0; i < depositSigs.length; i++) {
+        const parsed = parsedTxs[i];
+        if (!parsed) return errorResponse(`Deposit ${i + 1} could not be parsed`, 400);
+
+        // Include inner instructions to handle CPI-wrapped transfers
+        const topLevel = parsed.transaction.message.instructions as any[];
+        const inner    = (parsed.meta?.innerInstructions ?? []).flatMap((ii: any) => ii.instructions);
+
+        const valid = [...topLevel, ...inner].some((ix: any) => {
+          const prog = ix.programId?.toString();
+          if (prog !== tokenProgStr && prog !== tok2022Str) return false;
+          if (!ix.parsed) return false;
+          const { type, info } = ix.parsed;
+          if (type === "transfer") {
+            return info.destination === escrowAtaStr && info.amount === entryFeeAmtStr;
+          }
+          if (type === "transferChecked") {
+            return info.destination === escrowAtaStr &&
+                   info.tokenAmount?.amount === entryFeeAmtStr;
+          }
+          return false;
+        });
+
+        if (!valid) {
+          return errorResponse(
+            `Deposit ${i + 1} does not contain a valid FIGHT10 transfer to escrow`,
+            400,
+          );
+        }
+      }
+
+      // Back-fill the flag so a later call (e.g. a payout retry) skips re-verification.
+      await adminClient.from("match_players")
+        .update({ deposit_verified: true })
+        .eq("match_id", matchId)
+        .in("deposit_tx", depositSigs);
     }
 
     // ── Atomically reserve the payout slot ───────────────────────────────────
