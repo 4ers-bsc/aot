@@ -169,6 +169,19 @@ Deno.serve(async (req: Request) => {
     const missing = players.filter((p: any) => !p.deposit_tx);
     if (missing.length > 0) return errorResponse(`${missing.length} player(s) have not deposited`, 400);
 
+    // ── Fetch each depositor's wallet address ────────────────────────────────
+    // Needed to verify each deposit was signed by that player's own wallet
+    // (anti-replay). There is no FK between match_players and profiles, so a
+    // PostgREST embed (profiles!user_id(...)) cannot be resolved — fetch the
+    // wallets in a separate query and map them by user_id instead.
+    const userIds = players.map((p: any) => p.user_id);
+    const { data: profRows, error: profErr } = await adminClient
+      .from("profiles").select("user_id, wallet_address").in("user_id", userIds);
+    if (profErr) return errorResponse("Could not fetch player wallets", 500);
+    const walletByUser = new Map<string, string | null>(
+      (profRows ?? []).map((r: any) => [r.user_id, r.wallet_address]),
+    );
+
     // ── Fetch winner wallet ──────────────────────────────────────────────────
     const { data: profile } = await adminClient
       .from("profiles").select("wallet_address").eq("user_id", user.id).maybeSingle();
@@ -240,6 +253,16 @@ Deno.serve(async (req: Request) => {
       const parsed = parsedTxs[i];
       if (!parsed) return errorResponse(`Deposit ${i + 1} could not be parsed`, 400);
 
+      // Derive the expected depositor wallet for this slot so we can verify the
+      // transfer was signed by the actual player, not a replayed signature from
+      // someone else's deposit. wallet_address may be stored as "solana:<pubkey>".
+      const rawDepositorWallet = (
+        walletByUser.get((players[i] as any).user_id) ?? ""
+      ).split(":").pop() ?? "";
+      if (!rawDepositorWallet) {
+        return errorResponse(`Deposit ${i + 1}: player wallet address not found`, 400);
+      }
+
       // Include inner instructions to handle CPI-wrapped transfers
       const topLevel = parsed.transaction.message.instructions as any[];
       const inner    = (parsed.meta?.innerInstructions ?? []).flatMap((ii: any) => ii.instructions);
@@ -249,19 +272,25 @@ Deno.serve(async (req: Request) => {
         if (prog !== tokenProgStr && prog !== tok2022Str) return false;
         if (!ix.parsed) return false;
         const { type, info } = ix.parsed;
+        // Verify destination (escrow), amount, and authority (depositing player's
+        // wallet). Checking authority prevents replaying another player's valid
+        // deposit signature.
         if (type === "transfer") {
-          return info.destination === escrowAtaStr && info.amount === entryFeeAmtStr;
+          return info.destination === escrowAtaStr &&
+                 info.amount === entryFeeAmtStr &&
+                 info.authority === rawDepositorWallet;
         }
         if (type === "transferChecked") {
           return info.destination === escrowAtaStr &&
-                 info.tokenAmount?.amount === entryFeeAmtStr;
+                 info.tokenAmount?.amount === entryFeeAmtStr &&
+                 info.authority === rawDepositorWallet;
         }
         return false;
       });
 
       if (!valid) {
         return errorResponse(
-          `Deposit ${i + 1} does not contain a valid FIGHT10 transfer to escrow`,
+          `Deposit ${i + 1} does not contain a valid FIGHT10 transfer to escrow from the expected wallet`,
           400,
         );
       }
