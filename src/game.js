@@ -2113,7 +2113,7 @@ function buildHud() {
     return el;
   };
 
-  const hint = add('<div class="hint game-ui"><b>Arena</b> — <span class="key">click</span> move &middot; <span class="key">click rival</span> attack &middot; <span class="key">drag</span> pan &middot; <span class="key">scroll</span> zoom &middot; <span class="key">Esc</span> leave</div>');
+  const hint = add('<div class="hint game-ui"><span class="key">wasd</span> move &middot; <span class="key">click</span> move &middot; <span class="key">click rival</span> attack &middot; <span class="key">drag</span> pan &middot; <span class="key">scroll</span> zoom &middot; <span class="key">Esc</span> leave</div>');
   const matchTimerEl = add('<div class="match-timer game-ui">0:00</div>');
   const coords = add('<div class="coords game-ui">x 0.0 &middot; z 0.0</div>');
   add('<div class="mm-label game-ui">map</div>');
