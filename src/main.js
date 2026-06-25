@@ -12,6 +12,9 @@ import {
   TOKEN_PROGRAM_ID,
   ASSOCIATED_TOKEN_PROGRAM_ID,
 } from "https://esm.sh/@solana/spl-token@0.3.5?bundle";
+import { mountViews } from "./views/index.js";
+
+mountViews();
 
 const SUPABASE_URL =
   import.meta.env?.VITE_SUPABASE_URL?.trim() || "https://sajvismyvcgaszjcafcr.supabase.co";
