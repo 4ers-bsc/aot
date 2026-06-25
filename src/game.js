@@ -883,12 +883,19 @@ export function createArenaGame(options) {
       }
     };
 
-    rctx.save(); rctx.strokeStyle = "rgba(20,60,100,0.35)";
-    rctx.lineWidth = lw + 10; rctx.lineCap = "round"; rctx.lineJoin = "round";
+    // Soft edge bleed
+    rctx.save(); rctx.strokeStyle = "rgba(60,130,190,0.28)";
+    rctx.lineWidth = lw + 12; rctx.lineCap = "round"; rctx.lineJoin = "round";
     drawPath(); rctx.stroke(); rctx.restore();
 
-    rctx.save(); rctx.strokeStyle = "rgba(55,120,175,0.88)";
+    // Main bright river fill
+    rctx.save(); rctx.strokeStyle = "rgba(90,170,220,0.92)";
     rctx.lineWidth = lw; rctx.lineCap = "round"; rctx.lineJoin = "round";
+    drawPath(); rctx.stroke(); rctx.restore();
+
+    // Subtle darker centre for gentle depth
+    rctx.save(); rctx.strokeStyle = "rgba(50,120,185,0.55)";
+    rctx.lineWidth = lw * 0.38; rctx.lineCap = "round"; rctx.lineJoin = "round";
     drawPath(); rctx.stroke(); rctx.restore();
 
     const tex   = new THREE.CanvasTexture(rc);
