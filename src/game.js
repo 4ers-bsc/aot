@@ -1900,7 +1900,7 @@ export function createArenaGame(options) {
       document.body.classList.toggle("in-game", viewIsGame);
       applyTheme(viewIsGame ? "game" : "lobby");
       showTimer();
-      if (viewIsGame) { setTimeout(() => { hint.style.opacity = "0"; }, 6000); renderWeaponPanel(player.weapon); }
+      if (viewIsGame) { renderWeaponPanel(player.weapon); }
     },
     setMode(mode) {
       perspective = mode;
