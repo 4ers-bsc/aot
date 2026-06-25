@@ -22,6 +22,7 @@ export const html = `
           </div>
         </div>
       </div>
+      <button class="game-over-retry hidden" id="gameOverRetryBtn" type="button">Retry Payout</button>
       <button class="game-over-menu hidden" id="gameOverMenuBtn" type="button">Main Menu</button>
     </div>
   </div>
