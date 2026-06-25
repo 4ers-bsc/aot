@@ -1,4 +1,4 @@
-/// Payout Edge Function
+// Payout Edge Function
 // Required Supabase secrets: ESCROW_PRIVATE_KEY (base58), FIGHT10_MINT, RPC_URL
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
@@ -37,7 +37,9 @@ function base58Decode(str: string): Uint8Array {
 
 // web3.js's internal base-x decoder does NOT pad to 32 bytes; do it manually.
 function pubkeyFromBase58(str: string): PublicKey {
-  const raw = base58Decode(str.replace(/[^123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz]/g, ""));
+  const B58 = /^[123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz]+$/;
+  if (!B58.test(str)) throw new Error(`Invalid base58 address (bad characters): ${str}`);
+  const raw = base58Decode(str);
   if (raw.length > 32) throw new Error(`base58 too long: ${raw.length} bytes`);
   const padded = new Uint8Array(32);
   padded.set(raw, 32 - raw.length);
@@ -135,6 +137,10 @@ Deno.serve(async (req: Request) => {
   let slotClaimed = false;   // tracks whether we set payout_tx = 'pending'
   let payoutConfirmed = false; // tracks whether the on-chain tx was confirmed
 
+  // Declare adminClient outside the try block so the catch block can reuse it
+  // without creating a second client (avoids a double service-key instantiation).
+  const adminClient = createClient(supabaseUrl, supabaseServiceKey);
+
   try {
     const authHeader = req.headers.get("Authorization");
     if (!authHeader) return errorResponse("Missing Authorization header", 401);
@@ -145,7 +151,6 @@ Deno.serve(async (req: Request) => {
     const { data: { user }, error: authError } = await userClient.auth.getUser();
     if (authError || !user) return errorResponse("Unauthorized", 401);
 
-    const adminClient = createClient(supabaseUrl, supabaseServiceKey);
     const body = await req.json();
     matchId = body?.match_id;
     if (!matchId) return errorResponse("match_id is required", 400);
@@ -160,9 +165,12 @@ Deno.serve(async (req: Request) => {
     // will auto-release them if >10 minutes old (Fix 4).
     if (matchRow.payout_tx && matchRow.payout_tx !== "pending") return errorResponse("Prize already claimed", 409);
 
-    // ── Verify all deposits exist ────────────────────────────────────────────
+    // ── Verify all deposits exist + fetch depositor wallet addresses ─────────
+    // wallet_address is needed to verify each deposit came FROM that player's wallet.
     const { data: players, error: playersErr } = await adminClient
-      .from("match_players").select("user_id, deposit_tx, deposit_verified").eq("match_id", matchId);
+      .from("match_players")
+      .select("user_id, deposit_tx, profiles!user_id(wallet_address)")
+      .eq("match_id", matchId);
     if (playersErr || !players) return errorResponse("Could not fetch match players", 500);
     const missing = players.filter((p: any) => !p.deposit_tx);
     if (missing.length > 0) return errorResponse(`${missing.length} player(s) have not deposited`, 400);
@@ -178,9 +186,13 @@ Deno.serve(async (req: Request) => {
     const rpcUrl    = Deno.env.get("RPC_URL") ?? "https://api.mainnet-beta.solana.com";
     if (!escrowB58 || !mintStr) return errorResponse("Escrow configuration missing", 500);
 
-    const B58_CHARS  = /[^123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz]/g;
-    const escrowKeypair = Keypair.fromSecretKey(base58Decode(escrowB58.replace(B58_CHARS, "")));
-    const mintPubkey    = pubkeyFromBase58(mintStr.replace(B58_CHARS, ""));
+    const B58_VALIDATE = /^[123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz]+$/;
+    const escrowB58Clean = escrowB58.trim();
+    const mintStrClean   = mintStr.trim();
+    if (!B58_VALIDATE.test(escrowB58Clean)) throw new Error("ESCROW_PRIVATE_KEY contains invalid base58 characters");
+    if (!B58_VALIDATE.test(mintStrClean))   throw new Error("FIGHT10_MINT contains invalid base58 characters");
+    const escrowKeypair = Keypair.fromSecretKey(base58Decode(escrowB58Clean));
+    const mintPubkey    = pubkeyFromBase58(mintStrClean);
     const rawWallet     = (profile.wallet_address ?? "").split(":").pop() ?? "";
     if (!rawWallet) return errorResponse("Winner wallet address invalid", 400);
     const winnerPubkey  = pubkeyFromBase58(rawWallet);
@@ -205,83 +217,79 @@ Deno.serve(async (req: Request) => {
     const escrowTokenAccount = new PublicKey(escrowAccounts.value[0].pubkey);
     const escrowAtaStr       = escrowTokenAccount.toString();
 
-    // ── Verify deposits ──────────────────────────────────────────────────────
-    // Deposits are verified on-chain once, at deposit time, by the f10deposit
-    // edge function, which sets match_players.deposit_verified = true. Here we
-    // trust that flag, so in the common case payout does ZERO on-chain deposit
-    // verification — eliminating the slow/fragile getSignatureStatuses +
-    // getParsedTransaction round-trips that previously ran for every deposit and
-    // were the source of spurious post-game payout 400s.
-    //
-    // Fallback: any deposit not yet flagged (recorded before f10deposit existed,
-    // or joined while bypassing it) is verified on-chain here and back-filled, so
-    // legacy / in-flight matches still pay out correctly.
-    const unverified = players.filter((p: any) => !p.deposit_verified);
-    if (unverified.length > 0) {
-      const depositSigs = unverified.map((p: any) => p.deposit_tx as string);
-      // searchTransactionHistory is required: deposits happen in the lobby/join
-      // phase, so by payout time the signatures are a full match old. Without it
-      // getSignatureStatuses only checks the ~300-slot (~2 min) recent status
-      // cache and returns null for any longer match → a spurious "not found" 400.
-      const { value: sigStatuses } = await connection.getSignatureStatuses(depositSigs, {
-        searchTransactionHistory: true,
-      });
-      for (let i = 0; i < depositSigs.length; i++) {
-        const s = sigStatuses[i];
-        if (!s) return errorResponse(`Deposit ${i + 1} not found on-chain`, 400);
-        if (s.err) return errorResponse(`Deposit ${i + 1} failed on-chain`, 400);
-        if (s.confirmationStatus !== "confirmed" && s.confirmationStatus !== "finalized") {
-          return errorResponse(`Deposit ${i + 1} not yet confirmed`, 400);
-        }
+    // ── Verify each deposit tx is confirmed on-chain ─────────────────────────
+    const depositSigs = players.map((p: any) => p.deposit_tx as string);
+    const { value: sigStatuses } = await connection.getSignatureStatuses(depositSigs);
+    for (let i = 0; i < depositSigs.length; i++) {
+      const s = sigStatuses[i];
+      if (!s) return errorResponse(`Deposit ${i + 1} not found on-chain`, 400);
+      if (s.err) return errorResponse(`Deposit ${i + 1} failed on-chain`, 400);
+      if (s.confirmationStatus !== "confirmed" && s.confirmationStatus !== "finalized") {
+        return errorResponse(`Deposit ${i + 1} not yet confirmed`, 400);
+      }
+    }
+
+    // ── Verify each deposit tx transferred the correct amount to escrow ──────
+    // Parses the on-chain instruction data to confirm mint, destination, and
+    // exact amount — a confirmed-but-unrelated tx signature cannot pass this.
+    // All fetches run in parallel to minimise latency (Fix 3/12).
+    const parsedTxs = await Promise.all(
+      depositSigs.map((sig) =>
+        connection.getParsedTransaction(sig, {
+          commitment: "confirmed",
+          maxSupportedTransactionVersion: 0,
+        })
+      )
+    );
+
+    for (let i = 0; i < depositSigs.length; i++) {
+      const parsed = parsedTxs[i];
+      if (!parsed) return errorResponse(`Deposit ${i + 1} could not be parsed`, 400);
+
+      // Derive the expected depositor wallet for this slot so we can verify the
+      // transfer was signed by the actual player, not a replayed signature from
+      // someone else's deposit. wallet_address may be stored as "solana:<pubkey>".
+      const rawDepositorWallet = (
+        (players[i] as any).profiles?.wallet_address ?? ""
+      ).split(":").pop() ?? "";
+      if (!rawDepositorWallet) {
+        return errorResponse(`Deposit ${i + 1}: player wallet address not found`, 400);
       }
 
-      // Parses the on-chain instruction data to confirm mint, destination, and
-      // exact amount — a confirmed-but-unrelated tx signature cannot pass this.
-      const parsedTxs = await Promise.all(
-        depositSigs.map((sig) =>
-          connection.getParsedTransaction(sig, {
-            commitment: "confirmed",
-            maxSupportedTransactionVersion: 0,
-          })
-        )
-      );
+      // Include inner instructions to handle CPI-wrapped transfers
+      const topLevel = parsed.transaction.message.instructions as any[];
+      const inner    = (parsed.meta?.innerInstructions ?? []).flatMap((ii: any) => ii.instructions);
 
-      for (let i = 0; i < depositSigs.length; i++) {
-        const parsed = parsedTxs[i];
-        if (!parsed) return errorResponse(`Deposit ${i + 1} could not be parsed`, 400);
-
-        // Include inner instructions to handle CPI-wrapped transfers
-        const topLevel = parsed.transaction.message.instructions as any[];
-        const inner    = (parsed.meta?.innerInstructions ?? []).flatMap((ii: any) => ii.instructions);
-
-        const valid = [...topLevel, ...inner].some((ix: any) => {
-          const prog = ix.programId?.toString();
-          if (prog !== tokenProgStr && prog !== tok2022Str) return false;
-          if (!ix.parsed) return false;
-          const { type, info } = ix.parsed;
-          if (type === "transfer") {
-            return info.destination === escrowAtaStr && info.amount === entryFeeAmtStr;
-          }
-          if (type === "transferChecked") {
-            return info.destination === escrowAtaStr &&
-                   info.tokenAmount?.amount === entryFeeAmtStr;
-          }
-          return false;
-        });
-
-        if (!valid) {
-          return errorResponse(
-            `Deposit ${i + 1} does not contain a valid FIGHT10 transfer to escrow`,
-            400,
+      const valid = [...topLevel, ...inner].some((ix: any) => {
+        const prog = ix.programId?.toString();
+        if (prog !== tokenProgStr && prog !== tok2022Str) return false;
+        if (!ix.parsed) return false;
+        const { type, info } = ix.parsed;
+        // Verify destination (escrow), amount, and authority (depositing player's wallet).
+        // Checking authority prevents replaying another player's valid deposit signature.
+        if (type === "transfer") {
+          return (
+            info.destination === escrowAtaStr &&
+            info.amount === entryFeeAmtStr &&
+            info.authority === rawDepositorWallet
           );
         }
-      }
+        if (type === "transferChecked") {
+          return (
+            info.destination === escrowAtaStr &&
+            info.tokenAmount?.amount === entryFeeAmtStr &&
+            info.authority === rawDepositorWallet
+          );
+        }
+        return false;
+      });
 
-      // Back-fill the flag so a later call (e.g. a payout retry) skips re-verification.
-      await adminClient.from("match_players")
-        .update({ deposit_verified: true })
-        .eq("match_id", matchId)
-        .in("deposit_tx", depositSigs);
+      if (!valid) {
+        return errorResponse(
+          `Deposit ${i + 1} does not contain a valid FIGHT10 transfer to escrow from the expected wallet`,
+          400,
+        );
+      }
     }
 
     // ── Atomically reserve the payout slot ───────────────────────────────────
@@ -319,10 +327,11 @@ Deno.serve(async (req: Request) => {
 
     const payoutSig = await connection.sendRawTransaction(tx.serialize(), { skipPreflight: false });
 
-    // Fix 2 (partial): Poll for on-chain confirmation; throw explicitly on timeout
-    // so the catch block correctly releases the slot (tx never landed).
+    // Poll for on-chain confirmation with exponential backoff (2s→4s→8s→…, capped at 15s).
+    // Throws explicitly on timeout so the catch block correctly releases the payout slot.
     const deadline = Date.now() + 90000;
     let confirmed = false;
+    let pollDelay = 2000;
     while (Date.now() < deadline) {
       const { value } = await connection.getSignatureStatuses([payoutSig]);
       const s = value[0];
@@ -331,7 +340,8 @@ Deno.serve(async (req: Request) => {
         confirmed = true;
         break;
       }
-      await new Promise((r) => setTimeout(r, 2000));
+      await new Promise((r) => setTimeout(r, pollDelay));
+      pollDelay = Math.min(pollDelay * 2, 15000);
     }
     if (!confirmed) throw new Error(`Payout tx not confirmed after 90s — sig: ${payoutSig}`);
 
@@ -377,7 +387,7 @@ Deno.serve(async (req: Request) => {
     // In that case the slot stays 'pending' and requires manual admin resolution.
     if (slotClaimed && !payoutConfirmed && matchId) {
       try {
-        const adminClient = createClient(supabaseUrl, supabaseServiceKey);
+        // Reuse the adminClient declared above the try block — no second createClient needed.
         await adminClient.from("matches")
           .update({ payout_tx: null, payout_claimed_at: null })
           .eq("id", matchId)
