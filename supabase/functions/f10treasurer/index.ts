@@ -106,8 +106,11 @@ function createATAInstruction(
 
 // ---------------------------------------------------------------------------
 
+// Fix 8: warn loudly if APP_ORIGIN is unset — open CORS in production is a misconfiguration.
+const appOrigin = Deno.env.get("APP_ORIGIN");
+if (!appOrigin) console.error("WARNING: APP_ORIGIN secret not set — CORS is open to all origins. Set it in Supabase secrets for production.");
 const corsHeaders = {
-  "Access-Control-Allow-Origin": Deno.env.get("APP_ORIGIN") || "*",
+  "Access-Control-Allow-Origin": appOrigin || "*",
   "Access-Control-Allow-Methods": "POST, OPTIONS",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
@@ -129,7 +132,8 @@ Deno.serve(async (req: Request) => {
   const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 
   let matchId = "";
-  let slotClaimed = false; // tracks whether we set payout_tx = 'pending'
+  let slotClaimed = false;   // tracks whether we set payout_tx = 'pending'
+  let payoutConfirmed = false; // tracks whether the on-chain tx was confirmed
 
   try {
     const authHeader = req.headers.get("Authorization");
@@ -291,19 +295,50 @@ Deno.serve(async (req: Request) => {
 
     const payoutSig = await connection.sendRawTransaction(tx.serialize(), { skipPreflight: false });
 
-    // Poll for confirmation
+    // Fix 2 (partial): Poll for on-chain confirmation; throw explicitly on timeout
+    // so the catch block correctly releases the slot (tx never landed).
     const deadline = Date.now() + 90000;
+    let confirmed = false;
     while (Date.now() < deadline) {
       const { value } = await connection.getSignatureStatuses([payoutSig]);
       const s = value[0];
       if (s?.err) throw new Error("Payout tx failed: " + JSON.stringify(s.err));
-      if (s?.confirmationStatus === "confirmed" || s?.confirmationStatus === "finalized") break;
+      if (s?.confirmationStatus === "confirmed" || s?.confirmationStatus === "finalized") {
+        confirmed = true;
+        break;
+      }
       await new Promise((r) => setTimeout(r, 2000));
     }
+    if (!confirmed) throw new Error(`Payout tx not confirmed after 90s — sig: ${payoutSig}`);
 
-    // Replace 'pending' reservation with the real signature
-    await adminClient.from("matches").update({ payout_tx: payoutSig }).eq("id", matchId);
-    slotClaimed = false; // no longer needs rollback
+    // Fix 4: Mark tx as confirmed before writing to DB. Retry the DB write up to 5 times
+    // so a transient DB failure after a confirmed on-chain tx does not clear the payout
+    // slot and risk a second transfer on winner retry.
+    payoutConfirmed = true;
+    let dbWritten = false;
+    for (let attempt = 0; attempt < 5; attempt++) {
+      if (attempt > 0) await new Promise((r) => setTimeout(r, 1000 * attempt));
+      const { error: writeErr } = await adminClient
+        .from("matches")
+        .update({ payout_tx: payoutSig })
+        .eq("id", matchId);
+      if (!writeErr) { dbWritten = true; break; }
+      console.error(`DB write attempt ${attempt + 1} failed:`, writeErr);
+    }
+
+    if (!dbWritten) {
+      // Tx confirmed on-chain but DB record could not be updated after 5 attempts.
+      // Leave payout_tx = 'pending' so the slot is NOT released — prevents a retry
+      // from sending a second transfer. Admin must manually set payout_tx = payoutSig.
+      console.error(`CRITICAL: payout tx ${payoutSig} confirmed on-chain but DB update failed for match ${matchId}. Manual resolution required.`);
+      slotClaimed = false; // prevent catch from clearing the slot
+      return errorResponse(
+        `Payout sent on-chain (${payoutSig}) but internal record failed. Contact support with this transaction ID.`,
+        500,
+      );
+    }
+
+    slotClaimed = false; // slot replaced with real sig — no rollback needed
 
     return new Response(
       JSON.stringify({ ok: true, payout_tx: payoutSig, winner_amount: winnerAmountRaw.toString(), num_players: players.length, decimals }),
@@ -312,13 +347,15 @@ Deno.serve(async (req: Request) => {
   } catch (err) {
     console.error("Payout error:", err);
 
-    // If we claimed the slot but the tx failed, release the reservation so the
-    // winner can retry — only clear if still 'pending' (not already set to a real sig).
-    if (slotClaimed && matchId) {
+    // Fix 4: Only release the payout slot if the on-chain tx was NOT confirmed.
+    // If payoutConfirmed=true, the transfer already landed — releasing the slot
+    // would allow a retry that sends a second transfer (double-pay).
+    // In that case the slot stays 'pending' and requires manual admin resolution.
+    if (slotClaimed && !payoutConfirmed && matchId) {
       try {
         const adminClient = createClient(supabaseUrl, supabaseServiceKey);
         await adminClient.from("matches")
-          .update({ payout_tx: null })
+          .update({ payout_tx: null, payout_claimed_at: null })
           .eq("id", matchId)
           .eq("payout_tx", "pending");
       } catch (_) { /* best-effort */ }

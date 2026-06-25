@@ -143,6 +143,7 @@ function bindUi() {
   els.profileTabs.forEach((t) => t.addEventListener("click", () => selectProfileTab(t.dataset.ptab)));
   els.pvpCancelBtn.addEventListener("click", () => leaveMatch());
   els.gameOverMenuBtn.addEventListener("click", () => { hideGameOver(); leaveMatch({ silent: true }); });
+  document.getElementById("gameOverRetryBtn")?.addEventListener("click", () => retryPayout());
   els.pvpSizeClose.addEventListener("click", () => els.pvpSizeOverlay.classList.remove("show"));
   els.pvpSizeOverlay.addEventListener("pointerdown", (e) => {
     if (e.target === els.pvpSizeOverlay) els.pvpSizeOverlay.classList.remove("show");
@@ -353,14 +354,52 @@ function showGameOver(result, reason, standings = [], prizeAmount = null) {
 }
 
 function updateGameOverPrize(prizeAmount) {
-  const prizeEl  = document.getElementById("gameOverPrize");
-  const prizeAmt = document.getElementById("gameOverPrizeAmount");
+  const prizeEl   = document.getElementById("gameOverPrize");
+  const prizeAmt  = document.getElementById("gameOverPrizeAmount");
+  const retryBtn  = document.getElementById("gameOverRetryBtn");
   if (!prizeEl || !prizeAmt) return;
-  prizeAmt.textContent = prizeAmount !== null
-    ? prizeAmount.toLocaleString(undefined, { maximumFractionDigits: 0 }) + " $FIGHT10"
-    : "Payout failed — contact support";
-  // Reveal menu button now that payout is settled
+  if (prizeAmount !== null) {
+    prizeAmt.textContent = prizeAmount.toLocaleString(undefined, { maximumFractionDigits: 0 }) + " $FIGHT10";
+    retryBtn?.classList.add("hidden");
+  } else {
+    prizeAmt.textContent = "Payout failed — tap Retry or contact support";
+    retryBtn?.classList.remove("hidden");
+  }
   els.gameOverMenuBtn.classList.remove("hidden");
+}
+
+// Fix 10: allow winner to retry a failed payout without reloading the page.
+async function retryPayout() {
+  if (!state.match?.id) return;
+  const retryBtn = document.getElementById("gameOverRetryBtn");
+  const prizeAmt = document.getElementById("gameOverPrizeAmount");
+  if (retryBtn) retryBtn.classList.add("hidden");
+  if (prizeAmt) prizeAmt.textContent = "Processing payout…";
+  els.gameOverMenuBtn.classList.add("hidden");
+  let prizeAmount = null;
+  try {
+    const { data: payoutData, error: payoutErr } = await supabase.functions.invoke("f10treasurer", {
+      body: { match_id: state.match.id },
+    });
+    if (!payoutErr && payoutData?.winner_amount && payoutData?.decimals != null) {
+      prizeAmount = Number(BigInt(payoutData.winner_amount)) / 10 ** payoutData.decimals;
+    }
+    if (payoutErr) console.error("Retry payout error:", payoutErr);
+  } catch (err) {
+    console.error("Retry payout error:", err);
+  }
+  updateGameOverPrize(prizeAmount);
+}
+
+// Fix 2: poll until the match row is marked 'finished' before invoking the
+// edge function, guarding against rare Supabase read-after-write lag.
+async function awaitMatchFinished(matchId, timeoutMs = 10000) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    const { data } = await supabase.from("matches").select("status").eq("id", matchId).single();
+    if (data?.status === "finished") return;
+    await new Promise((r) => setTimeout(r, 800));
+  }
 }
 
 function renderStandings(standings) {
@@ -833,6 +872,9 @@ async function reportResult(result, { reason = "", standings = [] } = {}) {
   let prizeAmount = null;
   try {
     setStatus("Claiming prize…");
+    // Fix 2: confirm the match is marked finished in the DB before invoking the
+    // edge function — guards against the edge function seeing status='active'.
+    await awaitMatchFinished(state.match.id);
     const { data: payoutData, error: payoutErr } = await supabase.functions.invoke("f10treasurer", {
       body: { match_id: state.match.id },
     });

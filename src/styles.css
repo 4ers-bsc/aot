@@ -1017,6 +1017,26 @@ body:has(.game-over:not(.hidden)) .arena-canvas {
   filter: brightness(1.1);
 }
 
+.game-over-retry {
+  margin-top: 8px;
+  padding: 10px 32px;
+  border-radius: 10px;
+  border: 1px solid var(--accent);
+  background: transparent;
+  color: var(--accent);
+  font-family: var(--font-head);
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+
+.game-over-retry:hover {
+  background: var(--accent);
+  color: #0a0a0a;
+}
+
 /* ===== Top-left status log ===== */
 .log-feed {
   position: fixed;
