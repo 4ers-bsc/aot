@@ -919,17 +919,17 @@ export function createArenaGame(options) {
     scatter(45, (x, z) => addGrass(x, z, rng), 0.6);
   }
   // A free, dry spawn point anywhere on the map.
-  function randomSpawn() {
+  // Pass a seeded rng (from makeRng) for deterministic placement across clients.
+  function randomSpawn(rng) {
+    const rand = rng || Math.random.bind(Math);
     for (let i = 0; i < 80; i++) {
-      const x = (Math.random() * 2 - 1) * (MAP_HALF - 3);
-      const z = (Math.random() * 2 - 1) * (MAP_HALF - 3);
+      const x = (rand() * 2 - 1) * (MAP_HALF - 3);
+      const z = (rand() * 2 - 1) * (MAP_HALF - 3);
       if (!inRiver(x, z) && !collidesSolid(x, z, BODY_R + 0.4)) return { x, z };
     }
-    // All 80 attempts failed — pick any random position rather than stacking
-    // every overflow fighter at the origin (which causes instant kills).
     return {
-      x: (Math.random() * 2 - 1) * (MAP_HALF - 3),
-      z: (Math.random() * 2 - 1) * (MAP_HALF - 3),
+      x: (rand() * 2 - 1) * (MAP_HALF - 3),
+      z: (rand() * 2 - 1) * (MAP_HALF - 3),
     };
   }
 
@@ -1656,7 +1656,9 @@ export function createArenaGame(options) {
   // arrive over the network and snap into place on the first packet).
   function placeOpponents() {
     opponents.forEach((o) => {
-      const sp = randomSpawn();
+      // Use per-seat seeded RNG when available so all clients agree on positions.
+      const rng = o.spawnSeed ? makeRng(o.spawnSeed) : null;
+      const sp = randomSpawn(rng);
       o.group.position.set(sp.x, 0, sp.z);
       o.netTarget = { x: sp.x, z: sp.z };
       o.group.rotation.set(0, o.group.rotation.y, 0);
@@ -1893,7 +1895,7 @@ export function createArenaGame(options) {
       foeMode = "net";
       aiEnemy.connected = false;
     },
-    addOpponent({ userId, displayName }) {
+    addOpponent({ userId, displayName, seat, matchId }) {
       if (!userId || opponents.has(userId)) {
         const ex = opponents.get(userId);
         if (ex && displayName) ex.name = displayName;
@@ -1905,8 +1907,11 @@ export function createArenaGame(options) {
       });
       f.networked = true;
       f.connected = true;
+      // Deterministic spawn: same seed → same position on every client.
+      f.spawnSeed = (matchId && seat != null) ? `${matchId}-spawn-${seat}` : null;
       opponents.set(userId, f);
-      const sp = randomSpawn();
+      const rng = f.spawnSeed ? makeRng(f.spawnSeed) : null;
+      const sp = randomSpawn(rng);
       f.group.position.set(sp.x, 0, sp.z);
       f.netTarget = { x: sp.x, z: sp.z };
     },
@@ -1919,13 +1924,14 @@ export function createArenaGame(options) {
       return opponents.size;
     },
     clearRemote() { clearOpponents(); },
-    resetForMatch() {
+    resetForMatch(matchId, localSeat) {
       resultSent = false;
       matchTimerOn = false; showTimer();
       bullets.splice(0).forEach((b) => { scene.remove(b.mesh); b.mesh.geometry.dispose(); b.mesh.material.dispose(); });
       Object.assign(player, { hp: player.maxHp, dead: false, cdTimer: 0, atkAnim: 0, hurt: 0, moving: false, attackTarget: null, target: null, chargeTimer: 0 });
       player.group.rotation.set(0, player.group.rotation.y, 0);
-      const ps = randomSpawn();
+      const spawnSeed = (matchId && localSeat != null) ? `${matchId}-spawn-${localSeat}` : null;
+      const ps = randomSpawn(spawnSeed ? makeRng(spawnSeed) : null);
       player.group.position.set(ps.x, 0, ps.z);
       player.connected = true;
       if (foeMode === "ai") {
