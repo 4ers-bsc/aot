@@ -881,12 +881,11 @@ export function createArenaGame(options) {
         const wz = (tz + 0.5) * TILE - MAP_HALF;
         const d  = riverCentreDist(wx, wz);
         if (d > hw) continue;
-        // Lighter centre, progressively darker toward edges
-        const t = d / hw; // 0 = centre, 1 = edge
+        const t = d / hw;
         let c;
-        if      (t < 0.35) c = "rgba(115,195,245,1.0)"; // light centre
-        else if (t < 0.70) c = "rgba(75,155,210,1.0)";  // mid
-        else               c = "rgba(45,105,170,1.0)";  // dark edge
+        if      (t < 0.35) c = "rgba(110,172,192,1.0)"; // light centre
+        else if (t < 0.70) c = "rgba(92,150,172,1.0)";  // mid
+        else               c = "rgba(72,122,148,1.0)";  // dark edge
         rctx.fillStyle = c;
         rctx.fillRect(tx, tz, 1, 1);
       }
