@@ -741,21 +741,36 @@ export function createArenaGame(options) {
     mapGroup.add(g);
     // No solid entry — grass is purely decorative
   }
-  function addTree(x, z) {
+  function addTree(x, z, rng) {
+    const rand = rng || Math.random.bind(Math);
+    const sc = 0.68 + rand() * 0.66;            // 0.68 – 1.34 scale
+    const isAutumn = rand() < 0.32;             // ~1 in 3 trees is autumn
+    const fc1 = isAutumn ? 0xc8601a : 0x2d5e2a;
+    const fc2 = isAutumn ? 0xa84010 : 0x254f22;
     const g = new THREE.Group();
     const trunk = box(0.5, 1.6, 0.5, 0x5c3d1e); trunk.position.y = 0.8;
-    const f1 = box(2.0, 1.4, 2.0, 0x2d5e2a); f1.position.y = 2.0;
-    const f2 = box(1.3, 1.2, 1.3, 0x254f22); f2.position.y = 3.0;
-    // Snow layers: sit on top of each foliage tier, slightly wider to droop
-    const sn1 = box(2.2, 0.3, 2.2, 0xdde9f5); sn1.position.y = 2.85;
-    const sn2 = box(1.45, 0.26, 1.45, 0xe4eef7); sn2.position.y = 3.72;
-    const snTop = box(0.55, 0.2, 0.55, 0xf0f6ff); snTop.position.y = 4.24;
-    g.add(trunk, f1, f2, sn1, sn2, snTop);
+    const f1 = box(2.0, 1.4, 2.0, fc1); f1.position.y = 2.0;
+    const f2 = box(1.3, 1.2, 1.3, fc2); f2.position.y = 3.0;
+    if (isAutumn) {
+      // Light dusting of snow only — autumn trees shed most of it
+      const sn1 = box(2.2, 0.10, 2.2, 0xdde9f5); sn1.position.y = 2.85;
+      g.add(trunk, f1, f2, sn1);
+    } else {
+      // Full winter snow layers
+      const sn1 = box(2.2, 0.3, 2.2, 0xdde9f5); sn1.position.y = 2.85;
+      const sn2 = box(1.45, 0.26, 1.45, 0xe4eef7); sn2.position.y = 3.72;
+      const snTop = box(0.55, 0.2, 0.55, 0xf0f6ff); snTop.position.y = 4.24;
+      g.add(trunk, f1, f2, sn1, sn2, snTop);
+    }
+    g.scale.setScalar(sc);
     g.position.set(x, 0, z);
     mapGroup.add(g);
-    solids.push({ x, z, r: 1.1 });
+    solids.push({ x, z, r: 1.1 * sc });
   }
-  function addMountain(x, z, rng) {
+  function addMountain(x, z, rng, tier = 1) {
+    // tier 0 = small hillock, 1 = medium (original), 2 = large peak
+    const tierScales = [0.48 + rng() * 0.22, 0.82 + rng() * 0.30, 1.40 + rng() * 0.45];
+    const sc = tierScales[tier] ?? tierScales[1];
     const g = new THREE.Group();
     // Rocky base + snow-capped cone.
     const rock = new THREE.Mesh(
@@ -769,10 +784,11 @@ export function createArenaGame(options) {
     );
     snow.position.y = 2.6; snow.castShadow = true;
     g.add(rock, snow);
+    g.scale.setScalar(sc);
     g.rotation.y = rng() * Math.PI;
     g.position.set(x, 0, z);
     mapGroup.add(g);
-    solids.push({ x, z, r: 1.9 });
+    solids.push({ x, z, r: 1.9 * sc });
   }
   function addRiverBoulder(x, z, rng) {
     const g = new THREE.Group();
@@ -790,6 +806,30 @@ export function createArenaGame(options) {
     g.position.set(x, 0, z);
     mapGroup.add(g);
     solids.push({ x, z, r: sz * 1.05 });
+  }
+  function addFallenLog(x, z, rng) {
+    const len   = 2.6 + rng() * 2.6;
+    const thick = 0.20 + rng() * 0.12;
+    const g = new THREE.Group();
+    // Cylinder lying on its side: rotate so axis runs along local X, then spin in Y.
+    const logMesh = new THREE.Mesh(
+      new THREE.CylinderGeometry(thick, thick * 1.12, len, 7),
+      new THREE.MeshStandardMaterial({ color: 0x4a2e12, roughness: 1, metalness: 0 })
+    );
+    logMesh.rotation.z = Math.PI / 2;  // lay flat
+    logMesh.position.y = thick;         // sit on ground
+    logMesh.castShadow = true; logMesh.receiveShadow = true;
+    // Snow drape — a flattened box spanning the top of the cylinder
+    const snowMesh = new THREE.Mesh(
+      new THREE.BoxGeometry(len * 1.02, thick * 0.28, thick * 2.0),
+      new THREE.MeshStandardMaterial({ color: 0xe2eef8, roughness: 0.9, metalness: 0 })
+    );
+    snowMesh.position.y = thick * 2;  // top surface of the cylinder
+    g.add(logMesh, snowMesh);
+    g.rotation.y = rng() * Math.PI;
+    g.position.set(x, 0, z);
+    mapGroup.add(g);
+    // Logs are thin — no solid entry, fighters step around them naturally
   }
   function buildRiver(rng) {
     const hw    = 7 + rng() * 5;                    // half-width 7–12 → river 14–24 u wide
@@ -864,8 +904,14 @@ export function createArenaGame(options) {
     rctx.lineWidth = lw; rctx.lineCap = "round"; rctx.lineJoin = "round";
     drawPath(); rctx.stroke(); rctx.restore();
 
-    rctx.save(); rctx.strokeStyle = "rgba(110,180,220,0.30)";
-    rctx.lineWidth = lw * 0.35; rctx.lineCap = "round"; rctx.lineJoin = "round";
+    // Deep centre — narrow dark stripe gives V-shaped depth gradient
+    rctx.save(); rctx.strokeStyle = "rgba(14,48,98,0.64)";
+    rctx.lineWidth = lw * 0.36; rctx.lineCap = "round"; rctx.lineJoin = "round";
+    drawPath(); rctx.stroke(); rctx.restore();
+
+    // Shimmer highlight along the very centre
+    rctx.save(); rctx.strokeStyle = "rgba(130,200,240,0.20)";
+    rctx.lineWidth = lw * 0.12; rctx.lineCap = "round"; rctx.lineJoin = "round";
     drawPath(); rctx.stroke(); rctx.restore();
 
     const tex   = new THREE.CanvasTexture(rc);
@@ -895,6 +941,71 @@ export function createArenaGame(options) {
       count++;
     }
   }
+  // Paints a transparent biome-tint overlay the same size as the arena floor.
+  // Blue-grey near the river banks, darker earth near large mountain bases.
+  // Called after all solids are placed so it can read the final solid list.
+  function buildBiomeOverlay() {
+    const CS = 256; // texel resolution; soft blending means high-res isn't needed
+    const bc = document.createElement("canvas");
+    bc.width = bc.height = CS;
+    const bctx = bc.getContext("2d");
+    const imgData = bctx.createImageData(CS, CS);
+    const px = imgData.data;
+    // Large mountain solids (r >= 1.4) for the dark-earth halo
+    const peaks = solids.filter((s) => s.r >= 1.4);
+
+    for (let py = 0; py < CS; py++) {
+      for (let pxi = 0; pxi < CS; pxi++) {
+        const wx = ((pxi + 0.5) / CS) * MAP_WORLD - MAP_HALF;
+        const wz = ((py  + 0.5) / CS) * MAP_WORLD - MAP_HALF;
+
+        let r = 0, g = 0, b = 0, a = 0;
+
+        // River zone — blue-grey tint that fades out beyond 2× the river half-width
+        if (riverSegments.length > 1) {
+          let minD = Infinity;
+          for (let i = 0; i < riverSegments.length - 1; i++) {
+            const sa = riverSegments[i], sb = riverSegments[i + 1];
+            const abx = sb.x - sa.x, abz = sb.z - sa.z;
+            const len2 = abx * abx + abz * abz || 1e-6;
+            let t = ((wx - sa.x) * abx + (wz - sa.z) * abz) / len2;
+            t = Math.max(0, Math.min(1, t));
+            const d = Math.hypot(wx - (sa.x + abx * t), wz - (sa.z + abz * t));
+            if (d < minD) minD = d;
+          }
+          const inner = riverHalfW, outer = riverHalfW * 2.4;
+          if (minD < outer) {
+            const fade = Math.max(0, 1 - (minD - inner) / (outer - inner));
+            r = 62; g = 88; b = 118;
+            a = Math.round(fade * 52);
+          }
+        }
+
+        // Mountain halo — dark earthy tint around large peaks
+        for (const s of peaks) {
+          const d = Math.hypot(wx - s.x, wz - s.z);
+          const inner2 = s.r * 1.1, outer2 = s.r * 3.8;
+          if (d < outer2) {
+            const fade = Math.max(0, 1 - (d - inner2) / (outer2 - inner2));
+            const da = Math.round(fade * 44);
+            if (da > a) { r = 22; g = 20; b = 16; a = da; }
+          }
+        }
+
+        const idx = (py * CS + pxi) * 4;
+        px[idx] = r; px[idx + 1] = g; px[idx + 2] = b; px[idx + 3] = a;
+      }
+    }
+    bctx.putImageData(imgData, 0, 0);
+    const tex = new THREE.CanvasTexture(bc);
+    const plane = new THREE.Mesh(
+      new THREE.PlaneGeometry(MAP_WORLD, MAP_WORLD),
+      new THREE.MeshBasicMaterial({ map: tex, transparent: true, depthWrite: false })
+    );
+    plane.rotation.x = -Math.PI / 2;
+    plane.position.y = 0.03;
+    mapGroup.add(plane);
+  }
   function generateMap(seedStr) {
     clearMap();
     const rng = makeRng(seedStr || "demo");
@@ -915,9 +1026,13 @@ export function createArenaGame(options) {
         adder(x, z); made++;
       }
     };
-    scatter(18, addTree, 2.4);
-    scatter(8, (x, z) => addMountain(x, z, rng), 3.4);
+    scatter(18, (x, z) => addTree(x, z, rng), 2.4);
+    scatter(3, (x, z) => addMountain(x, z, rng, 0), 2.2);  // small hillocks
+    scatter(4, (x, z) => addMountain(x, z, rng, 1), 3.4);  // medium peaks
+    scatter(2, (x, z) => addMountain(x, z, rng, 2), 4.8);  // large peaks
+    scatter(10, (x, z) => addFallenLog(x, z, rng), 1.4);
     scatter(45, (x, z) => addGrass(x, z, rng), 0.6);
+    buildBiomeOverlay();
   }
   // A free, dry spawn point anywhere on the map.
   // Pass a seeded rng (from makeRng) for deterministic placement across clients.
