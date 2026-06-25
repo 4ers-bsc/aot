@@ -21,7 +21,7 @@ const WEAPONS = {
   sword:  { id: "sword",   name: "Sword",   atk: 25, atkVar: 3, cd: 0.7,  range: 2.4, ranged: false },
   pistol: { id: "pistol",  name: "Pistol",  atk: 15, atkVar: 4, cd: 0.9,  range: 18,  ranged: true,  bulletSpeed: 46, bulletSize: 0.13, chargeTime: 0    },
   sniper: { id: "sniper",  name: "Sniper",  atk: 20, atkVar: 2, cd: 2.2,  range: 60,  ranged: true,  bulletSpeed: 90, bulletSize: 0.22, chargeTime: 0.45 },
-  frag:   { id: "frag",    name: "Frag",    atk: 22, atkVar: 4, cd: 3.5,  range: 35,  ranged: false, isGrenade: true, fuseTime: 1.0, blastRadius: 5 },
+  frag:   { id: "frag",    name: "Frag",    atk: 22, atkVar: 4, cd: 3.5,  range: 23,  ranged: false, isGrenade: true, fuseTime: 1.0, blastRadius: 5 },
 };
 Object.values(WEAPONS).forEach(Object.freeze);
 Object.freeze(WEAPONS);
@@ -1900,7 +1900,7 @@ export function createArenaGame(options) {
       document.body.classList.toggle("in-game", viewIsGame);
       applyTheme(viewIsGame ? "game" : "lobby");
       showTimer();
-      if (viewIsGame) { setTimeout(() => { hint.style.opacity = "0"; }, 6000); renderWeaponPanel(player.weapon); }
+      if (viewIsGame) { renderWeaponPanel(player.weapon); }
     },
     setMode(mode) {
       perspective = mode;
@@ -2113,7 +2113,7 @@ function buildHud() {
     return el;
   };
 
-  const hint = add('<div class="hint game-ui"><b>Arena</b> — <span class="key">click</span> move &middot; <span class="key">click rival</span> attack &middot; <span class="key">drag</span> pan &middot; <span class="key">scroll</span> zoom &middot; <span class="key">Esc</span> leave</div>');
+  const hint = add('<div class="hint game-ui"><span class="key">wasd</span> move &middot; <span class="key">click</span> move &middot; <span class="key">click rival</span> attack &middot; <span class="key">drag</span> pan &middot; <span class="key">scroll</span> zoom &middot; <span class="key">Esc</span> leave</div>');
   const matchTimerEl = add('<div class="match-timer game-ui">0:00</div>');
   const coords = add('<div class="coords game-ui">x 0.0 &middot; z 0.0</div>');
   add('<div class="mm-label game-ui">map</div>');
