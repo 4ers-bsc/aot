@@ -60,7 +60,8 @@ create table public.matches (
   ended_at       timestamptz,
   pot_tokens     bigint not null default 0,
   payout_tx      text,
-  payout_claimed_at timestamptz
+  payout_claimed_at timestamptz,
+  stats_applied  boolean not null default false
 );
 
 create table public.match_players (
@@ -79,6 +80,7 @@ create table public.match_players (
 
 create index if not exists idx_matches_waiting    on public.matches(status, created_at);
 create index if not exists idx_match_players_user on public.match_players(user_id, joined_at desc);
+create index if not exists idx_match_players_match on public.match_players(match_id);
 
 -- ---------------------------------------------------------------------------
 -- 2. Auto-create profile on sign-up
@@ -166,7 +168,7 @@ as $$
 declare
   v_uid        uuid     := auth.uid();
   v_name       text;
-  v_size       smallint := least(greatest(coalesce(p_max_players, 2), 2), 10);
+  v_size       smallint := coalesce(p_max_players, 2);
   v_match_id   uuid;
   v_seat       smallint;
   v_count      smallint;
@@ -182,9 +184,9 @@ begin
     raise exception 'deposit_tx_required';
   end if;
 
-  -- Clamp to the three supported lobby sizes
+  -- Reject unsupported lobby sizes instead of silently converting
   if v_size not in (2, 5, 10) then
-    v_size := 2;
+    raise exception 'invalid_max_players: must be 2, 5, or 10';
   end if;
 
   select display_name into v_name
@@ -203,8 +205,9 @@ begin
     return jsonb_build_object(
       'match_id',    v_existing.match_id,
       'seat',        v_existing.seat,
-      'status',      'existing',
-      'max_players', v_existing.max_players
+      'status',      v_existing.status,
+      'max_players', v_existing.max_players,
+      'rejoining',   true
     );
   end if;
 
@@ -279,9 +282,11 @@ security definer
 set search_path = public
 as $$
 declare
-  v_uid      uuid := auth.uid();
-  r          record;
-  v_remaining integer;
+  v_uid         uuid := auth.uid();
+  r             record;
+  v_remaining   integer;
+  v_had_deposit boolean;
+  c_entry_fee   constant bigint := 2500000000;
 begin
   if v_uid is null then
     raise exception 'not_authenticated';
@@ -294,7 +299,18 @@ begin
     where mp.user_id = v_uid and m.status in ('waiting', 'active')
   loop
     if r.status = 'waiting' then
+      select (deposit_tx is not null) into v_had_deposit
+      from public.match_players
+      where match_id = r.id and user_id = v_uid;
+
       delete from public.match_players where match_id = r.id and user_id = v_uid;
+
+      if v_had_deposit then
+        update public.matches
+        set pot_tokens = greatest(0, pot_tokens - c_entry_fee)
+        where id = r.id;
+      end if;
+
       select count(*) into v_remaining from public.match_players where match_id = r.id;
       if v_remaining = 0 then
         update public.matches set status = 'finished', ended_at = timezone('utc', now()) where id = r.id;
@@ -363,7 +379,7 @@ returns integer
 language sql
 immutable
 as $$
-  select greatest(1, floor((1 + sqrt(1 + 0.08 * greatest(p, 0))) / 2)::int);
+  select least(30, greatest(1, floor((1 + sqrt(1 + 0.08 * greatest(p, 0))) / 2)::int));
 $$;
 
 -- ---------------------------------------------------------------------------
@@ -380,6 +396,15 @@ declare
   v_streak     integer;
   v_win_points integer;
 begin
+  -- Idempotency guard: only apply stats once per match
+  update public.matches
+  set stats_applied = true
+  where id = p_match_id and not stats_applied;
+
+  if not found then
+    return;
+  end if;
+
   -- Losers: +1 loss, +1 game, +10 points, streak reset
   update public.profiles p set
     losses       = p.losses + 1,
@@ -574,11 +599,12 @@ begin
     where  id = r.id
       and  status != 'finished';
 
-    if found and r.winner_uid is not null then
-      perform public.apply_match_result(r.id, r.winner_uid);
+    if found then
+      v_closed := v_closed + 1;
+      if r.winner_uid is not null then
+        perform public.apply_match_result(r.id, r.winner_uid);
+      end if;
     end if;
-
-    v_closed := v_closed + 1;
   end loop;
 
   return v_closed;
@@ -605,7 +631,7 @@ with check (auth.uid() = user_id);
 -- Matches: visible when active or you are a member
 create policy "matches_select_member_or_active"
 on public.matches for select to authenticated
-using (status = 'active' or public.is_match_member(id));
+using (status in ('active', 'waiting') or public.is_match_member(id));
 
 -- Match players: visible when active or you are in the match
 create policy "match_players_select_member_or_active"
@@ -627,7 +653,6 @@ grant execute on function public.join_pvp_match(smallint, text, text)  to authen
 grant execute on function public.leave_my_matches()                    to authenticated;
 grant execute on function public.finish_match(uuid, int)               to authenticated;
 grant execute on function public.claim_payout_slot(uuid)               to authenticated;
-grant execute on function public.record_deposit(uuid, text)            to authenticated;
 grant execute on function public.level_for_points(integer)             to authenticated;
 
 -- apply_match_result and close_stale_matches are internal / service_role only

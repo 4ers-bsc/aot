@@ -493,7 +493,8 @@ async function joinPvp(maxPlayers) {
 
     // Pass iRoomFiller into enterArena; teardownMatch inside it resets the flag
     // so it must be restored there, after the reset, before loadRoster() runs.
-    await enterArena(data.match_id, data.status === "active");
+    // data.rejoining is set when we're resuming an existing match, not filling the room.
+    await enterArena(data.match_id, data.status === "active" && !data.rejoining);
   } catch (err) {
     hidePvpLobby();
     console.error("[joinPvp]", err);
@@ -944,6 +945,10 @@ async function leaveMatch({ silent = false } = {}) {
   cancelMatchStart();
   if (!state.match) { if (!silent) setStatus("You're not in a match."); return; }
   if (state.match.mode === "pvp") {
+    if (state.match.status === "waiting" && state.pendingDepositTx == null && !silent) {
+      const ok = window.confirm("You have already paid the entry fee. Leaving now forfeits your deposit — the pot stays in the contract. Continue?");
+      if (!ok) return;
+    }
     try { await supabase.rpc("leave_my_matches"); } catch (error) { console.error(error); }
     try { await syncProfile(); } catch (error) { console.error(error); } // pick up any recorded loss
   }
