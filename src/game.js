@@ -851,7 +851,26 @@ export function createArenaGame(options) {
         { x: c4, z:  MAP_HALF        },
       ];
     }
-    riverSegments = wps;
+    // Sample Catmull-Rom bezier so inRiver() checks the same curve drawn on screen.
+    const STEPS = 20;
+    const sampledPts = [];
+    for (let i = 0; i < wps.length - 1; i++) {
+      const p0 = wps[Math.max(0, i - 1)];
+      const p1 = wps[i];
+      const p2 = wps[i + 1];
+      const p3 = wps[Math.min(wps.length - 1, i + 2)];
+      const cp1x = p1.x + (p2.x - p0.x) / 6, cp1z = p1.z + (p2.z - p0.z) / 6;
+      const cp2x = p2.x - (p3.x - p1.x) / 6, cp2z = p2.z - (p3.z - p1.z) / 6;
+      for (let s = 0; s < STEPS; s++) {
+        const t = s / STEPS, mt = 1 - t;
+        sampledPts.push({
+          x: mt*mt*mt*p1.x + 3*mt*mt*t*cp1x + 3*mt*t*t*cp2x + t*t*t*p2.x,
+          z: mt*mt*mt*p1.z + 3*mt*mt*t*cp1z + 3*mt*t*t*cp2z + t*t*t*p2.z,
+        });
+      }
+    }
+    sampledPts.push(wps[wps.length - 1]);
+    riverSegments = sampledPts;
 
     // Smooth Catmull-Rom bezier canvas texture — organic rounded edges.
     const CS  = 512;
@@ -1484,6 +1503,7 @@ export function createArenaGame(options) {
         fragCd = WEAPONS.frag.cd;
         player.atkAnim = 0.32;
         fireGrenade(player, tx, tz, dmg);
+        options.onAttack?.({ fromId: localUserId, targetId: foe.userId, weapon: "frag", dmg, ranged: false, isGrenade: true, tx, tz });
         setMarker(tx, tz, 0xff8800, 0xcc5500);
         selectSlot(prevSlot !== 1 ? prevSlot : 2);
         return;
@@ -1514,6 +1534,7 @@ export function createArenaGame(options) {
         fragCd = WEAPONS.frag.cd;
         player.atkAnim = 0.32;
         fireGrenade(player, tx, tz, dmg);
+        options.onAttack?.({ fromId: localUserId, targetId: null, weapon: "frag", dmg, ranged: false, isGrenade: true, tx, tz });
         setMarker(tx, tz, 0xff8800, 0xcc5500);
         selectSlot(prevSlot !== 1 ? prevSlot : 2);
         return;
@@ -2130,6 +2151,13 @@ export function createArenaGame(options) {
         ? attacker.weapon.atk + attacker.weapon.atkVar
         : Math.max(...Object.values(WEAPONS).map((w) => w.atk + w.atkVar));
       const dmg = Math.min(Math.max(0, payload.dmg || 0), weaponCap);
+      if (payload.isGrenade && attacker) {
+        const tx = typeof payload.tx === "number" ? payload.tx : attacker.group.position.x;
+        const tz = typeof payload.tz === "number" ? payload.tz : attacker.group.position.z;
+        attacker.atkAnim = 0.32;
+        fireGrenade(attacker, tx, tz, dmg);
+        return;
+      }
       if (payload.targetId === localUserId) {
         if (player.dead) return;
         if (attacker) attacker.atkAnim = 0.32;
