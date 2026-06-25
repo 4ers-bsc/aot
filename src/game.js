@@ -882,11 +882,10 @@ export function createArenaGame(options) {
         const d  = riverCentreDist(wx, wz);
         if (d > hw) continue;
         const t = d / hw;
-        let c;
-        if      (t < 0.35) c = "rgba(110,172,192,1.0)"; // light centre
-        else if (t < 0.70) c = "rgba(92,150,172,1.0)";  // mid
-        else               c = "rgba(72,122,148,1.0)";  // dark edge
-        rctx.fillStyle = c;
+        // Dark inner border at the bank edge, uniform cornflower-blue body
+        rctx.fillStyle = t > 0.78
+          ? "rgba(22,40,68,1.0)"    // near-black border strip
+          : "rgba(105,162,212,1.0)"; // cornflower blue
         rctx.fillRect(tx, tz, 1, 1);
       }
     }
