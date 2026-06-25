@@ -954,13 +954,67 @@ export function createArenaGame(options) {
     const slow = inRiver(px, pz) ? RIVER_SLOW : 1;
     const step = Math.min(f.speed * slow * dt, dist);
     const lim = MAP_HALF - 0.5;
-    const nx = Math.max(-lim, Math.min(lim, px + dx / dist * step));
-    const nz = Math.max(-lim, Math.min(lim, pz + dz / dist * step));
+    const ndx = dx / dist, ndz = dz / dist;
+    const nx = Math.max(-lim, Math.min(lim, px + ndx * step));
+    const nz = Math.max(-lim, Math.min(lim, pz + ndz * step));
     f.facing = Math.atan2(dx, dz);
     if (!collidesSolid(nx, nz, BODY_R)) {
       f.group.position.x = nx; f.group.position.z = nz;
       f.walkPhase += dt * f.speed * 1.6;
       f.moving = true;
+      return false;
+    }
+
+    // Direct path blocked — find the nearest solid intersecting our path.
+    let blocker = null, blockerDSq = Infinity;
+    const clearance = BODY_R;
+    for (const s of solids) {
+      const sdx = s.x - px, sdz = s.z - pz;
+      const t = Math.max(0, Math.min(dist, sdx * ndx + sdz * ndz));
+      const cx = px + ndx * t, cz = pz + ndz * t;
+      const perpSq = (s.x - cx) ** 2 + (s.z - cz) ** 2;
+      const limit = s.r + clearance;
+      if (perpSq < limit * limit) {
+        const dSq = sdx * sdx + sdz * sdz;
+        if (dSq < blockerDSq) { blockerDSq = dSq; blocker = s; }
+      }
+    }
+
+    if (blocker) {
+      // Steer around the blocker on the same side as the target.
+      const toSolidX = blocker.x - px, toSolidZ = blocker.z - pz;
+      const toSolidLen = Math.hypot(toSolidX, toSolidZ) || 1;
+      // 2D cross: positive → target is CCW (left) of the solid from player's view.
+      const cross = toSolidX * (tz - pz) - toSolidZ * (tx - px);
+      const side = cross >= 0 ? 1 : -1;
+      const perpX =  side * (-toSolidZ / toSolidLen);
+      const perpZ =  side * ( toSolidX / toSolidLen);
+      const tangentX = blocker.x + perpX * (blocker.r + BODY_R + 0.35);
+      const tangentZ = blocker.z + perpZ * (blocker.r + BODY_R + 0.35);
+      const tdx = tangentX - px, tdz = tangentZ - pz;
+      const tdist = Math.hypot(tdx, tdz) || 1;
+      const anx = Math.max(-lim, Math.min(lim, px + (tdx / tdist) * step));
+      const anz = Math.max(-lim, Math.min(lim, pz + (tdz / tdist) * step));
+      if (!collidesSolid(anx, anz, BODY_R)) {
+        f.group.position.x = anx; f.group.position.z = anz;
+        f.facing = Math.atan2(tdx, tdz);
+        f.walkPhase += dt * f.speed * 1.6;
+        f.moving = true;
+        return false;
+      }
+    }
+
+    // Tangent also blocked (tight gap) — try sliding along each axis separately.
+    const axX = Math.max(-lim, Math.min(lim, px + ndx * step));
+    if (!collidesSolid(axX, pz, BODY_R)) {
+      f.group.position.x = axX;
+      f.walkPhase += dt * f.speed * 1.6; f.moving = true;
+    } else {
+      const azZ = Math.max(-lim, Math.min(lim, pz + ndz * step));
+      if (!collidesSolid(px, azZ, BODY_R)) {
+        f.group.position.z = azZ;
+        f.walkPhase += dt * f.speed * 1.6; f.moving = true;
+      }
     }
     return false;
   }
