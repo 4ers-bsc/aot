@@ -854,12 +854,14 @@ export function createArenaGame(options) {
     riverSegments = wps;
 
     // Tile-rasterised river — one canvas pixel per game tile, NearestFilter keeps it crisp.
+    // Profile from centre outward: darkest deep core → steps lighter toward shallows → dark
+    // shadow at the very bank edge.
     const rc  = document.createElement("canvas");
     rc.width  = MAP_TILES; rc.height = MAP_TILES;
     const rctx = rc.getContext("2d");
     rctx.clearRect(0, 0, MAP_TILES, MAP_TILES);
 
-    // Distance from (wx,wz) to the nearest point on the piecewise-linear centreline.
+    // Signed distance from (wx,wz) to the nearest point on the piecewise-linear centreline.
     const riverCentreDist = (wx, wz) => {
       let best = Infinity;
       for (let i = 0; i < wps.length - 1; i++) {
@@ -875,6 +877,15 @@ export function createArenaGame(options) {
       return Math.sqrt(best);
     };
 
+    // 5-band stepped palette: dark deep core → lighter shallows → shadow rim at bank
+    const RIVER_BANDS = [
+      { limit: 0.18, color: "#2a4f82" }, // deep centre — darkest
+      { limit: 0.38, color: "#3a6aa8" }, // deep mid
+      { limit: 0.60, color: "#5a8ec8" }, // mid water
+      { limit: 0.82, color: "#7aaee0" }, // shallow — lightest
+      { limit: 1.00, color: "#3a5878" }, // bank shadow rim — dark again
+    ];
+
     for (let tx = 0; tx < MAP_TILES; tx++) {
       for (let tz = 0; tz < MAP_TILES; tz++) {
         const wx = (tx + 0.5) * TILE - MAP_HALF;
@@ -882,10 +893,7 @@ export function createArenaGame(options) {
         const d  = riverCentreDist(wx, wz);
         if (d > hw) continue;
         const t = d / hw;
-        // Dark inner border at the bank edge, uniform cornflower-blue body
-        rctx.fillStyle = t > 0.78
-          ? "rgba(22,40,68,1.0)"    // near-black border strip
-          : "rgba(105,162,212,1.0)"; // cornflower blue
+        rctx.fillStyle = RIVER_BANDS.find(b => t <= b.limit).color;
         rctx.fillRect(tx, tz, 1, 1);
       }
     }
