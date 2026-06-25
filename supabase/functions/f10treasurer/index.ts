@@ -166,14 +166,24 @@ Deno.serve(async (req: Request) => {
     if (matchRow.payout_tx && matchRow.payout_tx !== "pending") return errorResponse("Prize already claimed", 409);
 
     // ── Verify all deposits exist + fetch depositor wallet addresses ─────────
-    // wallet_address is needed to verify each deposit came FROM that player's wallet.
     const { data: players, error: playersErr } = await adminClient
       .from("match_players")
-      .select("user_id, deposit_tx, profiles!user_id(wallet_address)")
+      .select("user_id, deposit_tx")
       .eq("match_id", matchId);
     if (playersErr || !players) return errorResponse("Could not fetch match players", 500);
     const missing = players.filter((p: any) => !p.deposit_tx);
     if (missing.length > 0) return errorResponse(`${missing.length} player(s) have not deposited`, 400);
+
+    // Batch-fetch depositor wallets separately — avoids fragile FK join hint syntax
+    const playerUserIds = players.map((p: any) => p.user_id as string);
+    const { data: playerProfiles } = await adminClient
+      .from("profiles").select("user_id, wallet_address").in("user_id", playerUserIds);
+    const depositorWalletMap = new Map<string, string>(
+      (playerProfiles ?? []).map((p: any) => [
+        p.user_id as string,
+        ((p.wallet_address as string | null) ?? "").split(":").pop() ?? "",
+      ])
+    );
 
     // ── Fetch winner wallet ──────────────────────────────────────────────────
     const { data: profile } = await adminClient
@@ -248,10 +258,8 @@ Deno.serve(async (req: Request) => {
 
       // Derive the expected depositor wallet for this slot so we can verify the
       // transfer was signed by the actual player, not a replayed signature from
-      // someone else's deposit. wallet_address may be stored as "solana:<pubkey>".
-      const rawDepositorWallet = (
-        (players[i] as any).profiles?.wallet_address ?? ""
-      ).split(":").pop() ?? "";
+      // someone else's deposit.
+      const rawDepositorWallet = depositorWalletMap.get((players[i] as any).user_id) ?? "";
       if (!rawDepositorWallet) {
         return errorResponse(`Deposit ${i + 1}: player wallet address not found`, 400);
       }
