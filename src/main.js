@@ -105,7 +105,9 @@ const state = {
   channel: null,
   iRoomFiller: false,
   pingInterval: null,
-  depositPollTimer: null
+  depositPollTimer: null,
+  roomChannel: null,   // realtime subscription for the room browser grid
+  roomSize: 2          // size currently shown in room browser
 };
 
 const game = createArenaGame({
@@ -151,9 +153,15 @@ function bindUi() {
   els.pvpSizeBtns.forEach((b) =>
     b.addEventListener("click", () => {
       els.pvpSizeOverlay.classList.remove("show");
-      joinPvp(parseInt(b.dataset.size, 10));
+      showRoomBrowser(parseInt(b.dataset.size, 10));
     })
   );
+  document.getElementById("roomBrowserBack")?.addEventListener("click", hideRoomBrowser);
+  document.getElementById("quickJoinBtn")?.addEventListener("click", () => quickJoinRoom());
+  document.getElementById("roomGrid")?.addEventListener("click", (e) => {
+    const card = e.target.closest("[data-room-id]");
+    if (card && !card.disabled) joinViaRoom(card.dataset.roomId);
+  });
   els.howToOverlay.addEventListener("pointerdown", (e) => {
     if (e.target === els.howToOverlay) els.howToOverlay.classList.remove("show");
   });
@@ -449,6 +457,156 @@ async function fetchLobbyCounts() {
     if (!el) return;
     el.textContent = counts[sz] > 0 ? counts[sz] + " waiting" : "";
   });
+}
+
+// ---------------------------------------------------------------------------
+// Room browser
+// ---------------------------------------------------------------------------
+const ROOM_SIZE_LABEL = { 2: "2-Player Rooms", 5: "5-Player Rooms", 10: "10-Player Rooms" };
+
+function showRoomBrowser(size) {
+  state.roomSize = size;
+  const rb = document.getElementById("roomBrowser");
+  const title = document.getElementById("roomBrowserTitle");
+  if (title) title.textContent = ROOM_SIZE_LABEL[size] || `${size}-Player Rooms`;
+  if (rb) rb.classList.add("show");
+  refreshRoomGrid(size).catch(console.error);
+  subscribeRoomUpdates(size);
+}
+
+function hideRoomBrowser() {
+  document.getElementById("roomBrowser")?.classList.remove("show");
+  unsubscribeRoomUpdates();
+  // Return to size picker
+  els.pvpSizeOverlay.classList.add("show");
+  fetchLobbyCounts().catch(() => {});
+}
+
+async function refreshRoomGrid(size) {
+  const grid = document.getElementById("roomGrid");
+  if (!grid) return;
+  const { data: rooms, error } = await supabase
+    .from("rooms")
+    .select("id, name, match_size, status, player_count")
+    .eq("match_size", size)
+    .order("name");
+  if (error || !rooms) return;
+  grid.innerHTML = rooms.map(renderRoomCard).join("");
+}
+
+function renderRoomCard(room) {
+  const full    = room.status === "in_progress";
+  const filling = room.player_count > 0 && !full;
+  const cls     = full ? "room-card--red" : filling ? "room-card--yellow" : "room-card--green";
+  const label   = full ? "IN GAME" : filling ? "JOIN" : "OPEN";
+  return `
+    <button class="room-card ${cls}" data-room-id="${room.id}" ${full ? "disabled" : ""} type="button">
+      <span class="room-card-name">${escapeHtml(room.name)}</span>
+      <span class="room-card-count">${room.player_count}/${room.match_size}</span>
+      <span class="room-card-label">${label}</span>
+      <span class="room-card-dot"></span>
+    </button>`;
+}
+
+function subscribeRoomUpdates(size) {
+  unsubscribeRoomUpdates();
+  state.roomChannel = supabase
+    .channel("room-browser-" + size)
+    .on("postgres_changes",
+      { event: "*", schema: "public", table: "rooms", filter: `match_size=eq.${size}` },
+      () => refreshRoomGrid(size).catch(console.error))
+    .subscribe();
+}
+
+function unsubscribeRoomUpdates() {
+  if (state.roomChannel) {
+    supabase.removeChannel(state.roomChannel);
+    state.roomChannel = null;
+  }
+}
+
+// Shared post-join flow: deposit entry fee then enter the arena.
+async function afterRoomJoined(data, size) {
+  state.match = {
+    id: data.match_id, mode: "pvp", finished: false,
+    status: data.status === "active" ? "active" : "waiting",
+    maxPlayers: data.max_players || size,
+  };
+  state.iRoomFiller = data.status === "active";
+  state.seat = data.seat;
+
+  const deposited = await depositEntryFee(data.match_id, size);
+  if (!deposited) {
+    hidePvpLobby();
+    try { await supabase.rpc("leave_my_matches"); } catch (_) {}
+    state.match = null;
+    state.seat = null;
+    setStatus("Deposit cancelled — you were not charged.");
+    return;
+  }
+  await enterArena(data.match_id);
+}
+
+async function joinViaRoom(roomId) {
+  if (!state.user) { signIn(); return; }
+  const size = state.roomSize;
+  try {
+    document.getElementById("roomBrowser")?.classList.remove("show");
+    unsubscribeRoomUpdates();
+    const lobbyTitle = document.getElementById("pvpLobbyTitle");
+    if (lobbyTitle) lobbyTitle.textContent = "JOINING ROOM";
+    showPvpLobby("Securing your seat…");
+    const { data, error } = await supabase.rpc("join_room", { p_room_id: roomId });
+    if (error) throw error;
+    await afterRoomJoined(data, size);
+  } catch (err) {
+    hidePvpLobby();
+    const msg = err?.message || String(err);
+    if (msg.includes("already_in_match")) {
+      setStatus("You are already in a match. Leave it first.");
+    } else if (msg.includes("room_in_progress")) {
+      setStatus("That room just filled up. Choose another.");
+      showRoomBrowser(size);
+    } else {
+      console.error("[joinViaRoom]", err);
+      setStatus(msg || "Could not join room.");
+      showRoomBrowser(size);
+    }
+    try { await supabase.rpc("leave_my_matches"); } catch (_) {}
+    state.match = null;
+    state.seat = null;
+  }
+}
+
+async function quickJoinRoom() {
+  if (!state.user) { signIn(); return; }
+  const size = state.roomSize;
+  try {
+    document.getElementById("roomBrowser")?.classList.remove("show");
+    unsubscribeRoomUpdates();
+    const lobbyTitle = document.getElementById("pvpLobbyTitle");
+    if (lobbyTitle) lobbyTitle.textContent = "QUICK JOIN";
+    showPvpLobby(`Finding the best ${size}-player room…`);
+    const { data, error } = await supabase.rpc("quick_join", { p_size: size });
+    if (error) throw error;
+    await afterRoomJoined(data, size);
+  } catch (err) {
+    hidePvpLobby();
+    const msg = err?.message || String(err);
+    if (msg.includes("already_in_match")) {
+      setStatus("You are already in a match. Leave it first.");
+    } else if (msg.includes("no_rooms_available")) {
+      setStatus("No rooms available right now. Try again shortly.");
+      showRoomBrowser(size);
+    } else {
+      console.error("[quickJoinRoom]", err);
+      setStatus(msg || "Quick join failed.");
+      showRoomBrowser(size);
+    }
+    try { await supabase.rpc("leave_my_matches"); } catch (_) {}
+    state.match = null;
+    state.seat = null;
+  }
 }
 
 async function joinPvp(maxPlayers) {
@@ -937,6 +1095,9 @@ function showLobby() {
   toggle(els.signOutBtn, connected);
   const balEl = document.getElementById("fight10Balance");
   if (balEl && !connected) balEl.classList.add("hidden");
+  // Close room browser if open (e.g. after leaving a match)
+  const rb = document.getElementById("roomBrowser");
+  if (rb?.classList.contains("show")) hideRoomBrowser();
 }
 
 // ---------------------------------------------------------------------------

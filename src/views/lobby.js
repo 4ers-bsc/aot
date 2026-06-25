@@ -2,7 +2,7 @@ export const html = `
   <!-- PvP waiting lobby -->
   <div class="pvp-lobby hidden" id="pvpLobby">
     <div class="pvp-lobby-card">
-      <div class="pvp-lobby-title">FINDING MATCH</div>
+      <div class="pvp-lobby-title" id="pvpLobbyTitle">FINDING MATCH</div>
       <div class="pvp-lobby-spinner">
         <div class="pvp-spinner-ring"></div>
       </div>

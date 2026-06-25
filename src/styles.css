@@ -1082,6 +1082,124 @@ body:has(.game-over:not(.hidden)) .arena-canvas {
 /* In-game the reference hint sits top-left, so drop the log just beneath it. */
 body.in-game .log-feed { top: 58px; }
 
+/* ===== Room browser ===== */
+.room-browser-panel {
+  background: var(--panel-bg, #111);
+  border: 1px solid rgba(255,255,255,.08);
+  border-radius: 16px;
+  padding: 28px 32px 32px;
+  width: min(820px, 92vw);
+  max-height: 80vh;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.room-browser-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.room-browser-title {
+  flex: 1;
+  text-align: center;
+  font-family: var(--font-head);
+  font-size: 18px;
+  letter-spacing: .12em;
+  text-transform: uppercase;
+  color: var(--accent);
+  margin: 0;
+}
+
+.room-back-btn {
+  padding: 8px 14px;
+  border-radius: 8px;
+  border: 1px solid rgba(255,255,255,.15);
+  background: transparent;
+  color: var(--soft, #aaa);
+  font-family: var(--font-body);
+  font-size: 12px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.room-back-btn:hover { border-color: var(--accent); color: var(--accent); }
+
+.quick-join-btn {
+  padding: 9px 18px;
+  border-radius: 8px;
+  border: none;
+  background: var(--accent);
+  color: #0a0a0a;
+  font-family: var(--font-head);
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.quick-join-btn:hover { filter: brightness(1.12); }
+
+.room-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
+  gap: 10px;
+}
+
+.room-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 14px 10px 12px;
+  border-radius: 10px;
+  border: 2px solid transparent;
+  background: rgba(255,255,255,.04);
+  cursor: pointer;
+  transition: border-color .15s, background .15s;
+}
+.room-card:disabled { cursor: not-allowed; opacity: .5; }
+
+.room-card--green { border-color: #22c55e; }
+.room-card--green:hover:not(:disabled) { background: rgba(34,197,94,.12); }
+
+.room-card--yellow { border-color: #eab308; background: rgba(234,179,8,.06); }
+.room-card--yellow:hover:not(:disabled) { background: rgba(234,179,8,.15); }
+
+.room-card--red { border-color: #ef4444; }
+
+.room-card-name {
+  font-family: var(--font-head);
+  font-size: 12px;
+  letter-spacing: .06em;
+  color: #fff;
+}
+.room-card-count {
+  font-family: var(--font-body);
+  font-size: 18px;
+  font-weight: 700;
+  color: #fff;
+  line-height: 1;
+}
+.room-card-label {
+  font-family: var(--font-head);
+  font-size: 10px;
+  letter-spacing: .1em;
+  text-transform: uppercase;
+  color: var(--soft, #aaa);
+}
+.room-card-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  margin-top: 2px;
+}
+.room-card--green .room-card-dot { background: #22c55e; }
+.room-card--yellow .room-card-dot { background: #eab308; }
+.room-card--red .room-card-dot { background: #ef4444; }
+
 /* ===== PvP size chooser ===== */
 .pvp-size-panel { width: 480px; }
 
