@@ -71,10 +71,6 @@ create table public.match_players (
   display_name text not null,
   joined_at    timestamptz not null default timezone('utc', now()),
   deposit_tx   text,
-  -- Set to true only by the f10deposit edge function (service role) after the
-  -- deposit tx is verified on-chain. Clients cannot set it (no update grant),
-  -- so f10treasurer can trust it at payout time instead of re-verifying on-chain.
-  deposit_verified boolean not null default false,
   final_hp     int,
   primary key (match_id, user_id),
   unique (match_id, seat),
