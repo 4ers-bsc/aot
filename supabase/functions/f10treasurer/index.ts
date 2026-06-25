@@ -1,4 +1,5 @@
-// Payout Edge Function
+
+/// Payout Edge Function
 // Required Supabase secrets: ESCROW_PRIVATE_KEY (base58), FIGHT10_MINT, RPC_URL
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
@@ -37,9 +38,7 @@ function base58Decode(str: string): Uint8Array {
 
 // web3.js's internal base-x decoder does NOT pad to 32 bytes; do it manually.
 function pubkeyFromBase58(str: string): PublicKey {
-  const B58 = /^[123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz]+$/;
-  if (!B58.test(str)) throw new Error(`Invalid base58 address (bad characters): ${str}`);
-  const raw = base58Decode(str);
+  const raw = base58Decode(str.replace(/[^123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz]/g, ""));
   if (raw.length > 32) throw new Error(`base58 too long: ${raw.length} bytes`);
   const padded = new Uint8Array(32);
   padded.set(raw, 32 - raw.length);
@@ -137,10 +136,6 @@ Deno.serve(async (req: Request) => {
   let slotClaimed = false;   // tracks whether we set payout_tx = 'pending'
   let payoutConfirmed = false; // tracks whether the on-chain tx was confirmed
 
-  // Declare adminClient outside the try block so the catch block can reuse it
-  // without creating a second client (avoids a double service-key instantiation).
-  const adminClient = createClient(supabaseUrl, supabaseServiceKey);
-
   try {
     const authHeader = req.headers.get("Authorization");
     if (!authHeader) return errorResponse("Missing Authorization header", 401);
@@ -151,6 +146,7 @@ Deno.serve(async (req: Request) => {
     const { data: { user }, error: authError } = await userClient.auth.getUser();
     if (authError || !user) return errorResponse("Unauthorized", 401);
 
+    const adminClient = createClient(supabaseUrl, supabaseServiceKey);
     const body = await req.json();
     matchId = body?.match_id;
     if (!matchId) return errorResponse("match_id is required", 400);
@@ -165,12 +161,9 @@ Deno.serve(async (req: Request) => {
     // will auto-release them if >10 minutes old (Fix 4).
     if (matchRow.payout_tx && matchRow.payout_tx !== "pending") return errorResponse("Prize already claimed", 409);
 
-    // ── Verify all deposits exist + fetch depositor wallet addresses ─────────
-    // wallet_address is needed to verify each deposit came FROM that player's wallet.
+    // ── Verify all deposits exist ────────────────────────────────────────────
     const { data: players, error: playersErr } = await adminClient
-      .from("match_players")
-      .select("user_id, deposit_tx, profiles!user_id(wallet_address)")
-      .eq("match_id", matchId);
+      .from("match_players").select("user_id, deposit_tx").eq("match_id", matchId);
     if (playersErr || !players) return errorResponse("Could not fetch match players", 500);
     const missing = players.filter((p: any) => !p.deposit_tx);
     if (missing.length > 0) return errorResponse(`${missing.length} player(s) have not deposited`, 400);
@@ -186,13 +179,9 @@ Deno.serve(async (req: Request) => {
     const rpcUrl    = Deno.env.get("RPC_URL") ?? "https://api.mainnet-beta.solana.com";
     if (!escrowB58 || !mintStr) return errorResponse("Escrow configuration missing", 500);
 
-    const B58_VALIDATE = /^[123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz]+$/;
-    const escrowB58Clean = escrowB58.trim();
-    const mintStrClean   = mintStr.trim();
-    if (!B58_VALIDATE.test(escrowB58Clean)) throw new Error("ESCROW_PRIVATE_KEY contains invalid base58 characters");
-    if (!B58_VALIDATE.test(mintStrClean))   throw new Error("FIGHT10_MINT contains invalid base58 characters");
-    const escrowKeypair = Keypair.fromSecretKey(base58Decode(escrowB58Clean));
-    const mintPubkey    = pubkeyFromBase58(mintStrClean);
+    const B58_CHARS  = /[^123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz]/g;
+    const escrowKeypair = Keypair.fromSecretKey(base58Decode(escrowB58.replace(B58_CHARS, "")));
+    const mintPubkey    = pubkeyFromBase58(mintStr.replace(B58_CHARS, ""));
     const rawWallet     = (profile.wallet_address ?? "").split(":").pop() ?? "";
     if (!rawWallet) return errorResponse("Winner wallet address invalid", 400);
     const winnerPubkey  = pubkeyFromBase58(rawWallet);
@@ -246,16 +235,6 @@ Deno.serve(async (req: Request) => {
       const parsed = parsedTxs[i];
       if (!parsed) return errorResponse(`Deposit ${i + 1} could not be parsed`, 400);
 
-      // Derive the expected depositor wallet for this slot so we can verify the
-      // transfer was signed by the actual player, not a replayed signature from
-      // someone else's deposit. wallet_address may be stored as "solana:<pubkey>".
-      const rawDepositorWallet = (
-        (players[i] as any).profiles?.wallet_address ?? ""
-      ).split(":").pop() ?? "";
-      if (!rawDepositorWallet) {
-        return errorResponse(`Deposit ${i + 1}: player wallet address not found`, 400);
-      }
-
       // Include inner instructions to handle CPI-wrapped transfers
       const topLevel = parsed.transaction.message.instructions as any[];
       const inner    = (parsed.meta?.innerInstructions ?? []).flatMap((ii: any) => ii.instructions);
@@ -265,28 +244,19 @@ Deno.serve(async (req: Request) => {
         if (prog !== tokenProgStr && prog !== tok2022Str) return false;
         if (!ix.parsed) return false;
         const { type, info } = ix.parsed;
-        // Verify destination (escrow), amount, and authority (depositing player's wallet).
-        // Checking authority prevents replaying another player's valid deposit signature.
         if (type === "transfer") {
-          return (
-            info.destination === escrowAtaStr &&
-            info.amount === entryFeeAmtStr &&
-            info.authority === rawDepositorWallet
-          );
+          return info.destination === escrowAtaStr && info.amount === entryFeeAmtStr;
         }
         if (type === "transferChecked") {
-          return (
-            info.destination === escrowAtaStr &&
-            info.tokenAmount?.amount === entryFeeAmtStr &&
-            info.authority === rawDepositorWallet
-          );
+          return info.destination === escrowAtaStr &&
+                 info.tokenAmount?.amount === entryFeeAmtStr;
         }
         return false;
       });
 
       if (!valid) {
         return errorResponse(
-          `Deposit ${i + 1} does not contain a valid FIGHT10 transfer to escrow from the expected wallet`,
+          `Deposit ${i + 1} does not contain a valid FIGHT10 transfer to escrow`,
           400,
         );
       }
@@ -327,11 +297,10 @@ Deno.serve(async (req: Request) => {
 
     const payoutSig = await connection.sendRawTransaction(tx.serialize(), { skipPreflight: false });
 
-    // Poll for on-chain confirmation with exponential backoff (2s→4s→8s→…, capped at 15s).
-    // Throws explicitly on timeout so the catch block correctly releases the payout slot.
+    // Fix 2 (partial): Poll for on-chain confirmation; throw explicitly on timeout
+    // so the catch block correctly releases the slot (tx never landed).
     const deadline = Date.now() + 90000;
     let confirmed = false;
-    let pollDelay = 2000;
     while (Date.now() < deadline) {
       const { value } = await connection.getSignatureStatuses([payoutSig]);
       const s = value[0];
@@ -340,8 +309,7 @@ Deno.serve(async (req: Request) => {
         confirmed = true;
         break;
       }
-      await new Promise((r) => setTimeout(r, pollDelay));
-      pollDelay = Math.min(pollDelay * 2, 15000);
+      await new Promise((r) => setTimeout(r, 2000));
     }
     if (!confirmed) throw new Error(`Payout tx not confirmed after 90s — sig: ${payoutSig}`);
 
@@ -387,7 +355,7 @@ Deno.serve(async (req: Request) => {
     // In that case the slot stays 'pending' and requires manual admin resolution.
     if (slotClaimed && !payoutConfirmed && matchId) {
       try {
-        // Reuse the adminClient declared above the try block — no second createClient needed.
+        const adminClient = createClient(supabaseUrl, supabaseServiceKey);
         await adminClient.from("matches")
           .update({ payout_tx: null, payout_claimed_at: null })
           .eq("id", matchId)
