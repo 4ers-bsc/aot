@@ -141,7 +141,7 @@ export function createArenaGame(options) {
     grid = new THREE.GridHelper(MAP_WORLD, MAP_TILES, theme.grid[0], theme.grid[1]);
     grid.material.transparent = true;
     grid.material.opacity = theme.gridOpacity;
-    grid.position.y = 0.06;  // above the river plane (y=0.05) so lines show over water
+    grid.position.y = 0.012;
     scene.add(grid);
   }
   buildGrid();
@@ -853,45 +853,45 @@ export function createArenaGame(options) {
     }
     riverSegments = wps;
 
-    // Tile-rasterised river — one canvas pixel per game tile, NearestFilter keeps it crisp.
-    // Profile from centre outward: darkest deep core → steps lighter toward shallows → dark
-    // shadow at the very bank edge.
+    // Smooth Catmull-Rom bezier canvas texture — organic rounded edges.
+    const CS  = 512;
     const rc  = document.createElement("canvas");
-    rc.width  = MAP_TILES; rc.height = MAP_TILES;
+    rc.width  = CS; rc.height = CS;
     const rctx = rc.getContext("2d");
-    rctx.clearRect(0, 0, MAP_TILES, MAP_TILES);
 
-    // Signed distance from (wx,wz) to the nearest point on the piecewise-linear centreline.
-    const riverCentreDist = (wx, wz) => {
-      let best = Infinity;
-      for (let i = 0; i < wps.length - 1; i++) {
-        const a = wps[i], b = wps[i + 1];
-        const abx = b.x - a.x, abz = b.z - a.z;
-        const len2 = abx * abx + abz * abz || 1e-6;
-        let t = ((wx - a.x) * abx + (wz - a.z) * abz) / len2;
-        t = Math.max(0, Math.min(1, t));
-        const cx = a.x + abx * t, cz = a.z + abz * t;
-        const dx = wx - cx, dz = wz - cz;
-        best = Math.min(best, dx * dx + dz * dz);
+    const toU = (wx) => (wx + MAP_HALF) / MAP_WORLD * CS;
+    const toV = (wz) => (wz + MAP_HALF) / MAP_WORLD * CS;
+    const pts  = wps.map((wp) => ({ u: toU(wp.x), v: toV(wp.z) }));
+    const lw   = hw * 2 / MAP_WORLD * CS;
+
+    const crBez = (i) => {
+      const p0 = pts[Math.max(0, i - 1)];
+      const p1 = pts[i];
+      const p2 = pts[i + 1];
+      const p3 = pts[Math.min(pts.length - 1, i + 2)];
+      return {
+        cp1u: p1.u + (p2.u - p0.u) / 6, cp1v: p1.v + (p2.v - p0.v) / 6,
+        cp2u: p2.u - (p3.u - p1.u) / 6, cp2v: p2.v - (p3.v - p1.v) / 6,
+      };
+    };
+    const drawPath = () => {
+      rctx.beginPath();
+      rctx.moveTo(pts[0].u, pts[0].v);
+      for (let i = 0; i < pts.length - 1; i++) {
+        const { cp1u, cp1v, cp2u, cp2v } = crBez(i);
+        rctx.bezierCurveTo(cp1u, cp1v, cp2u, cp2v, pts[i + 1].u, pts[i + 1].v);
       }
-      return Math.sqrt(best);
     };
 
-    for (let tx = 0; tx < MAP_TILES; tx++) {
-      for (let tz = 0; tz < MAP_TILES; tz++) {
-        const wx = (tx + 0.5) * TILE - MAP_HALF;
-        const wz = (tz + 0.5) * TILE - MAP_HALF;
-        const d  = riverCentreDist(wx, wz);
-        if (d > hw) continue;
-        const t = d / hw;
-        rctx.fillStyle = t > 0.82 ? "#0a0e14" : "#3d6eb0";
-        rctx.fillRect(tx, tz, 1, 1);
-      }
-    }
+    rctx.save(); rctx.strokeStyle = "rgba(20,60,100,0.35)";
+    rctx.lineWidth = lw + 10; rctx.lineCap = "round"; rctx.lineJoin = "round";
+    drawPath(); rctx.stroke(); rctx.restore();
+
+    rctx.save(); rctx.strokeStyle = "rgba(55,120,175,0.88)";
+    rctx.lineWidth = lw; rctx.lineCap = "round"; rctx.lineJoin = "round";
+    drawPath(); rctx.stroke(); rctx.restore();
 
     const tex   = new THREE.CanvasTexture(rc);
-    tex.magFilter = THREE.NearestFilter;
-    tex.minFilter = THREE.NearestFilter;
     const plane = new THREE.Mesh(
       new THREE.PlaneGeometry(MAP_WORLD, MAP_WORLD),
       new THREE.MeshBasicMaterial({ map: tex, transparent: true, depthWrite: false }),
