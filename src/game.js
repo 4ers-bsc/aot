@@ -141,7 +141,7 @@ export function createArenaGame(options) {
     grid = new THREE.GridHelper(MAP_WORLD, MAP_TILES, theme.grid[0], theme.grid[1]);
     grid.material.transparent = true;
     grid.material.opacity = theme.gridOpacity;
-    grid.position.y = 0.012;
+    grid.position.y = 0.06;  // above the river plane (y=0.05) so lines show over water
     scene.add(grid);
   }
   buildGrid();
@@ -881,10 +881,13 @@ export function createArenaGame(options) {
         const wz = (tz + 0.5) * TILE - MAP_HALF;
         const d  = riverCentreDist(wx, wz);
         if (d > hw) continue;
-        // Inner 40% of half-width → darker centre stripe
-        rctx.fillStyle = d < hw * 0.4
-          ? "rgba(55,130,195,1.0)"
-          : "rgba(90,170,220,1.0)";
+        // Lighter centre, progressively darker toward edges
+        const t = d / hw; // 0 = centre, 1 = edge
+        let c;
+        if      (t < 0.35) c = "rgba(115,195,245,1.0)"; // light centre
+        else if (t < 0.70) c = "rgba(75,155,210,1.0)";  // mid
+        else               c = "rgba(45,105,170,1.0)";  // dark edge
+        rctx.fillStyle = c;
         rctx.fillRect(tx, tz, 1, 1);
       }
     }
