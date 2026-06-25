@@ -105,7 +105,8 @@ const state = {
   channel: null,
   iRoomFiller: false,
   pingInterval: null,
-  depositPollTimer: null
+  depositPollTimer: null,
+  startFallbackTimer: null,
 };
 
 const game = createArenaGame({
@@ -657,7 +658,7 @@ async function enterArena(matchId) {
       if (payload?.userId && payload.userId !== state.user.id) game.receivePlayerState(payload.userId, payload.snapshot);
     })
     .on("broadcast", { event: "attack" }, ({ payload }) => game.receiveAttack(payload))
-    .on("broadcast", { event: "start" }, () => beginMatch())
+    .on("broadcast", { event: "start" }, ({ payload }) => beginMatch(false, payload?.startAt))
     // Echo pings back so the sender can measure RTT
     .on("broadcast", { event: "ping" }, ({ payload }) => {
       if (payload?.from !== state.user?.id) {
@@ -704,8 +705,19 @@ async function loadRoster(matchId) {
     if (allDeposited) {
       clearInterval(state.depositPollTimer);
       state.depositPollTimer = null;
-      const isLateSync = !state.iRoomFiller && state.match?.status !== "active";
-      beginMatch(isLateSync);
+      if (state.iRoomFiller) {
+        // Room-filler owns the start: broadcasts a shared startAt so all clients
+        // count down to the same wall-clock moment.
+        beginMatch(false);
+      } else if (!state.started && !state.startFallbackTimer) {
+        // Non-room-fillers wait for the "start" broadcast which carries the shared
+        // startAt timestamp. If it never arrives (dropped message), fall back after
+        // the countdown would have finished anyway.
+        state.startFallbackTimer = setTimeout(() => {
+          state.startFallbackTimer = null;
+          if (!state.started) beginMatch(true);
+        }, 4500);
+      }
     } else {
       els.pvpLobbyStatus.textContent = "Waiting for deposits…";
       els.pvpLobbyMeta.textContent = `${deposited} / ${players.length} deposited`;
@@ -792,16 +804,20 @@ function stopPingLoop() {
   game.setPing(null);
 }
 
-function beginMatch(skipCountdown = false) {
+function beginMatch(skipCountdown = false, startAt = null) {
   if (state.started) return;
   state.started = true;
+  if (state.startFallbackTimer) { clearTimeout(state.startFallbackTimer); state.startFallbackTimer = null; }
   if (state.match) state.match.status = "active";
   // Tell every other client to start too (presence sync alone can miss one).
   // Only the room-filler triggers the start broadcast; every other client that
   // receives it and calls beginMatch() must NOT re-broadcast, otherwise each
   // peer triggers another round of start events (O(N²) messages in a 10-player game).
+  // startAt is a shared wall-clock timestamp so all clients enter "active" simultaneously.
   if (state.iRoomFiller) {
-    state.channel?.send({ type: "broadcast", event: "start", payload: {} });
+    const broadcastStartAt = Date.now() + 3000;
+    state.channel?.send({ type: "broadcast", event: "start", payload: { startAt: broadcastStartAt } });
+    startAt = broadcastStartAt;
   }
   hidePvpLobby();
   game.setView("game");
@@ -824,7 +840,7 @@ function beginMatch(skipCountdown = false) {
       game.setMatchTimer(matchDuration(state.match?.maxPlayers || 2));
       setStatus("Fight! Last one standing wins.");
       showGlhf();
-    });
+    }, startAt);
   }
 }
 
@@ -912,6 +928,7 @@ async function leaveMatch({ silent = false } = {}) {
 async function teardownMatch(keepMatch = false) {
   stopPingLoop();
   if (state.depositPollTimer) { clearInterval(state.depositPollTimer); state.depositPollTimer = null; }
+  if (state.startFallbackTimer) { clearTimeout(state.startFallbackTimer); state.startFallbackTimer = null; }
   if (state.channel) {
     await supabase.removeChannel(state.channel);
     state.channel = null;
@@ -1064,24 +1081,28 @@ function recordSuffix(message) {
 // "MATCH STARTING" transition: a fast spinning ring dimming the whole screen
 // for 3 seconds while the arena is set up, then the match begins.
 let matchStartTimer = null;
-function runMatchStart(onDone) {
+function runMatchStart(onDone, startAt = null) {
   const ov = els.matchStarting;
   cancelMatchStart();
-  let n = 3;
   const count = els.matchStartCount;
-  if (count) count.textContent = String(n);
+  const deadline = startAt ?? (Date.now() + 3000);
   ov.classList.add("show");
-  matchStartTimer = setInterval(() => {
-    n--;
-    if (n > 0) {
-      if (count) count.textContent = String(n);
-    } else {
+
+  function tick() {
+    const remaining = Math.ceil((deadline - Date.now()) / 1000);
+    if (remaining <= 0) {
       clearInterval(matchStartTimer);
       matchStartTimer = null;
       ov.classList.remove("show");
       onDone?.();
+      return;
     }
-  }, 1000);
+    if (count) count.textContent = String(remaining);
+  }
+
+  tick();
+  // Poll at 200ms so we fire promptly when the deadline passes regardless of drift.
+  matchStartTimer = setInterval(tick, 200);
 }
 
 function showGlhf() {
