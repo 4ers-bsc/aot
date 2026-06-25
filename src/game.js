@@ -744,24 +744,11 @@ export function createArenaGame(options) {
   function addTree(x, z, rng) {
     const rand = rng || Math.random.bind(Math);
     const sc = 0.68 + rand() * 0.66;            // 0.68 – 1.34 scale
-    const isAutumn = rand() < 0.32;             // ~1 in 3 trees is autumn
-    const fc1 = isAutumn ? 0xc8601a : 0x2d5e2a;
-    const fc2 = isAutumn ? 0xa84010 : 0x254f22;
     const g = new THREE.Group();
     const trunk = box(0.5, 1.6, 0.5, 0x5c3d1e); trunk.position.y = 0.8;
-    const f1 = box(2.0, 1.4, 2.0, fc1); f1.position.y = 2.0;
-    const f2 = box(1.3, 1.2, 1.3, fc2); f2.position.y = 3.0;
-    if (isAutumn) {
-      // Light dusting of snow only — autumn trees shed most of it
-      const sn1 = box(2.2, 0.10, 2.2, 0xdde9f5); sn1.position.y = 2.85;
-      g.add(trunk, f1, f2, sn1);
-    } else {
-      // Full winter snow layers
-      const sn1 = box(2.2, 0.3, 2.2, 0xdde9f5); sn1.position.y = 2.85;
-      const sn2 = box(1.45, 0.26, 1.45, 0xe4eef7); sn2.position.y = 3.72;
-      const snTop = box(0.55, 0.2, 0.55, 0xf0f6ff); snTop.position.y = 4.24;
-      g.add(trunk, f1, f2, sn1, sn2, snTop);
-    }
+    const f1 = box(2.0, 1.4, 2.0, 0x2d5e2a); f1.position.y = 2.0;
+    const f2 = box(1.3, 1.2, 1.3, 0x254f22); f2.position.y = 3.0;
+    g.add(trunk, f1, f2);
     g.scale.setScalar(sc);
     g.position.set(x, 0, z);
     mapGroup.add(g);
@@ -902,16 +889,6 @@ export function createArenaGame(options) {
 
     rctx.save(); rctx.strokeStyle = "rgba(55,120,175,0.88)";
     rctx.lineWidth = lw; rctx.lineCap = "round"; rctx.lineJoin = "round";
-    drawPath(); rctx.stroke(); rctx.restore();
-
-    // Deep centre — narrow dark stripe gives V-shaped depth gradient
-    rctx.save(); rctx.strokeStyle = "rgba(14,48,98,0.64)";
-    rctx.lineWidth = lw * 0.36; rctx.lineCap = "round"; rctx.lineJoin = "round";
-    drawPath(); rctx.stroke(); rctx.restore();
-
-    // Shimmer highlight along the very centre
-    rctx.save(); rctx.strokeStyle = "rgba(130,200,240,0.20)";
-    rctx.lineWidth = lw * 0.12; rctx.lineCap = "round"; rctx.lineJoin = "round";
     drawPath(); rctx.stroke(); rctx.restore();
 
     const tex   = new THREE.CanvasTexture(rc);
