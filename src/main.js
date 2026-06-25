@@ -35,6 +35,13 @@ const ENTRY_FEE       = 2500;         // FIGHT10 tokens per player
 const FIGHT10_DECIMALS = 6;           // Pump.fun mints always use 6 decimals
 const ENTRY_FEE_RAW   = BigInt(ENTRY_FEE) * BigInt(10 ** FIGHT10_DECIMALS);
 
+// Lazy singleton — avoids creating a new WebSocket-backed connection on every call.
+let _solanaConn = null;
+function getSolanaConn() {
+  if (!_solanaConn) _solanaConn = new Connection(SOLANA_RPC_URL, "confirmed");
+  return _solanaConn;
+}
+
 const els = {
   signInWalletBtn: document.getElementById("signInWalletBtn"),
   connectWalletBtn: document.getElementById("connectWalletBtn"),
@@ -175,7 +182,7 @@ function bindUi() {
     els.pauseOverlay.classList.remove("show");
     game.openSettings();
   });
-window.addEventListener("keydown", (e) => {
+  window.addEventListener("keydown", (e) => {
     if (e.key !== "Escape") return;
     const open = document.querySelector(".overlay.show");
     if (open) { open.classList.remove("show"); return; } // close topmost overlay
@@ -309,15 +316,13 @@ function startDemo() {
 // PvP — matchmaking vs other players, result written to the DB
 // ---------------------------------------------------------------------------
 let pvpLobbyTimer = null;
-let pvpLobbySeconds = 0;
 
 function showPvpLobby(status) {
   els.pvpLobbyStatus.textContent = status || "Searching for an opponent…";
   els.pvpLobbyMeta.textContent = "";
   els.pvpLobby.classList.remove("hidden");
-  pvpLobbySeconds = 0;
   clearInterval(pvpLobbyTimer);
-  pvpLobbyTimer = setInterval(() => { pvpLobbySeconds++; }, 1000);
+  pvpLobbyTimer = null;
 }
 
 function hidePvpLobby() {
@@ -394,14 +399,16 @@ async function retryPayout() {
   updateGameOverPrize(prizeAmount);
 }
 
-// Fix 2: poll until the match row is marked 'finished' before invoking the
-// edge function, guarding against rare Supabase read-after-write lag.
+// Polls until the match row is marked 'finished', guarding against read-after-write lag.
+// Uses exponential backoff (800ms → 1.6s → 3.2s → …) capped at 5s per interval.
 async function awaitMatchFinished(matchId, timeoutMs = 10000) {
   const deadline = Date.now() + timeoutMs;
+  let delay = 800;
   while (Date.now() < deadline) {
     const { data } = await supabase.from("matches").select("status").eq("id", matchId).single();
     if (data?.status === "finished") return;
-    await new Promise((r) => setTimeout(r, 800));
+    await new Promise((r) => setTimeout(r, delay));
+    delay = Math.min(delay * 2, 5000);
   }
 }
 
@@ -563,7 +570,7 @@ async function depositEntryFee(numPlayers = 2) {
     setStatus("Depositing 2,500 $FIGHT10… approve in wallet.");
     els.pvpLobbyStatus.textContent = "Approve deposit in your wallet…";
 
-    const connection   = new Connection(SOLANA_RPC_URL, "confirmed");
+    const connection   = getSolanaConn();
     const mintPubkey   = new PublicKey(FIGHT10_MINT);
     const escrowPubkey = new PublicKey(ESCROW_WALLET);
     const playerPubkey = wallet.publicKey;
@@ -626,7 +633,7 @@ async function depositEntryFee(numPlayers = 2) {
 }
 
 async function getFight10Balance(walletAddress) {
-  const connection   = new Connection(SOLANA_RPC_URL, "confirmed");
+  const connection   = getSolanaConn();
   const mintPubkey   = new PublicKey(FIGHT10_MINT);
   const walletPubkey = new PublicKey(walletAddress);
   const { value: accounts } = await connection.getParsedTokenAccountsByOwner(
@@ -742,7 +749,20 @@ async function loadRoster(matchId) {
     els.pvpLobbyStatus.textContent = "Waiting for players…";
     els.pvpLobbyMeta.textContent = `${players.length} / ${max} paid and ready`;
     if (!state.depositPollTimer) {
-      state.depositPollTimer = setInterval(() => loadRoster(matchId).catch(console.error), 2500);
+      // Poll for up to 10 minutes; after that bail out so the lobby doesn't wait forever.
+      const POLL_TIMEOUT_MS = 10 * 60 * 1000;
+      const pollStart = Date.now();
+      state.depositPollTimer = setInterval(() => {
+        if (Date.now() - pollStart > POLL_TIMEOUT_MS) {
+          clearInterval(state.depositPollTimer);
+          state.depositPollTimer = null;
+          hidePvpLobby();
+          setStatus("Lobby timed out — not enough players joined. Please try again.");
+          leaveMatch({ silent: true });
+          return;
+        }
+        loadRoster(matchId).catch(console.error);
+      }, 2500);
     }
   }
 }
@@ -948,7 +968,9 @@ async function leaveMatch({ silent = false } = {}) {
   if (!state.match) { if (!silent) setStatus("You're not in a match."); return; }
   if (state.match.mode === "pvp") {
     if (state.match.status === "waiting" && state.pendingDepositTx == null && !silent) {
-      const ok = window.confirm("You have already paid the entry fee. Leaving now forfeits your deposit — the pot stays in the contract. Continue?");
+      const ok = await confirmDialog(
+        "You have already paid the entry fee. Leaving now forfeits your deposit — the pot stays in the contract. Continue?"
+      );
       if (!ok) return;
     }
     try { await supabase.rpc("leave_my_matches"); } catch (error) { console.error(error); }
@@ -1167,6 +1189,41 @@ function cancelMatchStart() {
 
 function toggle(el, show) {
   if (el) el.classList.toggle("hidden", !show);
+}
+
+// Non-blocking replacement for window.confirm() — returns a Promise<boolean>.
+function confirmDialog(message) {
+  return new Promise((resolve) => {
+    const backdrop = document.createElement("div");
+    backdrop.style.cssText =
+      "position:fixed;inset:0;background:rgba(0,0,0,.72);display:flex;align-items:center;" +
+      "justify-content:center;z-index:9999;font-family:var(--font-body)";
+    const box = document.createElement("div");
+    box.style.cssText =
+      "background:#111;border:1px solid rgba(255,255,255,.18);border-radius:8px;" +
+      "padding:28px 32px;max-width:380px;text-align:center;color:#f3f3f3;line-height:1.5";
+    const msg = document.createElement("p");
+    msg.style.cssText = "margin:0 0 20px;font-size:14px;";
+    msg.textContent = message;
+    const row = document.createElement("div");
+    row.style.cssText = "display:flex;gap:10px;justify-content:center;";
+    const btnOk = document.createElement("button");
+    btnOk.textContent = "Confirm";
+    btnOk.style.cssText =
+      "padding:8px 22px;background:#c8940a;color:#000;border:none;border-radius:5px;cursor:pointer;font-size:13px;";
+    const btnCancel = document.createElement("button");
+    btnCancel.textContent = "Stay";
+    btnCancel.style.cssText =
+      "padding:8px 22px;background:rgba(255,255,255,.12);color:#f3f3f3;border:1px solid rgba(255,255,255,.2);border-radius:5px;cursor:pointer;font-size:13px;";
+    const close = (result) => { document.body.removeChild(backdrop); resolve(result); };
+    btnOk.addEventListener("click", () => close(true));
+    btnCancel.addEventListener("click", () => close(false));
+    row.append(btnOk, btnCancel);
+    box.append(msg, row);
+    backdrop.appendChild(box);
+    document.body.appendChild(backdrop);
+    btnCancel.focus();
+  });
 }
 
 function setStatus(message) {

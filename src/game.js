@@ -1654,6 +1654,9 @@ export function createArenaGame(options) {
   }
   window.addEventListener("keydown", _onKeyDown);
   window.addEventListener("keyup", _onKeyUp);
+  // Reset movement keys on blur so held keys don't keep the player moving after alt-tab.
+  function _onBlur() { wasd.w = false; wasd.a = false; wasd.s = false; wasd.d = false; }
+  window.addEventListener("blur", _onBlur);
 
   // Settings
   const settings = { renderDistance: "Far", fog: false, msaa: true, animations: true, centerCamera: false, hideHud: false, fps: true, ping: true, location: false };
@@ -2042,7 +2045,8 @@ export function createArenaGame(options) {
     playerAlive() { return !player.dead && player.hp > 0; },
     setLocalUser({ userId, displayName }) {
       perspective = "player";
-      controllable = true;
+      // Do not touch controllable here — callers call setControllable() explicitly
+      // after this so they can disable input during countdown without a race.
       localUserId = userId || null;
       player.name = displayName || "You";
       player.connected = true;
@@ -2136,10 +2140,11 @@ export function createArenaGame(options) {
       if (typeof snap.facing === "number") f.facing = snap.facing;
       if (snap.weapon && WEAPONS[snap.weapon]) { f.weapon = WEAPONS[snap.weapon]; updateWeaponVis(f); }
       if (snap.name) f.name = snap.name;
-      // Only trigger kill from a state packet when HP was already critically low.
-      // A spoofed jump from healthy to 0 would be blocked here; real deaths arrive
-      // via receiveAttack → applyDamage → killFighter with proper validation.
-      if (f.hp <= 0 && !f.dead && prevHp <= 15) killFighter(f);
+      // State packets may only confirm a death that attack events already drove near-zero.
+      // Threshold = 5 HP (lowest weapon min-damage is 1, so ≤5 means 1–5 hits away).
+      // This blocks a spoofed jump from full health to 0; real deaths come via
+      // receiveAttack → applyDamage → killFighter with per-weapon damage capping.
+      if (f.hp <= 0 && !f.dead && prevHp <= 5) killFighter(f);
     },
     receiveAttack(payload) {
       if (!payload || foeMode !== "net") return;
@@ -2205,6 +2210,7 @@ export function createArenaGame(options) {
       canvas.removeEventListener("wheel", _onWheel);
       window.removeEventListener("keydown", _onKeyDown);
       window.removeEventListener("keyup", _onKeyUp);
+      window.removeEventListener("blur", _onBlur);
       player.bar.el.remove();
       aiRaiders.forEach((r) => r.bar.el.remove());
       clearOpponents();
@@ -2241,14 +2247,13 @@ function buildHud() {
   add('<div class="mm-label game-ui">map</div>');
   const mmCanvas = add('<canvas class="game-minimap game-ui"></canvas>');
   const hotbar = add('<div class="hotbar game-ui"></div>');
-  for (let n = 1; n <= 5; n++) {
-    // slot order: 1=frag, 2=sword, 3=pistol, 4=sniper, 5=empty
-    const imgSrc = n === 1 ? "/frag.png" : n === 2 ? "/sword.png" : n === 3 ? "/pistol.png" : n === 4 ? "/sniper.png" : "";
-    const imgTag = imgSrc ? `<img src="${imgSrc}" class="slot-icon" alt="" />` : "";
+  // Slots 1-4 only: 1=frag, 2=sword, 3=pistol, 4=sniper. No slot 5 (nothing assigned).
+  for (let n = 1; n <= 4; n++) {
+    const imgSrc = n === 1 ? "/frag.png" : n === 2 ? "/sword.png" : n === 3 ? "/pistol.png" : "/sniper.png";
     const s = document.createElement("div");
     s.className = "slot" + (n === 2 ? " active" : ""); // start on sword
     s.dataset.slot = String(n);
-    s.innerHTML = `${imgTag}<span class="num">${n}</span><div class="slot-cd"></div>`;
+    s.innerHTML = `<img src="${imgSrc}" class="slot-icon" alt="" /><span class="num">${n}</span><div class="slot-cd"></div>`;
     hotbar.appendChild(s);
   }
   const slots = Array.from(hotbar.querySelectorAll(".slot"));
@@ -2299,7 +2304,7 @@ function buildHud() {
           <div class="row"><span>Attack / Shoot</span><span class="k">click the rival</span></div>
           <div class="row"><span>Pan camera</span><span class="k">click + drag</span></div>
           <div class="row"><span>Zoom</span><span class="k">mouse wheel</span></div>
-          <div class="row"><span>Weapons</span><span class="k">keys 1 – 5</span></div>
+          <div class="row"><span>Weapons</span><span class="k">keys 1 – 4</span></div>
           <div class="row"><span>Leave match</span><span class="k">Esc</span></div>
         </div>
         <div class="tab-body hidden cmd-list" data-body="commands">
