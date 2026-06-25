@@ -376,6 +376,17 @@ function updateGameOverPrize(prizeAmount) {
   els.gameOverMenuBtn.classList.remove("hidden");
 }
 
+// supabase-js wraps a non-2xx edge-function response in a FunctionsHttpError whose
+// .context is the raw Response — the useful { ok, error } body is only reachable by
+// reading that. Without this the console only shows the generic "non-2xx" message.
+async function describePayoutError(payoutErr) {
+  try {
+    const body = await payoutErr?.context?.json?.();
+    if (body?.error) return body.error;
+  } catch (_) { /* body not JSON or already consumed */ }
+  return payoutErr?.message || "Unknown payout error";
+}
+
 // Fix 10: allow winner to retry a failed payout without reloading the page.
 async function retryPayout() {
   if (!state.match?.id) return;
@@ -392,7 +403,7 @@ async function retryPayout() {
     if (!payoutErr && payoutData?.winner_amount && payoutData?.decimals != null) {
       prizeAmount = Number(payoutData.winner_amount) / 10 ** payoutData.decimals;
     }
-    if (payoutErr) console.error("Retry payout error:", payoutErr);
+    if (payoutErr) console.error("Retry payout error:", await describePayoutError(payoutErr));
   } catch (err) {
     console.error("Retry payout error:", err);
   }
@@ -948,7 +959,7 @@ async function reportResult(result, { reason = "", standings = [] } = {}) {
       body: { match_id: state.match.id },
     });
     if (payoutErr) {
-      console.error("Payout invoke error:", payoutErr);
+      console.error("Payout invoke error:", await describePayoutError(payoutErr));
     } else if (payoutData?.winner_amount && payoutData?.decimals != null) {
       prizeAmount = Number(payoutData.winner_amount) / 10 ** payoutData.decimals;
     }
