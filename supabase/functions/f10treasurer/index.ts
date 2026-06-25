@@ -168,6 +168,18 @@ Deno.serve(async (req: Request) => {
     const missing = players.filter((p: any) => !p.deposit_tx);
     if (missing.length > 0) return errorResponse(`${missing.length} player(s) have not deposited`, 400);
 
+    // ── Resolve each player's wallet so we can verify the deposit *sender* ────
+    // The on-chain transfer's `authority` (the signer that owns the source token
+    // account) must match the wallet recorded for that player. This prevents a
+    // confirmed transfer that someone else funded from passing verification.
+    const playerIds = players.map((p: any) => p.user_id);
+    const { data: walletRows, error: walletErr } = await adminClient
+      .from("profiles").select("user_id, wallet_address").in("user_id", playerIds);
+    if (walletErr || !walletRows) return errorResponse("Could not fetch player wallets", 500);
+    const walletByUser = new Map<string, string>(
+      walletRows.map((w: any) => [w.user_id, ((w.wallet_address ?? "").split(":").pop() ?? "").trim()]),
+    );
+
     // ── Fetch winner wallet ──────────────────────────────────────────────────
     const { data: profile } = await adminClient
       .from("profiles").select("wallet_address").eq("user_id", user.id).maybeSingle();
@@ -235,6 +247,10 @@ Deno.serve(async (req: Request) => {
       const parsed = parsedTxs[i];
       if (!parsed) return errorResponse(`Deposit ${i + 1} could not be parsed`, 400);
 
+      // The wallet that must have authorised this deposit.
+      const expectedSender = walletByUser.get(players[i].user_id);
+      if (!expectedSender) return errorResponse(`Deposit ${i + 1}: depositor wallet unknown`, 400);
+
       // Include inner instructions to handle CPI-wrapped transfers
       const topLevel = parsed.transaction.message.instructions as any[];
       const inner    = (parsed.meta?.innerInstructions ?? []).flatMap((ii: any) => ii.instructions);
@@ -244,6 +260,11 @@ Deno.serve(async (req: Request) => {
         if (prog !== tokenProgStr && prog !== tok2022Str) return false;
         if (!ix.parsed) return false;
         const { type, info } = ix.parsed;
+        // The signer that owns the source token account. Single-sig wallets use
+        // `authority`; multisig uses `multisigAuthority`. Either must match the
+        // player's recorded wallet so a transfer funded by a third party is rejected.
+        const sender = info.authority ?? info.multisigAuthority;
+        if (sender !== expectedSender) return false;
         if (type === "transfer") {
           return info.destination === escrowAtaStr && info.amount === entryFeeAmtStr;
         }
@@ -256,7 +277,7 @@ Deno.serve(async (req: Request) => {
 
       if (!valid) {
         return errorResponse(
-          `Deposit ${i + 1} does not contain a valid FIGHT10 transfer to escrow`,
+          `Deposit ${i + 1} does not contain a valid FIGHT10 transfer from the player to escrow`,
           400,
         );
       }

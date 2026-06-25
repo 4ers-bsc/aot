@@ -689,6 +689,7 @@ async function enterArena(matchId, iRoomFiller = false) {
     })
     .on("broadcast", { event: "attack" }, ({ payload }) => game.receiveAttack(payload))
     .on("broadcast", { event: "start" }, ({ payload }) => beginMatch(false, payload?.startAt))
+    .on("broadcast", { event: "match-over" }, () => { handleMatchOver().catch(console.error); })
     // Echo pings back so the sender can measure RTT
     .on("broadcast", { event: "ping" }, ({ payload }) => {
       if (payload?.from !== state.user?.id) {
@@ -911,6 +912,41 @@ async function handleOpponentLeft(userId) {
   }
 }
 
+// A peer signalled the match is over (someone won, or the timer crowned a
+// winner). Report our own *genuine* current HP so the server can tally without
+// waiting on us, then reconcile with the authoritative match row to decide our
+// screen. A spoofed signal cannot end a live game: we only finalise once the
+// server itself reports status='finished', and we never trust the broadcaster's
+// claim about who won — that comes from winner_user_id.
+async function handleMatchOver() {
+  if (state.match?.mode !== "pvp" || !state.match.id || state.match.finished) return;
+
+  try {
+    await supabase.rpc("finish_match", {
+      p_match_id: state.match.id,
+      p_final_hp: game.currentHp(),
+    });
+  } catch (e) {
+    console.error("finish_match (match-over) error:", e);
+  }
+
+  const { data: matchRow } = await supabase
+    .from("matches")
+    .select("status, winner_user_id")
+    .eq("id", state.match.id)
+    .maybeSingle();
+
+  // Not yet settled server-side (e.g. we're genuinely still alive) — keep
+  // playing; our own result detection will conclude the match for us.
+  if (matchRow?.status !== "finished") return;
+
+  const won = matchRow.winner_user_id === state.user?.id;
+  await reportResult(won ? "win" : "loss", {
+    reason: won ? "Last one standing — you won!" : "You were defeated.",
+    standings: game.standings(),
+  });
+}
+
 // All players submit their final HP as a witness report. The server-side
 // finish_match function tallies all witness reports and crowns the winner
 // itself — no client can pass its own user_id as winner.
@@ -928,6 +964,15 @@ async function reportResult(result, { reason = "", standings = [] } = {}) {
     });
   } catch (e) {
     console.error("finish_match witness error:", e);
+  }
+
+  // A win means the match is globally decided (last one standing / timer winner).
+  // Nudge every other client to finalise immediately: they report their own true
+  // HP and flip to their game-over screen from the authoritative match row. This
+  // makes all screens show the result right away and lets the server crown the
+  // winner without waiting on stragglers, so the payout below can proceed.
+  if (result === "win") {
+    state.channel?.send({ type: "broadcast", event: "match-over" });
   }
 
   if (result !== "win") {

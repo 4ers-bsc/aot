@@ -2043,6 +2043,10 @@ export function createArenaGame(options) {
       showTimer();
     },
     playerAlive() { return !player.dead && player.hp > 0; },
+    // Local player's genuine current HP (0 if dead). Used to report a final HP to
+    // the server on demand when a peer signals the match is over.
+    currentHp() { return player.dead ? 0 : Math.max(0, Math.round(player.hp)); },
+    standings() { return buildStandings(); },
     setLocalUser({ userId, displayName }) {
       perspective = "player";
       // Do not touch controllable here — callers call setControllable() explicitly
@@ -2361,6 +2365,7 @@ function stubApi() {
   return {
     setView: noop, setMode: noop, setMatchPhase: noop, setControllable: noop, setMatchTimer: noop, setLocalUser: noop,
     playerAlive: () => false,
+    currentHp: () => 0, standings: () => [],
     useAiFoe: noop, usePvpFoes: noop, addOpponent: noop, removeOpponent: () => 0,
     clearRemote: noop, resetForMatch: noop, receivePlayerState: noop,
     receiveAttack: noop, generateMap: noop, clearAll: noop, destroy: noop,
