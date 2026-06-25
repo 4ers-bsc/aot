@@ -711,7 +711,7 @@ async function loadRoster(matchId) {
     if (p.user_id === state.user.id) continue;
     if (!state.remoteIds.has(p.user_id)) {
       state.remoteIds.add(p.user_id);
-      game.addOpponent({ userId: p.user_id, displayName: p.display_name });
+      game.addOpponent({ userId: p.user_id, displayName: p.display_name, seat: p.seat, matchId: state.match?.id });
     }
   }
 
@@ -834,7 +834,7 @@ function beginMatch(skipCountdown = false, startAt = null) {
   hidePvpLobby();
   game.setView("game");
   game.generateMap(state.match?.id || "pvp");  // seed by match id so all clients match
-  game.resetForMatch();
+  game.resetForMatch(state.match?.id, state.seat);
   game.setMatchPhase("countdown");
   game.setControllable(false);
   startPingLoop();
