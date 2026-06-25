@@ -860,12 +860,29 @@ function beginMatch(skipCountdown = false, startAt = null) {
 // Result handling (PvP only) — loser is whoever hits 0 HP or disconnects
 // ---------------------------------------------------------------------------
 // A rival dropped the connection: remove them. If they were the last one and
-// we're still standing, we take the win.
-function handleOpponentLeft(userId) {
+// we're still standing, we take the win — but only if the server hasn't already
+// settled the match with a different winner (e.g. winner legitimately won, claimed
+// payout, then left; without this check the loser would see a false victory).
+async function handleOpponentLeft(userId) {
   state.remoteIds.delete(userId);
   const remaining = game.removeOpponent(userId);
   if (state.match?.mode !== "pvp" || state.match.finished || !state.started) return;
   if (remaining === 0 && game.playerAlive()) {
+    const { data: matchRow } = await supabase
+      .from("matches")
+      .select("status, winner_user_id")
+      .eq("id", state.match.id)
+      .maybeSingle();
+
+    if (matchRow?.status === "finished") {
+      // Match already settled server-side. If we're not the winner, show the loss.
+      if (matchRow.winner_user_id !== state.user?.id) {
+        reportResult("loss", { reason: "You were defeated." }).catch(console.error);
+      }
+      return;
+    }
+
+    // Match still active — opponent genuinely disconnected mid-game.
     reportResult("win", { reason: "Last one standing — rivals disconnected." }).catch((e) => console.error(e));
   }
 }
