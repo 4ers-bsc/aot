@@ -488,11 +488,11 @@ async function joinPvp(maxPlayers) {
       status: data.status === "active" ? "active" : "waiting",
       maxPlayers: data.max_players || size
     };
-    // iRoomFiller = true for the player who fills the last seat (all paid → match active).
-    state.iRoomFiller = data.status === "active";
     state.seat = data.seat;
 
-    await enterArena(data.match_id);
+    // Pass iRoomFiller into enterArena; teardownMatch inside it resets the flag
+    // so it must be restored there, after the reset, before loadRoster() runs.
+    await enterArena(data.match_id, data.status === "active");
   } catch (err) {
     hidePvpLobby();
     console.error("[joinPvp]", err);
@@ -657,8 +657,11 @@ async function refreshFight10Balance() {
   }
 }
 
-async function enterArena(matchId) {
+async function enterArena(matchId, iRoomFiller = false) {
   await teardownMatch(true);
+  // teardownMatch resets iRoomFiller; restore it now so loadRoster() sees
+  // the correct value when deciding who broadcasts the "start" event.
+  state.iRoomFiller = iRoomFiller;
   state.remoteIds.clear();
   state.started = false;
   // Stay in lobby view while waiting; setView("game") fires when the room fills.
