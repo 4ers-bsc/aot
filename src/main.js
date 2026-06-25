@@ -955,8 +955,8 @@ async function reportResult(result, { reason = "", standings = [] } = {}) {
     await syncProfile();
     // Refresh the win/loss counters now that syncProfile has picked up this
     // match's result — showGameOver rendered them earlier from the stale profile.
-    els.gameOverWins.textContent = state.profile?.wins ?? 0;
-    els.gameOverLosses.textContent = state.profile?.losses ?? 0;
+    // els.gameOverWins.textContent = state.profile?.wins ?? 0;
+    // els.gameOverLosses.textContent = state.profile?.losses ?? 0;
   } catch (error) {
     console.error(error);
   }
