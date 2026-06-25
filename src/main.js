@@ -107,6 +107,7 @@ const state = {
   pingInterval: null,
   depositPollTimer: null,
   startFallbackTimer: null,
+  pendingDepositTx: null, // deposit sig saved across join retries so player never pays twice
 };
 
 const game = createArenaGame({
@@ -456,35 +457,55 @@ async function joinPvp(maxPlayers) {
   if (!state.user) { signIn(); return; }
   const size = [2, 5, 10].includes(maxPlayers) ? maxPlayers : 2;
   try {
+    // ── Step 1: deposit on-chain (if not already done from a previous failed attempt) ──
+    let txSig = state.pendingDepositTx;
+    if (!txSig) {
+      showPvpLobby("Preparing deposit…");
+      txSig = await depositEntryFee(size);
+      if (!txSig) {
+        hidePvpLobby();
+        return; // depositEntryFee already set the error/cancel status
+      }
+      // Save before joining so a network failure doesn't force re-payment.
+      state.pendingDepositTx = txSig;
+    } else {
+      showPvpLobby("Retrying queue entry with confirmed deposit…");
+    }
+
+    // ── Step 2: enter the queue with the confirmed deposit ────────────────────
     showPvpLobby(`Finding a ${size}-player match…`);
-    const { data, error } = await supabase.rpc("join_pvp_match", { p_max_players: size, p_display_name: null });
+    const { data, error } = await supabase.rpc("join_pvp_match", {
+      p_max_players: size,
+      p_deposit_tx: txSig,
+    });
     if (error) throw error;
+
+    // Joined successfully — clear the pending deposit.
+    state.pendingDepositTx = null;
+
     state.match = {
       id: data.match_id, mode: "pvp", finished: false,
       status: data.status === "active" ? "active" : "waiting",
       maxPlayers: data.max_players || size
     };
+    // iRoomFiller = true for the player who fills the last seat (all paid → match active).
     state.iRoomFiller = data.status === "active";
     state.seat = data.seat;
 
-    const deposited = await depositEntryFee(data.match_id, size);
-    if (!deposited) {
-      hidePvpLobby();
-      try { await supabase.rpc("leave_my_matches"); } catch (_) {}
-      state.match = null;
-      state.seat = null;
-      setStatus("Deposit cancelled — you were not charged.");
-      return;
-    }
-
     await enterArena(data.match_id);
-  } catch (error) {
+  } catch (err) {
     hidePvpLobby();
-    console.error("[joinPvp]", error);
-    try { await supabase.rpc("leave_my_matches"); } catch (_) {}
+    console.error("[joinPvp]", err);
+    // state.pendingDepositTx is intentionally kept: if the deposit confirmed but
+    // join_pvp_match failed (network blip), the next click retries the join
+    // without asking for another on-chain payment.
     state.match = null;
     state.seat = null;
-    setStatus(error.message || "Could not join a PvP match.");
+    setStatus(
+      state.pendingDepositTx
+        ? "Queue entry failed — click Play Again to retry (no extra payment needed)."
+        : (err.message || "Could not join a PvP match.")
+    );
   }
 }
 
@@ -505,18 +526,19 @@ async function pollTxConfirmation(connection, sig, timeoutMs = 90000) {
   throw new Error(`Tx not confirmed after ${timeoutMs / 1000}s — sig: ${sig}`);
 }
 
-// Returns true if the deposit was confirmed and recorded, false if cancelled.
-// ---------------------------------------------------------------------------
-async function depositEntryFee(matchId, numPlayers = 2) {
+// Transfers 2500 FIGHT10 to the escrow on-chain and waits for confirmation.
+// Returns the confirmed tx signature on success, or null if cancelled/failed.
+// Does NOT record the deposit in the DB — that happens inside join_pvp_match().
+async function depositEntryFee(numPlayers = 2) {
   const wallet = getSolanaWallet();
   if (!wallet?.publicKey) {
     setStatus("Wallet not connected — cannot deposit.");
-    return false;
+    return null;
   }
 
   if (FIGHT10_MINT.startsWith("<") || ESCROW_WALLET.startsWith("<")) {
     setStatus("Game not configured for live deposits yet (missing mint/escrow address).");
-    return false;
+    return null;
   }
 
   setStatus("Checking $FIGHT10 balance…");
@@ -524,7 +546,7 @@ async function depositEntryFee(matchId, numPlayers = 2) {
   if (balance < ENTRY_FEE_RAW) {
     const have = Number(balance) / 10 ** FIGHT10_DECIMALS;
     setStatus(`Insufficient $FIGHT10 balance — need 2,500, have ${have.toFixed(0)}.`);
-    return false;
+    return null;
   }
 
   try {
@@ -580,14 +602,8 @@ async function depositEntryFee(matchId, numPlayers = 2) {
     els.pvpLobbyStatus.textContent = "Confirming on-chain…";
     await pollTxConfirmation(connection, txSig);
 
-    const { error: recErr } = await supabase.rpc("record_deposit", {
-      p_match_id: matchId,
-      p_deposit_tx: txSig,
-    });
-    if (recErr) throw recErr;
-
-    setStatus("Deposit confirmed — entering arena.");
-    return true;
+    setStatus("Deposit confirmed — entering queue.");
+    return txSig;
   } catch (err) {
     console.error("[depositEntryFee]", err);
     const msg = err?.message || String(err);
@@ -596,7 +612,7 @@ async function depositEntryFee(matchId, numPlayers = 2) {
     } else {
       setStatus("Deposit failed: " + msg);
     }
-    return false;
+    return null;
   }
 }
 
@@ -698,36 +714,29 @@ async function loadRoster(matchId) {
 
   renderLobbyPlayers(players, max);
 
-  const isActive = matchRow?.status === "active";
-  if (isActive) {
-    const deposited = players.filter((p) => p.deposit_tx).length;
-    const allDeposited = deposited >= players.length;
-    if (allDeposited) {
-      clearInterval(state.depositPollTimer);
-      state.depositPollTimer = null;
-      if (state.iRoomFiller) {
-        // Room-filler owns the start: broadcasts a shared startAt so all clients
-        // count down to the same wall-clock moment.
-        beginMatch(false);
-      } else if (!state.started && !state.startFallbackTimer) {
-        // Non-room-fillers wait for the "start" broadcast which carries the shared
-        // startAt timestamp. If it never arrives (dropped message), fall back after
-        // the countdown would have finished anyway.
-        state.startFallbackTimer = setTimeout(() => {
-          state.startFallbackTimer = null;
-          if (!state.started) beginMatch(true);
-        }, 4500);
-      }
-    } else {
-      els.pvpLobbyStatus.textContent = "Waiting for deposits…";
-      els.pvpLobbyMeta.textContent = `${deposited} / ${players.length} deposited`;
-      if (!state.depositPollTimer) {
-        state.depositPollTimer = setInterval(() => loadRoster(matchId).catch(console.error), 2500);
-      }
+  if (matchRow?.status === "active") {
+    // All seats filled = all players have paid (deposit is recorded at join time).
+    clearInterval(state.depositPollTimer);
+    state.depositPollTimer = null;
+    if (state.iRoomFiller) {
+      // Room-filler owns the start: broadcasts a shared startAt so all clients
+      // count down to the same wall-clock moment.
+      beginMatch(false);
+    } else if (!state.started && !state.startFallbackTimer) {
+      // Non-room-fillers wait for the "start" broadcast. Fall back after 4.5s
+      // in case the broadcast is dropped.
+      state.startFallbackTimer = setTimeout(() => {
+        state.startFallbackTimer = null;
+        if (!state.started) beginMatch(true);
+      }, 4500);
     }
   } else {
+    // Still waiting for more players to join and pay.
     els.pvpLobbyStatus.textContent = "Waiting for players…";
-    els.pvpLobbyMeta.textContent = `${players.length} / ${max} players`;
+    els.pvpLobbyMeta.textContent = `${players.length} / ${max} paid and ready`;
+    if (!state.depositPollTimer) {
+      state.depositPollTimer = setInterval(() => loadRoster(matchId).catch(console.error), 2500);
+    }
   }
 }
 
@@ -929,6 +938,7 @@ async function teardownMatch(keepMatch = false) {
   stopPingLoop();
   if (state.depositPollTimer) { clearInterval(state.depositPollTimer); state.depositPollTimer = null; }
   if (state.startFallbackTimer) { clearTimeout(state.startFallbackTimer); state.startFallbackTimer = null; }
+  state.pendingDepositTx = null;
   if (state.channel) {
     await supabase.removeChannel(state.channel);
     state.channel = null;
