@@ -19,7 +19,7 @@ drop function if exists public.join_pvp_match(smallint, text);
 drop function if exists public.leave_my_matches();
 drop function if exists public.level_for_points(integer);
 drop function if exists public.sync_my_profile(text);
-drop function if exists public.is_match_member(uuid);
+drop function if exists public.is_match_member(uuid) cascade;
 drop function if exists public.handle_new_user();
 
 drop table if exists public.match_players cascade;
