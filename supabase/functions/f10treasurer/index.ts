@@ -186,7 +186,7 @@ Deno.serve(async (req: Request) => {
     const winnerPubkey  = pubkeyFromBase58(rawWallet);
     const connection    = new Connection(rpcUrl, "confirmed");
 
-    // ── Resolve mint → token program, decimals, escrow ATA ──────────────────
+    // ── Resolve mint → token program, decimals, escrow token account ────────
     // Done early so the same values are reused for both deposit verification
     // and the payout transfer, avoiding a redundant getAccountInfo call later.
     const mintAcct = await connection.getAccountInfo(mintPubkey);
@@ -196,10 +196,14 @@ Deno.serve(async (req: Request) => {
     const decimals       = mintAcct.data[44];
     const entryFeeRaw    = BigInt(2500) * BigInt(10 ** decimals);
     const entryFeeAmtStr = entryFeeRaw.toString();
-    const escrowAta      = await getATA(mintPubkey, escrowKeypair.publicKey, tokenProgramId);
-    const escrowAtaStr   = escrowAta.toString();
     const tokenProgStr   = tokenProgramId.toString();
     const tok2022Str     = TOKEN_2022_PROGRAM_ID.toString();
+
+    // Fetch the real escrow token account once, reuse for both verification and payout.
+    const escrowAccounts = await connection.getParsedTokenAccountsByOwner(escrowKeypair.publicKey, { mint: mintPubkey });
+    if (escrowAccounts.value.length === 0) return errorResponse("Escrow has no token account for this mint", 500);
+    const escrowTokenAccount = new PublicKey(escrowAccounts.value[0].pubkey);
+    const escrowAtaStr       = escrowTokenAccount.toString();
 
     // ── Verify each deposit tx is confirmed on-chain ─────────────────────────
     const depositSigs = players.map((p: any) => p.deposit_tx as string);
@@ -235,7 +239,8 @@ Deno.serve(async (req: Request) => {
       const inner    = (parsed.meta?.innerInstructions ?? []).flatMap((ii: any) => ii.instructions);
 
       const valid = [...topLevel, ...inner].some((ix: any) => {
-        if (ix.programId !== tokenProgStr && ix.programId !== tok2022Str) return false;
+        const prog = ix.programId?.toString();
+        if (prog !== tokenProgStr && prog !== tok2022Str) return false;
         if (!ix.parsed) return false;
         const { type, info } = ix.parsed;
         if (type === "transfer") {
@@ -266,13 +271,9 @@ Deno.serve(async (req: Request) => {
     slotClaimed = true;
 
     // ── On-chain token transfer ───────────────────────────────────────────────
-    // mintAcct / tokenProgramId / decimals / entryFeeRaw already resolved above.
+    // mintAcct / tokenProgramId / decimals / entryFeeRaw / escrowTokenAccount already resolved above.
     const totalRaw        = BigInt(players.length) * entryFeeRaw;
     const winnerAmountRaw = (totalRaw * BigInt(900)) / BigInt(1000);
-
-    const escrowAccounts = await connection.getParsedTokenAccountsByOwner(escrowKeypair.publicKey, { mint: mintPubkey });
-    if (escrowAccounts.value.length === 0) return errorResponse("Escrow has no token account for this mint", 500);
-    const escrowTokenAccount = new PublicKey(escrowAccounts.value[0].pubkey);
 
     const winnerAccounts = await connection.getParsedTokenAccountsByOwner(winnerPubkey, { mint: mintPubkey });
 
