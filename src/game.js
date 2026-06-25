@@ -884,7 +884,7 @@ export function createArenaGame(options) {
         const d  = riverCentreDist(wx, wz);
         if (d > hw) continue;
         const t = d / hw;
-        rctx.fillStyle = "#3d6eb0"; // uniform dark blue
+        rctx.fillStyle = t > 0.82 ? "#0a0e14" : "#3d6eb0";
         rctx.fillRect(tx, tz, 1, 1);
       }
     }
