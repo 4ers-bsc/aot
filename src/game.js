@@ -884,14 +884,7 @@ export function createArenaGame(options) {
         const d  = riverCentreDist(wx, wz);
         if (d > hw) continue;
         const t = d / hw;
-        // Light teal edge strip → dark shadow tile → uniform dark blue body
-        if (t > 0.82) {
-          rctx.fillStyle = "#8cc8e2"; // shallow edge highlight
-        } else if (t > 0.72) {
-          rctx.fillStyle = "#1c2e48"; // dark shadow band just inside edge
-        } else {
-          rctx.fillStyle = "#3d6eb0"; // uniform dark blue body
-        }
+        rctx.fillStyle = "#3d6eb0"; // uniform dark blue
         rctx.fillRect(tx, tz, 1, 1);
       }
     }
