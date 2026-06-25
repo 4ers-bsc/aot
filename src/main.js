@@ -1,5 +1,6 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { createArenaGame } from "./game.js";
+import { escapeHtml } from "./utils.js";
 import {
   Connection,
   PublicKey,
@@ -542,7 +543,14 @@ async function depositEntryFee(numPlayers = 2) {
   }
 
   setStatus("Checking $FIGHT10 balance…");
-  const balance = await getFight10Balance(wallet.publicKey.toString());
+  let balance;
+  try {
+    balance = await getFight10Balance(wallet.publicKey.toString());
+  } catch (err) {
+    console.error("[getFight10Balance]", err);
+    setStatus("Could not check $FIGHT10 balance — " + (err?.message || "try again."));
+    return null;
+  }
   if (balance < ENTRY_FEE_RAW) {
     const have = Number(balance) / 10 ** FIGHT10_DECIMALS;
     setStatus(`Insufficient $FIGHT10 balance — need 2,500, have ${have.toFixed(0)}.`);
@@ -617,22 +625,17 @@ async function depositEntryFee(numPlayers = 2) {
 }
 
 async function getFight10Balance(walletAddress) {
-  try {
-    const connection   = new Connection(SOLANA_RPC_URL, "confirmed");
-    const mintPubkey   = new PublicKey(FIGHT10_MINT);
-    const walletPubkey = new PublicKey(walletAddress);
-    const { value: accounts } = await connection.getParsedTokenAccountsByOwner(
-      walletPubkey, { mint: mintPubkey }
-    );
-    if (accounts.length === 0) return BigInt(0);
-    return accounts.reduce(
-      (sum, a) => sum + BigInt(a.account.data.parsed.info.tokenAmount.amount),
-      BigInt(0)
-    );
-  } catch (err) {
-    console.warn("[getFight10Balance]", err?.message ?? err);
-    return BigInt(0);
-  }
+  const connection   = new Connection(SOLANA_RPC_URL, "confirmed");
+  const mintPubkey   = new PublicKey(FIGHT10_MINT);
+  const walletPubkey = new PublicKey(walletAddress);
+  const { value: accounts } = await connection.getParsedTokenAccountsByOwner(
+    walletPubkey, { mint: mintPubkey }
+  );
+  if (accounts.length === 0) return BigInt(0);
+  return accounts.reduce(
+    (sum, a) => sum + BigInt(a.account.data.parsed.info.tokenAmount.amount),
+    BigInt(0)
+  );
 }
 
 function updatePrizePot(numPlayers) {
@@ -698,7 +701,7 @@ async function enterArena(matchId, iRoomFiller = false) {
 async function loadRoster(matchId) {
   const [matchRes, playersRes] = await Promise.all([
     supabase.from("matches").select("status, max_players").eq("id", matchId).maybeSingle(),
-    supabase.from("match_players").select("user_id, seat, display_name, deposit_tx").eq("match_id", matchId).order("seat", { ascending: true })
+    supabase.from("match_players").select("user_id, seat, display_name").eq("match_id", matchId).order("seat", { ascending: true })
   ]);
   if (playersRes.error) { console.warn(playersRes.error); return; }
   const players = playersRes.data || [];
@@ -1153,11 +1156,6 @@ function cancelMatchStart() {
   clearInterval(matchStartTimer);
   matchStartTimer = null;
   els.matchStarting?.classList.remove("show");
-}
-
-function escapeHtml(s) {
-  return String(s ?? "").replace(/[&<>"']/g, (c) =>
-    ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 }
 
 function toggle(el, show) {

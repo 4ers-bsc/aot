@@ -7,15 +7,13 @@
 // player against one AI raider. PvP mode supports up to ten network-driven
 // opponents in a free-for-all; the last fighter standing wins.
 
+import { escapeHtml } from "./utils.js";
+
 const TILE = 2;
 const MAP_TILES = 50;
 const MAP_WORLD = MAP_TILES * TILE; // 100
 const MAP_HALF = MAP_WORLD / 2; // 50
 const EMIT_MS = 50;
-function escapeHtml(s) {
-  return String(s ?? "").replace(/[&<>"']/g, (c) =>
-    ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
-}
 
 const WEAPONS = {
   sword:  { id: "sword",   name: "Sword",   atk: 25, atkVar: 3, cd: 0.7,  range: 2.4, ranged: false },
@@ -162,11 +160,14 @@ export function createArenaGame(options) {
   const wallObjects = []; // tracks all wall scene objects for disposal
 
   function buildArenaWalls(variant) {
-    // Dispose existing wall objects
+    // Dispose existing wall objects. Materials are often shared across meshes,
+    // so track disposed ones to avoid calling dispose() more than once per object.
+    const disposedMats = new Set();
     wallObjects.forEach((obj) => {
       scene.remove(obj);
       if (obj.geometry) obj.geometry.dispose();
-      if (obj.material) {
+      if (obj.material && !disposedMats.has(obj.material)) {
+        disposedMats.add(obj.material);
         if (obj.material.map) obj.material.map.dispose();
         obj.material.dispose();
       }
@@ -1120,19 +1121,20 @@ export function createArenaGame(options) {
         g.mesh.visible = (Math.floor(g.fuseTimer * 10) % 2 === 0);
         if (g.fuseTimer >= 1.0) {
           // AOE explosion
+          const blastR = WEAPONS.frag.blastRadius;
           const allFighters = [player, ...foeList()];
           for (const f of allFighters) {
             if (f.dead || !f.connected) continue;
             if (f === player && g.deal) continue; // player doesn't self-damage
             if (f !== player && !g.deal) continue; // AI grenade only hits player
             const d = Math.hypot(f.group.position.x - g.tx, f.group.position.z - g.tz);
-            if (d <= 5) {
-              const dmg = Math.max(1, Math.round(g.dmg * (1 - d / 5)));
+            if (d <= blastR) {
+              const dmg = Math.max(1, Math.round(g.dmg * (1 - d / blastR)));
               applyDamage(f, dmg);
             }
           }
           // Explosion flash
-          const flashGeo = new THREE.SphereGeometry(5, 8, 6);
+          const flashGeo = new THREE.SphereGeometry(blastR, 8, 6);
           const flashMat = new THREE.MeshBasicMaterial({ color: 0xff8800, transparent: true, opacity: 0.75 });
           const flash = new THREE.Mesh(flashGeo, flashMat);
           flash.position.set(g.tx, 1, g.tz);
@@ -1462,7 +1464,7 @@ export function createArenaGame(options) {
 
   // -- HUD (attached reference set) -----------------------------------------
   const hud = buildHud();
-  const { hint, coords, mmCanvas, hotbar, slots, fpsEl, pingEl, overlay, renderDistBtn, matchTimerEl, raiderCountCtrl, raiderCountEl, scorePanel, weaponPanel, keysInfoBtn, keysInfoPanel } = hud;
+  const { coords, mmCanvas, hotbar, slots, fpsEl, pingEl, overlay, renderDistBtn, matchTimerEl, raiderCountCtrl, raiderCountEl, scorePanel, weaponPanel, keysInfoBtn, keysInfoPanel } = hud;
 
   // Separate frag cooldown — never pollutes the active weapon's cdTimer
   let fragCd = 0;
@@ -1473,7 +1475,7 @@ export function createArenaGame(options) {
     sword:  { pwr: 89, rng:  4, spd: 100, aoe:  0 },
     pistol: { pwr: 54, rng: 30, spd:  78, aoe:  0 },
     sniper: { pwr: 71, rng:100, spd:  32, aoe:  0 },
-    frag:   { pwr: 79, rng: 58, spd:  20, aoe: 100 },
+    frag:   { pwr: 79, rng: 38, spd:  20, aoe: 100 },
   };
   function renderWeaponPanel(w) {
     const s = _wStats[w.id] || _wStats.sword;
@@ -2222,7 +2224,7 @@ function buildHud() {
     });
   }
 
-  return { root, hint, coords, matchTimerEl, mmCanvas, hotbar, slots, fpsEl, pingEl, overlay, renderDistBtn, bindSettings, raiderCountCtrl, raiderCountEl, scorePanel, weaponPanel, keysInfoBtn, keysInfoPanel };
+  return { root, coords, matchTimerEl, mmCanvas, hotbar, slots, fpsEl, pingEl, overlay, renderDistBtn, bindSettings, raiderCountCtrl, raiderCountEl, scorePanel, weaponPanel, keysInfoBtn, keysInfoPanel };
 }
 
 function clamp(v, min, max) {
