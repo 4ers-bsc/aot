@@ -385,7 +385,7 @@ async function retryPayout() {
       body: { match_id: state.match.id },
     });
     if (!payoutErr && payoutData?.winner_amount && payoutData?.decimals != null) {
-      prizeAmount = Number(BigInt(payoutData.winner_amount)) / 10 ** payoutData.decimals;
+      prizeAmount = Number(payoutData.winner_amount) / 10 ** payoutData.decimals;
     }
     if (payoutErr) console.error("Retry payout error:", payoutErr);
   } catch (err) {
@@ -929,7 +929,7 @@ async function reportResult(result, { reason = "", standings = [] } = {}) {
     if (payoutErr) {
       console.error("Payout invoke error:", payoutErr);
     } else if (payoutData?.winner_amount && payoutData?.decimals != null) {
-      prizeAmount = Number(BigInt(payoutData.winner_amount)) / 10 ** payoutData.decimals;
+      prizeAmount = Number(payoutData.winner_amount) / 10 ** payoutData.decimals;
     }
     await syncProfile();
   } catch (error) {

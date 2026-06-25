@@ -37,7 +37,9 @@ function base58Decode(str: string): Uint8Array {
 
 // web3.js's internal base-x decoder does NOT pad to 32 bytes; do it manually.
 function pubkeyFromBase58(str: string): PublicKey {
-  const raw = base58Decode(str.replace(/[^123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz]/g, ""));
+  const B58 = /^[123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz]+$/;
+  if (!B58.test(str)) throw new Error(`Invalid base58 address (bad characters): ${str}`);
+  const raw = base58Decode(str);
   if (raw.length > 32) throw new Error(`base58 too long: ${raw.length} bytes`);
   const padded = new Uint8Array(32);
   padded.set(raw, 32 - raw.length);
@@ -178,9 +180,13 @@ Deno.serve(async (req: Request) => {
     const rpcUrl    = Deno.env.get("RPC_URL") ?? "https://api.mainnet-beta.solana.com";
     if (!escrowB58 || !mintStr) return errorResponse("Escrow configuration missing", 500);
 
-    const B58_CHARS  = /[^123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz]/g;
-    const escrowKeypair = Keypair.fromSecretKey(base58Decode(escrowB58.replace(B58_CHARS, "")));
-    const mintPubkey    = pubkeyFromBase58(mintStr.replace(B58_CHARS, ""));
+    const B58_VALIDATE = /^[123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz]+$/;
+    const escrowB58Clean = escrowB58.trim();
+    const mintStrClean   = mintStr.trim();
+    if (!B58_VALIDATE.test(escrowB58Clean)) throw new Error("ESCROW_PRIVATE_KEY contains invalid base58 characters");
+    if (!B58_VALIDATE.test(mintStrClean))   throw new Error("FIGHT10_MINT contains invalid base58 characters");
+    const escrowKeypair = Keypair.fromSecretKey(base58Decode(escrowB58Clean));
+    const mintPubkey    = pubkeyFromBase58(mintStrClean);
     const rawWallet     = (profile.wallet_address ?? "").split(":").pop() ?? "";
     if (!rawWallet) return errorResponse("Winner wallet address invalid", 400);
     const winnerPubkey  = pubkeyFromBase58(rawWallet);
