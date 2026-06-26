@@ -362,6 +362,14 @@ function showGameOver(result, reason, standings = [], prizeAmount = null) {
   els.gameOver.classList.remove("hidden");
 }
 
+// Re-render the wins/losses on an already-visible game-over card. The winner's
+// card is shown before syncProfile() picks up the freshly-applied stats, so we
+// call this afterward to update the numbers in place.
+function refreshGameOverStats() {
+  els.gameOverWins.textContent = state.profile?.wins ?? 0;
+  els.gameOverLosses.textContent = state.profile?.losses ?? 0;
+}
+
 function updateGameOverPrize(prizeAmount) {
   const prizeEl   = document.getElementById("gameOverPrize");
   const prizeAmt  = document.getElementById("gameOverPrizeAmount");
@@ -1007,6 +1015,9 @@ async function reportResult(result, { reason = "", standings = [] } = {}) {
     // Fix 2: confirm the match is marked finished in the DB before invoking the
     // edge function — guards against the edge function seeing status='active'.
     await awaitMatchFinished(state.match.id);
+    // Stats are applied the moment the match is finalised, independent of payout —
+    // refresh the win/loss counts now so they show even if the payout call is slow.
+    try { await syncProfile(); refreshGameOverStats(); } catch (e) { console.error(e); }
     const { data: payoutData, error: payoutErr } = await supabase.functions.invoke("f10treasurer", {
       body: { match_id: state.match.id },
     });
@@ -1016,6 +1027,7 @@ async function reportResult(result, { reason = "", standings = [] } = {}) {
       prizeAmount = Number(payoutData.winner_amount) / 10 ** payoutData.decimals;
     }
     await syncProfile();
+    refreshGameOverStats();
   } catch (error) {
     console.error(error);
   }
