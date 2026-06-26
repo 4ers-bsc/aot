@@ -173,15 +173,16 @@ security definer
 set search_path = public, auth
 as $$
 declare
-  v_uid        uuid     := auth.uid();
-  v_name       text;
-  v_size       smallint := coalesce(p_max_players, 2);
-  v_match_id   uuid;
-  v_seat       smallint;
-  v_count      smallint;
-  v_status     text;
-  v_existing   record;
-  c_entry_fee  constant bigint := 2500000000; -- 2500 × 10^6 (6-decimal mint)
+  v_uid          uuid     := auth.uid();
+  v_name         text;
+  v_login_wallet text;
+  v_size         smallint := coalesce(p_max_players, 2);
+  v_match_id     uuid;
+  v_seat         smallint;
+  v_count        smallint;
+  v_status       text;
+  v_existing     record;
+  c_entry_fee    constant bigint := 2500000000; -- 2500 × 10^6 (6-decimal mint)
 begin
   if v_uid is null then
     raise exception 'not_authenticated';
@@ -200,8 +201,19 @@ begin
     raise exception 'invalid_max_players: must be 2, 5, or 10';
   end if;
 
-  select display_name into v_name
+  -- sync_my_profile also refreshes wallet_address from the auth identity, so we
+  -- read the login wallet straight from its return value.
+  select display_name, wallet_address into v_name, v_login_wallet
   from public.sync_my_profile(p_display_name);
+
+  -- One wallet per player: the wallet that signs the deposit MUST be the same
+  -- wallet the player signed in with. Both values may carry a "chain:" prefix
+  -- (e.g. "solana:<pubkey>"), so compare only the trailing pubkey segment.
+  if v_login_wallet is null
+     or regexp_replace(trim(v_login_wallet),  '^.*:', '')
+      <> regexp_replace(trim(p_deposit_wallet), '^.*:', '') then
+    raise exception 'deposit_wallet_mismatch: deposit must come from your signed-in wallet';
+  end if;
 
   -- One wallet, one unfinished match at a time — return existing seat
   select mp.match_id, mp.seat, m.status, m.max_players
