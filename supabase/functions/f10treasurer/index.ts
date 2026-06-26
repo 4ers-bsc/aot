@@ -292,6 +292,27 @@ Deno.serve(async (req: Request) => {
       });
 
       if (!valid) {
+        // Diagnostic: dump what we saw vs what we expected so the function logs
+        // reveal whether this is a sender, destination, amount, or program mismatch.
+        const seen = [...topLevel, ...inner]
+          .filter((ix: any) => {
+            const p = ix.programId?.toString();
+            return (p === tokenProgStr || p === tok2022Str) && ix.parsed;
+          })
+          .map((ix: any) => ({
+            type: ix.parsed.type,
+            sender: ix.parsed.info?.authority ?? ix.parsed.info?.multisigAuthority,
+            destination: ix.parsed.info?.destination,
+            amount: ix.parsed.info?.amount ?? ix.parsed.info?.tokenAmount?.amount,
+          }));
+        console.error(`Deposit ${i + 1} verification failed`, JSON.stringify({
+          expectedSender,
+          escrowAtaStr,
+          entryFeeAmtStr,
+          tokenProgStr,
+          tok2022Str,
+          seen,
+        }));
         return errorResponse(
           `Deposit ${i + 1} does not contain a valid FIGHT10 transfer from the player to escrow`,
           400,
