@@ -116,6 +116,7 @@ const state = {
   depositPollTimer: null,
   startFallbackTimer: null,
   pendingDepositTx: null, // deposit sig saved across join retries so player never pays twice
+  pendingDepositWallet: null, // wallet that signed the deposit, recorded with the seat for payout verification
 };
 
 const game = createArenaGame({
@@ -485,11 +486,13 @@ async function joinPvp(maxPlayers) {
     const { data, error } = await supabase.rpc("join_pvp_match", {
       p_max_players: size,
       p_deposit_tx: txSig,
+      p_deposit_wallet: state.pendingDepositWallet,
     });
     if (error) throw error;
 
     // Joined successfully — clear the pending deposit.
     state.pendingDepositTx = null;
+    state.pendingDepositWallet = null;
 
     state.match = {
       id: data.match_id, mode: "pvp", finished: false,
@@ -617,6 +620,10 @@ async function depositEntryFee(numPlayers = 2) {
     setStatus("Confirming deposit on-chain…");
     els.pvpLobbyStatus.textContent = "Confirming on-chain…";
     await pollTxConfirmation(connection, txSig);
+
+    // Record which wallet actually signed this deposit so join_pvp_match can
+    // store it; the payout function verifies the on-chain authority against it.
+    state.pendingDepositWallet = playerPubkey.toString();
 
     setStatus("Deposit confirmed — entering queue.");
     return txSig;

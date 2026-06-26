@@ -137,6 +137,9 @@ Deno.serve(async (req: Request) => {
   let payoutConfirmed = false; // tracks whether the on-chain tx was confirmed
 
   try {
+    const log = (...a: unknown[]) => console.log("[payout]", ...a);
+    log("step 1: request received");
+
     const authHeader = req.headers.get("Authorization");
     if (!authHeader) return errorResponse("Missing Authorization header", 401);
 
@@ -145,11 +148,13 @@ Deno.serve(async (req: Request) => {
     });
     const { data: { user }, error: authError } = await userClient.auth.getUser();
     if (authError || !user) return errorResponse("Unauthorized", 401);
+    log("step 2: authenticated user", user.id);
 
     const adminClient = createClient(supabaseUrl, supabaseServiceKey);
     const body = await req.json();
     matchId = body?.match_id;
     if (!matchId) return errorResponse("match_id is required", 400);
+    log("step 3: match_id", matchId);
 
     // ── Validate match state ─────────────────────────────────────────────────
     const { data: matchRow, error: matchErr } = await adminClient
@@ -160,25 +165,26 @@ Deno.serve(async (req: Request) => {
     // Allow stale 'pending' reservations to fall through; claim_payout_slot
     // will auto-release them if >10 minutes old (Fix 4).
     if (matchRow.payout_tx && matchRow.payout_tx !== "pending") return errorResponse("Prize already claimed", 409);
+    log("step 4: match valid", { status: matchRow.status, winner: matchRow.winner_user_id, payout_tx: matchRow.payout_tx });
 
     // ── Verify all deposits exist ────────────────────────────────────────────
     const { data: players, error: playersErr } = await adminClient
-      .from("match_players").select("user_id, deposit_tx").eq("match_id", matchId);
+      .from("match_players").select("user_id, deposit_tx, deposit_wallet").eq("match_id", matchId);
     if (playersErr || !players) return errorResponse("Could not fetch match players", 500);
+    log("step 5: players", players.map((p: any) => ({ user_id: p.user_id, deposit_tx: p.deposit_tx, deposit_wallet: p.deposit_wallet })));
     const missing = players.filter((p: any) => !p.deposit_tx);
     if (missing.length > 0) return errorResponse(`${missing.length} player(s) have not deposited`, 400);
 
-    // ── Resolve each player's wallet so we can verify the deposit *sender* ────
-    // The on-chain transfer's `authority` (the signer that owns the source token
-    // account) must match the wallet recorded for that player. This prevents a
-    // confirmed transfer that someone else funded from passing verification.
-    const playerIds = players.map((p: any) => p.user_id);
-    const { data: walletRows, error: walletErr } = await adminClient
-      .from("profiles").select("user_id, wallet_address").in("user_id", playerIds);
-    if (walletErr || !walletRows) return errorResponse("Could not fetch player wallets", 500);
+    // ── Resolve each player's *deposit* wallet so we can verify the sender ─────
+    // We use deposit_wallet (the wallet that signed the on-chain deposit, recorded
+    // by join_pvp_match) rather than the login wallet, because a player may deposit
+    // from a different connected wallet than the one they authenticated with.
+    // The on-chain transfer's `authority` must match this so a confirmed transfer
+    // that someone else funded cannot pass verification.
     const walletByUser = new Map<string, string>(
-      walletRows.map((w: any) => [w.user_id, ((w.wallet_address ?? "").split(":").pop() ?? "").trim()]),
+      players.map((p: any) => [p.user_id, ((p.deposit_wallet ?? "").split(":").pop() ?? "").trim()]),
     );
+    log("step 6: expected deposit wallets", Object.fromEntries(walletByUser));
 
     // ── Fetch winner wallet ──────────────────────────────────────────────────
     const { data: profile } = await adminClient
@@ -217,6 +223,15 @@ Deno.serve(async (req: Request) => {
     if (escrowAccounts.value.length === 0) return errorResponse("Escrow has no token account for this mint", 500);
     const escrowTokenAccount = new PublicKey(escrowAccounts.value[0].pubkey);
     const escrowAtaStr       = escrowTokenAccount.toString();
+    log("step 7: on-chain config", {
+      escrowWallet: escrowKeypair.publicKey.toString(),
+      escrowAta: escrowAtaStr,
+      mint: mintPubkey.toString(),
+      tokenProgram: tokenProgStr,
+      decimals,
+      entryFeeRaw: entryFeeAmtStr,
+      winnerWallet: winnerPubkey.toString(),
+    });
 
     // ── Verify each deposit tx is confirmed on-chain ─────────────────────────
     const depositSigs = players.map((p: any) => p.deposit_tx as string);
@@ -229,6 +244,7 @@ Deno.serve(async (req: Request) => {
         return errorResponse(`Deposit ${i + 1} not yet confirmed`, 400);
       }
     }
+    log("step 8: all deposits confirmed on-chain", depositSigs);
 
     // ── Verify each deposit tx transferred the correct amount to escrow ──────
     // Parses the on-chain instruction data to confirm mint, destination, and
@@ -251,7 +267,7 @@ Deno.serve(async (req: Request) => {
       // canonical base58 pubkey so the comparison below is not defeated by raw
       // string formatting differences in the stored wallet_address.
       const expectedSenderRaw = walletByUser.get(players[i].user_id);
-      if (!expectedSenderRaw) return errorResponse(`Deposit ${i + 1}: depositor wallet unknown`, 400);
+      if (!expectedSenderRaw) return errorResponse(`Deposit ${i + 1}: depositing wallet was not recorded at join time`, 400);
       let expectedSender: string;
       try {
         expectedSender = pubkeyFromBase58(expectedSenderRaw).toBase58();
@@ -262,6 +278,23 @@ Deno.serve(async (req: Request) => {
       // Include inner instructions to handle CPI-wrapped transfers
       const topLevel = parsed.transaction.message.instructions as any[];
       const inner    = (parsed.meta?.innerInstructions ?? []).flatMap((ii: any) => ii.instructions);
+
+      log(`step 9.${i + 1}: verifying deposit`, {
+        expectedSender,
+        escrowAtaStr,
+        entryFeeAmtStr,
+        transfers: [...topLevel, ...inner]
+          .filter((ix: any) => {
+            const p = ix.programId?.toString();
+            return (p === tokenProgStr || p === tok2022Str) && ix.parsed;
+          })
+          .map((ix: any) => ({
+            type: ix.parsed.type,
+            sender: ix.parsed.info?.authority ?? ix.parsed.info?.multisigAuthority,
+            destination: ix.parsed.info?.destination,
+            amount: ix.parsed.info?.amount ?? ix.parsed.info?.tokenAmount?.amount,
+          })),
+      });
 
       const valid = [...topLevel, ...inner].some((ix: any) => {
         const prog = ix.programId?.toString();
@@ -292,8 +325,8 @@ Deno.serve(async (req: Request) => {
       });
 
       if (!valid) {
-        // Diagnostic: dump what we saw vs what we expected so the function logs
-        // reveal whether this is a sender, destination, amount, or program mismatch.
+        // Log expected vs observed transfers so failures can be diagnosed from
+        // the function logs without leaking detail into the client response.
         const seen = [...topLevel, ...inner]
           .filter((ix: any) => {
             const p = ix.programId?.toString();
@@ -305,20 +338,16 @@ Deno.serve(async (req: Request) => {
             destination: ix.parsed.info?.destination,
             amount: ix.parsed.info?.amount ?? ix.parsed.info?.tokenAmount?.amount,
           }));
-        const debug = { expectedSender, escrowAtaStr, entryFeeAmtStr, tokenProgStr, tok2022Str, seen };
-        console.error(`Deposit ${i + 1} verification failed`, JSON.stringify(debug));
-        // TEMP DEBUG: surface the mismatch in the response body so it can be read
-        // directly from the Network tab. Remove before production.
-        return new Response(
-          JSON.stringify({
-            ok: false,
-            error: `Deposit ${i + 1} does not contain a valid FIGHT10 transfer from the player to escrow`,
-            debug,
-          }),
-          { status: 400, headers: { "Content-Type": "application/json", ...corsHeaders } },
+        console.error(`Deposit ${i + 1} verification failed`, JSON.stringify({
+          expectedSender, escrowAtaStr, entryFeeAmtStr, tokenProgStr, tok2022Str, seen,
+        }));
+        return errorResponse(
+          `Deposit ${i + 1} does not contain a valid FIGHT10 transfer from the player to escrow`,
+          400,
         );
       }
     }
+    log("step 10: all deposits verified");
 
     // ── Atomically reserve the payout slot ───────────────────────────────────
     // Uses claim_payout_slot() which does UPDATE … WHERE payout_tx IS NULL,
@@ -328,11 +357,13 @@ Deno.serve(async (req: Request) => {
     if (slotErr) return errorResponse("Could not reserve payout slot", 500);
     if (!slotOk) return errorResponse("Prize already claimed", 409);
     slotClaimed = true;
+    log("step 11: payout slot reserved");
 
     // ── On-chain token transfer ───────────────────────────────────────────────
     // mintAcct / tokenProgramId / decimals / entryFeeRaw / escrowTokenAccount already resolved above.
     const totalRaw        = BigInt(players.length) * entryFeeRaw;
     const winnerAmountRaw = (totalRaw * BigInt(900)) / BigInt(1000);
+    log("step 12: payout amount", { numPlayers: players.length, totalRaw: totalRaw.toString(), winnerAmountRaw: winnerAmountRaw.toString() });
 
     const winnerAccounts = await connection.getParsedTokenAccountsByOwner(winnerPubkey, { mint: mintPubkey });
 
@@ -353,7 +384,9 @@ Deno.serve(async (req: Request) => {
     tx.feePayer = escrowKeypair.publicKey;
     tx.sign(escrowKeypair);
 
+    log("step 13: sending payout tx", { winnerTokenAccount: winnerTokenAccount.toString(), createdAta: winnerAccounts.value.length === 0 });
     const payoutSig = await connection.sendRawTransaction(tx.serialize(), { skipPreflight: false });
+    log("step 14: payout tx sent", payoutSig);
 
     // Fix 2 (partial): Poll for on-chain confirmation; throw explicitly on timeout
     // so the catch block correctly releases the slot (tx never landed).
@@ -370,6 +403,7 @@ Deno.serve(async (req: Request) => {
       await new Promise((r) => setTimeout(r, 2000));
     }
     if (!confirmed) throw new Error(`Payout tx not confirmed after 90s — sig: ${payoutSig}`);
+    log("step 15: payout tx confirmed on-chain", payoutSig);
 
     // Fix 4: Mark tx as confirmed before writing to DB. Retry the DB write up to 5 times
     // so a transient DB failure after a confirmed on-chain tx does not clear the payout
@@ -399,6 +433,7 @@ Deno.serve(async (req: Request) => {
     }
 
     slotClaimed = false; // slot replaced with real sig — no rollback needed
+    log("step 16: DB updated, payout complete", payoutSig);
 
     return new Response(
       JSON.stringify({ ok: true, payout_tx: payoutSig, winner_amount: winnerAmountRaw.toString(), num_players: players.length, decimals }),

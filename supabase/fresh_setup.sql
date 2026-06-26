@@ -14,6 +14,7 @@ drop function if exists public.claim_payout_slot(uuid);
 drop function if exists public.finish_match(uuid, int);
 drop function if exists public.finish_match(uuid, uuid);
 drop function if exists public.record_deposit(uuid, text);
+drop function if exists public.join_pvp_match(smallint, text, text, text);
 drop function if exists public.join_pvp_match(smallint, text, text);
 drop function if exists public.join_pvp_match(smallint, text);
 drop function if exists public.leave_my_matches();
@@ -71,6 +72,10 @@ create table public.match_players (
   display_name text not null,
   joined_at    timestamptz not null default timezone('utc', now()),
   deposit_tx   text,
+  -- The wallet that actually signed the on-chain deposit. May differ from the
+  -- player's login wallet (profiles.wallet_address) when they deposit from a
+  -- different connected wallet, so the payout function verifies against this.
+  deposit_wallet text,
   final_hp     int,
   primary key (match_id, user_id),
   unique (match_id, seat),
@@ -156,9 +161,10 @@ $$;
 -- 4. join_pvp_match — deposit-before-join (deposit tx required at call time)
 -- ---------------------------------------------------------------------------
 create or replace function public.join_pvp_match(
-  p_max_players  smallint default 2,
-  p_deposit_tx   text     default null,
-  p_display_name text     default null
+  p_max_players    smallint default 2,
+  p_deposit_tx     text     default null,
+  p_display_name   text     default null,
+  p_deposit_wallet text     default null
 )
 returns jsonb
 language plpgsql
@@ -182,6 +188,10 @@ begin
 
   if p_deposit_tx is null or trim(p_deposit_tx) = '' then
     raise exception 'deposit_tx_required';
+  end if;
+
+  if p_deposit_wallet is null or trim(p_deposit_wallet) = '' then
+    raise exception 'deposit_wallet_required';
   end if;
 
   -- Reject unsupported lobby sizes instead of silently converting
@@ -225,8 +235,8 @@ begin
     select count(*) into v_count from public.match_players where match_id = v_match_id;
     v_seat := v_count + 1;
 
-    insert into public.match_players (match_id, user_id, seat, display_name, deposit_tx)
-    values (v_match_id, v_uid, v_seat, v_name, p_deposit_tx);
+    insert into public.match_players (match_id, user_id, seat, display_name, deposit_tx, deposit_wallet)
+    values (v_match_id, v_uid, v_seat, v_name, p_deposit_tx, trim(p_deposit_wallet));
 
     update public.matches
     set pot_tokens = pot_tokens + c_entry_fee
@@ -256,8 +266,8 @@ begin
   returning id into v_match_id;
 
   v_seat := 1;
-  insert into public.match_players (match_id, user_id, seat, display_name, deposit_tx)
-  values (v_match_id, v_uid, v_seat, v_name, p_deposit_tx);
+  insert into public.match_players (match_id, user_id, seat, display_name, deposit_tx, deposit_wallet)
+  values (v_match_id, v_uid, v_seat, v_name, p_deposit_tx, trim(p_deposit_wallet));
 
   update public.matches
   set pot_tokens = pot_tokens + c_entry_fee
@@ -649,7 +659,7 @@ grant select on public.matches      to authenticated;
 grant select on public.match_players to authenticated;
 
 grant execute on function public.sync_my_profile(text)                 to authenticated;
-grant execute on function public.join_pvp_match(smallint, text, text)  to authenticated;
+grant execute on function public.join_pvp_match(smallint, text, text, text) to authenticated;
 grant execute on function public.leave_my_matches()                    to authenticated;
 grant execute on function public.finish_match(uuid, int)               to authenticated;
 grant execute on function public.claim_payout_slot(uuid)               to authenticated;
