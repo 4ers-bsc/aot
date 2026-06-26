@@ -954,9 +954,10 @@ async function handleMatchOver() {
   });
 }
 
-// All players submit their final HP as a witness report. The server-side
-// finish_match function tallies all witness reports and crowns the winner
-// itself — no client can pass its own user_id as winner.
+// All players submit their final HP as a witness report via finish_match,
+// which records only that player's HP. Once everyone has reported, finish_match
+// hands off to the server-side finalize_match, which crowns the winner itself —
+// no client can pass its own user_id as winner.
 async function reportResult(result, { reason = "", standings = [] } = {}) {
   if (state.match?.mode !== "pvp" || !state.match.id || state.match.finished) return;
   state.match.finished = true;

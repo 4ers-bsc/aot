@@ -11,6 +11,7 @@ drop trigger if exists on_auth_user_created on auth.users;
 drop function if exists public.close_stale_matches();
 drop function if exists public.apply_match_result(uuid, uuid);
 drop function if exists public.claim_payout_slot(uuid);
+drop function if exists public.finalize_match(uuid);
 drop function if exists public.finish_match(uuid, int);
 drop function if exists public.finish_match(uuid, uuid);
 drop function if exists public.record_deposit(uuid, text);
@@ -442,10 +443,10 @@ end;
 $$;
 
 -- ---------------------------------------------------------------------------
--- 9. finish_match — server-authoritative (HP-based winner)
---    Fix 1: stats updates restored (wins/losses/points/level/streak)
---    Fix 3: fast-crown requires ALL other players to have reported hp=0,
---           not just "exactly 1 alive" — prevents fake-HP exploit
+-- 9a. finish_match — records ONE player's final HP. Nothing else.
+--     Single responsibility: a player reports their result. Winner selection,
+--     stats and match closure are deferred to finalize_match, which this calls
+--     automatically so the match settles the moment the last report lands.
 -- ---------------------------------------------------------------------------
 create or replace function public.finish_match(p_match_id uuid, p_final_hp int default 0)
 returns void
@@ -454,12 +455,7 @@ security definer
 set search_path = public
 as $$
 declare
-  v_caller      uuid := auth.uid();
-  v_status      text;
-  v_winner      uuid;
-  v_alive_count int;
-  v_dead_count  int;
-  v_total       int;
+  v_caller uuid := auth.uid();
 begin
   if v_caller is null then
     raise exception 'not_authenticated';
@@ -472,63 +468,85 @@ begin
     raise exception 'not_a_participant';
   end if;
 
-  -- Record caller's HP (clamped 0–100)
+  -- Record caller's HP (clamped 0–100). This is finish_match's only side effect.
   update match_players
   set final_hp = greatest(0, least(100, p_final_hp))
   where match_id = p_match_id and user_id = v_caller;
 
-  -- Lock the row to prevent concurrent finalisations
+  -- Attempt to settle the match. finalize_match is a no-op unless enough
+  -- players have reported, so it is safe to call on every report.
+  perform public.finalize_match(p_match_id);
+end;
+$$;
+
+-- ---------------------------------------------------------------------------
+-- 9b. finalize_match — decides the winner and closes the match. Server-side.
+--     Runs automatically from finish_match once players have reported. It is
+--     idempotent and self-guarding: it finalises only when a winner can be
+--     determined, and never twice (the row lock + status check prevent races).
+--
+--     Winner rules (unchanged from the previous combined finish_match):
+--       Fix 3: fast-crown only when exactly 1 player is alive AND every other
+--              player has explicitly confirmed dead (hp=0) — blocks a cheater
+--              claiming hp=100 before opponents report. Disconnected losers are
+--              handled by close_stale_matches.
+--       Otherwise: once all players have reported, highest HP wins (seat ASC
+--              breaks ties).
+-- ---------------------------------------------------------------------------
+create or replace function public.finalize_match(p_match_id uuid)
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_status      text;
+  v_winner      uuid;
+  v_alive_count int;
+  v_dead_count  int;
+  v_total       int;
+  v_unreported  int;
+begin
+  -- Lock the row to prevent concurrent finalisations.
   select status into v_status from matches where id = p_match_id for update;
-  if v_status = 'finished' then return; end if;
   if v_status is null       then raise exception 'match_not_found'; end if;
+  if v_status = 'finished'  then return; end if;
 
   select count(*) into v_total
-  from match_players
-  where match_id = p_match_id;
+  from match_players where match_id = p_match_id;
+
+  select count(*) into v_unreported
+  from match_players where match_id = p_match_id and final_hp is null;
 
   select count(*) into v_alive_count
-  from match_players
-  where match_id = p_match_id and final_hp is not null and final_hp > 0;
+  from match_players where match_id = p_match_id and final_hp is not null and final_hp > 0;
 
   select count(*) into v_dead_count
-  from match_players
-  where match_id = p_match_id and final_hp is not null and final_hp = 0;
+  from match_players where match_id = p_match_id and final_hp is not null and final_hp = 0;
 
-  -- Fix 3: only fast-crown when exactly 1 alive AND all others have confirmed dead.
-  -- This blocks a cheating player from claiming hp=100 while opponents haven't
-  -- yet reported — they must all be explicitly confirmed dead before the winner
-  -- is known. Disconnected losers are handled by close_stale_matches.
   if v_alive_count = 1 and v_dead_count = v_total - 1 then
+    -- Fast-crown: exactly one survivor, everyone else confirmed dead.
     select user_id into v_winner
     from match_players
     where match_id = p_match_id and final_hp > 0
     limit 1;
-
-    update matches
-    set winner_user_id = v_winner, status = 'finished', ended_at = now()
-    where id = p_match_id and status != 'finished';
-
-    perform public.apply_match_result(p_match_id, v_winner);
-    return;
-  end if;
-
-  -- All players have reported (none null) — use highest HP; seat ASC breaks ties.
-  if not exists (
-    select 1 from match_players
-    where match_id = p_match_id and final_hp is null
-  ) then
+  elsif v_unreported = 0 then
+    -- Everyone reported — highest HP wins; seat ASC breaks ties.
     select user_id into v_winner
     from match_players
     where match_id = p_match_id
     order by final_hp desc, seat asc
     limit 1;
-
-    update matches
-    set winner_user_id = v_winner, status = 'finished', ended_at = now()
-    where id = p_match_id and status != 'finished';
-
-    perform public.apply_match_result(p_match_id, v_winner);
+  else
+    -- Not enough reports yet to know the winner — leave the match running.
+    return;
   end if;
+
+  update matches
+  set winner_user_id = v_winner, status = 'finished', ended_at = now()
+  where id = p_match_id and status != 'finished';
+
+  perform public.apply_match_result(p_match_id, v_winner);
 end;
 $$;
 
@@ -665,8 +683,11 @@ grant execute on function public.finish_match(uuid, int)               to authen
 grant execute on function public.claim_payout_slot(uuid)               to authenticated;
 grant execute on function public.level_for_points(integer)             to authenticated;
 
--- apply_match_result and close_stale_matches are internal / service_role only
+-- apply_match_result, finalize_match and close_stale_matches are internal:
+-- finalize_match is only ever called from finish_match (a security-definer
+-- function), so it never needs a direct grant to authenticated.
 grant execute on function public.apply_match_result(uuid, uuid)  to service_role;
+grant execute on function public.finalize_match(uuid)            to service_role;
 grant execute on function public.close_stale_matches()           to service_role;
 
 -- ---------------------------------------------------------------------------
