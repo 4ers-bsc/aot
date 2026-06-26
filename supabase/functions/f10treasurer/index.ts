@@ -305,17 +305,17 @@ Deno.serve(async (req: Request) => {
             destination: ix.parsed.info?.destination,
             amount: ix.parsed.info?.amount ?? ix.parsed.info?.tokenAmount?.amount,
           }));
-        console.error(`Deposit ${i + 1} verification failed`, JSON.stringify({
-          expectedSender,
-          escrowAtaStr,
-          entryFeeAmtStr,
-          tokenProgStr,
-          tok2022Str,
-          seen,
-        }));
-        return errorResponse(
-          `Deposit ${i + 1} does not contain a valid FIGHT10 transfer from the player to escrow`,
-          400,
+        const debug = { expectedSender, escrowAtaStr, entryFeeAmtStr, tokenProgStr, tok2022Str, seen };
+        console.error(`Deposit ${i + 1} verification failed`, JSON.stringify(debug));
+        // TEMP DEBUG: surface the mismatch in the response body so it can be read
+        // directly from the Network tab. Remove before production.
+        return new Response(
+          JSON.stringify({
+            ok: false,
+            error: `Deposit ${i + 1} does not contain a valid FIGHT10 transfer from the player to escrow`,
+            debug,
+          }),
+          { status: 400, headers: { "Content-Type": "application/json", ...corsHeaders } },
         );
       }
     }
