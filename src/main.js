@@ -548,6 +548,16 @@ async function depositEntryFee(numPlayers = 2) {
     return null;
   }
 
+  // One wallet per player: the deposit must come from the same wallet the player
+  // signed in with. Catch a mismatch here (before any on-chain payment) so the
+  // user isn't charged only to be rejected by join_pvp_match. wallet_address may
+  // carry a "chain:" prefix (e.g. "solana:<pubkey>") — compare the pubkey tail.
+  const loginWallet = (state.profile?.wallet_address ?? "").split(":").pop();
+  if (loginWallet && wallet.publicKey.toString() !== loginWallet) {
+    setStatus("Wrong wallet — switch back to your signed-in wallet to deposit, or sign out and sign in with this one.");
+    return null;
+  }
+
   if (FIGHT10_MINT.startsWith("<") || ESCROW_WALLET.startsWith("<")) {
     setStatus("Game not configured for live deposits yet (missing mint/escrow address).");
     return null;
