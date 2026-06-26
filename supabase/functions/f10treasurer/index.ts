@@ -247,9 +247,17 @@ Deno.serve(async (req: Request) => {
       const parsed = parsedTxs[i];
       if (!parsed) return errorResponse(`Deposit ${i + 1} could not be parsed`, 400);
 
-      // The wallet that must have authorised this deposit.
-      const expectedSender = walletByUser.get(players[i].user_id);
-      if (!expectedSender) return errorResponse(`Deposit ${i + 1}: depositor wallet unknown`, 400);
+      // The wallet that must have authorised this deposit. Normalise to a
+      // canonical base58 pubkey so the comparison below is not defeated by raw
+      // string formatting differences in the stored wallet_address.
+      const expectedSenderRaw = walletByUser.get(players[i].user_id);
+      if (!expectedSenderRaw) return errorResponse(`Deposit ${i + 1}: depositor wallet unknown`, 400);
+      let expectedSender: string;
+      try {
+        expectedSender = pubkeyFromBase58(expectedSenderRaw).toBase58();
+      } catch {
+        return errorResponse(`Deposit ${i + 1}: depositor wallet invalid`, 400);
+      }
 
       // Include inner instructions to handle CPI-wrapped transfers
       const topLevel = parsed.transaction.message.instructions as any[];
@@ -263,7 +271,15 @@ Deno.serve(async (req: Request) => {
         // The signer that owns the source token account. Single-sig wallets use
         // `authority`; multisig uses `multisigAuthority`. Either must match the
         // player's recorded wallet so a transfer funded by a third party is rejected.
-        const sender = info.authority ?? info.multisigAuthority;
+        // Normalise to canonical base58 before comparing.
+        const senderRaw = info.authority ?? info.multisigAuthority;
+        if (!senderRaw) return false;
+        let sender: string;
+        try {
+          sender = pubkeyFromBase58(senderRaw).toBase58();
+        } catch {
+          return false;
+        }
         if (sender !== expectedSender) return false;
         if (type === "transfer") {
           return info.destination === escrowAtaStr && info.amount === entryFeeAmtStr;
