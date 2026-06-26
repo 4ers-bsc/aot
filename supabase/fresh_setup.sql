@@ -344,58 +344,7 @@ end;
 $$;
 
 -- ---------------------------------------------------------------------------
--- 6. record_deposit — retained for backward compatibility
--- ---------------------------------------------------------------------------
-create or replace function public.record_deposit(p_match_id uuid, p_deposit_tx text)
-returns void
-language plpgsql
-security definer
-set search_path = public
-as $$
-declare
-  v_uid          uuid := auth.uid();
-  v_existing_tx  text;
-  c_entry_fee    constant bigint := 2500000000;
-begin
-  if v_uid is null then
-    raise exception 'not_authenticated';
-  end if;
-
-  if p_deposit_tx is null or trim(p_deposit_tx) = '' then
-    raise exception 'invalid_deposit_tx';
-  end if;
-
-  if not exists (
-    select 1 from public.match_players
-    where match_id = p_match_id and user_id = v_uid
-  ) then
-    raise exception 'not_in_match';
-  end if;
-
-  select deposit_tx into v_existing_tx
-  from public.match_players
-  where match_id = p_match_id and user_id = v_uid;
-
-  if v_existing_tx is not null and v_existing_tx <> p_deposit_tx then
-    raise exception 'already_deposited';
-  end if;
-
-  if v_existing_tx = p_deposit_tx then
-    return;
-  end if;
-
-  update public.match_players
-  set deposit_tx = p_deposit_tx
-  where match_id = p_match_id and user_id = v_uid;
-
-  update public.matches
-  set pot_tokens = pot_tokens + c_entry_fee
-  where id = p_match_id;
-end;
-$$;
-
--- ---------------------------------------------------------------------------
--- 7. level_for_points
+-- 6. level_for_points
 -- ---------------------------------------------------------------------------
 create or replace function public.level_for_points(p integer)
 returns integer
@@ -406,7 +355,7 @@ as $$
 $$;
 
 -- ---------------------------------------------------------------------------
--- 8. apply_match_result — shared stats helper called by finish_match and
+-- 7. apply_match_result — shared stats helper called by finish_match and
 --    close_stale_matches so stats are never skipped.
 -- ---------------------------------------------------------------------------
 create or replace function public.apply_match_result(p_match_id uuid, p_winner_id uuid)
@@ -455,7 +404,7 @@ end;
 $$;
 
 -- ---------------------------------------------------------------------------
--- 9a. finish_match — records ONE player's final HP. Nothing else.
+-- 8a. finish_match — records ONE player's final HP. Nothing else.
 --     Single responsibility: a player reports their result. Winner selection,
 --     stats and match closure are deferred to finalize_match, which this calls
 --     automatically so the match settles the moment the last report lands.
@@ -492,7 +441,7 @@ end;
 $$;
 
 -- ---------------------------------------------------------------------------
--- 9b. finalize_match — decides the winner and closes the match. Server-side.
+-- 8b. finalize_match — decides the winner and closes the match. Server-side.
 --     Runs automatically from finish_match once players have reported. It is
 --     idempotent and self-guarding: it finalises only when a winner can be
 --     determined, and never twice (the row lock + status check prevent races).
@@ -563,7 +512,7 @@ end;
 $$;
 
 -- ---------------------------------------------------------------------------
--- 10. claim_payout_slot — atomic single UPDATE
+-- 9. claim_payout_slot — atomic single UPDATE
 --     Fix 8: stale-release and new claim happen in one statement so two
 --     concurrent callers cannot both succeed.
 -- ---------------------------------------------------------------------------
@@ -591,7 +540,7 @@ end;
 $$;
 
 -- ---------------------------------------------------------------------------
--- 11. close_stale_matches — cron-based TTL for abandoned active matches
+-- 10. close_stale_matches — cron-based TTL for abandoned active matches
 --     Fix 1: applies profile stats via apply_match_result
 --     Fix 6: winner is NULL (no award) when no HP has been reported at all,
 --            instead of auto-awarding the match creator
@@ -652,7 +601,7 @@ end;
 $$;
 
 -- ---------------------------------------------------------------------------
--- 12. Row-level security
+-- 11. Row-level security
 -- ---------------------------------------------------------------------------
 alter table public.profiles     enable row level security;
 alter table public.matches      enable row level security;
@@ -682,7 +631,7 @@ using (
 );
 
 -- ---------------------------------------------------------------------------
--- 13. Grants
+-- 12. Grants
 -- ---------------------------------------------------------------------------
 grant select, update(display_name) on public.profiles to authenticated;
 grant select on public.matches      to authenticated;
