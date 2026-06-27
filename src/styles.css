@@ -925,18 +925,67 @@ body:has(.game-over:not(.hidden)) .arena-canvas {
   animation: go-pop 0.32s cubic-bezier(0.2, 0.9, 0.3, 1.2);
 }
 
-/* Winner: warm gold framing + a sheen across the top edge. */
+/* Winner: brighter monochrome framing + a sheen across the top edge. */
 .game-over.is-win .game-over-card {
-  border-color: rgba(240,224,64,0.45);
-  background: linear-gradient(160deg, rgba(40,36,14,0.96), rgba(10,9,4,0.99));
-  box-shadow: 0 32px 80px rgba(0,0,0,0.78), 0 0 60px rgba(240,224,64,0.12), inset 0 1px 0 rgba(255,255,255,0.08);
+  border-color: rgba(255,255,255,0.4);
+  background: linear-gradient(160deg, rgba(34,34,34,0.96), rgba(8,8,8,0.99));
+  box-shadow: 0 32px 80px rgba(0,0,0,0.78), 0 0 60px rgba(255,255,255,0.08), inset 0 1px 0 rgba(255,255,255,0.1);
 }
 .game-over.is-win .game-over-card::before {
   content: "";
   position: absolute;
   top: 0; left: 0; right: 0;
   height: 3px;
-  background: linear-gradient(90deg, transparent, rgba(240,224,64,0.9), transparent);
+  background: linear-gradient(90deg, transparent, rgba(255,255,255,0.85), transparent);
+}
+
+/* F10 logo at the top of the card. */
+.go-logo {
+  width: 56px;
+  height: 56px;
+  object-fit: contain;
+  filter: grayscale(1) brightness(1.6);
+  opacity: 0.95;
+}
+
+/* Match summary — kills (sword) + time taken. */
+.go-summary {
+  display: flex;
+  gap: 14px;
+  width: 100%;
+  justify-content: center;
+}
+.go-summary-item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  flex: 1 1 0;
+  max-width: 130px;
+  padding: 12px 10px;
+  border-radius: 12px;
+  background: rgba(255,255,255,0.04);
+  border: 1px solid rgba(255,255,255,0.09);
+}
+.go-summary-icon {
+  width: 26px;
+  height: 26px;
+  object-fit: contain;
+  filter: grayscale(1) brightness(1.7);
+  margin-bottom: 2px;
+}
+.go-summary-num {
+  font-family: var(--font-display);
+  font-size: 24px;
+  line-height: 1;
+  color: #ffffff;
+}
+.go-summary-label {
+  font-family: var(--font-head);
+  font-size: 11px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--soft);
 }
 
 @keyframes go-pop {
@@ -952,15 +1001,15 @@ body:has(.game-over:not(.hidden)) .arena-canvas {
 }
 
 .game-over-title.is-win {
-  color: #f0e040;
-  text-shadow: 0 0 32px rgba(240,224,64,0.55), 0 0 8px rgba(240,224,64,0.35);
+  color: #ffffff;
+  text-shadow: 0 0 32px rgba(255,255,255,0.45), 0 0 8px rgba(255,255,255,0.3);
   animation: win-title-glow 2s ease-in-out infinite;
 }
 .game-over-title.is-loss { color: #8c8c8c; }
 
 @keyframes win-title-glow {
-  0%, 100% { text-shadow: 0 0 32px rgba(240,224,64,0.55), 0 0 8px rgba(240,224,64,0.35); }
-  50%       { text-shadow: 0 0 52px rgba(240,224,64,0.85), 0 0 14px rgba(240,224,64,0.55); }
+  0%, 100% { text-shadow: 0 0 32px rgba(255,255,255,0.4), 0 0 8px rgba(255,255,255,0.28); }
+  50%       { text-shadow: 0 0 52px rgba(255,255,255,0.7), 0 0 14px rgba(255,255,255,0.45); }
 }
 
 .game-over-reason {
@@ -2405,15 +2454,10 @@ body.in-game .game-hud-root {
 }
 
 .standing-row:first-child {
-  background: rgba(240,224,64,0.1);
-  border-color: rgba(240,224,64,0.35);
+  background: rgba(255,255,255,0.1);
+  border-color: rgba(255,255,255,0.32);
 }
-.standing-row:first-child .standing-rank { color: #ffd66b; }
-/* Crown the leader. */
-.standing-row:first-child .standing-rank::after {
-  content: " 👑";
-  font-size: 11px;
-}
+.standing-row:first-child .standing-rank { color: #ffffff; }
 
 .standing-name {
   font-family: var(--font-head);
@@ -2435,7 +2479,34 @@ body.in-game .game-hud-root {
   letter-spacing: 0.02em;
 }
 
-.standing-row:first-child .standing-hp { color: #6fcf6f; }
+.standing-row:first-child .standing-hp { color: #ffffff; }
+
+/* ===== Pre-results suspense spinner ===== */
+.results-loading {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.92);
+  backdrop-filter: blur(10px);
+}
+.results-loading.hidden { display: none; }
+
+.rl-spinner {
+  width: 88px;
+  height: 88px;
+  border-radius: 50%;
+  border: 8px solid rgba(255, 255, 255, 0.12);
+  border-top-color: #ffffff;
+  border-right-color: #ffffff;
+  border-bottom-color: #000000;
+  animation: rl-spin 0.7s linear infinite;
+  box-shadow: 0 0 40px rgba(255, 255, 255, 0.25);
+}
+
+@keyframes rl-spin { to { transform: rotate(360deg); } }
 
 /* ===== Unified font — apply Black Ops One everywhere ===== */
 .panel,
@@ -2519,24 +2590,16 @@ body.in-game .game-hud-root {
   text-align: center;
   margin: 0.25rem 0;
   padding: 18px 28px;
-  border: 2px solid rgba(240, 224, 64, 0.55);
+  border: 2px solid rgba(255, 255, 255, 0.4);
   border-radius: 12px;
-  background: rgba(240, 224, 64, 0.08);
-  box-shadow: 0 0 28px rgba(240, 224, 64, 0.18), inset 0 0 12px rgba(240, 224, 64, 0.06);
+  background: rgba(255, 255, 255, 0.06);
+  box-shadow: 0 0 28px rgba(255, 255, 255, 0.12), inset 0 0 12px rgba(255, 255, 255, 0.05);
   animation: prize-pulse 2.4s ease-in-out infinite;
 }
 
-/* Trophy mark above the "YOU WON" label. */
-.game-over-prize::before {
-  content: "🏆";
-  font-size: 26px;
-  line-height: 1;
-  filter: drop-shadow(0 0 10px rgba(240,224,64,0.5));
-}
-
 @keyframes prize-pulse {
-  0%, 100% { box-shadow: 0 0 28px rgba(240,224,64,0.18), inset 0 0 12px rgba(240,224,64,0.06); }
-  50%       { box-shadow: 0 0 44px rgba(240,224,64,0.38), inset 0 0 18px rgba(240,224,64,0.14); }
+  0%, 100% { box-shadow: 0 0 28px rgba(255,255,255,0.12), inset 0 0 12px rgba(255,255,255,0.05); }
+  50%       { box-shadow: 0 0 44px rgba(255,255,255,0.26), inset 0 0 18px rgba(255,255,255,0.1); }
 }
 
 .go-prize-label {
@@ -2544,7 +2607,7 @@ body.in-game .game-hud-root {
   font-size: 10px;
   font-weight: 700;
   letter-spacing: 0.24em;
-  color: rgba(240, 224, 64, 0.65);
+  color: rgba(255, 255, 255, 0.6);
   text-transform: uppercase;
 }
 
@@ -2553,7 +2616,7 @@ body.in-game .game-hud-root {
   font-size: 2rem;
   font-weight: 700;
   letter-spacing: 0.06em;
-  color: #f0e040;
-  text-shadow: 0 0 20px rgba(240, 224, 64, 0.7);
+  color: #ffffff;
+  text-shadow: 0 0 20px rgba(255, 255, 255, 0.55);
   line-height: 1.15;
 }
