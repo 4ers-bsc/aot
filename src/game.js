@@ -1160,11 +1160,19 @@ export function createArenaGame(options) {
       weapon: player.weapon.id, name: player.name
     });
   }
-  function applyDamage(def, dmg) {
+  function applyDamage(def, dmg, bySelf = false) {
     if (def.dead) return;
     def.hp = Math.max(0, def.hp - dmg);
     def.hurt = 0.18;
-    if (def.hp <= 0) killFighter(def);
+    if (def.hp <= 0) {
+      killFighter(def);
+      // Shadow-ledger (Option A): when the LOCAL player lands a lethal blow on a
+      // networked opponent, surface a kill event so the server can corroborate
+      // the death independently of any client's self-reported HP.
+      if (bySelf && def !== player && def.userId && foeMode === "net") {
+        options.onLocalKill?.({ victimId: def.userId });
+      }
+    }
     if (def === player && foeMode === "net") emitState();
   }
   function fireBullet(att, def, dmg, deal, weapon) {
@@ -1183,7 +1191,7 @@ export function createArenaGame(options) {
     const fx = Math.sin(att.facing), fz = Math.cos(att.facing);
     bGroup.position.set(att.group.position.x + fx * 0.8, 1.5, att.group.position.z + fz * 0.8);
     scene.add(bGroup);
-    bullets.push({ mesh: bGroup, def: deal ? def : null, dmg, speed: bulletSpeed, target: new THREE.Vector3(def.group.position.x, 1.45, def.group.position.z) });
+    bullets.push({ mesh: bGroup, def: deal ? def : null, dmg, bySelf: att === player, speed: bulletSpeed, target: new THREE.Vector3(def.group.position.x, 1.45, def.group.position.z) });
   }
   function updateBullets(dt) {
     for (let i = bullets.length - 1; i >= 0; i--) {
@@ -1191,7 +1199,7 @@ export function createArenaGame(options) {
       _bulletDir.subVectors(b.target, b.mesh.position);
       const dist = _bulletDir.length(), step = b.speed * dt;
       if (dist <= step || dist < 0.5) {
-        if (b.def && !b.def.dead) applyDamage(b.def, b.dmg);
+        if (b.def && !b.def.dead) applyDamage(b.def, b.dmg, b.bySelf);
         scene.remove(b.mesh);
         b.mesh.traverse((o) => { if (o.geometry) o.geometry.dispose(); if (o.material) o.material.dispose(); });
         bullets.splice(i, 1);
@@ -1241,7 +1249,7 @@ export function createArenaGame(options) {
             const d = Math.hypot(f.group.position.x - g.tx, f.group.position.z - g.tz);
             if (d <= blastR) {
               const dmg = Math.max(1, Math.round(g.dmg * (1 - d / blastR)));
-              applyDamage(f, dmg);
+              applyDamage(f, dmg, g.deal && f !== player);
             }
           }
           // Explosion flash
@@ -1288,7 +1296,7 @@ export function createArenaGame(options) {
       // clients compute from the identical dmg, so the target's bar drops
       // instantly here instead of after a network round-trip.
       if (w.ranged) fireBullet(player, def, dmg, true, w);
-      else applyDamage(def, dmg);
+      else applyDamage(def, dmg, true);
       options.onAttack?.({ fromId: localUserId, targetId: def.userId, weapon: w.id, dmg, ranged: !!w.ranged });
     } else {
       if (w.ranged) fireBullet(player, def, dmg, true, w);

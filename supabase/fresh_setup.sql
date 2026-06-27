@@ -9,6 +9,7 @@
 drop trigger if exists on_auth_user_created on auth.users;
 
 drop function if exists public.close_stale_matches();
+drop function if exists public.compute_shadow_winner(uuid);
 drop function if exists public.apply_match_result(uuid, uuid);
 drop function if exists public.claim_payout_slot(uuid);
 drop function if exists public.finalize_match(uuid);
@@ -24,6 +25,8 @@ drop function if exists public.sync_my_profile(text);
 drop function if exists public.is_match_member(uuid) cascade;
 drop function if exists public.handle_new_user();
 
+drop table if exists public.match_damage   cascade;
+drop table if exists public.match_kills    cascade;
 drop table if exists public.match_players cascade;
 drop table if exists public.matches        cascade;
 drop table if exists public.profiles       cascade;
@@ -63,7 +66,11 @@ create table public.matches (
   pot_tokens     bigint not null default 0,
   payout_tx      text,
   payout_claimed_at timestamptz,
-  stats_applied  boolean not null default false
+  stats_applied  boolean not null default false,
+  -- Option A (Phase 0 shadow): ledger-derived winner, recorded for comparison
+  -- against winner_user_id. Does not affect payouts yet.
+  shadow_winner  uuid references auth.users(id) on delete set null,
+  shadow_meta    jsonb
 );
 
 create table public.match_players (
@@ -84,9 +91,37 @@ create table public.match_players (
   unique (deposit_tx)
 );
 
+-- Option A combat ledger — each player records only the damage THEY dealt.
+-- RLS (section 11) forces attacker = auth.uid(), so a player can never write
+-- their own incoming HP or edit another player's row.
+create table public.match_damage (
+  match_id     uuid   not null references public.matches(id) on delete cascade,
+  attacker     uuid   not null references auth.users(id) on delete cascade,
+  victim       uuid   not null references auth.users(id) on delete cascade,
+  total_damage int    not null check (total_damage between 0 and 100000),
+  hit_count    int    not null check (hit_count >= 0),
+  first_t_ms   bigint not null default 0,
+  last_t_ms    bigint not null default 0,
+  created_at   timestamptz not null default now(),
+  primary key (match_id, attacker, victim),
+  check (attacker <> victim)
+);
+
+create table public.match_kills (
+  match_id   uuid   not null references public.matches(id) on delete cascade,
+  attacker   uuid   not null references auth.users(id) on delete cascade,
+  victim     uuid   not null references auth.users(id) on delete cascade,
+  t_ms       bigint not null default 0,
+  created_at timestamptz not null default now(),
+  primary key (match_id, victim),  -- a player dies once; first kill claim wins
+  check (attacker <> victim)
+);
+
 create index if not exists idx_matches_waiting    on public.matches(status, created_at);
 create index if not exists idx_match_players_user on public.match_players(user_id, joined_at desc);
 create index if not exists idx_match_players_match on public.match_players(match_id);
+create index if not exists idx_match_damage_match  on public.match_damage(match_id);
+create index if not exists idx_match_kills_match   on public.match_kills(match_id);
 
 -- ---------------------------------------------------------------------------
 -- 2. Auto-create profile on sign-up
@@ -508,6 +543,75 @@ begin
   where id = p_match_id and status != 'finished';
 
   perform public.apply_match_result(p_match_id, v_winner);
+
+  -- Option A (Phase 0 shadow): record the ledger-derived winner for comparison.
+  -- Comparison only — does NOT change winner_user_id or the payout.
+  perform public.compute_shadow_winner(p_match_id);
+end;
+$$;
+
+-- ---------------------------------------------------------------------------
+-- 8c. compute_shadow_winner — derive HP from the combat ledger (Option A)
+--     Called from finalize_match. Each player's HP is 100 minus the validated
+--     damage OTHERS reported dealing them, so a client cannot inflate its own
+--     survival. Plausibility caps reject impossible damage / fire rates. The
+--     result is stored in matches.shadow_winner for comparison; it does not
+--     decide the live winner or payout until a later cut-over phase.
+-- ---------------------------------------------------------------------------
+create or replace function public.compute_shadow_winner(p_match_id uuid)
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_started timestamptz;
+  v_ended   timestamptz;
+  v_secs    numeric;
+  v_winner  uuid;
+  v_meta    jsonb;
+  c_max_dps      constant numeric := 60;   -- max damage one attacker deals per second
+  c_max_firerate constant numeric := 12;   -- max hits per second
+begin
+  select started_at, coalesce(ended_at, now())
+    into v_started, v_ended
+  from public.matches where id = p_match_id;
+
+  v_secs := greatest(5, extract(epoch from (v_ended - coalesce(v_started, v_ended))));
+
+  with valid as (
+    select victim, least(total_damage, (c_max_dps * v_secs)::int) as dmg
+    from public.match_damage
+    where match_id = p_match_id
+      and hit_count <= c_max_firerate * v_secs
+  ),
+  hp as (
+    select mp.user_id, mp.seat,
+           greatest(0, 100 - coalesce(sum(v.dmg), 0))::int as hp
+    from public.match_players mp
+    left join valid v on v.victim = mp.user_id
+    group by mp.user_id, mp.seat
+  ),
+  ranked as (
+    select user_id, hp, seat,
+           row_number() over (order by hp desc, seat asc) as rn
+    from hp
+  )
+  select
+    (select user_id from ranked where rn = 1),
+    jsonb_build_object(
+      'secs',  v_secs,
+      'alive', (select count(*) from ranked where hp > 0),
+      'hp',    (select jsonb_agg(jsonb_build_object('user_id', user_id, 'hp', hp, 'seat', seat)
+                                 order by hp desc, seat asc) from ranked),
+      'kills', (select jsonb_agg(jsonb_build_object('attacker', attacker, 'victim', victim, 't_ms', t_ms))
+                from public.match_kills where match_id = p_match_id)
+    )
+    into v_winner, v_meta;
+
+  update public.matches
+  set shadow_winner = v_winner, shadow_meta = v_meta
+  where id = p_match_id;
 end;
 $$;
 
@@ -606,6 +710,8 @@ $$;
 alter table public.profiles     enable row level security;
 alter table public.matches      enable row level security;
 alter table public.match_players enable row level security;
+alter table public.match_damage enable row level security;
+alter table public.match_kills  enable row level security;
 
 -- Profiles: own row only
 create policy "profiles_select_own"
@@ -630,12 +736,32 @@ using (
   or exists (select 1 from public.matches m where m.id = match_id and m.status = 'active')
 );
 
+-- Combat ledger: you may only INSERT rows where you are the attacker (so you
+-- can never report your own incoming HP), and only read your own matches.
+create policy "match_damage_insert_own"
+on public.match_damage for insert to authenticated
+with check (attacker = auth.uid() and public.is_match_member(match_id));
+
+create policy "match_damage_select_member"
+on public.match_damage for select to authenticated
+using (public.is_match_member(match_id));
+
+create policy "match_kills_insert_own"
+on public.match_kills for insert to authenticated
+with check (attacker = auth.uid() and public.is_match_member(match_id));
+
+create policy "match_kills_select_member"
+on public.match_kills for select to authenticated
+using (public.is_match_member(match_id));
+
 -- ---------------------------------------------------------------------------
 -- 12. Grants
 -- ---------------------------------------------------------------------------
 grant select, update(display_name) on public.profiles to authenticated;
 grant select on public.matches      to authenticated;
 grant select on public.match_players to authenticated;
+grant select, insert on public.match_damage to authenticated;
+grant select, insert on public.match_kills  to authenticated;
 
 grant execute on function public.sync_my_profile(text)                 to authenticated;
 grant execute on function public.join_pvp_match(smallint, text, text, text) to authenticated;
@@ -649,6 +775,7 @@ grant execute on function public.level_for_points(integer)             to authen
 -- function), so it never needs a direct grant to authenticated.
 grant execute on function public.apply_match_result(uuid, uuid)  to service_role;
 grant execute on function public.finalize_match(uuid)            to service_role;
+grant execute on function public.compute_shadow_winner(uuid)     to service_role;
 grant execute on function public.close_stale_matches()           to service_role;
 
 -- ---------------------------------------------------------------------------
