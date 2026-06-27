@@ -119,6 +119,69 @@ const state = {
   pendingDepositWallet: null, // wallet that signed the deposit, recorded with the seat for payout verification
 };
 
+// ---------------------------------------------------------------------------
+// Shadow damage ledger (Option A, Phase 0)
+// ---------------------------------------------------------------------------
+// Records the outgoing damage the LOCAL player deals to each opponent, plus any
+// kills it lands. Flushed to the server at match end so finalize_match can
+// derive each player's HP from what *others* reported — independently of the
+// self-reported HP that currently decides the winner. Runs in shadow mode: it
+// only populates matches.shadow_winner for comparison and does NOT yet affect
+// payouts. See supabase migration 20260627_shadow_damage_ledger.sql.
+const ledger = {
+  startMs: 0,
+  flushed: false,
+  damage: new Map(), // victimId -> { total, hits, firstT, lastT }
+  kills: new Map(),  // victimId -> t_ms
+  reset() {
+    this.startMs = Date.now();
+    this.flushed = false;
+    this.damage.clear();
+    this.kills.clear();
+  },
+  recordHit(victimId, dmg) {
+    if (!victimId || !dmg) return;
+    const t = Date.now() - this.startMs;
+    const e = this.damage.get(victimId) ?? { total: 0, hits: 0, firstT: t, lastT: t };
+    e.total += dmg;
+    e.hits += 1;
+    e.lastT = t;
+    this.damage.set(victimId, e);
+  },
+  recordKill(victimId) {
+    if (!victimId || this.kills.has(victimId)) return;
+    this.kills.set(victimId, Date.now() - this.startMs);
+  },
+};
+
+// Insert this player's offense (damage dealt + kills landed) before reporting
+// the match result. Idempotent: a match flushes at most once. Best-effort — a
+// failure here must never block the existing settlement/payout path.
+async function flushLedger(matchId) {
+  if (!matchId || ledger.flushed) return;
+  ledger.flushed = true;
+  const uid = state.user?.id;
+  if (!uid) return;
+  const damageRows = [...ledger.damage].map(([victim, e]) => ({
+    match_id: matchId, attacker: uid, victim,
+    total_damage: Math.round(e.total), hit_count: e.hits,
+    first_t_ms: e.firstT, last_t_ms: e.lastT,
+  }));
+  const killRows = [...ledger.kills].map(([victim, t]) => ({
+    match_id: matchId, attacker: uid, victim, t_ms: t,
+  }));
+  try {
+    if (damageRows.length) {
+      await supabase.from("match_damage").upsert(damageRows, { onConflict: "match_id,attacker,victim" });
+    }
+    if (killRows.length) {
+      await supabase.from("match_kills").upsert(killRows, { onConflict: "match_id,victim", ignoreDuplicates: true });
+    }
+  } catch (e) {
+    console.error("ledger flush error:", e);
+  }
+}
+
 const game = createArenaGame({
   mount: els.arenaMount,
   onLocalState: (snapshot) => {
@@ -126,6 +189,13 @@ const game = createArenaGame({
   },
   onAttack: (attackEvent) => {
     state.channel?.send({ type: "broadcast", event: "attack", payload: attackEvent });
+    // Shadow ledger: accumulate damage we dealt to a networked opponent.
+    if (state.match?.mode === "pvp" && attackEvent?.targetId && attackEvent.fromId === state.user?.id) {
+      ledger.recordHit(attackEvent.targetId, attackEvent.dmg);
+    }
+  },
+  onLocalKill: ({ victimId }) => {
+    if (state.match?.mode === "pvp") ledger.recordKill(victimId);
   },
   onResultSuggestion: (result, standings) => {
     reportResult(result, { standings }).catch((err) => console.error(err));
@@ -885,6 +955,7 @@ function beginMatch(skipCountdown = false, startAt = null) {
   game.setView("game");
   game.generateMap(state.match?.id || "pvp");  // seed by match id so all clients match
   game.resetForMatch(state.match?.id, state.seat);
+  ledger.reset();
   game.setMatchPhase("countdown");
   game.setControllable(false);
   startPingLoop();
@@ -946,6 +1017,9 @@ async function handleOpponentLeft(userId) {
 async function handleMatchOver() {
   if (state.match?.mode !== "pvp" || !state.match.id || state.match.finished) return;
 
+  // Flush our offense ledger before finishing so finalize_match can derive the
+  // shadow winner from it (Option A, Phase 0 — comparison only, no payout impact).
+  await flushLedger(state.match.id);
   try {
     await supabase.rpc("finish_match", {
       p_match_id: state.match.id,
@@ -983,6 +1057,8 @@ async function reportResult(result, { reason = "", standings = [] } = {}) {
   // Every participant (winner and losers alike) submits their final HP so the
   // server can independently determine who survived. p_final_hp = 0 means dead.
   const finalHp = result === "win" ? (standings.find((s) => s.me)?.hp ?? 1) : 0;
+  // Flush our offense ledger before finishing (Option A, Phase 0 shadow mode).
+  await flushLedger(state.match.id);
   try {
     await supabase.rpc("finish_match", {
       p_match_id: state.match.id,
