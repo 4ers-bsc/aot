@@ -409,6 +409,9 @@ function showGameOver(result, reason, standings = [], prizeAmount = null) {
   els.gameOverTitle.textContent = win ? "VICTORY" : "DEFEAT";
   els.gameOverTitle.classList.toggle("is-win", win);
   els.gameOverTitle.classList.toggle("is-loss", !win);
+  // Tag the whole overlay so the card layout/theme can adapt to win vs loss.
+  els.gameOver.classList.toggle("is-win", win);
+  els.gameOver.classList.toggle("is-loss", !win);
   els.gameOverReason.textContent = reason || (win ? "Your rival fell in the trench." : "You fell in the trench.");
   els.gameOverName.textContent = state.profile?.display_name || "Trench Rookie";
   els.gameOverWins.textContent = state.profile?.wins ?? 0;
