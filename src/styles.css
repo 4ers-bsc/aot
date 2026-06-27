@@ -907,18 +907,36 @@ body:has(.game-over:not(.hidden)) .arena-canvas {
 }
 
 .game-over-card {
+  position: relative;
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 18px;
-  padding: 46px 56px;
+  gap: 16px;
+  padding: 44px 48px;
   border: 1px solid var(--line-strong);
   border-radius: 18px;
   background: linear-gradient(160deg, rgba(28,28,28,0.96), rgba(8,8,8,0.99));
   box-shadow: 0 32px 80px rgba(0,0,0,0.75), inset 0 1px 0 rgba(255,255,255,0.07);
-  min-width: 340px;
+  min-width: 360px;
+  max-width: 440px;
+  width: 100%;
   text-align: center;
+  overflow: hidden;
   animation: go-pop 0.32s cubic-bezier(0.2, 0.9, 0.3, 1.2);
+}
+
+/* Winner: warm gold framing + a sheen across the top edge. */
+.game-over.is-win .game-over-card {
+  border-color: rgba(240,224,64,0.45);
+  background: linear-gradient(160deg, rgba(40,36,14,0.96), rgba(10,9,4,0.99));
+  box-shadow: 0 32px 80px rgba(0,0,0,0.78), 0 0 60px rgba(240,224,64,0.12), inset 0 1px 0 rgba(255,255,255,0.08);
+}
+.game-over.is-win .game-over-card::before {
+  content: "";
+  position: absolute;
+  top: 0; left: 0; right: 0;
+  height: 3px;
+  background: linear-gradient(90deg, transparent, rgba(240,224,64,0.9), transparent);
 }
 
 @keyframes go-pop {
@@ -973,14 +991,22 @@ body:has(.game-over:not(.hidden)) .arena-canvas {
 
 .go-record {
   display: flex;
-  gap: 36px;
+  gap: 14px;
+  width: 100%;
+  justify-content: center;
 }
 
 .go-stat {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 4px;
+  gap: 5px;
+  flex: 1 1 0;
+  max-width: 130px;
+  padding: 12px 10px;
+  border-radius: 12px;
+  background: rgba(255,255,255,0.04);
+  border: 1px solid rgba(255,255,255,0.09);
 }
 
 .go-num {
@@ -2378,7 +2404,16 @@ body.in-game .game-hud-root {
   text-align: center;
 }
 
+.standing-row:first-child {
+  background: rgba(240,224,64,0.1);
+  border-color: rgba(240,224,64,0.35);
+}
 .standing-row:first-child .standing-rank { color: #ffd66b; }
+/* Crown the leader. */
+.standing-row:first-child .standing-rank::after {
+  content: " 👑";
+  font-size: 11px;
+}
 
 .standing-name {
   font-family: var(--font-head);
@@ -2479,15 +2514,24 @@ body.in-game .game-hud-root {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 4px;
+  gap: 6px;
+  width: 100%;
   text-align: center;
   margin: 0.25rem 0;
-  padding: 14px 28px;
+  padding: 18px 28px;
   border: 2px solid rgba(240, 224, 64, 0.55);
-  border-radius: 10px;
+  border-radius: 12px;
   background: rgba(240, 224, 64, 0.08);
   box-shadow: 0 0 28px rgba(240, 224, 64, 0.18), inset 0 0 12px rgba(240, 224, 64, 0.06);
   animation: prize-pulse 2.4s ease-in-out infinite;
+}
+
+/* Trophy mark above the "YOU WON" label. */
+.game-over-prize::before {
+  content: "🏆";
+  font-size: 26px;
+  line-height: 1;
+  filter: drop-shadow(0 0 10px rgba(240,224,64,0.5));
 }
 
 @keyframes prize-pulse {
@@ -2506,7 +2550,7 @@ body.in-game .game-hud-root {
 
 .go-prize-amount {
   font-family: var(--font-display);
-  font-size: 1.7rem;
+  font-size: 2rem;
   font-weight: 700;
   letter-spacing: 0.06em;
   color: #f0e040;

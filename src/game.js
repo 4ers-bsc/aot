@@ -90,9 +90,14 @@ export function createArenaGame(options) {
   scene.fog = new THREE.Fog(theme.bg, RD_FOG.Far[0], RD_FOG.Far[1]);
 
   const FRUSTUM = 16;
+  // Zoom bounds (orthographic: lower zoom = more zoomed out). Declared here so the
+  // camera can start at the fully zoomed-out limit on the home page and at match start.
+  const ZOOM_MIN = 0.4, ZOOM_MAX = 3.2;
   let dim = size();
   let aspect = dim.w / dim.h;
   const camera = new THREE.OrthographicCamera(-FRUSTUM * aspect, FRUSTUM * aspect, FRUSTUM, -FRUSTUM, 0.1, 1000);
+  camera.zoom = ZOOM_MIN;            // start fully zoomed out
+  camera.updateProjectionMatrix();
   const CAM_OFFSET = new THREE.Vector3(28, 34, 28);
   const camCenter = new THREE.Vector3(0, 0, 0);
   let following = true;
@@ -1572,7 +1577,6 @@ export function createArenaGame(options) {
     lx = e.clientX; ly = e.clientY;
   }
   function _onPointerUp(e) { if (!isDown) return; isDown = false; if (!dragging) handleTap(e.clientX, e.clientY); }
-  const ZOOM_MIN = 0.4, ZOOM_MAX = 3.2;
   function _onWheel(e) {
     e.preventDefault();
     camera.zoom = Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, camera.zoom * Math.exp(-e.deltaY * 0.0012)));
@@ -2136,6 +2140,9 @@ export function createArenaGame(options) {
       }
       camCenter.set(ps.x, 0, ps.z);
       following = true;
+      // Start every match fully zoomed out; the player can scroll in from there.
+      camera.zoom = ZOOM_MIN;
+      camera.updateProjectionMatrix();
     },
     receivePlayerState(userId, snap) {
       if (!snap || foeMode !== "net") return;
