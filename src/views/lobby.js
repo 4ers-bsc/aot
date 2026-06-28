@@ -12,6 +12,9 @@ export const html = `
         Prize Pool: <span id="pvpPrizeAmount">—</span> $FIGHT10
       </div>
       <div class="lobby-players" id="lobbyPlayers"></div>
+      <div class="pvp-lobby-warning hidden" id="pvpLobbyWarning">
+        ⚠ Entry fee paid. Leaving the queue will NOT refund your 2,500 $FIGHT10 — it stays in the pot.
+      </div>
       <button class="pvp-lobby-cancel" id="pvpCancelBtn" type="button">Cancel</button>
     </div>
   </div>
