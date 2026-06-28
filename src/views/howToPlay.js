@@ -21,8 +21,8 @@ export const html = `
         <div class="divider"></div>
         <div class="section">MATCH TIMER</div>
         <div class="row"><span>2 players</span><span class="k">5 minutes</span></div>
-        <div class="row"><span>5 players</span><span class="k">10 minutes</span></div>
-        <div class="row"><span>10 players</span><span class="k">15 minutes</span></div>
+        <div class="row"><span>5 players</span><span class="k">7 minutes</span></div>
+        <div class="row"><span>10 players</span><span class="k">10 minutes</span></div>
         <div class="row"><span>Time runs out</span><span class="k">highest HP survivor wins</span></div>
         <div class="divider"></div>
         <div class="section">MAP HAZARDS</div>

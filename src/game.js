@@ -1874,22 +1874,33 @@ export function createArenaGame(options) {
   }
 
   // -- Match timer ----------------------------------------------------------
-  let matchTimeLeft = 0;
+  // Wall-clock based: the countdown is derived from an absolute end timestamp
+  // (matchEndsAt) every tick, not by accumulating per-frame dt. This keeps it
+  // correct across tab-switches (requestAnimationFrame pauses while a tab is
+  // hidden and dt is clamped, which would otherwise freeze/desync the timer).
+  let matchEndsAt = 0;   // epoch ms when the match ends
   let matchTimerOn = false;
   function fmtTime(s) {
     s = Math.max(0, Math.ceil(s));
     return Math.floor(s / 60) + ":" + String(s % 60).padStart(2, "0");
   }
+  function matchSecsLeft() {
+    return matchTimerOn ? Math.max(0, (matchEndsAt - Date.now()) / 1000) : 0;
+  }
   function showTimer() {
     matchTimerEl.style.display = matchTimerOn && viewIsGame ? "block" : "none";
   }
-  function tickTimer(dt) {
+  function tickTimer() {
     if (!matchTimerOn || resultSent || matchPhase !== "active") return;
-    matchTimeLeft -= dt;
-    matchTimerEl.textContent = fmtTime(matchTimeLeft);
-    matchTimerEl.classList.toggle("low", matchTimeLeft <= 30);
-    if (matchTimeLeft <= 0) { matchTimerOn = false; resolveByHp(); }
+    const left = matchSecsLeft();
+    matchTimerEl.textContent = fmtTime(left);
+    matchTimerEl.classList.toggle("low", left <= 30);
+    if (left <= 0) { matchTimerOn = false; resolveByHp(); }
   }
+  // Fallback tick independent of requestAnimationFrame so the match still ends
+  // (and the player still reports) if the tab is backgrounded at 0:00. Browsers
+  // throttle setInterval to ~1s in background but, unlike rAF, keep firing it.
+  const _timerFallback = setInterval(tickTimer, 1000);
   // Time's up: highest HP among the survivors wins (tie-break by id).
   function resolveByHp() {
     if (resultSent) return;
@@ -1949,7 +1960,7 @@ export function createArenaGame(options) {
       emitAcc += dt * 1000;
       if (emitAcc >= EMIT_MS) emitState();
       checkResult();
-      tickTimer(dt);
+      tickTimer();
     }
 
     if (settings.centerCamera) following = true;
@@ -2042,10 +2053,13 @@ export function createArenaGame(options) {
     },
     setMatchPhase(phase) { matchPhase = phase; },
     setControllable(on) { controllable = !!on; },
-    setMatchTimer(seconds) {
-      matchTimeLeft = seconds || 0;
-      matchTimerOn = matchTimeLeft > 0;
-      matchTimerEl.textContent = fmtTime(matchTimeLeft);
+    // endsAtMs anchors the countdown to an absolute wall-clock time (ideally the
+    // server's started_at + duration) so it matches the settlement deadline and
+    // survives tab-switching. Falls back to now + seconds if not provided.
+    setMatchTimer(seconds, endsAtMs) {
+      matchEndsAt = endsAtMs || (Date.now() + (seconds || 0) * 1000);
+      matchTimerOn = matchEndsAt > Date.now();
+      matchTimerEl.textContent = fmtTime(matchSecsLeft());
       matchTimerEl.classList.remove("low");
       showTimer();
     },
@@ -2217,6 +2231,7 @@ export function createArenaGame(options) {
     openSettings() { overlay.classList.add("show"); },
     destroy() {
       destroyed = true;
+      clearInterval(_timerFallback);
       ro.disconnect();
       canvas.removeEventListener("pointerdown", _onPointerDown);
       canvas.removeEventListener("pointermove", _onPointerMove);
