@@ -74,6 +74,9 @@ const els = {
   arenaMount: document.getElementById("arenaMount"),
   howToOverlay: document.getElementById("howToOverlay"),
   howToClose: document.getElementById("howToClose"),
+  readmeBtn: document.getElementById("readmeBtn"),
+  readmeOverlay: document.getElementById("readmeOverlay"),
+  readmeClose: document.getElementById("readmeClose"),
   pauseOverlay: document.getElementById("pauseOverlay"),
   pauseClose: document.getElementById("pauseClose"),
   resumeBtn: document.getElementById("resumeBtn"),
@@ -251,6 +254,11 @@ function bindUi() {
   els.signOutBtn.addEventListener("click", signOut);
   els.howToPlayBtn.addEventListener("click", () => els.howToOverlay.classList.add("show"));
   els.howToClose.addEventListener("click", () => els.howToOverlay.classList.remove("show"));
+  els.readmeBtn?.addEventListener("click", () => els.readmeOverlay.classList.add("show"));
+  els.readmeClose?.addEventListener("click", () => els.readmeOverlay.classList.remove("show"));
+  els.readmeOverlay?.addEventListener("pointerdown", (e) => {
+    if (e.target === els.readmeOverlay) els.readmeOverlay.classList.remove("show");
+  });
   els.profileBtn.addEventListener("click", openProfile);
   els.profileClose.addEventListener("click", () => els.profileOverlay.classList.remove("show"));
   els.profileOverlay.addEventListener("pointerdown", (e) => {
@@ -1014,7 +1022,7 @@ function stopPingLoop() {
   game.setPing(null);
 }
 
-function beginMatch(skipCountdown = false, startAt = null) {
+async function beginMatch(skipCountdown = false, startAt = null) {
   if (state.started) return;
   state.started = true;
   if (state.startFallbackTimer) { clearTimeout(state.startFallbackTimer); state.startFallbackTimer = null; }
@@ -1037,18 +1045,30 @@ function beginMatch(skipCountdown = false, startAt = null) {
   game.setMatchPhase("countdown");
   game.setControllable(false);
   startPingLoop();
+
+  // Anchor the visible countdown to the server deadline (started_at + duration)
+  // so it matches the settlement time exactly and stays correct across tab
+  // switches. Falls back to a local clock if started_at can't be read.
+  const dur = matchDuration(state.match?.maxPlayers || 2);
+  let endsAtMs = Date.now() + dur * 1000;
+  try {
+    const { data } = await supabase.from("matches").select("started_at").eq("id", state.match?.id).single();
+    if (data?.started_at) endsAtMs = Date.parse(data.started_at) + dur * 1000;
+  } catch (_) { /* keep the local fallback */ }
+  if (state.match) state.match.endsAtMs = endsAtMs;
+
   if (skipCountdown) {
     // Late joiner who missed the "start" broadcast — match already in progress,
     // drop straight into active rather than showing a stale countdown.
     game.setMatchPhase("active");
     game.setControllable(true);
-    game.setMatchTimer(matchDuration(state.match?.maxPlayers || 2));
+    game.setMatchTimer(dur, endsAtMs);
     setStatus("Fight! Last one standing wins.");
   } else {
     runMatchStart(() => {
       game.setMatchPhase("active");
       game.setControllable(true);
-      game.setMatchTimer(matchDuration(state.match?.maxPlayers || 2));
+      game.setMatchTimer(dur, endsAtMs);
       setStatus("Fight! Last one standing wins.");
       showGlhf();
     }, startAt);

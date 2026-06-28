@@ -2095,6 +2095,14 @@ body.in-game .game-hud-root {
 .tab-body { padding: 16px 22px 22px; overflow-y: auto; }
 .tab-body.hidden { display: none; }
 
+.readme-note {
+  margin: 6px 2px;
+  font-size: 15px;
+  line-height: 1.5;
+  letter-spacing: 0.02em;
+  color: var(--text);
+}
+
 .panel .row {
   display: flex;
   align-items: baseline;
