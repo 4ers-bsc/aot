@@ -182,6 +182,26 @@ async function flushLedger(matchId) {
   }
 }
 
+// Read this player's kill count back from the server (match_kills). RLS lets a
+// member read the match's rows, and every row is write-guarded to attacker =
+// auth.uid(), so this is a server-sourced count rather than the client's word.
+// Returns null on any failure so callers can fall back to the local ledger.
+async function fetchVerifiedKills(matchId) {
+  if (!matchId || !state.user?.id) return null;
+  try {
+    const { count, error } = await supabase
+      .from("match_kills")
+      .select("victim", { count: "exact", head: true })
+      .eq("match_id", matchId)
+      .eq("attacker", state.user.id);
+    if (error) { console.error("fetchVerifiedKills error:", error); return null; }
+    return count ?? 0;
+  } catch (e) {
+    console.error("fetchVerifiedKills error:", e);
+    return null;
+  }
+}
+
 const game = createArenaGame({
   mount: els.arenaMount,
   onLocalState: (snapshot) => {
@@ -404,7 +424,27 @@ function hidePvpLobby() {
   if (potEl) potEl.classList.add("hidden");
 }
 
-function showGameOver(result, reason, standings = [], prizeAmount = null) {
+// Format a millisecond duration as m:ss for the match-time readout.
+function fmtDuration(ms) {
+  const total = Math.max(0, Math.round((ms || 0) / 1000));
+  const m = Math.floor(total / 60);
+  const s = total % 60;
+  return `${m}:${String(s).padStart(2, "0")}`;
+}
+
+// Briefly show a spinning circle, then resolve — a moment of suspense before
+// the results screen appears.
+function showResultsSpinner(ms = 2000) {
+  const el = document.getElementById("resultsLoading");
+  if (!el) return Promise.resolve();
+  el.classList.remove("hidden");
+  return new Promise((resolve) => setTimeout(() => {
+    el.classList.add("hidden");
+    resolve();
+  }, ms));
+}
+
+function showGameOver(result, reason, standings = [], prizeAmount = null, kills = null, timeMs = null) {
   const win = result === "win";
   els.gameOverTitle.textContent = win ? "VICTORY" : "DEFEAT";
   els.gameOverTitle.classList.toggle("is-win", win);
@@ -416,6 +456,11 @@ function showGameOver(result, reason, standings = [], prizeAmount = null) {
   els.gameOverName.textContent = state.profile?.display_name || "Trench Rookie";
   els.gameOverWins.textContent = state.profile?.wins ?? 0;
   els.gameOverLosses.textContent = state.profile?.losses ?? 0;
+  // Match summary: kills this match (from our offense ledger) and time taken.
+  const killsEl = document.getElementById("gameOverKills");
+  const timeEl  = document.getElementById("gameOverTime");
+  if (killsEl) killsEl.textContent = kills ?? ledger.kills.size;
+  if (timeEl)  timeEl.textContent  = fmtDuration(timeMs ?? (ledger.startMs ? Date.now() - ledger.startMs : 0));
   renderStandings(standings);
   // Prize display
   const prizeEl  = document.getElementById("gameOverPrize");
@@ -1057,6 +1102,10 @@ async function reportResult(result, { reason = "", standings = [] } = {}) {
   if (state.match?.mode !== "pvp" || !state.match.id || state.match.finished) return;
   state.match.finished = true;
 
+  // Capture the match summary at the moment it ends, before any awaits inflate it.
+  const matchKills = ledger.kills.size;
+  const matchTimeMs = ledger.startMs ? Date.now() - ledger.startMs : 0;
+
   // Every participant (winner and losers alike) submits their final HP so the
   // server can independently determine who survived. p_final_hp = 0 means dead.
   const finalHp = result === "win" ? (standings.find((s) => s.me)?.hp ?? 1) : 0;
@@ -1081,13 +1130,18 @@ async function reportResult(result, { reason = "", standings = [] } = {}) {
   }
 
   if (result !== "win") {
+    // Prefer the server-verified kill count; fall back to the local ledger.
+    const serverKills = await fetchVerifiedKills(state.match.id);
     try { await syncProfile(); } catch (e) { console.error(e); }
-    showGameOver(result, reason, standings, null);
+    showGameOver(result, reason, standings, null, serverKills ?? matchKills, matchTimeMs);
     return;
   }
 
-  // Winner: show game-over with "processing" state, then fill in prize once treasurer confirms
-  showGameOver(result, reason, standings, "pending");
+  // Winner: a brief 2s spinner for suspense, then the victory screen with a
+  // "processing" prize state; the prize fills in once the treasurer confirms.
+  await showResultsSpinner(2000);
+  const serverKills = await fetchVerifiedKills(state.match.id);
+  showGameOver(result, reason, standings, "pending", serverKills ?? matchKills, matchTimeMs);
   let prizeAmount = null;
   try {
     setStatus("Claiming prize…");
