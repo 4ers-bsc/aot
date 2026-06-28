@@ -1589,7 +1589,7 @@ export function createArenaGame(options) {
 
   // -- HUD (attached reference set) -----------------------------------------
   const hud = buildHud();
-  const { coords, mmCanvas, hotbar, slots, fpsEl, pingEl, overlay, renderDistBtn, matchTimerEl, raiderCountCtrl, raiderCountEl, scorePanel, weaponPanel, keysInfoBtn, keysInfoPanel } = hud;
+  const { coords, mmCanvas, hotbar, slots, fpsEl, pingEl, overlay, renderDistBtn, matchTimerEl, raiderCountCtrl, raiderCountEl, scorePanel, weaponPanel, keysInfoPanel } = hud;
 
   // Separate frag cooldown — never pollutes the active weapon's cdTimer
   let fragCd = 0;
@@ -1685,11 +1685,6 @@ export function createArenaGame(options) {
   }
   hud.bindSettings({ settings, applyFog, applyMsaa, refreshHud, onCenter: () => { if (settings.centerCamera) following = true; } });
   applyFog(); applyMsaa(); refreshHud();
-
-  // Keys info panel toggle
-  keysInfoBtn.addEventListener("click", () => {
-    keysInfoPanel.classList.toggle("hidden");
-  });
 
   // Raider count control (demo only)
   raiderCountCtrl.querySelector(".rc-minus").addEventListener("click", () => {
@@ -2291,7 +2286,6 @@ function buildHud() {
     <div class="ki-row"><span class="ki-key">Esc</span><span class="ki-desc">Leave match</span></div>
     <div class="ki-row"><span class="ki-key">Frag ring</span><span class="ki-desc">Throw range</span></div>
   </div>`);
-  const keysInfoBtn = add('<button class="keys-info-btn game-ui" title="Controls">?</button>');
   add('<button class="gear game-ui" title="Settings">&#9881;</button>');
   const gearBtn = root.querySelector(".gear");
   const fpsEl = add('<div class="game-fps game-ui">FPS --</div>');
@@ -2368,7 +2362,7 @@ function buildHud() {
     });
   }
 
-  return { root, coords, matchTimerEl, mmCanvas, hotbar, slots, fpsEl, pingEl, overlay, renderDistBtn, bindSettings, raiderCountCtrl, raiderCountEl, scorePanel, weaponPanel, keysInfoBtn, keysInfoPanel };
+  return { root, coords, matchTimerEl, mmCanvas, hotbar, slots, fpsEl, pingEl, overlay, renderDistBtn, bindSettings, raiderCountCtrl, raiderCountEl, scorePanel, weaponPanel, keysInfoPanel };
 }
 
 function clamp(v, min, max) {
