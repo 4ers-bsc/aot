@@ -182,6 +182,26 @@ async function flushLedger(matchId) {
   }
 }
 
+// Read this player's kill count back from the server (match_kills). RLS lets a
+// member read the match's rows, and every row is write-guarded to attacker =
+// auth.uid(), so this is a server-sourced count rather than the client's word.
+// Returns null on any failure so callers can fall back to the local ledger.
+async function fetchVerifiedKills(matchId) {
+  if (!matchId || !state.user?.id) return null;
+  try {
+    const { count, error } = await supabase
+      .from("match_kills")
+      .select("victim", { count: "exact", head: true })
+      .eq("match_id", matchId)
+      .eq("attacker", state.user.id);
+    if (error) { console.error("fetchVerifiedKills error:", error); return null; }
+    return count ?? 0;
+  } catch (e) {
+    console.error("fetchVerifiedKills error:", e);
+    return null;
+  }
+}
+
 const game = createArenaGame({
   mount: els.arenaMount,
   onLocalState: (snapshot) => {
@@ -1110,15 +1130,18 @@ async function reportResult(result, { reason = "", standings = [] } = {}) {
   }
 
   if (result !== "win") {
+    // Prefer the server-verified kill count; fall back to the local ledger.
+    const serverKills = await fetchVerifiedKills(state.match.id);
     try { await syncProfile(); } catch (e) { console.error(e); }
-    showGameOver(result, reason, standings, null, matchKills, matchTimeMs);
+    showGameOver(result, reason, standings, null, serverKills ?? matchKills, matchTimeMs);
     return;
   }
 
   // Winner: a brief 2s spinner for suspense, then the victory screen with a
   // "processing" prize state; the prize fills in once the treasurer confirms.
   await showResultsSpinner(2000);
-  showGameOver(result, reason, standings, "pending", matchKills, matchTimeMs);
+  const serverKills = await fetchVerifiedKills(state.match.id);
+  showGameOver(result, reason, standings, "pending", serverKills ?? matchKills, matchTimeMs);
   let prizeAmount = null;
   try {
     setStatus("Claiming prize…");
