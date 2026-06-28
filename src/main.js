@@ -117,7 +117,24 @@ const state = {
   startFallbackTimer: null,
   pendingDepositTx: null, // deposit sig saved across join retries so player never pays twice
   pendingDepositWallet: null, // wallet that signed the deposit, recorded with the seat for payout verification
+  // Per-lobby match length, loaded from the match_config table (single source of
+  // truth shared with the server). Seeded with the defaults as a fallback.
+  matchDurations: { 2: 300, 5: 420, 10: 600 },
 };
+
+// Load per-lobby match durations from the DB so the client timer matches the
+// server's settlement deadline. Best-effort: the defaults above are used on
+// failure, and a too-short client timer can't shorten the match anyway (the
+// server enforces started_at + config duration).
+async function loadMatchConfig() {
+  try {
+    const { data, error } = await supabase.from("match_config").select("max_players, duration_seconds");
+    if (error || !data) return;
+    for (const r of data) state.matchDurations[r.max_players] = r.duration_seconds;
+  } catch (e) {
+    console.error("loadMatchConfig error:", e);
+  }
+}
 
 // ---------------------------------------------------------------------------
 // Shadow damage ledger (Option A, Phase 0)
@@ -300,6 +317,7 @@ async function init() {
   }, 50);
 
   if (statusEl) statusEl.textContent = "Connecting…";
+  loadMatchConfig(); // fire-and-forget; ready well before any match starts
   supabase.auth.onAuthStateChange((_event, session) => {
     handleSession(session).catch((error) => {
       console.error(error);
@@ -943,11 +961,11 @@ function renderLobbyPlayers(players, max) {
 }
 
 // Per-size match length: 2p → 5min, 5p → 10min, 10p → 15min.
-// Every match runs a hard 5 minutes regardless of lobby size. When the timer
-// hits 0 the client reports in and the server settles from the ledger at once
-// (see finalize_match's 5-minute deadline).
-function matchDuration() {
-  return 5 * 60;
+// Match length for a lobby size, from match_config (single source of truth,
+// shared with the server's settlement deadline). When the timer hits 0 the
+// client reports in and the server settles from the ledger at once.
+function matchDuration(max) {
+  return state.matchDurations[max] ?? state.matchDurations[2] ?? 300;
 }
 
 // Flip from the waiting lobby into the live arena (once only), behind a short

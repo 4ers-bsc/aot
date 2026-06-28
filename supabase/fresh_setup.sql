@@ -10,6 +10,7 @@ drop trigger if exists on_auth_user_created on auth.users;
 
 drop function if exists public.close_stale_matches();
 drop function if exists public.compute_shadow_winner(uuid);
+drop function if exists public.match_duration_seconds(smallint);
 drop function if exists public.apply_match_result(uuid, uuid);
 drop function if exists public.claim_payout_slot(uuid);
 drop function if exists public.finalize_match(uuid, boolean);
@@ -26,6 +27,7 @@ drop function if exists public.sync_my_profile(text);
 drop function if exists public.is_match_member(uuid) cascade;
 drop function if exists public.handle_new_user();
 
+drop table if exists public.match_config   cascade;
 drop table if exists public.match_damage   cascade;
 drop table if exists public.match_kills    cascade;
 drop table if exists public.match_players cascade;
@@ -117,6 +119,17 @@ create table public.match_kills (
   primary key (match_id, victim),  -- a player dies once; first kill claim wins
   check (attacker <> victim)
 );
+
+-- Single source of truth for per-lobby match duration (read by both the
+-- server settler and the client countdown). Edit a row to change match length.
+create table public.match_config (
+  max_players      smallint primary key check (max_players in (2, 5, 10)),
+  duration_seconds int not null check (duration_seconds between 30 and 3600)
+);
+insert into public.match_config (max_players, duration_seconds) values
+  (2,  300),   -- 5 min
+  (5,  420),   -- 7 min
+  (10, 600);   -- 10 min
 
 create index if not exists idx_matches_waiting    on public.matches(status, created_at);
 create index if not exists idx_match_players_user on public.match_players(user_id, joined_at desc);
@@ -391,6 +404,23 @@ as $$
 $$;
 
 -- ---------------------------------------------------------------------------
+-- 6b. match_duration_seconds — per-lobby match length from match_config,
+--     with a safe fallback. Single source for the server deadline + client timer.
+-- ---------------------------------------------------------------------------
+create or replace function public.match_duration_seconds(p_max_players smallint)
+returns int
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select coalesce(
+    (select duration_seconds from public.match_config where max_players = p_max_players),
+    300
+  );
+$$;
+
+-- ---------------------------------------------------------------------------
 -- 7. apply_match_result — shared stats helper called by finish_match and
 --    close_stale_matches so stats are never skipped.
 -- ---------------------------------------------------------------------------
@@ -495,6 +525,7 @@ set search_path = public
 as $$
 declare
   v_status     text;
+  v_maxp       smallint;
   v_started    timestamptz;
   v_deadline   timestamptz;
   v_ended      timestamptz;
@@ -508,14 +539,14 @@ declare
   c_max_dps      constant numeric := 50;   -- per attacker, total across all victims
   c_max_firerate constant numeric := 4;    -- hits per second, per attacker→victim pair
 begin
-  select status, started_at into v_status, v_started
+  select status, started_at, max_players into v_status, v_started, v_maxp
   from matches where id = p_match_id for update;
   if v_status is null                     then raise exception 'match_not_found'; end if;
   if v_status in ('finished', 'disputed') then return; end if;
 
-  -- Hard 5-minute cap. Before it, hold open until everyone reports; after it
-  -- (or on force), settle now from whatever the ledger holds.
-  v_deadline := coalesce(v_started, now()) + interval '5 minutes';
+  -- Hard cap from match_config (per lobby size). Before it, hold open until
+  -- everyone reports; after it (or on force), settle from the ledger now.
+  v_deadline := coalesce(v_started, now()) + make_interval(secs => public.match_duration_seconds(v_maxp));
 
   select count(*) filter (where final_hp is null) into v_unreported
   from match_players where match_id = p_match_id;
@@ -657,7 +688,7 @@ begin
     from matches m
     where m.status     = 'active'
       and m.started_at is not null
-      and m.started_at < now() - interval '5 minutes'
+      and m.started_at < now() - make_interval(secs => public.match_duration_seconds(m.max_players))
     for update of m skip locked
   loop
     perform public.finalize_match(r.id, true);
@@ -676,6 +707,11 @@ alter table public.matches      enable row level security;
 alter table public.match_players enable row level security;
 alter table public.match_damage enable row level security;
 alter table public.match_kills  enable row level security;
+alter table public.match_config enable row level security;
+
+-- Match config: world-readable (non-sensitive; clients read it to set the timer).
+create policy "match_config_select_all"
+on public.match_config for select to authenticated, anon using (true);
 
 -- Profiles: own row only
 create policy "profiles_select_own"
@@ -726,6 +762,7 @@ grant select on public.matches      to authenticated;
 grant select on public.match_players to authenticated;
 grant select, insert on public.match_damage to authenticated;
 grant select, insert on public.match_kills  to authenticated;
+grant select on public.match_config to authenticated, anon;
 
 grant execute on function public.sync_my_profile(text)                 to authenticated;
 grant execute on function public.join_pvp_match(smallint, text, text, text) to authenticated;
@@ -733,6 +770,7 @@ grant execute on function public.leave_my_matches()                    to authen
 grant execute on function public.finish_match(uuid, int)               to authenticated;
 grant execute on function public.claim_payout_slot(uuid)               to authenticated;
 grant execute on function public.level_for_points(integer)             to authenticated;
+grant execute on function public.match_duration_seconds(smallint)      to authenticated, service_role, anon;
 
 -- apply_match_result, finalize_match and close_stale_matches are internal:
 -- finalize_match is only ever called from finish_match (a security-definer
