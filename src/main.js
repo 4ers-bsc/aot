@@ -943,9 +943,10 @@ function renderLobbyPlayers(players, max) {
 }
 
 // Per-size match length: 2p → 5min, 5p → 10min, 10p → 15min.
-function matchDuration(max) {
-  if (max >= 10) return 15 * 60;
-  if (max >= 5) return 10 * 60;
+// Every match runs a hard 5 minutes regardless of lobby size. When the timer
+// hits 0 the client reports in and the server settles from the ledger at once
+// (see finalize_match's 5-minute deadline).
+function matchDuration() {
   return 5 * 60;
 }
 

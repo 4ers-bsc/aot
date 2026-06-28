@@ -496,6 +496,7 @@ as $$
 declare
   v_status     text;
   v_started    timestamptz;
+  v_deadline   timestamptz;
   v_ended      timestamptz;
   v_secs       numeric;
   v_unreported int;
@@ -512,11 +513,15 @@ begin
   if v_status is null                     then raise exception 'match_not_found'; end if;
   if v_status in ('finished', 'disputed') then return; end if;
 
+  -- Hard 5-minute cap. Before it, hold open until everyone reports; after it
+  -- (or on force), settle now from whatever the ledger holds.
+  v_deadline := coalesce(v_started, now()) + interval '5 minutes';
+
   select count(*) filter (where final_hp is null) into v_unreported
   from match_players where match_id = p_match_id;
 
-  if not p_force and v_unreported > 0 then
-    return;   -- wait for everyone (or timeout via close_stale_matches)
+  if not p_force and v_unreported > 0 and now() < v_deadline then
+    return;
   end if;
 
   v_ended := now();
@@ -536,21 +541,28 @@ begin
   end if;
 
   with raw as (
-    select attacker, victim, total_damage, hit_count
+    -- win_secs = how long this attacker→victim damage actually spanned, so the
+    -- cap is a RATE. A match may run 5 min, but damage dealt in a 2s burst is
+    -- still capped at 2s worth — this is what catches a burst insta-kill.
+    select attacker, victim, total_damage, hit_count,
+           greatest(2, (last_t_ms - first_t_ms) / 1000.0) as win_secs
     from match_damage where match_id = p_match_id
   ),
   attacker_totals as (
-    select attacker, sum(total_damage) as out_total
-    from raw group by attacker
+    select attacker,
+           sum(total_damage) as out_total,
+           greatest(2, (max(last_t_ms) - min(first_t_ms)) / 1000.0) as out_secs
+    from match_damage where match_id = p_match_id
+    group by attacker
   ),
   flagged as (
     select attacker from attacker_totals
-    where out_total > (c_max_dps * v_secs)
+    where out_total > (c_max_dps * out_secs)
   ),
   valid as (
-    select victim, least(total_damage, (c_max_dps * v_secs)::int) as dmg
+    select victim, least(total_damage, (c_max_dps * win_secs)::int) as dmg
     from raw
-    where hit_count <= c_max_firerate * v_secs
+    where hit_count <= c_max_firerate * win_secs
   ),
   hp as (
     select mp.user_id, mp.seat,
@@ -625,10 +637,10 @@ end;
 $$;
 
 -- ---------------------------------------------------------------------------
--- 10. close_stale_matches — cron-based TTL for abandoned active matches.
---     Phase 2: force-settles each stale match through the authoritative
---     ledger settler (finalize_match), so timeouts get the same anti-cheat
---     derivation and dispute handling as a normal finish.
+-- 10. close_stale_matches — backstop for the hard 5-minute cap. Force-settles
+--     any match still active past started_at + 5 min through the authoritative
+--     ledger settler, for the case where every client vanished and no
+--     finish_match arrived at the deadline.
 -- ---------------------------------------------------------------------------
 create or replace function public.close_stale_matches()
 returns int
@@ -645,14 +657,7 @@ begin
     from matches m
     where m.status     = 'active'
       and m.started_at is not null
-      and m.started_at < now() - (
-        case m.max_players
-          when 2  then interval '10 minutes'
-          when 5  then interval '15 minutes'
-          when 10 then interval '20 minutes'
-          else         interval '20 minutes'
-        end
-      )
+      and m.started_at < now() - interval '5 minutes'
     for update of m skip locked
   loop
     perform public.finalize_match(r.id, true);
@@ -737,7 +742,9 @@ grant execute on function public.finalize_match(uuid, boolean)     to service_ro
 grant execute on function public.close_stale_matches()             to service_role;
 
 -- ---------------------------------------------------------------------------
--- 14. pg_cron — schedule stale-match sweeper every 5 minutes (optional)
+-- 14. pg_cron — backstop sweeper. Runs every minute so an abandoned match
+--     settles within ~1 min of its hard 5-minute cap. Strongly recommended:
+--     without it, a match where every client vanished never settles.
 --     Run this separately ONLY if pg_cron is enabled on your Supabase project.
 -- ---------------------------------------------------------------------------
--- select cron.schedule('close-stale', '*/5 * * * *', 'select public.close_stale_matches()');
+-- select cron.schedule('close-stale', '* * * * *', 'select public.close_stale_matches()');
