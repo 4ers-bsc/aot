@@ -9,6 +9,12 @@ export const html = `
       </div>
 
       <div class="tab-body" data-pbody="stats">
+        <div class="ban-notice hidden" id="profileBanNotice">
+          <div class="ban-notice-title">⚠ Account Banned</div>
+          <div class="ban-notice-text" id="profileBanText">This wallet was banned for cheating and can no longer join matches.</div>
+          <button class="profile-resolve" id="profileResolveBtn" type="button">Raise Resolution</button>
+        </div>
+
         <label class="profile-label" for="profileNameInput">Username</label>
         <input id="profileNameInput" type="text" maxlength="24" autocomplete="off" spellcheck="false" placeholder="3–24 characters" />
         <div class="profile-hint" id="profileHint">Saved to your wallet profile.</div>

@@ -13,6 +13,7 @@ export const html = `
     <button class="home-btn home-btn-secondary hidden" id="demoBtn" type="button">DEMO MATCH</button>
     <button class="home-btn home-btn-primary" id="connectWalletBtn" type="button">Connect Wallet</button>
     <button class="home-btn home-btn-primary hidden" id="pvpBtn" type="button">PLAY PVP</button>
+    <button class="home-btn home-btn-danger hidden" id="homeResolveBtn" type="button">RESOLVE BAN</button>
     <button class="home-btn home-btn-secondary" id="howToPlayBtn" type="button">HOW TO PLAY</button>
     <button class="home-btn home-btn-ghost hidden" id="signOutBtn" type="button">Sign Out</button>
   </div>

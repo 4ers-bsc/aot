@@ -447,6 +447,13 @@ textarea:focus {
 
 .home-btn-ghost:hover { color: rgba(255, 255, 255, 0.6); background: #111111; }
 
+.home-btn-danger {
+  background: #2a0d0d;
+  color: #ff8d7a;
+  border: 1px solid rgba(255, 99, 71, 0.5);
+}
+.home-btn-danger:hover { color: #ffb3a6; border-color: rgba(255, 99, 71, 0.85); background: #3a1010; }
+
 /* ===== X icon in nav ===== */
 .x-nav {
   display: flex;
@@ -1299,6 +1306,44 @@ body.in-game .log-feed { top: 58px; }
 
 .profile-save:hover { filter: brightness(1.1); }
 .profile-save:disabled { opacity: 0.6; }
+
+/* ===== Ban notice + resolve ===== */
+.ban-notice {
+  margin-bottom: 18px;
+  padding: 14px 16px;
+  border-radius: 10px;
+  background: rgba(255, 99, 71, 0.08);
+  border: 1px solid rgba(255, 99, 71, 0.4);
+}
+.ban-notice-title {
+  font-family: var(--font-head);
+  font-size: 14px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #d23b22;
+}
+.ban-notice-text {
+  margin-top: 6px;
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--soft);
+}
+.profile-resolve {
+  width: 100%;
+  margin-top: 12px;
+  padding: 11px 0;
+  border-radius: 10px;
+  background: #d23b22;
+  color: #ffffff;
+  font-family: var(--font-head);
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+.profile-resolve:hover { filter: brightness(1.08); }
+.profile-resolve:disabled { opacity: 0.6; cursor: default; }
 
 /* ===== Level / progression ===== */
 .level-block { margin-top: 16px; }

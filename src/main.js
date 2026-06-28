@@ -62,6 +62,10 @@ const els = {
   profileLevelFill: document.getElementById("profileLevelFill"),
   profileLevelNext: document.getElementById("profileLevelNext"),
   profileSaveBtn: document.getElementById("profileSaveBtn"),
+  profileBanNotice: document.getElementById("profileBanNotice"),
+  profileBanText: document.getElementById("profileBanText"),
+  profileResolveBtn: document.getElementById("profileResolveBtn"),
+  homeResolveBtn: document.getElementById("homeResolveBtn"),
   profileTabs: Array.from(document.querySelectorAll("[data-ptab]")),
   profileBodies: Array.from(document.querySelectorAll("[data-pbody]")),
   historyList: document.getElementById("historyList"),
@@ -107,6 +111,7 @@ const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
 const state = {
   user: null,
   profile: null,
+  ban: null, // blacklist row for this wallet when banned for cheating, else null
   match: null, // { id, mode: 'demo'|'pvp', status, finished, maxPlayers }
   seat: null,
   remoteIds: new Set(),
@@ -258,6 +263,8 @@ function bindUi() {
     if (e.target === els.profileOverlay) els.profileOverlay.classList.remove("show");
   });
   els.profileSaveBtn.addEventListener("click", saveProfile);
+  els.profileResolveBtn?.addEventListener("click", raiseResolution);
+  els.homeResolveBtn?.addEventListener("click", raiseResolution);
   els.profileNameInput.addEventListener("keydown", (e) => { if (e.key === "Enter") saveProfile(); });
   els.profileTabs.forEach((t) => t.addEventListener("click", () => selectProfileTab(t.dataset.ptab)));
   els.pvpCancelBtn.addEventListener("click", () => leaveMatch());
@@ -373,9 +380,11 @@ async function handleSession(session) {
 
   if (!state.user) {
     state.profile = null;
+    state.ban = null;
     await teardownMatch();
     game.clearAll();
     showLobby();
+    updateBanUi();
     setStatus("Connect a Solana wallet to begin.");
     return;
   }
@@ -387,8 +396,13 @@ async function handleSession(session) {
     setStatus(error.message || "Could not load profile.");
     return;
   }
+  await refreshBanStatus();
   showLobby();
-  setStatus(recordSuffix("Wallet connected — choose Demo Match or Play PvP."));
+  if (state.ban) {
+    setStatus("This wallet is banned for cheating. Raise a resolution to appeal.");
+  } else {
+    setStatus(recordSuffix("Wallet connected — choose Demo Match or Play PvP."));
+  }
   refreshFight10Balance().catch(console.error);
 }
 
@@ -396,6 +410,61 @@ async function syncProfile() {
   const { data, error } = await supabase.rpc("sync_my_profile", { p_display_name: null });
   if (error) throw error;
   state.profile = data;
+}
+
+// ---------------------------------------------------------------------------
+// Cheat bans. A wallet flagged by finalize_match for impossible damage is added
+// to the blacklist; join_pvp_match then rejects it before any payment. The
+// client mirrors that ban here to gate PvP and surface a "Resolve" button.
+// ---------------------------------------------------------------------------
+async function refreshBanStatus() {
+  try {
+    const { data, error } = await supabase.rpc("my_ban_status");
+    if (error) throw error;
+    state.ban = data || null;
+  } catch (error) {
+    console.error("[refreshBanStatus]", error);
+    state.ban = null; // fail open client-side; the server still blocks the join
+  }
+  updateBanUi();
+}
+
+// Toggle the Resolve buttons (home + profile) and the profile ban notice to
+// match the current ban state.
+function updateBanUi() {
+  const banned = !!state.ban;
+  toggle(els.homeResolveBtn, banned && !!state.user);
+  if (els.profileBanNotice) els.profileBanNotice.classList.toggle("hidden", !banned);
+  if (banned && els.profileBanText) {
+    els.profileBanText.textContent = state.ban.resolution_raised
+      ? "This wallet was banned for cheating. Your resolution request has been raised and is under review."
+      : "This wallet was banned for cheating and can no longer join matches.";
+  }
+  if (banned && els.profileResolveBtn) {
+    els.profileResolveBtn.disabled = !!state.ban.resolution_raised;
+    els.profileResolveBtn.textContent = state.ban.resolution_raised ? "Resolution Raised" : "Raise Resolution";
+  }
+}
+
+async function raiseResolution() {
+  if (!state.user) { signIn(); return; }
+  if (!state.ban) return;
+  if (state.ban.resolution_raised) {
+    setStatus("Your resolution request is already under review.");
+    return;
+  }
+  if (els.profileResolveBtn) els.profileResolveBtn.disabled = true;
+  try {
+    const { data, error } = await supabase.rpc("raise_resolution");
+    if (error) throw error;
+    state.ban = data || state.ban;
+    updateBanUi();
+    setStatus("Resolution request raised — your ban is now under review.");
+  } catch (error) {
+    console.error("[raiseResolution]", error);
+    if (els.profileResolveBtn) els.profileResolveBtn.disabled = false;
+    setStatus(error.message || "Could not raise a resolution request.");
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -591,6 +660,11 @@ function hideGameOver() {
 
 function startPvp() {
   if (!state.user) { signIn(); return; }
+  if (state.ban) {
+    setStatus("This wallet is banned for cheating. Raise a resolution to appeal.");
+    openProfile();
+    return;
+  }
   els.pvpSizeOverlay.classList.add("show");
   fetchLobbyCounts().catch(() => {});
 }
@@ -623,6 +697,11 @@ async function fetchLobbyCounts() {
 
 async function joinPvp(maxPlayers) {
   if (!state.user) { signIn(); return; }
+  if (state.ban) {
+    setStatus("This wallet is banned for cheating. Raise a resolution to appeal.");
+    openProfile();
+    return;
+  }
   const size = [2, 5, 10].includes(maxPlayers) ? maxPlayers : 2;
   try {
     // ── Step 1: deposit on-chain (if not already done from a previous failed attempt) ──
@@ -1271,6 +1350,7 @@ function showLobby() {
 // ---------------------------------------------------------------------------
 function openProfile() {
   if (!state.user) { signIn(); return; }
+  updateBanUi();
   renderProfileStats();
   els.profileNameInput.value = state.profile?.display_name || "";
   els.profileHint.textContent = "Saved to your wallet profile.";

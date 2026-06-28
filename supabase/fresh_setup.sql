@@ -18,6 +18,8 @@ drop function if exists public.finalize_match(uuid);
 drop function if exists public.finish_match(uuid, int);
 drop function if exists public.finish_match(uuid, uuid);
 drop function if exists public.record_deposit(uuid, text);
+drop function if exists public.my_ban_status();
+drop function if exists public.raise_resolution();
 drop function if exists public.join_pvp_match(smallint, text, text, text);
 drop function if exists public.join_pvp_match(smallint, text, text);
 drop function if exists public.join_pvp_match(smallint, text);
@@ -27,6 +29,7 @@ drop function if exists public.sync_my_profile(text);
 drop function if exists public.is_match_member(uuid) cascade;
 drop function if exists public.handle_new_user();
 
+drop table if exists public.blacklist      cascade;
 drop table if exists public.match_config   cascade;
 drop table if exists public.match_damage   cascade;
 drop table if exists public.match_kills    cascade;
@@ -134,6 +137,22 @@ insert into public.match_config (max_players, duration_seconds) values
   (5,  420),   -- 7 min
   (10, 600);   -- 10 min
 
+-- Cheat ban-list. One row per banned wallet. finalize_match adds a row for any
+-- attacker whose recorded damage breaks the physical caps; join_pvp_match reads
+-- this table before a player pays and joins the queue, so a banned wallet can
+-- never queue again. resolution_raised lets the player appeal their ban.
+create table public.blacklist (
+  -- Normalised pubkey (the trailing segment after any "chain:" prefix), so it
+  -- matches exactly what join_pvp_match compares against.
+  wallet_address    text primary key,
+  user_id           uuid references auth.users(id) on delete set null,
+  reason            text,
+  match_id          uuid references public.matches(id) on delete set null,
+  resolution_raised boolean not null default false,
+  created_at        timestamptz not null default timezone('utc', now())
+);
+create index if not exists idx_blacklist_user on public.blacklist(user_id);
+
 create unique index if not exists idx_matches_match_no on public.matches(match_no);
 create index if not exists idx_matches_waiting    on public.matches(status, created_at);
 create index if not exists idx_match_players_user on public.match_players(user_id, joined_at desc);
@@ -211,6 +230,74 @@ begin
 end;
 $$;
 
+-- 3b. Ban-list helpers — read your own ban and raise a resolution request.
+create or replace function public.my_ban_status()
+returns jsonb
+language plpgsql
+stable
+security definer
+set search_path = public, auth
+as $$
+declare
+  v_uid    uuid := auth.uid();
+  v_wallet text;
+  v_json   jsonb;
+begin
+  if v_uid is null then
+    return null;
+  end if;
+
+  select provider_id into v_wallet
+  from auth.identities
+  where user_id = v_uid
+  order by coalesce(last_sign_in_at, created_at) desc
+  limit 1;
+
+  select to_jsonb(b.*) into v_json
+  from public.blacklist b
+  where b.user_id = v_uid
+     or b.wallet_address = regexp_replace(trim(coalesce(v_wallet, '')), '^.*:', '')
+  limit 1;
+
+  return v_json; -- null when the wallet is not banned
+end;
+$$;
+
+create or replace function public.raise_resolution()
+returns jsonb
+language plpgsql
+security definer
+set search_path = public, auth
+as $$
+declare
+  v_uid    uuid := auth.uid();
+  v_wallet text;
+  v_json   jsonb;
+begin
+  if v_uid is null then
+    raise exception 'not_authenticated';
+  end if;
+
+  select provider_id into v_wallet
+  from auth.identities
+  where user_id = v_uid
+  order by coalesce(last_sign_in_at, created_at) desc
+  limit 1;
+
+  update public.blacklist b
+  set resolution_raised = true
+  where b.user_id = v_uid
+     or b.wallet_address = regexp_replace(trim(coalesce(v_wallet, '')), '^.*:', '')
+  returning to_jsonb(b.*) into v_json;
+
+  if v_json is null then
+    raise exception 'not_blacklisted';
+  end if;
+
+  return v_json;
+end;
+$$;
+
 -- ---------------------------------------------------------------------------
 -- 4. join_pvp_match — deposit-before-join (deposit tx required at call time)
 -- ---------------------------------------------------------------------------
@@ -266,6 +353,15 @@ begin
      or regexp_replace(trim(v_login_wallet),  '^.*:', '')
       <> regexp_replace(trim(p_deposit_wallet), '^.*:', '') then
     raise exception 'deposit_wallet_mismatch: deposit must come from your signed-in wallet';
+  end if;
+
+  -- Ban gate: a blacklisted wallet may never enter the queue. Checked before
+  -- any seat is taken (the on-chain deposit is also blocked client-side).
+  if exists (
+    select 1 from public.blacklist
+    where wallet_address = regexp_replace(trim(v_login_wallet), '^.*:', '')
+  ) then
+    raise exception 'wallet_blacklisted: this wallet is banned for cheating';
   end if;
 
   -- One wallet, one unfinished match at a time — return existing seat
@@ -626,6 +722,21 @@ begin
 
   if v_winner is null then v_disputed := true; end if;
 
+  -- Ban every confirmed cheater (flagged attacker), not only the winner. Their
+  -- deposit wallet (normalised to the trailing pubkey) goes on the blacklist so
+  -- join_pvp_match rejects them on their next attempt to queue.
+  insert into public.blacklist (wallet_address, user_id, reason, match_id)
+  select distinct regexp_replace(trim(mp.deposit_wallet), '^.*:', ''),
+         mp.user_id, 'cheat_detected', p_match_id
+  from public.match_players mp
+  where mp.match_id = p_match_id
+    and mp.deposit_wallet is not null
+    and trim(mp.deposit_wallet) <> ''
+    and mp.user_id in (
+      select (jsonb_array_elements_text(v_meta->'flagged'))::uuid
+    )
+  on conflict (wallet_address) do nothing;
+
   if v_disputed then
     update matches
       set status = 'disputed', winner_user_id = NULL, ended_at = v_ended,
@@ -712,6 +823,12 @@ alter table public.match_players enable row level security;
 alter table public.match_damage enable row level security;
 alter table public.match_kills  enable row level security;
 alter table public.match_config enable row level security;
+alter table public.blacklist    enable row level security;
+
+-- Ban-list: a player may read only their own ban row (drives the Resolve button).
+create policy "blacklist_select_own"
+on public.blacklist for select to authenticated
+using (user_id = auth.uid());
 
 -- Match config: world-readable (non-sensitive; clients read it to set the timer).
 create policy "match_config_select_all"
@@ -767,8 +884,11 @@ grant select on public.match_players to authenticated;
 grant select, insert on public.match_damage to authenticated;
 grant select, insert on public.match_kills  to authenticated;
 grant select on public.match_config to authenticated, anon;
+grant select on public.blacklist    to authenticated;
 
 grant execute on function public.sync_my_profile(text)                 to authenticated;
+grant execute on function public.my_ban_status()                       to authenticated;
+grant execute on function public.raise_resolution()                    to authenticated;
 grant execute on function public.join_pvp_match(smallint, text, text, text) to authenticated;
 grant execute on function public.leave_my_matches()                    to authenticated;
 grant execute on function public.finish_match(uuid, int)               to authenticated;
