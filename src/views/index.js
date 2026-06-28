@@ -5,7 +5,6 @@ import { html as gameOverHtml }  from './gameOver.js';
 import { html as profileHtml }   from './profile.js';
 import { html as pauseHtml }     from './pause.js';
 import { html as howToHtml }     from './howToPlay.js';
-import { html as readmeHtml }    from './readme.js';
 
 export function mountViews() {
   document.getElementById('views-root').innerHTML = [
@@ -16,6 +15,5 @@ export function mountViews() {
     profileHtml,
     pauseHtml,
     howToHtml,
-    readmeHtml,
   ].join('');
 }

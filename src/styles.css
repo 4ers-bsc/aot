@@ -870,6 +870,18 @@ textarea:focus {
   min-height: 18px;
 }
 
+.pvp-lobby-warning {
+  margin: 4px 0 2px;
+  max-width: 320px;
+  font-family: var(--font-head);
+  font-size: 12px;
+  line-height: 1.4;
+  letter-spacing: 0.02em;
+  color: #d9b44a;
+  text-align: center;
+}
+.pvp-lobby-warning.hidden { display: none; }
+
 .pvp-lobby-cancel {
   margin-top: 6px;
   padding: 10px 28px;
@@ -2095,13 +2107,6 @@ body.in-game .game-hud-root {
 .tab-body { padding: 16px 22px 22px; overflow-y: auto; }
 .tab-body.hidden { display: none; }
 
-.readme-note {
-  margin: 6px 2px;
-  font-size: 15px;
-  line-height: 1.5;
-  letter-spacing: 0.02em;
-  color: var(--text);
-}
 
 .panel .row {
   display: flex;

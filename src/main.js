@@ -74,9 +74,6 @@ const els = {
   arenaMount: document.getElementById("arenaMount"),
   howToOverlay: document.getElementById("howToOverlay"),
   howToClose: document.getElementById("howToClose"),
-  readmeBtn: document.getElementById("readmeBtn"),
-  readmeOverlay: document.getElementById("readmeOverlay"),
-  readmeClose: document.getElementById("readmeClose"),
   pauseOverlay: document.getElementById("pauseOverlay"),
   pauseClose: document.getElementById("pauseClose"),
   resumeBtn: document.getElementById("resumeBtn"),
@@ -88,6 +85,7 @@ const els = {
   pvpLobby: document.getElementById("pvpLobby"),
   pvpLobbyStatus: document.getElementById("pvpLobbyStatus"),
   pvpLobbyMeta: document.getElementById("pvpLobbyMeta"),
+  pvpLobbyWarning: document.getElementById("pvpLobbyWarning"),
   lobbyPlayers: document.getElementById("lobbyPlayers"),
   pvpCancelBtn: document.getElementById("pvpCancelBtn"),
   matchStarting: document.getElementById("matchStarting"),
@@ -254,11 +252,6 @@ function bindUi() {
   els.signOutBtn.addEventListener("click", signOut);
   els.howToPlayBtn.addEventListener("click", () => els.howToOverlay.classList.add("show"));
   els.howToClose.addEventListener("click", () => els.howToOverlay.classList.remove("show"));
-  els.readmeBtn?.addEventListener("click", () => els.readmeOverlay.classList.add("show"));
-  els.readmeClose?.addEventListener("click", () => els.readmeOverlay.classList.remove("show"));
-  els.readmeOverlay?.addEventListener("pointerdown", (e) => {
-    if (e.target === els.readmeOverlay) els.readmeOverlay.classList.remove("show");
-  });
   els.profileBtn.addEventListener("click", openProfile);
   els.profileClose.addEventListener("click", () => els.profileOverlay.classList.remove("show"));
   els.profileOverlay.addEventListener("pointerdown", (e) => {
@@ -437,6 +430,8 @@ let pvpLobbyTimer = null;
 function showPvpLobby(status) {
   els.pvpLobbyStatus.textContent = status || "Searching for an opponent…";
   els.pvpLobbyMeta.textContent = "";
+  // Hidden during pre-payment states; shown once the entry fee is paid (waiting).
+  els.pvpLobbyWarning?.classList.add("hidden");
   els.pvpLobby.classList.remove("hidden");
   clearInterval(pvpLobbyTimer);
   pvpLobbyTimer = null;
@@ -446,6 +441,7 @@ function hidePvpLobby() {
   clearInterval(pvpLobbyTimer);
   pvpLobbyTimer = null;
   els.pvpLobby.classList.add("hidden");
+  els.pvpLobbyWarning?.classList.add("hidden");
   const potEl = document.getElementById("pvpPrizePool");
   if (potEl) potEl.classList.add("hidden");
 }
@@ -632,6 +628,13 @@ async function joinPvp(maxPlayers) {
     // ── Step 1: deposit on-chain (if not already done from a previous failed attempt) ──
     let txSig = state.pendingDepositTx;
     if (!txSig) {
+      // Warn BEFORE payment — the entry fee is non-refundable once paid.
+      const ok = window.confirm(
+        "Heads up: the 2,500 $FIGHT10 entry fee is NON-REFUNDABLE.\n\n" +
+        "Once you pay, leaving the queue or the match will NOT refund your entry — the deposit stays in the pot.\n\n" +
+        "Continue and pay the entry fee?"
+      );
+      if (!ok) return;
       showPvpLobby("Preparing deposit…");
       txSig = await depositEntryFee(size);
       if (!txSig) {
@@ -929,6 +932,8 @@ async function loadRoster(matchId) {
     // Still waiting for more players to join and pay.
     els.pvpLobbyStatus.textContent = "Waiting for players…";
     els.pvpLobbyMeta.textContent = `${players.length} / ${max} paid and ready`;
+    // We've paid and are in the queue — remind that leaving forfeits the entry.
+    els.pvpLobbyWarning?.classList.remove("hidden");
     if (!state.depositPollTimer) {
       // Poll for up to 10 minutes; after that bail out so the lobby doesn't wait forever.
       const POLL_TIMEOUT_MS = 10 * 60 * 1000;
