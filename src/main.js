@@ -1321,7 +1321,7 @@ async function loadHistory() {
   els.historyList.innerHTML = '<div class="history-empty">Loading…</div>';
   const { data, error } = await supabase
     .from("match_players")
-    .select("joined_at, matches(id, status, max_players, winner_user_id, ended_at)")
+    .select("joined_at, matches(id, match_no, status, max_players, winner_user_id, ended_at)")
     .eq("user_id", state.user.id)
     .order("joined_at", { ascending: false })
     .limit(25);
@@ -1345,9 +1345,10 @@ async function loadHistory() {
     row.className = "history-row " + (noContest ? "hr-void" : win ? "hr-win" : "hr-loss");
     const result = noContest ? "—" : win ? "WIN" : "LOSS";
     const when = m.ended_at ? new Date(m.ended_at).toLocaleDateString(undefined, { month: "short", day: "numeric" }) : "";
+    const label = m.match_no ? `#${m.match_no} · ${m.max_players}-player` : `${m.max_players}-player`;
     row.innerHTML =
       `<span class="hr-result">${result}</span>` +
-      `<span class="hr-mode">${m.max_players}-player</span>` +
+      `<span class="hr-mode">${label}</span>` +
       `<span class="hr-date">${when}</span>`;
     els.historyList.appendChild(row);
   }
