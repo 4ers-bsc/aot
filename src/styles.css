@@ -925,18 +925,23 @@ body:has(.game-over:not(.hidden)) .arena-canvas {
   animation: go-pop 0.32s cubic-bezier(0.2, 0.9, 0.3, 1.2);
 }
 
-/* Winner: brighter monochrome framing + a sheen across the top edge. */
+/* Winner: warm gold framing + a sheen across the top edge. */
 .game-over.is-win .game-over-card {
-  border-color: rgba(255,255,255,0.4);
-  background: linear-gradient(160deg, rgba(34,34,34,0.96), rgba(8,8,8,0.99));
-  box-shadow: 0 32px 80px rgba(0,0,0,0.78), 0 0 60px rgba(255,255,255,0.08), inset 0 1px 0 rgba(255,255,255,0.1);
+  border-color: rgba(240,224,64,0.45);
+  background: linear-gradient(160deg, rgba(40,36,14,0.96), rgba(10,9,4,0.99));
+  box-shadow: 0 32px 80px rgba(0,0,0,0.78), 0 0 60px rgba(240,224,64,0.14), inset 0 1px 0 rgba(255,255,255,0.1);
 }
 .game-over.is-win .game-over-card::before {
   content: "";
   position: absolute;
   top: 0; left: 0; right: 0;
   height: 3px;
-  background: linear-gradient(90deg, transparent, rgba(255,255,255,0.85), transparent);
+  background: linear-gradient(90deg, transparent, rgba(240,224,64,0.9), transparent);
+}
+/* Gold-tint the logo for the winner. */
+.game-over.is-win .go-logo {
+  filter: sepia(1) saturate(3) hue-rotate(5deg) brightness(1.05);
+  opacity: 1;
 }
 
 /* Defeat: same monochrome card, dimmed framing + a muted top edge. */
@@ -981,19 +986,18 @@ body:has(.game-over:not(.hidden)) .arena-canvas {
   background: rgba(255,255,255,0.04);
   border: 1px solid rgba(255,255,255,0.09);
 }
-.go-summary-icon {
-  width: 26px;
-  height: 26px;
-  object-fit: contain;
-  filter: grayscale(1) brightness(1.7);
-  margin-bottom: 2px;
-}
 .go-summary-num {
   font-family: var(--font-display);
   font-size: 24px;
   line-height: 1;
   color: #ffffff;
 }
+/* Winner: gold-accent the summary cards. */
+.game-over.is-win .go-summary-item {
+  border-color: rgba(240,224,64,0.3);
+  background: rgba(240,224,64,0.06);
+}
+.game-over.is-win .go-summary-num { color: #f0e040; }
 .go-summary-label {
   font-family: var(--font-head);
   font-size: 11px;
@@ -1015,15 +1019,15 @@ body:has(.game-over:not(.hidden)) .arena-canvas {
 }
 
 .game-over-title.is-win {
-  color: #ffffff;
-  text-shadow: 0 0 32px rgba(255,255,255,0.45), 0 0 8px rgba(255,255,255,0.3);
+  color: #f0e040;
+  text-shadow: 0 0 32px rgba(240,224,64,0.55), 0 0 8px rgba(240,224,64,0.35);
   animation: win-title-glow 2s ease-in-out infinite;
 }
 .game-over-title.is-loss { color: #8c8c8c; }
 
 @keyframes win-title-glow {
-  0%, 100% { text-shadow: 0 0 32px rgba(255,255,255,0.4), 0 0 8px rgba(255,255,255,0.28); }
-  50%       { text-shadow: 0 0 52px rgba(255,255,255,0.7), 0 0 14px rgba(255,255,255,0.45); }
+  0%, 100% { text-shadow: 0 0 32px rgba(240,224,64,0.55), 0 0 8px rgba(240,224,64,0.35); }
+  50%       { text-shadow: 0 0 52px rgba(240,224,64,0.85), 0 0 14px rgba(240,224,64,0.55); }
 }
 
 .game-over-reason {
@@ -2473,6 +2477,14 @@ body.in-game .game-hud-root {
 }
 .standing-row:first-child .standing-rank { color: #ffffff; }
 
+/* Winner screen: gold-highlight the leading row. */
+.game-over.is-win .standing-row:first-child {
+  background: rgba(240,224,64,0.1);
+  border-color: rgba(240,224,64,0.35);
+}
+.game-over.is-win .standing-row:first-child .standing-rank { color: #ffd66b; }
+.game-over.is-win .standing-row:first-child .standing-hp { color: #f0e040; }
+
 .standing-name {
   font-family: var(--font-head);
   font-size: 13px;
@@ -2604,16 +2616,16 @@ body.in-game .game-hud-root {
   text-align: center;
   margin: 0.25rem 0;
   padding: 18px 28px;
-  border: 2px solid rgba(255, 255, 255, 0.4);
+  border: 2px solid rgba(240, 224, 64, 0.55);
   border-radius: 12px;
-  background: rgba(255, 255, 255, 0.06);
-  box-shadow: 0 0 28px rgba(255, 255, 255, 0.12), inset 0 0 12px rgba(255, 255, 255, 0.05);
+  background: rgba(240, 224, 64, 0.08);
+  box-shadow: 0 0 28px rgba(240, 224, 64, 0.18), inset 0 0 12px rgba(240, 224, 64, 0.06);
   animation: prize-pulse 2.4s ease-in-out infinite;
 }
 
 @keyframes prize-pulse {
-  0%, 100% { box-shadow: 0 0 28px rgba(255,255,255,0.12), inset 0 0 12px rgba(255,255,255,0.05); }
-  50%       { box-shadow: 0 0 44px rgba(255,255,255,0.26), inset 0 0 18px rgba(255,255,255,0.1); }
+  0%, 100% { box-shadow: 0 0 28px rgba(240,224,64,0.18), inset 0 0 12px rgba(240,224,64,0.06); }
+  50%       { box-shadow: 0 0 44px rgba(240,224,64,0.38), inset 0 0 18px rgba(240,224,64,0.14); }
 }
 
 .go-prize-label {
@@ -2621,7 +2633,7 @@ body.in-game .game-hud-root {
   font-size: 10px;
   font-weight: 700;
   letter-spacing: 0.24em;
-  color: rgba(255, 255, 255, 0.6);
+  color: rgba(240, 224, 64, 0.65);
   text-transform: uppercase;
 }
 
@@ -2630,7 +2642,7 @@ body.in-game .game-hud-root {
   font-size: 2rem;
   font-weight: 700;
   letter-spacing: 0.06em;
-  color: #ffffff;
-  text-shadow: 0 0 20px rgba(255, 255, 255, 0.55);
+  color: #f0e040;
+  text-shadow: 0 0 20px rgba(240, 224, 64, 0.7);
   line-height: 1.15;
 }

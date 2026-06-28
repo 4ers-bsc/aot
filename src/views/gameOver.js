@@ -11,7 +11,6 @@ export const html = `
       </div>
       <div class="go-summary">
         <div class="go-summary-item">
-          <img class="go-summary-icon" src="/sword.png" alt="Kills" />
           <span class="go-summary-num" id="gameOverKills">0</span>
           <span class="go-summary-label">Kills</span>
         </div>
