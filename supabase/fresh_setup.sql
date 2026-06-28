@@ -56,6 +56,9 @@ create table public.profiles (
 
 create table public.matches (
   id             uuid primary key default gen_random_uuid(),
+  -- Friendly sequential match number (1, 2, 3, …). The UUID stays the key;
+  -- this is just a human-readable identifier.
+  match_no       bigint generated always as identity,
   status         text not null default 'waiting'
     check (status in ('waiting', 'active', 'finished', 'disputed')),
   -- Fix: restrict to the three supported lobby sizes (2, 5, 10)
@@ -131,6 +134,7 @@ insert into public.match_config (max_players, duration_seconds) values
   (5,  420),   -- 7 min
   (10, 600);   -- 10 min
 
+create unique index if not exists idx_matches_match_no on public.matches(match_no);
 create index if not exists idx_matches_waiting    on public.matches(status, created_at);
 create index if not exists idx_match_players_user on public.match_players(user_id, joined_at desc);
 create index if not exists idx_match_players_match on public.match_players(match_id);
