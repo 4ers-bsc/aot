@@ -446,10 +446,12 @@ function showResultsSpinner(ms = 2000) {
 
 function showGameOver(result, reason, standings = [], prizeAmount = null, kills = null, timeMs = null) {
   const win = result === "win";
-  els.gameOverTitle.textContent = win ? "VICTORY" : "DEFEAT";
+  const disputed = result === "disputed";
+  els.gameOverTitle.textContent = win ? "VICTORY" : disputed ? "NO CONTEST" : "DEFEAT";
   els.gameOverTitle.classList.toggle("is-win", win);
   els.gameOverTitle.classList.toggle("is-loss", !win);
-  // Tag the whole overlay so the card layout/theme can adapt to win vs loss.
+  // Tag the whole overlay so the card layout/theme can adapt. Only a real win
+  // is gold; defeat and no-contest stay monochrome.
   els.gameOver.classList.toggle("is-win", win);
   els.gameOver.classList.toggle("is-loss", !win);
   els.gameOverReason.textContent = reason || (win ? "Your rival fell in the trench." : "You fell in the trench.");
@@ -528,15 +530,24 @@ async function retryPayout() {
 
 // Polls until the match row is marked 'finished', guarding against read-after-write lag.
 // Uses exponential backoff (800ms → 1.6s → 3.2s → …) capped at 5s per interval.
-async function awaitMatchFinished(matchId, timeoutMs = 10000) {
+// Wait for the server to settle the match. Returns the settled row
+// ({ status, winner_user_id }) once status is 'finished' or 'disputed', or null
+// on timeout. Phase 2: the winner is decided server-side from the combat ledger,
+// so the client must read the verdict here rather than trust its own detection.
+async function awaitSettlement(matchId, timeoutMs = 12000) {
   const deadline = Date.now() + timeoutMs;
   let delay = 800;
   while (Date.now() < deadline) {
-    const { data } = await supabase.from("matches").select("status").eq("id", matchId).single();
-    if (data?.status === "finished") return;
+    const { data } = await supabase
+      .from("matches")
+      .select("status, winner_user_id")
+      .eq("id", matchId)
+      .single();
+    if (data?.status === "finished" || data?.status === "disputed") return data;
     await new Promise((r) => setTimeout(r, delay));
     delay = Math.min(delay * 2, 5000);
   }
+  return null;
 }
 
 function renderStandings(standings) {
@@ -932,9 +943,10 @@ function renderLobbyPlayers(players, max) {
 }
 
 // Per-size match length: 2p → 5min, 5p → 10min, 10p → 15min.
-function matchDuration(max) {
-  if (max >= 10) return 15 * 60;
-  if (max >= 5) return 10 * 60;
+// Every match runs a hard 5 minutes regardless of lobby size. When the timer
+// hits 0 the client reports in and the server settles from the ledger at once
+// (see finalize_match's 5-minute deadline).
+function matchDuration() {
   return 5 * 60;
 }
 
@@ -1043,16 +1055,18 @@ async function handleOpponentLeft(userId) {
       .eq("id", state.match.id)
       .maybeSingle();
 
-    if (matchRow?.status === "finished") {
-      // Match already settled server-side. If we're not the winner, show the loss.
+    if (matchRow?.status === "finished" || matchRow?.status === "disputed") {
+      // Already settled server-side. If we're not the recorded winner, surface
+      // the authoritative outcome (loss or no-contest) rather than a false win.
       if (matchRow.winner_user_id !== state.user?.id) {
-        reportResult("loss", { reason: "You were defeated." }).catch(console.error);
+        reportResult("loss", { standings: game.standings() }).catch(console.error);
       }
       return;
     }
 
-    // Match still active — opponent genuinely disconnected mid-game.
-    reportResult("win", { reason: "Last one standing — rivals disconnected." }).catch((e) => console.error(e));
+    // Match still active — opponent genuinely disconnected mid-game. The server
+    // still has the final say (this resolves to a win only if the ledger backs it).
+    reportResult("win", { standings: game.standings() }).catch((e) => console.error(e));
   }
 }
 
@@ -1064,95 +1078,80 @@ async function handleOpponentLeft(userId) {
 // claim about who won — that comes from winner_user_id.
 async function handleMatchOver() {
   if (state.match?.mode !== "pvp" || !state.match.id || state.match.finished) return;
-
-  // Flush our offense ledger before finishing so finalize_match can derive the
-  // shadow winner from it (Option A, Phase 0 — comparison only, no payout impact).
-  await flushLedger(state.match.id);
-  try {
-    await supabase.rpc("finish_match", {
-      p_match_id: state.match.id,
-      p_final_hp: game.currentHp(),
-    });
-  } catch (e) {
-    console.error("finish_match (match-over) error:", e);
-  }
-
-  const { data: matchRow } = await supabase
-    .from("matches")
-    .select("status, winner_user_id")
-    .eq("id", state.match.id)
-    .maybeSingle();
-
-  // Not yet settled server-side (e.g. we're genuinely still alive) — keep
-  // playing; our own result detection will conclude the match for us.
-  if (matchRow?.status !== "finished") return;
-
-  const won = matchRow.winner_user_id === state.user?.id;
-  await reportResult(won ? "win" : "loss", {
-    reason: won ? "Last one standing — you won!" : "You were defeated.",
-    standings: game.standings(),
-  });
+  // A peer signalled the match is over. Report done and let the server's
+  // ledger verdict decide our screen (win / loss / disputed) — reportResult
+  // handles the flush, finish_match, settlement wait and display.
+  await reportResult("loss", { standings: game.standings() });
 }
 
-// All players submit their final HP as a witness report via finish_match,
-// which records only that player's HP. Once everyone has reported, finish_match
-// hands off to the server-side finalize_match, which crowns the winner itself —
-// no client can pass its own user_id as winner.
-async function reportResult(result, { reason = "", standings = [] } = {}) {
+// Phase 2: the winner is decided SERVER-SIDE from the combat ledger. Each
+// participant reports "done" + flushes its offense ledger; the server derives
+// HP from what *others* dealt and crowns the winner (or marks the match
+// 'disputed' when the ledger is implausible). The client never trusts its own
+// win/loss detection for the result — `resultHint` only chooses whether to show
+// the winner's suspense spinner; the screen shown comes from the server verdict.
+async function reportResult(resultHint, { standings = [] } = {}) {
   if (state.match?.mode !== "pvp" || !state.match.id || state.match.finished) return;
   state.match.finished = true;
+  const matchId = state.match.id;
 
   // Capture the match summary at the moment it ends, before any awaits inflate it.
   const matchKills = ledger.kills.size;
   const matchTimeMs = ledger.startMs ? Date.now() - ledger.startMs : 0;
 
-  // Every participant (winner and losers alike) submits their final HP so the
-  // server can independently determine who survived. p_final_hp = 0 means dead.
-  const finalHp = result === "win" ? (standings.find((s) => s.me)?.hp ?? 1) : 0;
-  // Flush our offense ledger before finishing (Option A, Phase 0 shadow mode).
-  await flushLedger(state.match.id);
+  // Flush our offense ledger, then report "done". final_hp is now only a
+  // "this player reported" marker — it no longer decides the winner.
+  await flushLedger(matchId);
   try {
     await supabase.rpc("finish_match", {
-      p_match_id: state.match.id,
-      p_final_hp: Math.max(0, Math.round(finalHp)),
+      p_match_id: matchId,
+      p_final_hp: game.currentHp(),
     });
   } catch (e) {
-    console.error("finish_match witness error:", e);
+    console.error("finish_match error:", e);
   }
 
-  // A win means the match is globally decided (last one standing / timer winner).
-  // Nudge every other client to finalise immediately: they report their own true
-  // HP and flip to their game-over screen from the authoritative match row. This
-  // makes all screens show the result right away and lets the server crown the
-  // winner without waiting on stragglers, so the payout below can proceed.
-  if (result === "win") {
+  // If we believe we won, nudge everyone else to report so the server can settle
+  // without waiting on stragglers.
+  if (resultHint === "win") {
     state.channel?.send({ type: "broadcast", event: "match-over" });
+    await showResultsSpinner(2000); // suspense before the verdict
   }
 
-  if (result !== "win") {
-    // Prefer the server-verified kill count; fall back to the local ledger.
-    const serverKills = await fetchVerifiedKills(state.match.id);
-    try { await syncProfile(); } catch (e) { console.error(e); }
-    showGameOver(result, reason, standings, null, serverKills ?? matchKills, matchTimeMs);
+  // Read the authoritative verdict.
+  const settled = await awaitSettlement(matchId);
+  const serverKills = await fetchVerifiedKills(matchId);
+  try { await syncProfile(); } catch (e) { console.error(e); }
+
+  // Disputed: the ledger could not produce a clean, plausible winner (e.g. a
+  // cheat was detected). Nobody is paid; deposits are held.
+  if (settled?.status === "disputed") {
+    showGameOver("disputed", "Match disputed — no winner could be verified. Deposits are held for review.",
+      standings, null, serverKills ?? matchKills, matchTimeMs);
     return;
   }
 
-  // Winner: a brief 2s spinner for suspense, then the victory screen with a
-  // "processing" prize state; the prize fills in once the treasurer confirms.
-  await showResultsSpinner(2000);
-  const serverKills = await fetchVerifiedKills(state.match.id);
-  showGameOver(result, reason, standings, "pending", serverKills ?? matchKills, matchTimeMs);
+  // Couldn't confirm settlement in time — neutral fallback, no payout.
+  if (!settled) {
+    showGameOver("disputed", "Result still settling — check your match history shortly.",
+      standings, null, serverKills ?? matchKills, matchTimeMs);
+    return;
+  }
+
+  const won = settled.winner_user_id === state.user?.id;
+  if (!won) {
+    showGameOver("loss", "You were defeated.", standings, null, serverKills ?? matchKills, matchTimeMs);
+    return;
+  }
+
+  // Authoritative win → victory screen + payout.
+  showGameOver("win", "Last one standing — you won!", standings, "pending", serverKills ?? matchKills, matchTimeMs);
   let prizeAmount = null;
   try {
     setStatus("Claiming prize…");
-    // Fix 2: confirm the match is marked finished in the DB before invoking the
-    // edge function — guards against the edge function seeing status='active'.
-    await awaitMatchFinished(state.match.id);
-    // Stats are applied the moment the match is finalised, independent of payout —
-    // refresh the win/loss counts now so they show even if the payout call is slow.
-    try { await syncProfile(); refreshGameOverStats(); } catch (e) { console.error(e); }
+    try { refreshGameOverStats(); } catch (e) { console.error(e); }
     const { data: payoutData, error: payoutErr } = await supabase.functions.invoke("f10treasurer", {
-      body: { match_id: state.match.id },
+      body: { match_id: matchId },
     });
     if (payoutErr) {
       console.error("Payout invoke error:", payoutErr);

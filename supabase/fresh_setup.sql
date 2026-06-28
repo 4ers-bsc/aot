@@ -12,6 +12,7 @@ drop function if exists public.close_stale_matches();
 drop function if exists public.compute_shadow_winner(uuid);
 drop function if exists public.apply_match_result(uuid, uuid);
 drop function if exists public.claim_payout_slot(uuid);
+drop function if exists public.finalize_match(uuid, boolean);
 drop function if exists public.finalize_match(uuid);
 drop function if exists public.finish_match(uuid, int);
 drop function if exists public.finish_match(uuid, uuid);
@@ -54,7 +55,7 @@ create table public.profiles (
 create table public.matches (
   id             uuid primary key default gen_random_uuid(),
   status         text not null default 'waiting'
-    check (status in ('waiting', 'active', 'finished')),
+    check (status in ('waiting', 'active', 'finished', 'disputed')),
   -- Fix: restrict to the three supported lobby sizes (2, 5, 10)
   max_players    smallint not null default 2
     check (max_players in (2, 5, 10)),
@@ -476,119 +477,97 @@ end;
 $$;
 
 -- ---------------------------------------------------------------------------
--- 8b. finalize_match — decides the winner and closes the match. Server-side.
---     Runs automatically from finish_match once players have reported. It is
---     idempotent and self-guarding: it finalises only when a winner can be
---     determined, and never twice (the row lock + status check prevent races).
---
---     Winner rules (unchanged from the previous combined finish_match):
---       Fix 3: fast-crown only when exactly 1 player is alive AND every other
---              player has explicitly confirmed dead (hp=0) — blocks a cheater
---              claiming hp=100 before opponents report. Disconnected losers are
---              handled by close_stale_matches.
---       Otherwise: once all players have reported, highest HP wins (seat ASC
---              breaks ties).
+-- 8b. finalize_match — LEDGER-AUTHORITATIVE settlement (Option A, Phase 2).
+--     Decides the winner from match_damage, not from self-reported final_hp.
+--     Each player's HP = 100 − the validated damage OTHERS reported dealing
+--     them, so a client cannot inflate its own survival. Two caps reject
+--     impossible offense: a per-pair cap and a per-attacker TOTAL-output cap
+--     (which catches one player deleting several rivals at once). If the
+--     would-be winner dealt impossible damage, or no clean winner exists, or
+--     no combat happened, the match is marked 'disputed' (no winner, no
+--     payout). p_force settles on timeout even if players never reported.
 -- ---------------------------------------------------------------------------
-create or replace function public.finalize_match(p_match_id uuid)
+create or replace function public.finalize_match(p_match_id uuid, p_force boolean default false)
 returns void
 language plpgsql
 security definer
 set search_path = public
 as $$
 declare
-  v_status      text;
-  v_winner      uuid;
-  v_alive_count int;
-  v_dead_count  int;
-  v_total       int;
-  v_unreported  int;
+  v_status     text;
+  v_started    timestamptz;
+  v_deadline   timestamptz;
+  v_ended      timestamptz;
+  v_secs       numeric;
+  v_unreported int;
+  v_dmg_total  bigint;
+  v_winner     uuid;
+  v_disputed   boolean := false;
+  v_meta       jsonb;
+  -- Physical ceilings (buffer over real stats: sword ~40 dps, ~1.4 hits/s).
+  c_max_dps      constant numeric := 50;   -- per attacker, total across all victims
+  c_max_firerate constant numeric := 4;    -- hits per second, per attacker→victim pair
 begin
-  -- Lock the row to prevent concurrent finalisations.
-  select status into v_status from matches where id = p_match_id for update;
-  if v_status is null       then raise exception 'match_not_found'; end if;
-  if v_status = 'finished'  then return; end if;
+  select status, started_at into v_status, v_started
+  from matches where id = p_match_id for update;
+  if v_status is null                     then raise exception 'match_not_found'; end if;
+  if v_status in ('finished', 'disputed') then return; end if;
 
-  select count(*) into v_total
+  -- Hard 5-minute cap. Before it, hold open until everyone reports; after it
+  -- (or on force), settle now from whatever the ledger holds.
+  v_deadline := coalesce(v_started, now()) + interval '5 minutes';
+
+  select count(*) filter (where final_hp is null) into v_unreported
   from match_players where match_id = p_match_id;
 
-  select count(*) into v_unreported
-  from match_players where match_id = p_match_id and final_hp is null;
-
-  select count(*) into v_alive_count
-  from match_players where match_id = p_match_id and final_hp is not null and final_hp > 0;
-
-  select count(*) into v_dead_count
-  from match_players where match_id = p_match_id and final_hp is not null and final_hp = 0;
-
-  if v_alive_count = 1 and v_dead_count = v_total - 1 then
-    -- Fast-crown: exactly one survivor, everyone else confirmed dead.
-    select user_id into v_winner
-    from match_players
-    where match_id = p_match_id and final_hp > 0
-    limit 1;
-  elsif v_unreported = 0 then
-    -- Everyone reported — highest HP wins; seat ASC breaks ties.
-    select user_id into v_winner
-    from match_players
-    where match_id = p_match_id
-    order by final_hp desc, seat asc
-    limit 1;
-  else
-    -- Not enough reports yet to know the winner — leave the match running.
+  if not p_force and v_unreported > 0 and now() < v_deadline then
     return;
   end if;
 
-  update matches
-  set winner_user_id = v_winner, status = 'finished', ended_at = now()
-  where id = p_match_id and status != 'finished';
+  v_ended := now();
+  v_secs  := greatest(5, extract(epoch from (v_ended - coalesce(v_started, v_ended))));
 
-  perform public.apply_match_result(p_match_id, v_winner);
+  select coalesce(sum(total_damage), 0) into v_dmg_total
+  from match_damage where match_id = p_match_id;
 
-  -- Option A (Phase 0 shadow): record the ledger-derived winner for comparison.
-  -- Comparison only — does NOT change winner_user_id or the payout.
-  perform public.compute_shadow_winner(p_match_id);
-end;
-$$;
+  if v_dmg_total = 0 then
+    -- No combat recorded → no real contest.
+    update matches
+      set status = 'disputed', winner_user_id = NULL, ended_at = v_ended,
+          shadow_winner = NULL,
+          shadow_meta = jsonb_build_object('reason', 'no_combat', 'secs', v_secs)
+      where id = p_match_id and status not in ('finished', 'disputed');
+    return;
+  end if;
 
--- ---------------------------------------------------------------------------
--- 8c. compute_shadow_winner — derive HP from the combat ledger (Option A)
---     Called from finalize_match. Each player's HP is 100 minus the validated
---     damage OTHERS reported dealing them, so a client cannot inflate its own
---     survival. Plausibility caps reject impossible damage / fire rates. The
---     result is stored in matches.shadow_winner for comparison; it does not
---     decide the live winner or payout until a later cut-over phase.
--- ---------------------------------------------------------------------------
-create or replace function public.compute_shadow_winner(p_match_id uuid)
-returns void
-language plpgsql
-security definer
-set search_path = public
-as $$
-declare
-  v_started timestamptz;
-  v_ended   timestamptz;
-  v_secs    numeric;
-  v_winner  uuid;
-  v_meta    jsonb;
-  c_max_dps      constant numeric := 60;   -- max damage one attacker deals per second
-  c_max_firerate constant numeric := 12;   -- max hits per second
-begin
-  select started_at, coalesce(ended_at, now())
-    into v_started, v_ended
-  from public.matches where id = p_match_id;
-
-  v_secs := greatest(5, extract(epoch from (v_ended - coalesce(v_started, v_ended))));
-
-  with valid as (
-    select victim, least(total_damage, (c_max_dps * v_secs)::int) as dmg
-    from public.match_damage
-    where match_id = p_match_id
-      and hit_count <= c_max_firerate * v_secs
+  with raw as (
+    -- win_secs = how long this attacker→victim damage actually spanned, so the
+    -- cap is a RATE. A match may run 5 min, but damage dealt in a 2s burst is
+    -- still capped at 2s worth — this is what catches a burst insta-kill.
+    select attacker, victim, total_damage, hit_count,
+           greatest(2, (last_t_ms - first_t_ms) / 1000.0) as win_secs
+    from match_damage where match_id = p_match_id
+  ),
+  attacker_totals as (
+    select attacker,
+           sum(total_damage) as out_total,
+           greatest(2, (max(last_t_ms) - min(first_t_ms)) / 1000.0) as out_secs
+    from match_damage where match_id = p_match_id
+    group by attacker
+  ),
+  flagged as (
+    select attacker from attacker_totals
+    where out_total > (c_max_dps * out_secs)
+  ),
+  valid as (
+    select victim, least(total_damage, (c_max_dps * win_secs)::int) as dmg
+    from raw
+    where hit_count <= c_max_firerate * win_secs
   ),
   hp as (
     select mp.user_id, mp.seat,
            greatest(0, 100 - coalesce(sum(v.dmg), 0))::int as hp
-    from public.match_players mp
+    from match_players mp
     left join valid v on v.victim = mp.user_id
     group by mp.user_id, mp.seat
   ),
@@ -599,19 +578,33 @@ begin
   )
   select
     (select user_id from ranked where rn = 1),
+    exists (select 1 from flagged f join ranked r on r.user_id = f.attacker and r.rn = 1),
     jsonb_build_object(
       'secs',  v_secs,
-      'alive', (select count(*) from ranked where hp > 0),
+      'caps',  jsonb_build_object('dps', c_max_dps, 'firerate', c_max_firerate),
       'hp',    (select jsonb_agg(jsonb_build_object('user_id', user_id, 'hp', hp, 'seat', seat)
                                  order by hp desc, seat asc) from ranked),
-      'kills', (select jsonb_agg(jsonb_build_object('attacker', attacker, 'victim', victim, 't_ms', t_ms))
-                from public.match_kills where match_id = p_match_id)
+      'flagged',      (select coalesce(jsonb_agg(attacker), '[]'::jsonb) from flagged),
+      'attacker_out', (select jsonb_object_agg(attacker::text, out_total) from attacker_totals)
     )
-    into v_winner, v_meta;
+    into v_winner, v_disputed, v_meta;
 
-  update public.matches
-  set shadow_winner = v_winner, shadow_meta = v_meta
-  where id = p_match_id;
+  if v_winner is null then v_disputed := true; end if;
+
+  if v_disputed then
+    update matches
+      set status = 'disputed', winner_user_id = NULL, ended_at = v_ended,
+          shadow_winner = v_winner, shadow_meta = v_meta
+      where id = p_match_id and status not in ('finished', 'disputed');
+  else
+    update matches
+      set status = 'finished', winner_user_id = v_winner, ended_at = v_ended,
+          shadow_winner = v_winner, shadow_meta = v_meta
+      where id = p_match_id and status not in ('finished', 'disputed');
+    if found then
+      perform public.apply_match_result(p_match_id, v_winner);
+    end if;
+  end if;
 end;
 $$;
 
@@ -644,10 +637,10 @@ end;
 $$;
 
 -- ---------------------------------------------------------------------------
--- 10. close_stale_matches — cron-based TTL for abandoned active matches
---     Fix 1: applies profile stats via apply_match_result
---     Fix 6: winner is NULL (no award) when no HP has been reported at all,
---            instead of auto-awarding the match creator
+-- 10. close_stale_matches — backstop for the hard 5-minute cap. Force-settles
+--     any match still active past started_at + 5 min through the authoritative
+--     ledger settler, for the case where every client vanished and no
+--     finish_match arrived at the deadline.
 -- ---------------------------------------------------------------------------
 create or replace function public.close_stale_matches()
 returns int
@@ -660,44 +653,15 @@ declare
   r        record;
 begin
   for r in
-    select
-      m.id,
-      -- Fix 6: only pick a winner from players who actually reported an HP;
-      -- if nobody reported, winner_uid is NULL (no prize awarded).
-      (
-        select mp.user_id
-        from   match_players mp
-        where  mp.match_id = m.id
-          and  mp.final_hp is not null
-        order  by mp.final_hp desc, mp.seat asc
-        limit  1
-      ) as winner_uid
+    select m.id
     from matches m
     where m.status     = 'active'
       and m.started_at is not null
-      and m.started_at < now() - (
-        case m.max_players
-          when 2  then interval '10 minutes'
-          when 5  then interval '15 minutes'
-          when 10 then interval '20 minutes'
-          else         interval '20 minutes'
-        end
-      )
+      and m.started_at < now() - interval '5 minutes'
     for update of m skip locked
   loop
-    update matches
-    set    status         = 'finished',
-           winner_user_id = r.winner_uid,
-           ended_at       = now()
-    where  id = r.id
-      and  status != 'finished';
-
-    if found then
-      v_closed := v_closed + 1;
-      if r.winner_uid is not null then
-        perform public.apply_match_result(r.id, r.winner_uid);
-      end if;
-    end if;
+    perform public.finalize_match(r.id, true);
+    v_closed := v_closed + 1;
   end loop;
 
   return v_closed;
@@ -773,13 +737,14 @@ grant execute on function public.level_for_points(integer)             to authen
 -- apply_match_result, finalize_match and close_stale_matches are internal:
 -- finalize_match is only ever called from finish_match (a security-definer
 -- function), so it never needs a direct grant to authenticated.
-grant execute on function public.apply_match_result(uuid, uuid)  to service_role;
-grant execute on function public.finalize_match(uuid)            to service_role;
-grant execute on function public.compute_shadow_winner(uuid)     to service_role;
-grant execute on function public.close_stale_matches()           to service_role;
+grant execute on function public.apply_match_result(uuid, uuid)    to service_role;
+grant execute on function public.finalize_match(uuid, boolean)     to service_role;
+grant execute on function public.close_stale_matches()             to service_role;
 
 -- ---------------------------------------------------------------------------
--- 14. pg_cron — schedule stale-match sweeper every 5 minutes (optional)
+-- 14. pg_cron — backstop sweeper. Runs every minute so an abandoned match
+--     settles within ~1 min of its hard 5-minute cap. Strongly recommended:
+--     without it, a match where every client vanished never settles.
 --     Run this separately ONLY if pg_cron is enabled on your Supabase project.
 -- ---------------------------------------------------------------------------
--- select cron.schedule('close-stale', '*/5 * * * *', 'select public.close_stale_matches()');
+-- select cron.schedule('close-stale', '* * * * *', 'select public.close_stale_matches()');
