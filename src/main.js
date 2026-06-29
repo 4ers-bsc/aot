@@ -648,13 +648,21 @@ async function joinPvp(maxPlayers) {
     }
 
     // ── Step 2: enter the queue with the confirmed deposit ────────────────────
+    // The deposit is verified on-chain by the f10join edge function BEFORE a seat
+    // is taken — the browser never calls join_pvp_match directly, so a fake tx
+    // signature can't fill a lobby.
     showPvpLobby(`Finding a ${size}-player match…`);
-    const { data, error } = await supabase.rpc("join_pvp_match", {
-      p_max_players: size,
-      p_deposit_tx: txSig,
-      p_deposit_wallet: state.pendingDepositWallet,
+    const { data: resp, error } = await supabase.functions.invoke("f10join", {
+      body: {
+        max_players: size,
+        deposit_tx: txSig,
+        deposit_wallet: state.pendingDepositWallet,
+        display_name: state.profile?.display_name ?? null,
+      },
     });
     if (error) throw error;
+    if (!resp?.ok) throw new Error(resp?.error || "Could not join a PvP match.");
+    const data = resp;
 
     // Joined successfully — clear the pending deposit.
     state.pendingDepositTx = null;
