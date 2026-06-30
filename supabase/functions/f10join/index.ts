@@ -56,6 +56,51 @@ const TOKEN_PROGRAM_ID      = new PublicKey("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss
 const TOKEN_2022_PROGRAM_ID = new PublicKey("TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb");
 
 // ---------------------------------------------------------------------------
+// RPC endpoint pool — spread load across up to 3 keys (RPC_URL, RPC_URL_2,
+// RPC_URL_3). Each call grabs the next endpoint round-robin, so concurrent joins
+// and parallel lookups hit different keys; on error (e.g. a 429 rate limit) the
+// call rotates to the next key instead of failing. Random start index keeps load
+// balanced across function instances rather than all hammering RPC #1 first.
+// ---------------------------------------------------------------------------
+function getRpcUrls(): string[] {
+  const urls = [
+    Deno.env.get("RPC_URL"),
+    Deno.env.get("RPC_URL_2"),
+    Deno.env.get("RPC_URL_3"),
+  ]
+    .map((u) => u?.trim())
+    .filter((u): u is string => !!u);
+  const unique = [...new Set(urls)];
+  return unique.length ? unique : ["https://api.mainnet-beta.solana.com"];
+}
+
+function createRpcPool(commitment: "confirmed" | "finalized" = "confirmed") {
+  const conns = getRpcUrls().map((u) => new Connection(u, commitment));
+  let idx = Math.floor(Math.random() * conns.length);
+  const next = () => {
+    const c = conns[idx];
+    idx = (idx + 1) % conns.length;
+    return c;
+  };
+  return {
+    // One connection (round-robin) for a sticky sequence such as send+confirm.
+    lease: () => next(),
+    // Run a read with failover: rotate to the next endpoint on error.
+    async run<T>(fn: (c: Connection) => Promise<T>): Promise<T> {
+      let lastErr: unknown;
+      for (let i = 0; i < conns.length; i++) {
+        try {
+          return await fn(next());
+        } catch (err) {
+          lastErr = err;
+        }
+      }
+      throw lastErr;
+    },
+  };
+}
+
+// ---------------------------------------------------------------------------
 
 const appOrigin = Deno.env.get("APP_ORIGIN");
 if (!appOrigin) console.error("WARNING: APP_ORIGIN secret not set — CORS is open to all origins. Set it in Supabase secrets for production.");
@@ -111,13 +156,12 @@ Deno.serve(async (req: Request) => {
     // ── Escrow / mint config ────────────────────────────────────────────────
     const escrowB58 = Deno.env.get("ESCROW_PRIVATE_KEY");
     const mintStr   = Deno.env.get("FIGHT10_MINT");
-    const rpcUrl    = Deno.env.get("RPC_URL") ?? "https://api.mainnet-beta.solana.com";
     if (!escrowB58 || !mintStr) return jsonResponse({ ok: false, error: "Escrow configuration missing" }, 500);
 
     const B58_CHARS     = /[^123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz]/g;
     const escrowKeypair = Keypair.fromSecretKey(base58Decode(escrowB58.replace(B58_CHARS, "")));
     const mintPubkey    = pubkeyFromBase58(mintStr.replace(B58_CHARS, ""));
-    const connection    = new Connection(rpcUrl, "confirmed");
+    const rpc           = createRpcPool("confirmed");
 
     // The wallet that must have authorised this deposit (the player's own wallet).
     let expectedSender: string;
@@ -128,7 +172,7 @@ Deno.serve(async (req: Request) => {
     }
 
     // ── Resolve mint → token program, decimals, escrow token account ─────────
-    const mintAcct = await connection.getAccountInfo(mintPubkey);
+    const mintAcct = await rpc.run((c) => c.getAccountInfo(mintPubkey));
     if (!mintAcct) return jsonResponse({ ok: false, error: "Mint account not found on-chain" }, 500);
     const tokenProgramId = mintAcct.owner.equals(TOKEN_2022_PROGRAM_ID)
       ? TOKEN_2022_PROGRAM_ID : TOKEN_PROGRAM_ID;
@@ -137,12 +181,12 @@ Deno.serve(async (req: Request) => {
     const tokenProgStr   = tokenProgramId.toString();
     const tok2022Str     = TOKEN_2022_PROGRAM_ID.toString();
 
-    const escrowAccounts = await connection.getParsedTokenAccountsByOwner(escrowKeypair.publicKey, { mint: mintPubkey });
+    const escrowAccounts = await rpc.run((c) => c.getParsedTokenAccountsByOwner(escrowKeypair.publicKey, { mint: mintPubkey }));
     if (escrowAccounts.value.length === 0) return jsonResponse({ ok: false, error: "Escrow has no token account for this mint" }, 500);
     const escrowAtaStr = new PublicKey(escrowAccounts.value[0].pubkey).toString();
 
     // ── Verify the deposit tx is confirmed on-chain ──────────────────────────
-    const { value: sigStatuses } = await connection.getSignatureStatuses([depositTx]);
+    const { value: sigStatuses } = await rpc.run((c) => c.getSignatureStatuses([depositTx]));
     const sigStatus = sigStatuses[0];
     if (!sigStatus) return fail("Deposit not found on-chain");
     if (sigStatus.err) return fail("Deposit failed on-chain");
@@ -151,10 +195,10 @@ Deno.serve(async (req: Request) => {
     }
 
     // ── Verify the tx transferred the correct amount to escrow from the player ─
-    const parsed = await connection.getParsedTransaction(depositTx, {
+    const parsed = await rpc.run((c) => c.getParsedTransaction(depositTx, {
       commitment: "confirmed",
       maxSupportedTransactionVersion: 0,
-    });
+    }));
     if (!parsed) return fail("Deposit could not be parsed");
 
     const topLevel = parsed.transaction.message.instructions as any[];

@@ -106,6 +106,50 @@ function createATAInstruction(
 }
 
 // ---------------------------------------------------------------------------
+// RPC endpoint pool — spread load across up to 3 keys (RPC_URL, RPC_URL_2,
+// RPC_URL_3). Each call grabs the next endpoint round-robin (so parallel deposit
+// lookups hit different keys); on error (e.g. a 429 rate limit) the call rotates
+// to the next key instead of failing. Random start keeps load balanced across
+// function instances. `lease()` returns one sticky connection for the payout
+// send + confirm poll, so the tx is broadcast and polled on a single endpoint.
+// ---------------------------------------------------------------------------
+function getRpcUrls(): string[] {
+  const urls = [
+    Deno.env.get("RPC_URL"),
+    Deno.env.get("RPC_URL_2"),
+    Deno.env.get("RPC_URL_3"),
+  ]
+    .map((u) => u?.trim())
+    .filter((u): u is string => !!u);
+  const unique = [...new Set(urls)];
+  return unique.length ? unique : ["https://api.mainnet-beta.solana.com"];
+}
+
+function createRpcPool(commitment: "confirmed" | "finalized" = "confirmed") {
+  const conns = getRpcUrls().map((u) => new Connection(u, commitment));
+  let idx = Math.floor(Math.random() * conns.length);
+  const next = () => {
+    const c = conns[idx];
+    idx = (idx + 1) % conns.length;
+    return c;
+  };
+  return {
+    lease: () => next(),
+    async run<T>(fn: (c: Connection) => Promise<T>): Promise<T> {
+      let lastErr: unknown;
+      for (let i = 0; i < conns.length; i++) {
+        try {
+          return await fn(next());
+        } catch (err) {
+          lastErr = err;
+        }
+      }
+      throw lastErr;
+    },
+  };
+}
+
+// ---------------------------------------------------------------------------
 
 // Fix 8: warn loudly if APP_ORIGIN is unset — open CORS in production is a misconfiguration.
 const appOrigin = Deno.env.get("APP_ORIGIN");
@@ -186,7 +230,6 @@ Deno.serve(async (req: Request) => {
     // ── Escrow / mint config ─────────────────────────────────────────────────
     const escrowB58 = Deno.env.get("ESCROW_PRIVATE_KEY");
     const mintStr   = Deno.env.get("FIGHT10_MINT");
-    const rpcUrl    = Deno.env.get("RPC_URL") ?? "https://api.mainnet-beta.solana.com";
     if (!escrowB58 || !mintStr) return errorResponse("Escrow configuration missing", 500);
 
     const B58_CHARS  = /[^123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz]/g;
@@ -195,12 +238,12 @@ Deno.serve(async (req: Request) => {
     const rawWallet     = (profile.wallet_address ?? "").split(":").pop() ?? "";
     if (!rawWallet) return errorResponse("Winner wallet address invalid", 400);
     const winnerPubkey  = pubkeyFromBase58(rawWallet);
-    const connection    = new Connection(rpcUrl, "confirmed");
+    const rpc           = createRpcPool("confirmed");
 
     // ── Resolve mint → token program, decimals, escrow token account ────────
     // Done early so the same values are reused for both deposit verification
     // and the payout transfer, avoiding a redundant getAccountInfo call later.
-    const mintAcct = await connection.getAccountInfo(mintPubkey);
+    const mintAcct = await rpc.run((c) => c.getAccountInfo(mintPubkey));
     if (!mintAcct) return errorResponse("Mint account not found on-chain", 500);
     const tokenProgramId = mintAcct.owner.equals(TOKEN_2022_PROGRAM_ID)
       ? TOKEN_2022_PROGRAM_ID : TOKEN_PROGRAM_ID;
@@ -211,14 +254,14 @@ Deno.serve(async (req: Request) => {
     const tok2022Str     = TOKEN_2022_PROGRAM_ID.toString();
 
     // Fetch the real escrow token account once, reuse for both verification and payout.
-    const escrowAccounts = await connection.getParsedTokenAccountsByOwner(escrowKeypair.publicKey, { mint: mintPubkey });
+    const escrowAccounts = await rpc.run((c) => c.getParsedTokenAccountsByOwner(escrowKeypair.publicKey, { mint: mintPubkey }));
     if (escrowAccounts.value.length === 0) return errorResponse("Escrow has no token account for this mint", 500);
     const escrowTokenAccount = new PublicKey(escrowAccounts.value[0].pubkey);
     const escrowAtaStr       = escrowTokenAccount.toString();
 
     // ── Verify each deposit tx is confirmed on-chain ─────────────────────────
     const depositSigs = players.map((p: any) => p.deposit_tx as string);
-    const { value: sigStatuses } = await connection.getSignatureStatuses(depositSigs);
+    const { value: sigStatuses } = await rpc.run((c) => c.getSignatureStatuses(depositSigs));
     for (let i = 0; i < depositSigs.length; i++) {
       const s = sigStatuses[i];
       if (!s) return errorResponse(`Deposit ${i + 1} not found on-chain`, 400);
@@ -234,10 +277,10 @@ Deno.serve(async (req: Request) => {
     // All fetches run in parallel to minimise latency (Fix 3/12).
     const parsedTxs = await Promise.all(
       depositSigs.map((sig) =>
-        connection.getParsedTransaction(sig, {
+        rpc.run((c) => c.getParsedTransaction(sig, {
           commitment: "confirmed",
           maxSupportedTransactionVersion: 0,
-        })
+        }))
       )
     );
 
@@ -327,7 +370,7 @@ Deno.serve(async (req: Request) => {
     const totalRaw        = BigInt(players.length) * entryFeeRaw;
     const winnerAmountRaw = (totalRaw * BigInt(900)) / BigInt(1000);
 
-    const winnerAccounts = await connection.getParsedTokenAccountsByOwner(winnerPubkey, { mint: mintPubkey });
+    const winnerAccounts = await rpc.run((c) => c.getParsedTokenAccountsByOwner(winnerPubkey, { mint: mintPubkey }));
 
     const tx = new Transaction();
     let winnerTokenAccount: PublicKey;
@@ -341,19 +384,22 @@ Deno.serve(async (req: Request) => {
 
     tx.add(transferInstruction(escrowTokenAccount, winnerTokenAccount, escrowKeypair.publicKey, winnerAmountRaw, tokenProgramId));
 
-    const { blockhash } = await connection.getLatestBlockhash("confirmed");
+    // Lease one connection for the whole send + confirm sequence so the tx is
+    // broadcast and polled on a single endpoint (round-robin across the 3 keys).
+    const payConn = rpc.lease();
+    const { blockhash } = await payConn.getLatestBlockhash("confirmed");
     tx.recentBlockhash = blockhash;
     tx.feePayer = escrowKeypair.publicKey;
     tx.sign(escrowKeypair);
 
-    const payoutSig = await connection.sendRawTransaction(tx.serialize(), { skipPreflight: false });
+    const payoutSig = await payConn.sendRawTransaction(tx.serialize(), { skipPreflight: false });
 
     // Fix 2 (partial): Poll for on-chain confirmation; throw explicitly on timeout
     // so the catch block correctly releases the slot (tx never landed).
     const deadline = Date.now() + 90000;
     let confirmed = false;
     while (Date.now() < deadline) {
-      const { value } = await connection.getSignatureStatuses([payoutSig]);
+      const { value } = await payConn.getSignatureStatuses([payoutSig]);
       const s = value[0];
       if (s?.err) throw new Error("Payout tx failed: " + JSON.stringify(s.err));
       if (s?.confirmationStatus === "confirmed" || s?.confirmationStatus === "finalized") {
