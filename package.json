@@ -13,6 +13,7 @@
   },
   "devDependencies": {
     "javascript-obfuscator": "^5.4.3",
+    "playwright": "^1.61.1",
     "vite": "^5.4.10",
     "vite-plugin-javascript-obfuscator": "^3.1.0"
   }

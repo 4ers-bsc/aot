@@ -74,6 +74,9 @@ const els = {
   arenaMount: document.getElementById("arenaMount"),
   howToOverlay: document.getElementById("howToOverlay"),
   howToClose: document.getElementById("howToClose"),
+  whitepaperBtn: document.getElementById("whitepaperBtn"),
+  whitepaperOverlay: document.getElementById("whitepaperOverlay"),
+  whitepaperClose: document.getElementById("whitepaperClose"),
   pauseOverlay: document.getElementById("pauseOverlay"),
   pauseClose: document.getElementById("pauseClose"),
   resumeBtn: document.getElementById("resumeBtn"),
@@ -315,6 +318,11 @@ function bindUi() {
   els.signOutBtn.addEventListener("click", signOut);
   els.howToPlayBtn.addEventListener("click", () => els.howToOverlay.classList.add("show"));
   els.howToClose.addEventListener("click", () => els.howToOverlay.classList.remove("show"));
+  els.whitepaperBtn?.addEventListener("click", () => els.whitepaperOverlay.classList.add("show"));
+  els.whitepaperClose?.addEventListener("click", () => els.whitepaperOverlay.classList.remove("show"));
+  els.whitepaperOverlay?.addEventListener("pointerdown", (e) => {
+    if (e.target === els.whitepaperOverlay) els.whitepaperOverlay.classList.remove("show");
+  });
   els.profileBtn.addEventListener("click", openProfile);
   els.profileClose.addEventListener("click", () => els.profileOverlay.classList.remove("show"));
   els.profileOverlay.addEventListener("pointerdown", (e) => {
@@ -627,7 +635,7 @@ async function awaitSettlement(matchId, timeoutMs = 12000) {
   while (Date.now() < deadline) {
     const { data } = await supabase
       .from("matches")
-      .select("status, winner_user_id")
+      .select("status, winner_user_id, shadow_meta")
       .eq("id", matchId)
       .single();
     if (data?.status === "finished" || data?.status === "disputed") return data;
@@ -637,14 +645,45 @@ async function awaitSettlement(matchId, timeoutMs = 12000) {
   return null;
 }
 
+// Display names for every player in a match, keyed by user_id. Used to label the
+// server-authoritative standings so both clients show identical rows.
+async function fetchMatchPlayerNames(matchId) {
+  try {
+    const { data } = await supabase
+      .from("match_players").select("user_id, display_name").eq("match_id", matchId);
+    const map = {};
+    (data || []).forEach((p) => { map[p.user_id] = p.display_name; });
+    return map;
+  } catch (_) { return {}; }
+}
+
+// Build standings from the SERVER's settled HP (matches.shadow_meta.hp), which
+// finalize_match derives identically for everyone from the validated combat
+// ledger. This replaces each client's local HP guess, so the winner and loser
+// screens always agree. Returns null when the match had no per-player HP
+// (e.g. a no-combat dispute) so callers can fall back to local standings.
+function serverStandings(settled, nameByUser) {
+  const hp = settled?.shadow_meta?.hp;
+  if (!Array.isArray(hp) || !hp.length) return null;
+  return [...hp]
+    .sort((a, b) => (b.hp - a.hp) || ((a.seat ?? 0) - (b.seat ?? 0)))
+    .map((e, i) => ({
+      rank: i + 1,
+      name: nameByUser?.[e.user_id] || "Fighter",
+      hp: Math.max(0, e.hp),
+      me: e.user_id === state.user?.id,
+      flagged: !!e.flagged,
+    }));
+}
+
 function renderStandings(standings) {
   const el = document.getElementById("gameOverStandings");
   if (!el) return;
   if (!standings.length) { el.innerHTML = ""; return; }
   el.innerHTML = standings.map((s) =>
-    `<div class="standing-row${s.me ? " standing-me" : ""}">` +
+    `<div class="standing-row${s.me ? " standing-me" : ""}${s.flagged ? " standing-flagged" : ""}">` +
     `<span class="standing-rank">#${s.rank}</span>` +
-    `<span class="standing-name">${escapeHtml(s.name)}</span>` +
+    `<span class="standing-name">${escapeHtml(s.name)}${s.flagged ? " ⚠" : ""}</span>` +
     `<span class="standing-hp">${s.hp} HP</span>` +
     `</div>`
   ).join("");
@@ -1246,11 +1285,18 @@ async function reportResult(resultHint, { standings = [] } = {}) {
   const serverKills = await fetchVerifiedKills(matchId);
   try { await syncProfile(); } catch (e) { console.error(e); }
 
+  // Prefer the server-authoritative standings + duration so the winner's and
+  // loser's screens always show identical HP (local HP desyncs between clients).
+  const nameByUser = await fetchMatchPlayerNames(matchId);
+  const finalStandings = serverStandings(settled, nameByUser) || standings;
+  const srvSecs = settled?.shadow_meta?.secs;
+  const finalTimeMs = Number.isFinite(srvSecs) ? Math.round(srvSecs * 1000) : matchTimeMs;
+
   // Disputed: the ledger could not produce a clean, plausible winner (e.g. a
   // cheat was detected). Nobody is paid; deposits are held.
   if (settled?.status === "disputed") {
     showGameOver("disputed", "Match disputed — no winner could be verified. Deposits are held for review.",
-      standings, null, serverKills ?? matchKills, matchTimeMs);
+      finalStandings, null, serverKills ?? matchKills, finalTimeMs);
     return;
   }
 
@@ -1263,12 +1309,12 @@ async function reportResult(resultHint, { standings = [] } = {}) {
 
   const won = settled.winner_user_id === state.user?.id;
   if (!won) {
-    showGameOver("loss", "You were defeated.", standings, null, serverKills ?? matchKills, matchTimeMs);
+    showGameOver("loss", "You were defeated.", finalStandings, null, serverKills ?? matchKills, finalTimeMs);
     return;
   }
 
   // Authoritative win → victory screen + payout.
-  showGameOver("win", "Last one standing — you won!", standings, "pending", serverKills ?? matchKills, matchTimeMs);
+  showGameOver("win", "Last one standing — you won!", finalStandings, "pending", serverKills ?? matchKills, finalTimeMs);
   let prizeAmount = null;
   try {
     setStatus("Claiming prize…");

@@ -918,6 +918,7 @@ body:has(.game-over:not(.hidden)) .arena-canvas {
   display: flex;
   align-items: center;
   justify-content: center;
+  padding: 16px;
   background: rgba(0, 0, 0, 0.82);
   backdrop-filter: blur(14px);
 }
@@ -927,13 +928,16 @@ body:has(.game-over:not(.hidden)) .arena-canvas {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 16px;
-  padding: 44px 48px;
+  gap: clamp(12px, 3.5vw, 16px);
+  padding: clamp(24px, 6vw, 44px) clamp(20px, 6vw, 46px);
   border: 1px solid var(--line-strong);
   border-radius: 18px;
-  background: linear-gradient(160deg, rgba(28,28,28,0.96), rgba(8,8,8,0.99));
-  box-shadow: 0 32px 80px rgba(0,0,0,0.75), inset 0 1px 0 rgba(255,255,255,0.07);
-  min-width: 360px;
+  /* Glossy monochrome: soft top highlight over a deep gradient */
+  background:
+    radial-gradient(120% 80% at 50% -10%, rgba(255,255,255,0.10), transparent 55%),
+    linear-gradient(160deg, rgba(32,32,32,0.97), rgba(8,8,8,0.99));
+  box-shadow: 0 32px 80px rgba(0,0,0,0.75), inset 0 1px 0 rgba(255,255,255,0.10);
+  min-width: 0;
   max-width: 440px;
   width: 100%;
   text-align: center;
@@ -941,23 +945,42 @@ body:has(.game-over:not(.hidden)) .arena-canvas {
   animation: go-pop 0.32s cubic-bezier(0.2, 0.9, 0.3, 1.2);
 }
 
-/* Winner: warm gold framing + a sheen across the top edge. */
-.game-over.is-win .game-over-card {
-  border-color: rgba(240,224,64,0.45);
-  background: linear-gradient(160deg, rgba(40,36,14,0.96), rgba(10,9,4,0.99));
-  box-shadow: 0 32px 80px rgba(0,0,0,0.78), 0 0 60px rgba(240,224,64,0.14), inset 0 1px 0 rgba(255,255,255,0.1);
+/* Glossy sheen sweeping the top of every card (win or loss). */
+.game-over-card::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  background: linear-gradient(180deg, rgba(255,255,255,0.12), rgba(255,255,255,0.03) 16%, transparent 38%);
 }
+
+/* Winner: mostly the same glossy black/white card — gold lives ONLY in the four
+   corners and fades inward, so the look is restrained, not gold-flooded. */
+.game-over.is-win .game-over-card {
+  border-color: rgba(217,198,110,0.28);
+  background:
+    radial-gradient(42% 30% at 0% 0%,   rgba(217,198,110,0.20), transparent 60%),
+    radial-gradient(42% 30% at 100% 0%, rgba(217,198,110,0.16), transparent 60%),
+    radial-gradient(46% 34% at 0% 100%, rgba(217,198,110,0.14), transparent 60%),
+    radial-gradient(46% 34% at 100% 100%, rgba(217,198,110,0.12), transparent 60%),
+    radial-gradient(120% 80% at 50% -10%, rgba(255,255,255,0.10), transparent 55%),
+    linear-gradient(160deg, rgba(30,29,24,0.97), rgba(9,8,5,0.99));
+  box-shadow: 0 32px 80px rgba(0,0,0,0.78), inset 0 1px 0 rgba(255,255,255,0.12);
+}
+/* Soft gold top edge (toned down from the previous bright line). */
 .game-over.is-win .game-over-card::before {
   content: "";
   position: absolute;
   top: 0; left: 0; right: 0;
-  height: 3px;
-  background: linear-gradient(90deg, transparent, rgba(240,224,64,0.9), transparent);
+  height: 2px;
+  z-index: 1;
+  background: linear-gradient(90deg, transparent, rgba(217,198,110,0.55), transparent);
 }
-/* Gold-tint the logo for the winner. */
+/* Subtle, desaturated gold tint on the logo for the winner. */
 .game-over.is-win .go-logo {
-  filter: sepia(1) saturate(3) hue-rotate(5deg) brightness(1.05);
-  opacity: 1;
+  filter: sepia(0.6) saturate(1.6) hue-rotate(2deg) brightness(1.05);
+  opacity: 0.95;
 }
 
 /* Defeat: same monochrome card, dimmed framing + a muted top edge. */
@@ -985,35 +1008,36 @@ body:has(.game-over:not(.hidden)) .arena-canvas {
 
 /* Match summary — kills (sword) + time taken. */
 .go-summary {
-  display: flex;
-  gap: 14px;
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: clamp(10px, 3vw, 14px);
   width: 100%;
-  justify-content: center;
 }
 .go-summary-item {
   display: flex;
   flex-direction: column;
   align-items: center;
   gap: 4px;
-  flex: 1 1 0;
-  max-width: 130px;
-  padding: 12px 10px;
+  min-width: 0;
+  padding: clamp(10px, 3vw, 12px) 10px;
   border-radius: 12px;
-  background: rgba(255,255,255,0.04);
-  border: 1px solid rgba(255,255,255,0.09);
+  /* Glossy monochrome tile */
+  background: linear-gradient(180deg, rgba(255,255,255,0.08), rgba(255,255,255,0.02));
+  border: 1px solid rgba(255,255,255,0.10);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.08);
 }
 .go-summary-num {
   font-family: var(--font-display);
-  font-size: 24px;
+  font-size: clamp(18px, 6vw, 24px);
   line-height: 1;
   color: #ffffff;
 }
-/* Winner: gold-accent the summary cards. */
+/* Winner: faint gold accent on the glossy summary cards. */
 .game-over.is-win .go-summary-item {
-  border-color: rgba(240,224,64,0.3);
-  background: rgba(240,224,64,0.06);
+  border-color: rgba(217,198,110,0.22);
+  background: linear-gradient(180deg, rgba(217,198,110,0.08), rgba(217,198,110,0.02));
 }
-.game-over.is-win .go-summary-num { color: #f0e040; }
+.game-over.is-win .go-summary-num { color: #e6d488; }
 .go-summary-label {
   font-family: var(--font-head);
   font-size: 11px;
@@ -1029,21 +1053,33 @@ body:has(.game-over:not(.hidden)) .arena-canvas {
 
 .game-over-title {
   font-family: var(--font-display);
-  font-size: 44px;
+  font-size: clamp(30px, 9vw, 44px);
   letter-spacing: 0.1em;
   line-height: 1;
 }
 
 .game-over-title.is-win {
-  color: #f0e040;
-  text-shadow: 0 0 32px rgba(240,224,64,0.55), 0 0 8px rgba(240,224,64,0.35);
-  animation: win-title-glow 2s ease-in-out infinite;
+  /* Softer champagne gold with a glossy metallic gradient fill. */
+  color: #e6d488;
+  background: linear-gradient(180deg, #f4e9b6 0%, #d9c66e 45%, #b89a3f 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  text-shadow: 0 0 16px rgba(217,198,110,0.30);
+  animation: win-title-glow 2.6s ease-in-out infinite;
 }
-.game-over-title.is-loss { color: #8c8c8c; }
+.game-over-title.is-loss {
+  /* Glossy silver gradient for defeat. */
+  color: #c9c9c9;
+  background: linear-gradient(180deg, #efefef 0%, #b4b4b4 50%, #8a8a8a 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
 
 @keyframes win-title-glow {
-  0%, 100% { text-shadow: 0 0 32px rgba(240,224,64,0.55), 0 0 8px rgba(240,224,64,0.35); }
-  50%       { text-shadow: 0 0 52px rgba(240,224,64,0.85), 0 0 14px rgba(240,224,64,0.55); }
+  0%, 100% { filter: drop-shadow(0 0 8px rgba(217,198,110,0.25)); }
+  50%       { filter: drop-shadow(0 0 16px rgba(217,198,110,0.45)); }
 }
 
 .game-over-reason {
@@ -1073,28 +1109,30 @@ body:has(.game-over:not(.hidden)) .arena-canvas {
 }
 
 .go-record {
-  display: flex;
-  gap: 14px;
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: clamp(10px, 3vw, 14px);
   width: 100%;
-  justify-content: center;
 }
 
 .go-stat {
   display: flex;
   flex-direction: column;
   align-items: center;
+  justify-content: center;
   gap: 5px;
-  flex: 1 1 0;
-  max-width: 130px;
-  padding: 12px 10px;
+  min-width: 0;
+  padding: clamp(10px, 3vw, 14px) 8px;
   border-radius: 12px;
-  background: rgba(255,255,255,0.04);
-  border: 1px solid rgba(255,255,255,0.09);
+  /* Glossy monochrome tile */
+  background: linear-gradient(180deg, rgba(255,255,255,0.08), rgba(255,255,255,0.02));
+  border: 1px solid rgba(255,255,255,0.10);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.08);
 }
 
 .go-num {
   font-family: var(--font-display);
-  font-size: 30px;
+  font-size: clamp(22px, 7vw, 30px);
   line-height: 1;
 }
 
@@ -1280,12 +1318,12 @@ body.in-game .log-feed { top: 58px; }
 .profile-hint.error { color: #ff8d7a; }
 
 .profile-stats {
-  display: flex;
-  justify-content: space-around;
-  gap: 20px;
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: clamp(8px, 2.5vw, 14px);
   padding: 10px 0;
 }
-.profile-stats + .profile-stats { border-top: 1px solid rgba(0, 0, 0, 0.07); }
+.profile-stats + .profile-stats { border-top: 1px solid rgba(255, 255, 255, 0.06); padding-top: 14px; }
 
 .profile-save {
   width: 100%;
@@ -2111,6 +2149,73 @@ body.in-game .game-hud-root {
 .tab-body { padding: 16px 22px 22px; overflow-y: auto; }
 .tab-body.hidden { display: none; }
 
+/* ===== Whitepaper ===== */
+.panel.panel-wide { width: 640px; max-width: 94vw; }
+.wp-body { max-height: 78vh; }
+.wp-intro {
+  font-size: clamp(12px, 3.4vw, 13.5px);
+  line-height: 1.65;
+  color: rgba(255,255,255,0.72);
+  margin: 0 0 6px;
+}
+.wp-section {
+  font-family: var(--font-head);
+  font-size: clamp(11px, 3vw, 12px);
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: #ffffff;
+  margin: 22px 0 8px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid rgba(255,255,255,0.10);
+}
+.wp-text {
+  font-size: clamp(12px, 3.4vw, 13.5px);
+  line-height: 1.7;
+  color: rgba(255,255,255,0.62);
+  margin: 0 0 8px;
+}
+.wp-text em { color: rgba(255,255,255,0.85); font-style: italic; }
+.wp-text strong, .wp-list strong { color: rgba(255,255,255,0.92); }
+.wp-flow { display: flex; flex-direction: column; gap: 8px; margin: 10px 0; }
+.wp-step {
+  position: relative;
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  font-size: clamp(12px, 3.3vw, 13px);
+  line-height: 1.55;
+  color: rgba(255,255,255,0.66);
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: linear-gradient(180deg, rgba(255,255,255,0.05), rgba(255,255,255,0.015));
+  border: 1px solid rgba(255,255,255,0.08);
+}
+.wp-step span {
+  flex: 0 0 auto;
+  width: 20px; height: 20px;
+  display: grid; place-items: center;
+  border-radius: 50%;
+  font-family: var(--font-display);
+  font-size: 11px;
+  color: #0a0a0a;
+  background: rgba(255,255,255,0.85);
+}
+.wp-list { margin: 6px 0 8px; padding-left: 18px; }
+.wp-list li {
+  font-size: clamp(12px, 3.4vw, 13.5px);
+  line-height: 1.65;
+  color: rgba(255,255,255,0.62);
+  margin-bottom: 8px;
+}
+.wp-foot {
+  margin-top: 22px;
+  padding-top: 14px;
+  border-top: 1px solid rgba(255,255,255,0.08);
+  font-size: 11px;
+  line-height: 1.6;
+  color: rgba(255,255,255,0.38);
+}
+
 
 .panel .row {
   display: flex;
@@ -2494,13 +2599,20 @@ body.in-game .game-hud-root {
 }
 .standing-row:first-child .standing-rank { color: #ffffff; }
 
-/* Winner screen: gold-highlight the leading row. */
+/* Winner screen: restrained gold highlight on the leading row. */
 .game-over.is-win .standing-row:first-child {
-  background: rgba(240,224,64,0.1);
-  border-color: rgba(240,224,64,0.35);
+  background: linear-gradient(180deg, rgba(217,198,110,0.10), rgba(217,198,110,0.03));
+  border-color: rgba(217,198,110,0.28);
 }
-.game-over.is-win .standing-row:first-child .standing-rank { color: #ffd66b; }
-.game-over.is-win .standing-row:first-child .standing-hp { color: #f0e040; }
+.game-over.is-win .standing-row:first-child .standing-rank { color: #e6d488; }
+.game-over.is-win .standing-row:first-child .standing-hp { color: #e6d488; }
+
+/* Forfeited (flagged) player row. */
+.standing-row.standing-flagged {
+  border-color: rgba(200,80,80,0.4);
+  background: rgba(200,80,80,0.08);
+}
+.standing-flagged .standing-name { color: #e88; }
 
 .standing-name {
   font-family: var(--font-head);
@@ -2633,16 +2745,19 @@ body.in-game .game-hud-root {
   text-align: center;
   margin: 0.25rem 0;
   padding: 18px 28px;
-  border: 2px solid rgba(240, 224, 64, 0.55);
+  border: 1px solid rgba(217, 198, 110, 0.32);
   border-radius: 12px;
-  background: rgba(240, 224, 64, 0.08);
-  box-shadow: 0 0 28px rgba(240, 224, 64, 0.18), inset 0 0 12px rgba(240, 224, 64, 0.06);
-  animation: prize-pulse 2.4s ease-in-out infinite;
+  /* Glossy black panel with a faint gold wash, not a gold block. */
+  background:
+    linear-gradient(180deg, rgba(255,255,255,0.06), rgba(255,255,255,0.01)),
+    rgba(217, 198, 110, 0.04);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.08), 0 0 22px rgba(217,198,110,0.10);
+  animation: prize-pulse 2.6s ease-in-out infinite;
 }
 
 @keyframes prize-pulse {
-  0%, 100% { box-shadow: 0 0 28px rgba(240,224,64,0.18), inset 0 0 12px rgba(240,224,64,0.06); }
-  50%       { box-shadow: 0 0 44px rgba(240,224,64,0.38), inset 0 0 18px rgba(240,224,64,0.14); }
+  0%, 100% { box-shadow: inset 0 1px 0 rgba(255,255,255,0.08), 0 0 18px rgba(217,198,110,0.10); }
+  50%       { box-shadow: inset 0 1px 0 rgba(255,255,255,0.08), 0 0 28px rgba(217,198,110,0.20); }
 }
 
 .go-prize-label {
@@ -2650,16 +2765,86 @@ body.in-game .game-hud-root {
   font-size: 10px;
   font-weight: 700;
   letter-spacing: 0.24em;
-  color: rgba(240, 224, 64, 0.65);
+  color: rgba(217, 198, 110, 0.6);
   text-transform: uppercase;
 }
 
 .go-prize-amount {
   font-family: var(--font-display);
-  font-size: 2rem;
+  font-size: clamp(1.5rem, 7vw, 2rem);
   font-weight: 700;
   letter-spacing: 0.06em;
-  color: #f0e040;
-  text-shadow: 0 0 20px rgba(240, 224, 64, 0.7);
+  /* Glossy champagne-gold gradient text, restrained glow. */
+  background: linear-gradient(180deg, #f4e9b6 0%, #d9c66e 50%, #b89a3f 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  filter: drop-shadow(0 0 10px rgba(217,198,110,0.30));
   line-height: 1.15;
+}
+
+/* ===========================================================================
+   Responsive — current home layout. The earlier @media blocks target an older
+   layout that no longer exists, so the live home/profile screens had no mobile
+   rules. Below a breakpoint the absolutely-positioned home becomes a natural
+   vertical flow (the 3D arena stays fixed behind), so nothing overlaps or clips
+   on narrow/short screens. Sizing is ratio-based (fr / clamp / %).
+   =========================================================================== */
+@media (max-width: 860px) {
+  .arena-mount { position: fixed; }
+
+  .site-nav {
+    position: fixed;
+    background: rgba(0, 0, 0, 0.55);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  }
+
+  /* Flow, don't stack absolutely. */
+  .hero-section,
+  .home-actions,
+  .info-strip {
+    position: static;
+    inset: auto;
+    transform: none;
+  }
+
+  .hero-section {
+    min-height: auto;
+    padding: 84px 16px 8px;
+    justify-content: flex-start;
+  }
+  .hero-tagline {
+    margin-top: 1rem;
+    padding: 1rem 1.1rem;
+    max-width: 100%;
+  }
+
+  .home-actions {
+    padding: 16px 16px 8px;
+    gap: 10px;
+  }
+  .home-btn { flex: 1 1 140px; min-width: 0; }
+
+  .info-strip {
+    height: auto;
+    flex-wrap: wrap;
+    margin-top: 12px;
+  }
+  .info-tile {
+    flex: 1 1 33%;
+    min-width: 110px;
+    padding: 14px 10px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  }
+}
+
+@media (max-width: 480px) {
+  .site-nav { padding: 0 14px; }
+  .site-nav-logo { height: 30px; }
+  .home-btn { flex: 1 1 100%; }
+  .info-tile { flex: 1 1 50%; }
+  .go-summary,
+  .go-record { gap: 8px; }
 }
