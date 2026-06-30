@@ -22,7 +22,7 @@ const SUPABASE_URL =
 const SUPABASE_ANON_KEY =
   import.meta.env?.VITE_SUPABASE_ANON_KEY?.trim() || "";
 if (!SUPABASE_ANON_KEY) console.error("VITE_SUPABASE_ANON_KEY is not set — Supabase calls will fail.");
-const SIGN_IN_STATEMENT = "Sign in to Age of Trenches to play realtime trench duels.";
+const SIGN_IN_STATEMENT = "Sign in to FIGHT10 to play realtime PvP duels.";
 
 // ---------------------------------------------------------------------------
 // FIGHT10 Tokenomics constants
@@ -261,7 +261,9 @@ function bindUi() {
   els.profileNameInput.addEventListener("keydown", (e) => { if (e.key === "Enter") saveProfile(); });
   els.profileTabs.forEach((t) => t.addEventListener("click", () => selectProfileTab(t.dataset.ptab)));
   els.pvpCancelBtn.addEventListener("click", () => leaveMatch());
-  els.gameOverMenuBtn.addEventListener("click", () => { hideGameOver(); leaveMatch({ silent: true }); });
+  // Returning to the menu after a match fully reloads the page. This guarantees a
+  // clean slate (3D scene, realtime channel, match state) for the next game.
+  els.gameOverMenuBtn.addEventListener("click", () => { window.location.reload(); });
   document.getElementById("gameOverRetryBtn")?.addEventListener("click", () => retryPayout());
   els.pvpSizeClose.addEventListener("click", () => els.pvpSizeOverlay.classList.remove("show"));
   els.pvpSizeOverlay.addEventListener("pointerdown", (e) => {

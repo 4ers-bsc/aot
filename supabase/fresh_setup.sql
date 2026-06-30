@@ -1,5 +1,5 @@
 -- ============================================================================
--- Age of Trenches — FRESH SETUP (run this on a clean Supabase project)
+-- FIGHT10 — FRESH SETUP (run this on a clean Supabase project)
 -- Drop everything first, then rebuild with all fixes applied.
 -- ============================================================================
 

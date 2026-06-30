@@ -1,4 +1,4 @@
-// 3D isometric voxel arena for Age of Trenches.
+// 3D isometric voxel arena for FIGHT10.
 // Two visual views share one scene:
 //   - "lobby": monochrome, shown behind the app chrome before a match.
 //   - "game":  the attached reference look (light battlefield, green/red
