@@ -158,6 +158,22 @@ create table public.integrity_signals (
   created_at timestamptz not null default now()
 );
 
+-- Payout ledger — one record per winning payout with the on-chain tx signature,
+-- surfaced as an explorer link in the victory screen and match history. Written
+-- by the payout edge function (service role); matches.payout_tx stays the claim
+-- source of truth.
+create table public.payouts (
+  match_id       uuid     not null references public.matches(id) on delete cascade,
+  winner_user_id uuid     not null references auth.users(id) on delete cascade,
+  payout_tx      text     not null,
+  amount_raw     bigint   not null,
+  decimals       smallint not null default 6,
+  num_players    int      not null default 0,
+  created_at     timestamptz not null default now(),
+  primary key (match_id)
+);
+create index if not exists idx_payouts_winner on public.payouts(winner_user_id, created_at desc);
+
 create unique index if not exists idx_matches_match_no on public.matches(match_no);
 create index if not exists idx_matches_waiting    on public.matches(status, created_at);
 create index if not exists idx_match_players_user on public.match_players(user_id, joined_at desc);
@@ -924,6 +940,12 @@ alter table public.match_config enable row level security;
 -- functions; RLS on with no policies blocks all direct client access.
 alter table public.rate_limits       enable row level security;
 alter table public.integrity_signals enable row level security;
+alter table public.payouts           enable row level security;
+
+-- Payouts: a player can read their own; inserts come only from the service role.
+create policy "payouts_select_own"
+on public.payouts for select to authenticated
+using (winner_user_id = auth.uid());
 
 -- Match config: world-readable (non-sensitive; clients read it to set the timer).
 create policy "match_config_select_all"
@@ -979,6 +1001,7 @@ grant select on public.match_players to authenticated;
 grant select, insert on public.match_damage to authenticated;
 grant select, insert on public.match_kills  to authenticated;
 grant select on public.match_config to authenticated, anon;
+grant select on public.payouts      to authenticated;
 
 grant execute on function public.sync_my_profile(text)                 to authenticated;
 grant execute on function public.enforce_rate_limit(text, int, interval) to authenticated, service_role;

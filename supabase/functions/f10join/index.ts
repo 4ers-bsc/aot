@@ -150,7 +150,15 @@ Deno.serve(async (req: Request) => {
       p_max: 10,
       p_window: "1 minute",
     });
-    if (rlErr) return fail("Too many join attempts — slow down and try again shortly.");
+    if (rlErr) {
+      // Only block on a real rate-limit hit. If the function is missing (anti-cheat
+      // migration not applied) or the call is otherwise broken, fail open so joins
+      // keep working instead of returning a misleading "too many attempts".
+      if ((rlErr.message || "").includes("rate_limited")) {
+        return fail("Too many join attempts — slow down and try again shortly.");
+      }
+      console.error("rate-limit check skipped:", rlErr);
+    }
 
     const body = await req.json().catch(() => null);
     const maxPlayers    = Number(body?.max_players);

@@ -8,6 +8,7 @@ export const html = `
       <div class="game-over-prize hidden" id="gameOverPrize">
         <div class="go-prize-label">YOU WON</div>
         <div class="go-prize-amount" id="gameOverPrizeAmount">Processing payout…</div>
+        <a class="go-prize-tx hidden" id="gameOverTxLink" href="#" target="_blank" rel="noopener noreferrer">View transaction ↗</a>
       </div>
       <div class="go-summary">
         <div class="go-summary-item">

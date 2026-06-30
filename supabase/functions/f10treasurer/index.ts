@@ -439,6 +439,23 @@ Deno.serve(async (req: Request) => {
 
     slotClaimed = false; // slot replaced with real sig — no rollback needed
 
+    // Record a durable payout row (audit trail + the explorer link the client
+    // shows in the victory screen and match history). Best-effort and idempotent
+    // (upsert on match_id) — matches.payout_tx remains the source of truth, so a
+    // failure here must not fail an already-confirmed payout.
+    try {
+      await adminClient.from("payouts").upsert({
+        match_id: matchId,
+        winner_user_id: user.id,
+        payout_tx: payoutSig,
+        amount_raw: winnerAmountRaw.toString(),
+        decimals,
+        num_players: players.length,
+      }, { onConflict: "match_id" });
+    } catch (e) {
+      console.error("payouts insert failed (non-fatal):", e);
+    }
+
     return new Response(
       JSON.stringify({ ok: true, payout_tx: payoutSig, winner_amount: winnerAmountRaw.toString(), num_players: players.length, decimals }),
       { headers: { "Content-Type": "application/json", ...corsHeaders } },
