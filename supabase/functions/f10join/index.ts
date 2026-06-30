@@ -143,6 +143,24 @@ Deno.serve(async (req: Request) => {
     const { data: { user }, error: authError } = await userClient.auth.getUser();
     if (authError || !user) return jsonResponse({ ok: false, error: "Unauthorized" }, 401);
 
+    const adminClient = createClient(supabaseUrl, supabaseServiceKey);
+
+    // Reject already-banned accounts up front.
+    const { data: alreadyBanned } = await adminClient.rpc("is_banned", { p_user_id: user.id });
+    if (alreadyBanned === true) return fail("This account is banned from play.");
+
+    // Non-browser / direct (curl) request detection. A genuine browser fetch to
+    // this cross-origin function ALWAYS sends an Origin header; a missing Origin
+    // means the call did not come from the game client → ban the wallet. (A
+    // *mismatched* Origin is intentionally not banned — it's already blocked by
+    // CORS and could be a legitimate alternate domain.)
+    const reqOrigin = req.headers.get("Origin");
+    if (!reqOrigin) {
+      await adminClient.rpc("ban_user", { p_user_id: user.id, p_reason: "non_browser_request" });
+      console.error("Banned non-browser join (no Origin)", { user: user.id });
+      return fail("Request rejected — this wallet has been banned for automated access.");
+    }
+
     // Throttle join attempts per user (anti-abuse). Uses the caller's JWT so
     // auth.uid() resolves inside the function. 10/min is generous for real play.
     const { error: rlErr } = await userClient.rpc("enforce_rate_limit", {
@@ -253,7 +271,6 @@ Deno.serve(async (req: Request) => {
     }
 
     // ── Deposit verified → admit the player via the service-role RPC ──────────
-    const adminClient = createClient(supabaseUrl, supabaseServiceKey);
     const { data: joinResult, error: joinErr } = await adminClient.rpc("join_pvp_match", {
       p_user_id:        user.id,
       p_max_players:    maxPlayers,

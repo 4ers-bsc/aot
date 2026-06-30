@@ -196,26 +196,26 @@ function kickForManipulation(reason) {
   window.location.reload();
 }
 
-// Soft integrity watch: best-effort devtools/tamper detection. TELEMETRY ONLY —
-// it reports a signal for review and never auto-forfeits, because every known
-// console-detection trick has false positives and wrongly forfeiting a paid
-// match would rob honest players. Real enforcement is server-side (above).
+// Devtools watch during a live match. If the developer console is opened, the
+// player is removed from the match with a warning (it does NOT pause the game).
+// Detection is non-pausing: a docked DevTools panel opens a large gap between
+// the window's outer and inner size. Thresholds are conservative to avoid
+// false-positive kicks from normal browser chrome. (Undocked/detached DevTools
+// can't be detected this way — server-side authority remains the real defence.)
 let _integrityTimer = null;
-let _integrityReported = false;
 function startIntegrityWatch() {
   stopIntegrityWatch();
-  _integrityReported = false;
-  _integrityTimer = setInterval(() => {
-    // Timing trap: a paused debugger makes this take far longer than a few ms.
-    // Threshold kept high to minimise false positives on slow devices.
-    const t0 = performance.now();
-    debugger; // eslint-disable-line no-debugger
-    const dt = performance.now() - t0;
-    if (dt > 200 && !_integrityReported) {
-      _integrityReported = true;
-      reportIntegritySignal("devtools_suspected", { dt: Math.round(dt) });
+  const check = () => {
+    if (_kicked) return;
+    const wGap = window.outerWidth - window.innerWidth;
+    const hGap = window.outerHeight - window.innerHeight;
+    if (wGap > 220 || hGap > 220) {
+      reportIntegritySignal("devtools_open", { wGap, hGap });
+      kickForManipulation("Do not open the developer console. You have been removed from the match.");
     }
-  }, 4000);
+  };
+  _integrityTimer = setInterval(check, 1200);
+  check();
 }
 function stopIntegrityWatch() {
   if (_integrityTimer) { clearInterval(_integrityTimer); _integrityTimer = null; }
@@ -755,6 +755,12 @@ async function fetchLobbyCounts() {
 async function joinPvp(maxPlayers) {
   if (!state.user) { signIn(); return; }
   const size = [2, 5, 10].includes(maxPlayers) ? maxPlayers : 2;
+  // Block banned wallets before any on-chain deposit so they never pay to be
+  // rejected. The server re-checks at admission (this is just UX).
+  try {
+    const { data: banned } = await supabase.rpc("is_banned", { p_user_id: state.user.id });
+    if (banned === true) { setStatus("This wallet is banned from play."); return; }
+  } catch (_) { /* if the check is unavailable, fall through to server enforcement */ }
   try {
     // ── Step 1: deposit on-chain (if not already done from a previous failed attempt) ──
     let txSig = state.pendingDepositTx;
