@@ -74,6 +74,9 @@ const els = {
   arenaMount: document.getElementById("arenaMount"),
   howToOverlay: document.getElementById("howToOverlay"),
   howToClose: document.getElementById("howToClose"),
+  whitepaperBtn: document.getElementById("whitepaperBtn"),
+  whitepaperOverlay: document.getElementById("whitepaperOverlay"),
+  whitepaperClose: document.getElementById("whitepaperClose"),
   pauseOverlay: document.getElementById("pauseOverlay"),
   pauseClose: document.getElementById("pauseClose"),
   resumeBtn: document.getElementById("resumeBtn"),
@@ -172,9 +175,63 @@ const ledger = {
   },
 };
 
+// ── Anti-manipulation (client side) ──────────────────────────────────────────
+// The server rejects impossible/out-of-context combat writes and over-rate RPCs
+// with an error message we can recognise. When the SERVER says a request was a
+// manipulation attempt, we remove the player from the match immediately. We only
+// react to server verdicts — never to local guesses — so honest players are
+// never wrongly kicked.
+let _kicked = false;
+function isIntegrityError(err) {
+  const m = (err?.message || err?.error || err?.error_description || "").toString().toLowerCase();
+  return m.includes("cheat_detected") || m.includes("rate_limited");
+}
+function kickForManipulation(reason) {
+  if (_kicked) return;
+  _kicked = true;
+  stopIntegrityWatch();
+  try { if (state.channel) supabase.removeChannel(state.channel); } catch (_) {}
+  // Full reload returns the player to a clean menu (the match settles server-side).
+  try { window.alert(reason || "You were removed from the match for invalid actions."); } catch (_) {}
+  window.location.reload();
+}
+
+// Soft integrity watch: best-effort devtools/tamper detection. TELEMETRY ONLY —
+// it reports a signal for review and never auto-forfeits, because every known
+// console-detection trick has false positives and wrongly forfeiting a paid
+// match would rob honest players. Real enforcement is server-side (above).
+let _integrityTimer = null;
+let _integrityReported = false;
+function startIntegrityWatch() {
+  stopIntegrityWatch();
+  _integrityReported = false;
+  _integrityTimer = setInterval(() => {
+    // Timing trap: a paused debugger makes this take far longer than a few ms.
+    // Threshold kept high to minimise false positives on slow devices.
+    const t0 = performance.now();
+    debugger; // eslint-disable-line no-debugger
+    const dt = performance.now() - t0;
+    if (dt > 200 && !_integrityReported) {
+      _integrityReported = true;
+      reportIntegritySignal("devtools_suspected", { dt: Math.round(dt) });
+    }
+  }, 4000);
+}
+function stopIntegrityWatch() {
+  if (_integrityTimer) { clearInterval(_integrityTimer); _integrityTimer = null; }
+}
+async function reportIntegritySignal(kind, detail) {
+  try {
+    await supabase.rpc("report_integrity_signal", {
+      p_match_id: state.match?.id ?? null, p_kind: kind, p_detail: detail ?? null,
+    });
+  } catch (_) { /* best-effort telemetry */ }
+}
+
 // Insert this player's offense (damage dealt + kills landed) before reporting
 // the match result. Idempotent: a match flushes at most once. Best-effort — a
-// failure here must never block the existing settlement/payout path.
+// failure here must never block the existing settlement/payout path, EXCEPT a
+// server 'cheat_detected' verdict, which removes the player immediately.
 async function flushLedger(matchId) {
   if (!matchId || ledger.flushed) return;
   ledger.flushed = true;
@@ -190,12 +247,21 @@ async function flushLedger(matchId) {
   }));
   try {
     if (damageRows.length) {
-      await supabase.from("match_damage").upsert(damageRows, { onConflict: "match_id,attacker,victim" });
+      const { error } = await supabase.from("match_damage").upsert(damageRows, { onConflict: "match_id,attacker,victim" });
+      if (error) {
+        if (isIntegrityError(error)) return kickForManipulation("Removed: invalid combat data detected.");
+        console.error("ledger flush error:", error);
+      }
     }
     if (killRows.length) {
-      await supabase.from("match_kills").upsert(killRows, { onConflict: "match_id,victim", ignoreDuplicates: true });
+      const { error } = await supabase.from("match_kills").upsert(killRows, { onConflict: "match_id,victim", ignoreDuplicates: true });
+      if (error) {
+        if (isIntegrityError(error)) return kickForManipulation("Removed: invalid combat data detected.");
+        console.error("ledger flush error:", error);
+      }
     }
   } catch (e) {
+    if (isIntegrityError(e)) return kickForManipulation("Removed: invalid combat data detected.");
     console.error("ledger flush error:", e);
   }
 }
@@ -252,6 +318,11 @@ function bindUi() {
   els.signOutBtn.addEventListener("click", signOut);
   els.howToPlayBtn.addEventListener("click", () => els.howToOverlay.classList.add("show"));
   els.howToClose.addEventListener("click", () => els.howToOverlay.classList.remove("show"));
+  els.whitepaperBtn?.addEventListener("click", () => els.whitepaperOverlay.classList.add("show"));
+  els.whitepaperClose?.addEventListener("click", () => els.whitepaperOverlay.classList.remove("show"));
+  els.whitepaperOverlay?.addEventListener("pointerdown", (e) => {
+    if (e.target === els.whitepaperOverlay) els.whitepaperOverlay.classList.remove("show");
+  });
   els.profileBtn.addEventListener("click", openProfile);
   els.profileClose.addEventListener("click", () => els.profileOverlay.classList.remove("show"));
   els.profileOverlay.addEventListener("pointerdown", (e) => {
@@ -564,7 +635,7 @@ async function awaitSettlement(matchId, timeoutMs = 12000) {
   while (Date.now() < deadline) {
     const { data } = await supabase
       .from("matches")
-      .select("status, winner_user_id")
+      .select("status, winner_user_id, shadow_meta")
       .eq("id", matchId)
       .single();
     if (data?.status === "finished" || data?.status === "disputed") return data;
@@ -574,14 +645,45 @@ async function awaitSettlement(matchId, timeoutMs = 12000) {
   return null;
 }
 
+// Display names for every player in a match, keyed by user_id. Used to label the
+// server-authoritative standings so both clients show identical rows.
+async function fetchMatchPlayerNames(matchId) {
+  try {
+    const { data } = await supabase
+      .from("match_players").select("user_id, display_name").eq("match_id", matchId);
+    const map = {};
+    (data || []).forEach((p) => { map[p.user_id] = p.display_name; });
+    return map;
+  } catch (_) { return {}; }
+}
+
+// Build standings from the SERVER's settled HP (matches.shadow_meta.hp), which
+// finalize_match derives identically for everyone from the validated combat
+// ledger. This replaces each client's local HP guess, so the winner and loser
+// screens always agree. Returns null when the match had no per-player HP
+// (e.g. a no-combat dispute) so callers can fall back to local standings.
+function serverStandings(settled, nameByUser) {
+  const hp = settled?.shadow_meta?.hp;
+  if (!Array.isArray(hp) || !hp.length) return null;
+  return [...hp]
+    .sort((a, b) => (b.hp - a.hp) || ((a.seat ?? 0) - (b.seat ?? 0)))
+    .map((e, i) => ({
+      rank: i + 1,
+      name: nameByUser?.[e.user_id] || "Fighter",
+      hp: Math.max(0, e.hp),
+      me: e.user_id === state.user?.id,
+      flagged: !!e.flagged,
+    }));
+}
+
 function renderStandings(standings) {
   const el = document.getElementById("gameOverStandings");
   if (!el) return;
   if (!standings.length) { el.innerHTML = ""; return; }
   el.innerHTML = standings.map((s) =>
-    `<div class="standing-row${s.me ? " standing-me" : ""}">` +
+    `<div class="standing-row${s.me ? " standing-me" : ""}${s.flagged ? " standing-flagged" : ""}">` +
     `<span class="standing-rank">#${s.rank}</span>` +
-    `<span class="standing-name">${escapeHtml(s.name)}</span>` +
+    `<span class="standing-name">${escapeHtml(s.name)}${s.flagged ? " ⚠" : ""}</span>` +
     `<span class="standing-hp">${s.hp} HP</span>` +
     `</div>`
   ).join("");
@@ -1057,6 +1159,7 @@ async function beginMatch(skipCountdown = false, startAt = null) {
   game.generateMap(state.match?.id || "pvp");  // seed by match id so all clients match
   game.resetForMatch(state.match?.id, state.seat);
   ledger.reset();
+  if (state.match?.mode === "pvp") startIntegrityWatch();
   game.setMatchPhase("countdown");
   game.setControllable(false);
   startPingLoop();
@@ -1155,12 +1258,18 @@ async function reportResult(resultHint, { standings = [] } = {}) {
   // Flush our offense ledger, then report "done". final_hp is now only a
   // "this player reported" marker — it no longer decides the winner.
   await flushLedger(matchId);
+  if (_kicked) return; // flushLedger removed us for a server-flagged manipulation
   try {
-    await supabase.rpc("finish_match", {
+    const { error } = await supabase.rpc("finish_match", {
       p_match_id: matchId,
       p_final_hp: game.currentHp(),
     });
+    if (error) {
+      if (isIntegrityError(error)) return kickForManipulation("Removed: invalid actions detected.");
+      console.error("finish_match error:", error);
+    }
   } catch (e) {
+    if (isIntegrityError(e)) return kickForManipulation("Removed: invalid actions detected.");
     console.error("finish_match error:", e);
   }
 
@@ -1176,11 +1285,18 @@ async function reportResult(resultHint, { standings = [] } = {}) {
   const serverKills = await fetchVerifiedKills(matchId);
   try { await syncProfile(); } catch (e) { console.error(e); }
 
+  // Prefer the server-authoritative standings + duration so the winner's and
+  // loser's screens always show identical HP (local HP desyncs between clients).
+  const nameByUser = await fetchMatchPlayerNames(matchId);
+  const finalStandings = serverStandings(settled, nameByUser) || standings;
+  const srvSecs = settled?.shadow_meta?.secs;
+  const finalTimeMs = Number.isFinite(srvSecs) ? Math.round(srvSecs * 1000) : matchTimeMs;
+
   // Disputed: the ledger could not produce a clean, plausible winner (e.g. a
   // cheat was detected). Nobody is paid; deposits are held.
   if (settled?.status === "disputed") {
     showGameOver("disputed", "Match disputed — no winner could be verified. Deposits are held for review.",
-      standings, null, serverKills ?? matchKills, matchTimeMs);
+      finalStandings, null, serverKills ?? matchKills, finalTimeMs);
     return;
   }
 
@@ -1193,12 +1309,12 @@ async function reportResult(resultHint, { standings = [] } = {}) {
 
   const won = settled.winner_user_id === state.user?.id;
   if (!won) {
-    showGameOver("loss", "You were defeated.", standings, null, serverKills ?? matchKills, matchTimeMs);
+    showGameOver("loss", "You were defeated.", finalStandings, null, serverKills ?? matchKills, finalTimeMs);
     return;
   }
 
   // Authoritative win → victory screen + payout.
-  showGameOver("win", "Last one standing — you won!", standings, "pending", serverKills ?? matchKills, matchTimeMs);
+  showGameOver("win", "Last one standing — you won!", finalStandings, "pending", serverKills ?? matchKills, finalTimeMs);
   let prizeAmount = null;
   try {
     setStatus("Claiming prize…");
@@ -1246,6 +1362,7 @@ async function leaveMatch({ silent = false } = {}) {
 
 async function teardownMatch(keepMatch = false) {
   stopPingLoop();
+  stopIntegrityWatch();
   if (state.depositPollTimer) { clearInterval(state.depositPollTimer); state.depositPollTimer = null; }
   if (state.startFallbackTimer) { clearTimeout(state.startFallbackTimer); state.startFallbackTimer = null; }
   state.pendingDepositTx = null;

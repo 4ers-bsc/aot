@@ -143,6 +143,15 @@ Deno.serve(async (req: Request) => {
     const { data: { user }, error: authError } = await userClient.auth.getUser();
     if (authError || !user) return jsonResponse({ ok: false, error: "Unauthorized" }, 401);
 
+    // Throttle join attempts per user (anti-abuse). Uses the caller's JWT so
+    // auth.uid() resolves inside the function. 10/min is generous for real play.
+    const { error: rlErr } = await userClient.rpc("enforce_rate_limit", {
+      p_action: "join",
+      p_max: 10,
+      p_window: "1 minute",
+    });
+    if (rlErr) return fail("Too many join attempts — slow down and try again shortly.");
+
     const body = await req.json().catch(() => null);
     const maxPlayers    = Number(body?.max_players);
     const depositTx     = String(body?.deposit_tx ?? "").trim();
