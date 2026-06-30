@@ -228,11 +228,15 @@ textarea:focus {
 }
 
 .site-nav-brand {
-  font-family: var(--font-display);
-  font-size: 1.2rem;
-  letter-spacing: 0.1em;
-  color: var(--text);
-  white-space: nowrap;
+  display: inline-flex;
+  align-items: center;
+  line-height: 0;
+}
+
+.site-nav-logo {
+  height: 36px;
+  width: auto;
+  display: block;
 }
 
 .site-nav-actions {

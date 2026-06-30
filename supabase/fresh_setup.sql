@@ -18,6 +18,7 @@ drop function if exists public.finalize_match(uuid);
 drop function if exists public.finish_match(uuid, int);
 drop function if exists public.finish_match(uuid, uuid);
 drop function if exists public.record_deposit(uuid, text);
+drop function if exists public.join_pvp_match(uuid, smallint, text, text, text);
 drop function if exists public.join_pvp_match(smallint, text, text, text);
 drop function if exists public.join_pvp_match(smallint, text, text);
 drop function if exists public.join_pvp_match(smallint, text);
@@ -212,9 +213,13 @@ end;
 $$;
 
 -- ---------------------------------------------------------------------------
--- 4. join_pvp_match — deposit-before-join (deposit tx required at call time)
+-- 4. join_pvp_match — deposit-before-join, verified server-side.
+--    Service-role only: the f10join edge function verifies the deposit tx
+--    on-chain BEFORE calling this, so an unverified tx can never take a seat.
+--    The browser must NOT call this RPC directly (see grants below).
 -- ---------------------------------------------------------------------------
 create or replace function public.join_pvp_match(
+  p_user_id        uuid,
   p_max_players    smallint default 2,
   p_deposit_tx     text     default null,
   p_display_name   text     default null,
@@ -226,7 +231,7 @@ security definer
 set search_path = public, auth
 as $$
 declare
-  v_uid          uuid     := auth.uid();
+  v_uid          uuid     := p_user_id;
   v_name         text;
   v_login_wallet text;
   v_size         smallint := coalesce(p_max_players, 2);
@@ -237,6 +242,8 @@ declare
   v_existing     record;
   c_entry_fee    constant bigint := 2500000000; -- 2500 × 10^6 (6-decimal mint)
 begin
+  -- p_user_id is supplied by the edge function from the verified JWT. This RPC
+  -- is service-role only, so v_uid is trusted.
   if v_uid is null then
     raise exception 'not_authenticated';
   end if;
@@ -254,10 +261,23 @@ begin
     raise exception 'invalid_max_players: must be 2, 5, or 10';
   end if;
 
-  -- sync_my_profile also refreshes wallet_address from the auth identity, so we
-  -- read the login wallet straight from its return value.
-  select display_name, wallet_address into v_name, v_login_wallet
-  from public.sync_my_profile(p_display_name);
+  -- Refresh the profile (display name + login wallet) for this user. We can't use
+  -- sync_my_profile() here because it relies on auth.uid(); this function runs as
+  -- the service role from the edge function, so we upsert against p_user_id.
+  insert into public.profiles as p (user_id, display_name, wallet_address)
+  values (
+    v_uid,
+    coalesce(nullif(trim(p_display_name), ''), 'Trench Rookie'),
+    (select provider_id from auth.identities
+       where user_id = v_uid
+       order by coalesce(last_sign_in_at, created_at) desc
+       limit 1)
+  )
+  on conflict (user_id) do update
+  set display_name   = coalesce(nullif(trim(p_display_name), ''), p.display_name),
+      wallet_address = coalesce(excluded.wallet_address, p.wallet_address)
+  where p.user_id = v_uid
+  returning display_name, wallet_address into v_name, v_login_wallet;
 
   -- One wallet per player: the wallet that signs the deposit MUST be the same
   -- wallet the player signed in with. Both values may carry a "chain:" prefix
@@ -298,8 +318,12 @@ begin
   limit  1;
 
   if found then
-    select count(*) into v_count from public.match_players where match_id = v_match_id;
-    v_seat := v_count + 1;
+    -- Gap-resilient seat assignment: take the lowest seat number (1..size) not
+    -- currently occupied. `count + 1` would collide with unique (match_id, seat)
+    -- when an earlier player left and freed a middle seat.
+    select min(s) into v_seat
+    from   generate_series(1, v_size) s
+    where  s not in (select seat from public.match_players where match_id = v_match_id);
 
     insert into public.match_players (match_id, user_id, seat, display_name, deposit_tx, deposit_wallet)
     values (v_match_id, v_uid, v_seat, v_name, p_deposit_tx, trim(p_deposit_wallet));
@@ -308,8 +332,10 @@ begin
     set pot_tokens = pot_tokens + c_entry_fee
     where id = v_match_id;
 
-    -- Last seat filled → all players have paid → activate
-    if v_seat >= v_size then
+    -- Activate once every seat is filled. Use the player count, not the seat
+    -- index, since seats may have been filled out of order after a gap.
+    select count(*) into v_count from public.match_players where match_id = v_match_id;
+    if v_count >= v_size then
       update public.matches
       set status = 'active', started_at = timezone('utc', now())
       where id = v_match_id;
@@ -769,7 +795,11 @@ grant select, insert on public.match_kills  to authenticated;
 grant select on public.match_config to authenticated, anon;
 
 grant execute on function public.sync_my_profile(text)                 to authenticated;
-grant execute on function public.join_pvp_match(smallint, text, text, text) to authenticated;
+-- join_pvp_match is service-role only: the f10join edge function verifies the
+-- deposit on-chain BEFORE calling it, so the browser cannot admit an unverified
+-- deposit by calling the RPC directly.
+revoke all on function public.join_pvp_match(uuid, smallint, text, text, text) from public, anon, authenticated;
+grant execute on function public.join_pvp_match(uuid, smallint, text, text, text) to service_role;
 grant execute on function public.leave_my_matches()                    to authenticated;
 grant execute on function public.finish_match(uuid, int)               to authenticated;
 grant execute on function public.claim_payout_slot(uuid)               to authenticated;
