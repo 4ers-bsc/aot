@@ -1,0 +1,13 @@
+project_id = "sajvismyvcgaszjcafcr"
+
+# Edge functions authenticate the caller themselves (userClient.auth.getUser()),
+# so platform-level JWT verification is disabled. With verify_jwt = true the
+# Supabase gateway rejects the unauthenticated CORS preflight (OPTIONS carries no
+# Authorization header) with a non-2xx status, which the browser reports as
+# "Response to preflight request doesn't pass access control check: It does not
+# have HTTP ok status." Disabling it lets our own OPTIONS/CORS handler respond.
+[functions.f10join]
+verify_jwt = false
+
+[functions.f10treasurer]
+verify_jwt = false
