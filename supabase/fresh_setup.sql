@@ -77,7 +77,10 @@ create table public.matches (
   -- Option A (Phase 0 shadow): ledger-derived winner, recorded for comparison
   -- against winner_user_id. Does not affect payouts yet.
   shadow_winner  uuid references auth.users(id) on delete set null,
-  shadow_meta    jsonb
+  shadow_meta    jsonb,
+  -- Players forfeited for impossible combat output (set by finalize_match). They
+  -- are excluded from winner selection so an honest opponent still wins.
+  forfeited_user_ids uuid[] not null default '{}'
 );
 
 create table public.match_players (
@@ -134,6 +137,26 @@ insert into public.match_config (max_players, duration_seconds) values
   (2,  300),   -- 5 min
   (5,  420),   -- 7 min
   (10, 600);   -- 10 min
+
+-- Per-user rate limiting (anti-abuse). Touched only by enforce_rate_limit().
+create table public.rate_limits (
+  user_id      uuid        not null references auth.users(id) on delete cascade,
+  action       text        not null,
+  window_start timestamptz not null default now(),
+  count        int         not null default 0,
+  primary key (user_id, action)
+);
+
+-- Soft anti-cheat telemetry (e.g. devtools opened). For review only — never
+-- auto-forfeits. Written via report_integrity_signal(); read by admins.
+create table public.integrity_signals (
+  id         bigint generated always as identity primary key,
+  user_id    uuid references auth.users(id) on delete set null,
+  match_id   uuid references public.matches(id) on delete set null,
+  kind       text not null,
+  detail     jsonb,
+  created_at timestamptz not null default now()
+);
 
 create unique index if not exists idx_matches_match_no on public.matches(match_no);
 create index if not exists idx_matches_waiting    on public.matches(status, created_at);
@@ -209,6 +232,41 @@ begin
   returning * into v_profile;
 
   return v_profile;
+end;
+$$;
+
+-- enforce_rate_limit — sliding-window per-user throttle. Raises 'rate_limited'
+-- when the caller exceeds p_max calls for p_action within p_window.
+create or replace function public.enforce_rate_limit(
+  p_action text,
+  p_max    int,
+  p_window interval
+)
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_uid   uuid := auth.uid();
+  v_count int;
+begin
+  if v_uid is null then
+    raise exception 'not_authenticated';
+  end if;
+
+  insert into public.rate_limits as rl (user_id, action, window_start, count)
+  values (v_uid, p_action, now(), 1)
+  on conflict (user_id, action) do update
+    set count = case when rl.window_start < now() - p_window then 1
+                     else rl.count + 1 end,
+        window_start = case when rl.window_start < now() - p_window then now()
+                            else rl.window_start end
+  returning count into v_count;
+
+  if v_count > p_max then
+    raise exception 'rate_limited: too many % requests', p_action;
+  end if;
 end;
 $$;
 
@@ -518,6 +576,9 @@ begin
     raise exception 'not_authenticated';
   end if;
 
+  -- Throttle abuse: normally called once per match; 30/min is a generous ceiling.
+  perform public.enforce_rate_limit('finish_match', 30, interval '1 minute');
+
   if not exists (
     select 1 from match_players
     where match_id = p_match_id and user_id = v_caller
@@ -542,10 +603,11 @@ $$;
 --     Each player's HP = 100 − the validated damage OTHERS reported dealing
 --     them, so a client cannot inflate its own survival. Two caps reject
 --     impossible offense: a per-pair cap and a per-attacker TOTAL-output cap
---     (which catches one player deleting several rivals at once). If the
---     would-be winner dealt impossible damage, or no clean winner exists, or
---     no combat happened, the match is marked 'disputed' (no winner, no
---     payout). p_force settles on timeout even if players never reported.
+--     (which catches one player deleting several rivals at once). Flagged
+--     cheaters are FORFEITED — excluded from winner selection so the best clean
+--     player still wins (and the cheater loses their deposit to that winner).
+--     Only marks 'disputed' when no clean winner exists or no combat happened.
+--     p_force settles on timeout even if players never reported.
 -- ---------------------------------------------------------------------------
 create or replace function public.finalize_match(p_match_id uuid, p_force boolean default false)
 returns void
@@ -563,6 +625,7 @@ declare
   v_unreported int;
   v_dmg_total  bigint;
   v_winner     uuid;
+  v_forfeited  uuid[];
   v_disputed   boolean := false;
   v_meta       jsonb;
   -- Physical ceilings (buffer over real stats: sword ~40 dps, ~1.4 hits/s).
@@ -633,34 +696,40 @@ begin
     group by mp.user_id, mp.seat
   ),
   ranked as (
-    select user_id, hp, seat,
-           row_number() over (order by hp desc, seat asc) as rn
-    from hp
+    select h.user_id, h.hp, h.seat,
+           (f.attacker is not null) as is_flagged,
+           row_number() over (
+             -- Clean players rank first; among them, highest HP then lowest seat.
+             order by (f.attacker is not null) asc, h.hp desc, h.seat asc
+           ) as rn
+    from hp h
+    left join flagged f on f.attacker = h.user_id
   )
   select
-    (select user_id from ranked where rn = 1),
-    exists (select 1 from flagged f join ranked r on r.user_id = f.attacker and r.rn = 1),
+    (select user_id from ranked where rn = 1 and not is_flagged),
+    (select coalesce(array_agg(user_id), '{}') from ranked where is_flagged),
     jsonb_build_object(
       'secs',  v_secs,
       'caps',  jsonb_build_object('dps', c_max_dps, 'firerate', c_max_firerate),
-      'hp',    (select jsonb_agg(jsonb_build_object('user_id', user_id, 'hp', hp, 'seat', seat)
+      'hp',    (select jsonb_agg(jsonb_build_object('user_id', user_id, 'hp', hp, 'seat', seat, 'flagged', is_flagged)
                                  order by hp desc, seat asc) from ranked),
       'flagged',      (select coalesce(jsonb_agg(attacker), '[]'::jsonb) from flagged),
       'attacker_out', (select jsonb_object_agg(attacker::text, out_total) from attacker_totals)
     )
-    into v_winner, v_disputed, v_meta;
+    into v_winner, v_forfeited, v_meta;
 
+  -- Disputed only if no clean player can win (e.g. everyone flagged).
   if v_winner is null then v_disputed := true; end if;
 
   if v_disputed then
     update matches
       set status = 'disputed', winner_user_id = NULL, ended_at = v_ended,
-          shadow_winner = v_winner, shadow_meta = v_meta
+          shadow_winner = NULL, shadow_meta = v_meta, forfeited_user_ids = v_forfeited
       where id = p_match_id and status not in ('finished', 'disputed');
   else
     update matches
       set status = 'finished', winner_user_id = v_winner, ended_at = v_ended,
-          shadow_winner = v_winner, shadow_meta = v_meta
+          shadow_winner = v_winner, shadow_meta = v_meta, forfeited_user_ids = v_forfeited
       where id = p_match_id and status not in ('finished', 'disputed');
     if found then
       perform public.apply_match_result(p_match_id, v_winner);
@@ -730,6 +799,119 @@ end;
 $$;
 
 -- ---------------------------------------------------------------------------
+-- 10b. Combat-ledger write validation — reject impossible / out-of-context rows
+--      at INSERT time so a tampered request fails immediately. Errors prefixed
+--      'cheat_detected:' signal tampering (client kicks the player); 'stale:'
+--      signals a benign late write (match already settled) the client ignores.
+-- ---------------------------------------------------------------------------
+create or replace function public.validate_match_damage()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_status text;
+  v_dur_ms bigint;
+  -- Generous single-hit ceiling; fine-grained DPS/fire-rate caps live in
+  -- finalize_match. This only rejects blatantly impossible rows at write time.
+  c_hard_per_hit constant int := 250;
+begin
+  select m.status, public.match_duration_seconds(m.max_players) * 1000
+    into v_status, v_dur_ms
+  from public.matches m where m.id = new.match_id;
+
+  if v_status is null      then raise exception 'stale: match_not_found';  end if;
+  if v_status <> 'active'   then raise exception 'stale: match_not_active'; end if;
+  if not exists (select 1 from public.match_players
+                 where match_id = new.match_id and user_id = new.attacker) then
+    raise exception 'cheat_detected: attacker_not_in_match';
+  end if;
+  if not exists (select 1 from public.match_players
+                 where match_id = new.match_id and user_id = new.victim) then
+    raise exception 'cheat_detected: victim_not_in_match';
+  end if;
+  if new.first_t_ms < 0
+     or new.last_t_ms < new.first_t_ms
+     or new.last_t_ms > v_dur_ms + 30000 then
+    raise exception 'cheat_detected: bad_timestamps';
+  end if;
+  if new.total_damage > 0 and new.hit_count < 1 then
+    raise exception 'cheat_detected: damage_without_hits';
+  end if;
+  if new.total_damage > new.hit_count * c_hard_per_hit then
+    raise exception 'cheat_detected: damage_exceeds_hit_ceiling';
+  end if;
+  return new;
+end;
+$$;
+
+create or replace function public.validate_match_kills()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_status text;
+  v_dur_ms bigint;
+begin
+  select m.status, public.match_duration_seconds(m.max_players) * 1000
+    into v_status, v_dur_ms
+  from public.matches m where m.id = new.match_id;
+
+  if v_status is null      then raise exception 'stale: match_not_found';  end if;
+  if v_status <> 'active'   then raise exception 'stale: match_not_active'; end if;
+  if not exists (select 1 from public.match_players
+                 where match_id = new.match_id and user_id = new.attacker) then
+    raise exception 'cheat_detected: attacker_not_in_match';
+  end if;
+  if not exists (select 1 from public.match_players
+                 where match_id = new.match_id and user_id = new.victim) then
+    raise exception 'cheat_detected: victim_not_in_match';
+  end if;
+  if new.t_ms < 0 or new.t_ms > v_dur_ms + 30000 then
+    raise exception 'cheat_detected: bad_timestamp';
+  end if;
+  return new;
+end;
+$$;
+
+drop trigger if exists trg_validate_match_damage on public.match_damage;
+create trigger trg_validate_match_damage
+  before insert on public.match_damage
+  for each row execute function public.validate_match_damage();
+
+drop trigger if exists trg_validate_match_kills on public.match_kills;
+create trigger trg_validate_match_kills
+  before insert on public.match_kills
+  for each row execute function public.validate_match_kills();
+
+-- ---------------------------------------------------------------------------
+-- 10c. report_integrity_signal — soft client telemetry (e.g. devtools opened).
+--      Recorded for review only; never auto-forfeits (avoids false-positive bans).
+-- ---------------------------------------------------------------------------
+create or replace function public.report_integrity_signal(
+  p_match_id uuid,
+  p_kind     text,
+  p_detail   jsonb default null
+)
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_uid uuid := auth.uid();
+begin
+  if v_uid is null then return; end if;
+  perform public.enforce_rate_limit('integrity_signal', 20, interval '1 minute');
+  insert into public.integrity_signals (user_id, match_id, kind, detail)
+  values (v_uid, p_match_id, left(coalesce(p_kind, 'unknown'), 40), p_detail);
+end;
+$$;
+
+-- ---------------------------------------------------------------------------
 -- 11. Row-level security
 -- ---------------------------------------------------------------------------
 alter table public.profiles     enable row level security;
@@ -738,6 +920,10 @@ alter table public.match_players enable row level security;
 alter table public.match_damage enable row level security;
 alter table public.match_kills  enable row level security;
 alter table public.match_config enable row level security;
+-- rate_limits and integrity_signals are touched only by SECURITY DEFINER
+-- functions; RLS on with no policies blocks all direct client access.
+alter table public.rate_limits       enable row level security;
+alter table public.integrity_signals enable row level security;
 
 -- Match config: world-readable (non-sensitive; clients read it to set the timer).
 create policy "match_config_select_all"
@@ -795,6 +981,8 @@ grant select, insert on public.match_kills  to authenticated;
 grant select on public.match_config to authenticated, anon;
 
 grant execute on function public.sync_my_profile(text)                 to authenticated;
+grant execute on function public.enforce_rate_limit(text, int, interval) to authenticated, service_role;
+grant execute on function public.report_integrity_signal(uuid, text, jsonb) to authenticated;
 -- join_pvp_match is service-role only: the f10join edge function verifies the
 -- deposit on-chain BEFORE calling it, so the browser cannot admit an unverified
 -- deposit by calling the RPC directly.
