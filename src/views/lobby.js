@@ -8,6 +8,7 @@ export const html = `
       </div>
       <div class="pvp-lobby-status" id="pvpLobbyStatus">Searching for an opponent…</div>
       <div class="pvp-lobby-meta" id="pvpLobbyMeta"></div>
+      <div class="pvp-lobby-online"><span class="online-dot"></span><span id="pvpLobbyOnline">— players online</span></div>
       <div class="pvp-prize-pool hidden" id="pvpPrizePool">
         Prize Pool: <span id="pvpPrizeAmount">—</span> $FIGHT10
       </div>
