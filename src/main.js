@@ -197,24 +197,44 @@ function kickForManipulation(reason) {
 }
 
 // Devtools watch during a live match. If the developer console is opened, the
-// player is removed from the match with a warning (it does NOT pause the game).
-// Detection is non-pausing: a docked DevTools panel opens a large gap between
-// the window's outer and inner size. Thresholds are conservative to avoid
-// false-positive kicks from normal browser chrome. (Undocked/detached DevTools
-// can't be detected this way — server-side authority remains the real defence.)
+// player is removed from the match with a warning — it does NOT pause the game.
+//
+// Detection is EVENT-BASED, not window-size based: we log an object with a
+// property getter. When the console panel is open, the browser reads that
+// property to render the object, firing the getter; when the console is closed
+// the getter never runs. This catches both docked AND undocked/detached
+// DevTools and has far fewer false positives than an outer/inner size gap.
+// (Requires console output enabled — see disableConsoleOutput in vite.config.js.)
 let _integrityTimer = null;
 function startIntegrityWatch() {
   stopIntegrityWatch();
+  let opened = false;
+  // Bait 1: object with a property getter — read when the console builds the
+  // object's preview (panel open).
+  const objBait = {};
+  Object.defineProperty(objBait, "id", {
+    configurable: true,
+    get() { opened = true; return ""; },
+  });
+  // Bait 2: a value whose toString runs only when the console RENDERS it as the
+  // %c style string — i.e. when the panel is actually open. Neither bait coerces
+  // eagerly, so a closed console never trips them (no false-positive kicks).
+  const styleBait = document.createElement("div");
+  styleBait.toString = function () { opened = true; return ""; };
   const check = () => {
     if (_kicked) return;
-    const wGap = window.outerWidth - window.innerWidth;
-    const hGap = window.outerHeight - window.innerHeight;
-    if (wGap > 220 || hGap > 220) {
-      reportIntegritySignal("devtools_open", { wGap, hGap });
+    opened = false;
+    // eslint-disable-next-line no-console
+    console.log(objBait);
+    // eslint-disable-next-line no-console
+    console.log("%c", styleBait);
+    try { console.clear(); } catch (_) {}
+    if (opened) {
+      reportIntegritySignal("devtools_open", {});
       kickForManipulation("Do not open the developer console. You have been removed from the match.");
     }
   };
-  _integrityTimer = setInterval(check, 1200);
+  _integrityTimer = setInterval(check, 1000);
   check();
 }
 function stopIntegrityWatch() {
