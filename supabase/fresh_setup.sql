@@ -730,8 +730,6 @@ declare
   -- Physical ceilings (buffer over real stats: sword ~40 dps, ~1.4 hits/s).
   c_max_dps      constant numeric := 50;   -- per attacker, total across all victims
   c_max_firerate constant numeric := 4;    -- hits per second, per attacker→victim pair
-  -- A player is "disconnected" once its heartbeat lapses past this window.
-  c_dc_grace     constant interval := interval '15 seconds';
 begin
   select status, started_at, max_players into v_status, v_started, v_maxp
   from matches where id = p_match_id for update;
@@ -742,10 +740,7 @@ begin
   -- everyone reports; after it (or on force), settle from the ledger now.
   v_deadline := coalesce(v_started, now()) + make_interval(secs => public.match_duration_seconds(v_maxp));
 
-  -- Only WAIT on players who are still connected and haven't reported.
-  -- Disconnected (stale heartbeat) players never block settlement.
-  select count(*) filter (where final_hp is null and last_seen >= now() - c_dc_grace)
-    into v_unreported
+  select count(*) filter (where final_hp is null) into v_unreported
   from match_players where match_id = p_match_id;
 
   if not p_force and v_unreported > 0 and now() < v_deadline then
@@ -793,37 +788,31 @@ begin
     where hit_count <= c_max_firerate * win_secs
   ),
   hp as (
-    select mp.user_id, mp.seat, mp.final_hp, mp.last_seen,
+    select mp.user_id, mp.seat,
            greatest(0, 100 - coalesce(sum(v.dmg), 0))::int as hp
     from match_players mp
     left join valid v on v.victim = mp.user_id
-    group by mp.user_id, mp.seat, mp.final_hp, mp.last_seen
+    group by mp.user_id, mp.seat
   ),
   ranked as (
     select h.user_id, h.hp, h.seat,
            (f.attacker is not null) as is_flagged,
-           -- Disconnected AND never reported → eliminated (a player who reported
-           -- before leaving keeps their standing).
-           (h.final_hp is null and h.last_seen < now() - c_dc_grace) as is_dc,
            row_number() over (
-             -- Clean, connected players rank first; among them, highest HP then seat.
-             order by (f.attacker is not null
-                       or (h.final_hp is null and h.last_seen < now() - c_dc_grace)) asc,
-                      h.hp desc, h.seat asc
+             -- Clean players rank first; among them, highest HP then lowest seat.
+             order by (f.attacker is not null) asc, h.hp desc, h.seat asc
            ) as rn
     from hp h
     left join flagged f on f.attacker = h.user_id
   )
   select
-    (select user_id from ranked where rn = 1 and not is_flagged and not is_dc),
+    (select user_id from ranked where rn = 1 and not is_flagged),
     (select coalesce(array_agg(user_id), '{}') from ranked where is_flagged),
     jsonb_build_object(
       'secs',  v_secs,
       'caps',  jsonb_build_object('dps', c_max_dps, 'firerate', c_max_firerate),
-      'hp',    (select jsonb_agg(jsonb_build_object('user_id', user_id, 'hp', hp, 'seat', seat, 'flagged', is_flagged, 'dc', is_dc)
+      'hp',    (select jsonb_agg(jsonb_build_object('user_id', user_id, 'hp', hp, 'seat', seat, 'flagged', is_flagged)
                                  order by hp desc, seat asc) from ranked),
       'flagged',      (select coalesce(jsonb_agg(attacker), '[]'::jsonb) from flagged),
-      'disconnected', (select coalesce(jsonb_agg(user_id), '[]'::jsonb) from ranked where is_dc),
       'attacker_out', (select jsonb_object_agg(attacker::text, out_total) from attacker_totals)
     )
     into v_winner, v_forfeited, v_meta;
