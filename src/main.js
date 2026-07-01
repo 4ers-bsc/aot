@@ -208,40 +208,17 @@ function kickForManipulation(reason) {
   setTimeout(() => { try { window.location.reload(); } catch (_) {} }, 1600);
 }
 
-// Devtools watch during a live match. Self-contained (no external library) and
-// designed to NEVER affect gameplay: it does not pause (no `debugger`), does not
-// block (no `alert`), and everything is wrapped so a fault can't stall the game
-// loop. If the console is opened, the player is removed with a warning.
+// Client-side console/devtools detection is DISABLED.
 //
-// Detection is event-based: logging a bait value fires a getter / toString only
-// when the console panel actually renders it (open). A closed console never trips
-// it, so there are no false-positive kicks during normal play.
+// It ran only during PvP matches and repeatedly risked breaking real gameplay:
+// the on-detect overlay blocked input to the arena, and the console baits could
+// false-fire in real browsers. Anti-cheat enforcement is server-side and does
+// not depend on this (impossible-write rejection, forfeit + auto-ban of
+// cheaters, non-browser/curl ban, and rate limiting). These remain no-op stubs
+// so the call sites (match start / teardown) stay harmless; re-enable only as
+// telemetry (never a kick) if desired.
 let _integrityTimer = null;
-function _onConsoleOpen() {
-  if (_kicked) return;
-  if (state.match?.mode === "pvp" && !state.match?.finished) {
-    reportIntegritySignal("devtools_open", {});
-    kickForManipulation("Do not open the developer console. You have been removed from the match.");
-  }
-}
-function startIntegrityWatch() {
-  stopIntegrityWatch();
-  const objBait = {};
-  Object.defineProperty(objBait, "id", { configurable: true, get() { _onConsoleOpen(); return ""; } });
-  const styleBait = document.createElement("div");
-  styleBait.toString = function () { _onConsoleOpen(); return ""; };
-  const check = () => {
-    if (_kicked) return;
-    try {
-      // eslint-disable-next-line no-console
-      console.log(objBait);
-      // eslint-disable-next-line no-console
-      console.log("%c", styleBait);
-      console.clear();
-    } catch (_) { /* never let detection break the game */ }
-  };
-  _integrityTimer = setInterval(check, 1500);
-}
+function startIntegrityWatch() { /* disabled — see note above */ }
 function stopIntegrityWatch() {
   if (_integrityTimer) { clearInterval(_integrityTimer); _integrityTimer = null; }
 }
@@ -411,7 +388,13 @@ function bindUi() {
     els.pauseOverlay.classList.remove("show");
     els.howToOverlay.classList.add("show");
   });
-  els.leaveMatchBtn.addEventListener("click", () => { els.pauseOverlay.classList.remove("show"); leaveMatch(); });
+  els.leaveMatchBtn.addEventListener("click", async () => {
+    els.pauseOverlay.classList.remove("show");
+    // A confirmed leave fully reloads the page for a clean slate (matches the
+    // game-over "Main Menu" behavior). A cancelled forfeit prompt does not.
+    const left = await leaveMatch();
+    if (left) window.location.reload();
+  });
   document.getElementById("pauseSettingsBtn")?.addEventListener("click", () => {
     els.pauseOverlay.classList.remove("show");
     game.openSettings();
@@ -1425,13 +1408,13 @@ async function leaveMatch({ silent = false } = {}) {
   hidePvpLobby();
   hideGameOver();
   cancelMatchStart();
-  if (!state.match) { if (!silent) setStatus("You're not in a match."); return; }
+  if (!state.match) { if (!silent) setStatus("You're not in a match."); return false; }
   if (state.match.mode === "pvp") {
     if (state.match.status === "waiting" && state.pendingDepositTx == null && !silent) {
       const ok = await confirmDialog(
         "You have already paid the entry fee. Leaving now forfeits your deposit — the pot stays in the contract. Continue?"
       );
-      if (!ok) return;
+      if (!ok) return false;
     }
     try { await supabase.rpc("leave_my_matches"); } catch (error) { console.error(error); }
     try { await syncProfile(); } catch (error) { console.error(error); } // pick up any recorded loss
@@ -1444,6 +1427,7 @@ async function leaveMatch({ silent = false } = {}) {
   game.setMapVariant("game");
   showLobby();
   if (!silent) setStatus(recordSuffix("Left the match."));
+  return true;
 }
 
 async function teardownMatch(keepMatch = false) {
