@@ -725,6 +725,7 @@ declare
   v_dmg_total  bigint;
   v_winner     uuid;
   v_forfeited  uuid[];
+  v_live       uuid[];
   v_disputed   boolean := false;
   v_meta       jsonb;
   -- Physical ceilings (buffer over real stats: sword ~40 dps, ~1.4 hits/s).
@@ -759,12 +760,34 @@ begin
   from match_damage where match_id = p_match_id;
 
   if v_dmg_total = 0 then
-    -- No combat recorded → no real contest.
-    update matches
-      set status = 'disputed', winner_user_id = NULL, ended_at = v_ended,
-          shadow_winner = NULL,
-          shadow_meta = jsonb_build_object('reason', 'no_combat', 'secs', v_secs)
-      where id = p_match_id and status not in ('finished', 'disputed');
+    -- No combat recorded. If everyone but one player has disconnected, that
+    -- player wins by walkover (last one standing). Otherwise it's a genuine
+    -- no-contest (e.g. nobody fought before the timer) → disputed.
+    -- "Live" = not (disconnected without reporting).
+    select coalesce(array_agg(user_id), '{}') into v_live
+    from match_players
+    where match_id = p_match_id
+      and not (final_hp is null and last_seen < now() - c_dc_grace);
+
+    if array_length(v_live, 1) = 1 then
+      update matches
+        set status = 'finished', winner_user_id = v_live[1], ended_at = v_ended,
+            shadow_winner = v_live[1],
+            -- Note: disconnected players are NOT added to forfeited_user_ids,
+            -- so a DC is a loss but never a ban (that's only for cheating).
+            forfeited_user_ids = '{}',
+            shadow_meta = jsonb_build_object('reason', 'walkover', 'secs', v_secs)
+        where id = p_match_id and status not in ('finished', 'disputed');
+      if found then
+        perform public.apply_match_result(p_match_id, v_live[1]);
+      end if;
+    else
+      update matches
+        set status = 'disputed', winner_user_id = NULL, ended_at = v_ended,
+            shadow_winner = NULL,
+            shadow_meta = jsonb_build_object('reason', 'no_combat', 'secs', v_secs)
+        where id = p_match_id and status not in ('finished', 'disputed');
+    end if;
     return;
   end if;
 

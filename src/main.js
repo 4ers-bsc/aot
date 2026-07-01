@@ -208,19 +208,54 @@ function kickForManipulation(reason) {
   setTimeout(() => { try { window.location.reload(); } catch (_) {} }, 1600);
 }
 
-// Client-side console/devtools detection is DISABLED.
-//
-// It ran only during PvP matches and repeatedly risked breaking real gameplay:
-// the on-detect overlay blocked input to the arena, and the console baits could
-// false-fire in real browsers. Anti-cheat enforcement is server-side and does
-// not depend on this (impossible-write rejection, forfeit + auto-ban of
-// cheaters, non-browser/curl ban, and rate limiting). These remain no-op stubs
-// so the call sites (match start / teardown) stay harmless; re-enable only as
-// telemetry (never a kick) if desired.
-let _integrityTimer = null;
-function startIntegrityWatch() { /* disabled — see note above */ }
+// Devtools watch during a live match — kicks the player if the console opens.
+// Uses the devtools-detector library, loaded lazily from the CDN and fully
+// wrapped so a load/detector fault can never affect gameplay (the earlier PvP
+// freeze was a heartbeat bug, not this). The kick is non-blocking (overlay +
+// reload, no alert).
+let _devtoolsDetector = null;
+let _dtListenerAdded = false;
+function onDevtoolsChange(isOpen) {
+  if (!isOpen || _kicked) return;
+  if (state.match?.mode === "pvp" && !state.match?.finished) {
+    reportIntegritySignal("devtools_open", {});
+    kickForManipulation("Do not open the developer console. You have been removed from the match.");
+  }
+}
+// Prefer a NON-PAUSING checker set (exclude the debugger checker so the game
+// never freezes); fall back to the library default if the module shape differs.
+function buildDetector(mod) {
+  const ns = (mod.default && typeof mod.default === "object") ? mod.default : mod;
+  const Detector = mod.DevtoolsDetector || ns.DevtoolsDetector;
+  const checkers = mod.checkers || ns.checkers;
+  if (Detector && checkers) {
+    const list = [
+      "regToStringChecker", "elementIdChecker", "functionToStringChecker",
+      "dateToStringChecker", "depRegToStringChecker", "devtoolsFormatterChecker",
+      "erudaChecker",
+    ].map((k) => checkers[k]).filter(Boolean);
+    if (list.length) { try { return new Detector({ checkers: list }); } catch (_) { /* fall through */ } }
+  }
+  const d = mod.devtoolsDetector
+    || (mod.default && typeof mod.default.launch === "function" ? mod.default : null)
+    || (typeof mod.launch === "function" ? mod : null);
+  return (d && typeof d.addListener === "function" && typeof d.launch === "function") ? d : null;
+}
+async function startIntegrityWatch() {
+  try {
+    if (!_devtoolsDetector) {
+      const mod = await import("https://esm.sh/devtools-detector@2.0.25");
+      _devtoolsDetector = buildDetector(mod);
+      if (!_devtoolsDetector) { console.error("devtools detector: unexpected module shape"); return; }
+    }
+    if (!_dtListenerAdded) { _devtoolsDetector.addListener(onDevtoolsChange); _dtListenerAdded = true; }
+    _devtoolsDetector.launch();
+  } catch (e) {
+    console.error("devtools detector unavailable:", e);
+  }
+}
 function stopIntegrityWatch() {
-  if (_integrityTimer) { clearInterval(_integrityTimer); _integrityTimer = null; }
+  try { _devtoolsDetector?.stop(); } catch (_) { /* not launched */ }
 }
 
 // Liveness heartbeat: while in an active match, tell the server we're still here
