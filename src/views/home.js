@@ -48,5 +48,10 @@ export const html = `
       <div class="info-tile-label">ENTRY PER PLAYER</div>
       <div class="info-tile-desc">Last one standing<br>takes the entire pot.</div>
     </div>
+    <div class="info-tile info-tile-online">
+      <div class="info-tile-multi"><span class="online-dot"></span><span id="onlineCount">—</span></div>
+      <div class="info-tile-label">ONLINE NOW</div>
+      <div class="info-tile-desc">Players in the<br>app right now.</div>
+    </div>
   </div>
 `;

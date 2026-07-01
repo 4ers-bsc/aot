@@ -22,6 +22,7 @@ drop function if exists public.join_pvp_match(uuid, smallint, text, text, text);
 drop function if exists public.join_pvp_match(smallint, text, text, text);
 drop function if exists public.join_pvp_match(smallint, text, text);
 drop function if exists public.join_pvp_match(smallint, text);
+drop function if exists public.pvp_capacity();
 drop function if exists public.leave_my_matches();
 drop function if exists public.level_for_points(integer);
 drop function if exists public.sync_my_profile(text);
@@ -464,6 +465,21 @@ begin
     );
   end if;
 
+  -- Global capacity cap: never seat more than 150 wallets across all live
+  -- matches at once. Only applies to a NEW seat (rejoins already returned
+  -- above). The client checks pvp_capacity() before charging the entry fee
+  -- so this should rarely trip, but it's the authoritative check — the
+  -- client-side one is advisory only. An advisory lock serializes concurrent
+  -- callers here so a burst of simultaneous joins can't all read the same
+  -- under-cap count and overshoot together; it's released automatically at
+  -- the end of this transaction.
+  perform pg_advisory_xact_lock(hashtext('fight10_pvp_capacity'));
+  if (select count(*) from public.match_players mp
+      join public.matches m on m.id = mp.match_id
+      where m.status in ('waiting', 'active')) >= public.pvp_capacity_cap() then
+    raise exception 'servers_full: % player cap reached, try again shortly', public.pvp_capacity_cap();
+  end if;
+
   -- Find a waiting match of the right size with a free seat, lock it
   select m.id into v_match_id
   from   public.matches m
@@ -529,6 +545,42 @@ begin
     'max_players', v_size
   );
 end;
+$$;
+
+-- ---------------------------------------------------------------------------
+-- 4b. pvp_capacity / pvp_capacity_cap — global concurrent-player cap.
+--     The cap lives in one place (this function) so join_pvp_match's
+--     authoritative check and the client's pre-payment check can't drift.
+--     Bump the constant here to change the cap; no other code references it.
+-- ---------------------------------------------------------------------------
+create or replace function public.pvp_capacity_cap()
+returns int
+language sql
+immutable
+as $$
+  select 150;
+$$;
+
+-- Public, RLS-free read of how many wallets currently hold a live match seat.
+-- match_players/matches RLS only exposes 'active' matches to non-members
+-- (not 'waiting' lobbies), so a plain client-side count would undercount —
+-- this security definer function reports the true global total instead.
+-- Client-side only: it lets the client warn (and skip charging the
+-- non-refundable entry fee) before a wallet ever joins a full queue. The
+-- authoritative check is the one inside join_pvp_match itself.
+create or replace function public.pvp_capacity()
+returns jsonb
+language sql
+security definer
+set search_path = public
+stable
+as $$
+  select jsonb_build_object(
+    'active', (select count(*) from public.match_players mp
+               join public.matches m on m.id = mp.match_id
+               where m.status in ('waiting', 'active')),
+    'cap',    public.pvp_capacity_cap()
+  );
 $$;
 
 -- ---------------------------------------------------------------------------
@@ -1191,6 +1243,8 @@ grant execute on function public.try_finalize(uuid)                    to authen
 grant execute on function public.claim_payout_slot(uuid)               to authenticated;
 grant execute on function public.level_for_points(integer)             to authenticated;
 grant execute on function public.match_duration_seconds(smallint)      to authenticated, service_role, anon;
+grant execute on function public.pvp_capacity()                        to authenticated, anon;
+grant execute on function public.pvp_capacity_cap()                    to authenticated, anon;
 
 -- apply_match_result, finalize_match and close_stale_matches are internal:
 -- finalize_match is only ever called from finish_match (a security-definer

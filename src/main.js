@@ -90,8 +90,10 @@ const els = {
   pvpLobbyStatus: document.getElementById("pvpLobbyStatus"),
   pvpLobbyMeta: document.getElementById("pvpLobbyMeta"),
   pvpLobbyWarning: document.getElementById("pvpLobbyWarning"),
+  pvpLobbyOnline: document.getElementById("pvpLobbyOnline"),
   lobbyPlayers: document.getElementById("lobbyPlayers"),
   pvpCancelBtn: document.getElementById("pvpCancelBtn"),
+  onlineCount: document.getElementById("onlineCount"),
   matchStarting: document.getElementById("matchStarting"),
   matchStartCount: document.getElementById("matchStartCount"),
   gameOver: document.getElementById("gameOver"),
@@ -125,6 +127,7 @@ const state = {
   // Per-lobby match length, loaded from the match_config table (single source of
   // truth shared with the server). Seeded with the defaults as a fallback.
   matchDurations: { 2: 300, 5: 420, 10: 600 },
+  presenceChannel: null,
 };
 
 // Load per-lobby match durations from the DB so the client timer matches the
@@ -138,6 +141,41 @@ async function loadMatchConfig() {
     for (const r of data) state.matchDurations[r.max_players] = r.duration_seconds;
   } catch (e) {
     console.error("loadMatchConfig error:", e);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Live "players online" count — anyone with the app open, not just players in
+// a match. Uses a Realtime presence channel rather than a DB table: presence
+// membership already IS the count, no polling or writes needed. Independent
+// of login — an anonymous per-tab key (cached in sessionStorage so a reload
+// doesn't register as a second visitor) is used until/unless the wallet
+// connects, at which point tracking continues under the same channel.
+function startOnlinePresence() {
+  let key = sessionStorage.getItem("f10_presence_key");
+  if (!key) {
+    key = crypto.randomUUID();
+    sessionStorage.setItem("f10_presence_key", key);
+  }
+  try {
+    const channel = supabase.channel("online-players", { config: { presence: { key } } });
+    channel
+      .on("presence", { event: "sync" }, () => {
+        renderOnlineCount(Object.keys(channel.presenceState()).length);
+      })
+      .subscribe((status) => {
+        if (status === "SUBSCRIBED") channel.track({ online_at: Date.now() });
+      });
+    state.presenceChannel = channel;
+  } catch (e) {
+    console.error("startOnlinePresence error:", e);
+  }
+}
+
+function renderOnlineCount(count) {
+  if (els.onlineCount) els.onlineCount.textContent = String(count);
+  if (els.pvpLobbyOnline) {
+    els.pvpLobbyOnline.textContent = `${count} player${count === 1 ? "" : "s"} online`;
   }
 }
 
@@ -473,6 +511,7 @@ async function init() {
 
   if (statusEl) statusEl.textContent = "Connecting…";
   loadMatchConfig(); // fire-and-forget; ready well before any match starts
+  startOnlinePresence(); // fire-and-forget; independent of auth/login state
   supabase.auth.onAuthStateChange((_event, session) => {
     handleSession(session).catch((error) => {
       console.error(error);
@@ -844,6 +883,18 @@ async function joinPvp(maxPlayers) {
     // ── Step 1: deposit on-chain (if not already done from a previous failed attempt) ──
     let txSig = state.pendingDepositTx;
     if (!txSig) {
+      // Capacity check BEFORE payment — the entry fee is non-refundable, so a
+      // full server must never even get to the payment prompt. Advisory only:
+      // join_pvp_match enforces the real cap server-side, so a failure here
+      // (or a race that lets someone slip past) just falls through to that
+      // authoritative check instead of wrongly blocking a legitimate join.
+      try {
+        const { data: capacity } = await supabase.rpc("pvp_capacity");
+        if (capacity && capacity.active >= capacity.cap) {
+          setStatus(`Servers are full (${capacity.active}/${capacity.cap} players online). Try again in a few minutes.`);
+          return;
+        }
+      } catch (_) { /* best-effort; server-side join_pvp_match is authoritative */ }
       // Warn BEFORE payment — the entry fee is non-refundable once paid.
       // Uses the non-blocking confirmDialog (window.confirm freezes the render loop).
       const ok = await confirmDialog(

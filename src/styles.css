@@ -543,6 +543,13 @@ textarea:focus {
   text-shadow: 0 0 12px rgba(255, 255, 255, 0.3);
 }
 
+.info-tile-online .info-tile-multi {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: #ffffff;
+}
+
 
 /* ===== HUD rail ===== */
 .hud-rail {
@@ -900,6 +907,32 @@ textarea:focus {
   text-align: center;
 }
 .pvp-lobby-warning.hidden { display: none; }
+
+.pvp-lobby-online {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-family: ui-monospace, "SF Mono", monospace;
+  font-size: 11px;
+  color: var(--soft);
+  letter-spacing: 0.04em;
+}
+
+.online-dot {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  background: #4caf6e;
+  box-shadow: 0 0 6px rgba(76, 175, 110, 0.7);
+  animation: online-pulse 1.6s ease-in-out infinite;
+}
+
+@keyframes online-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.35; }
+}
 
 .pvp-lobby-cancel {
   margin-top: 6px;
