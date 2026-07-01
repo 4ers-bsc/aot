@@ -698,6 +698,10 @@ $$;
 
 -- ---------------------------------------------------------------------------
 -- 8b. finalize_match — LEDGER-AUTHORITATIVE settlement (Option A, Phase 2).
+--     CANONICAL DEFINITION. Kept byte-for-byte in sync with the incremental
+--     migration supabase/migrations/20260705_finalize_match_canonical.sql —
+--     edit both together (this is the from-scratch path; that is the upgrade
+--     path for already-provisioned databases).
 --     Decides the winner from match_damage, not from self-reported final_hp.
 --     Each player's HP = 100 − the validated damage OTHERS reported dealing
 --     them, so a client cannot inflate its own survival. Two caps reject
