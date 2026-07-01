@@ -726,7 +726,7 @@ async function retryPayout() {
 // ({ status, winner_user_id }) once status is 'finished' or 'disputed', or null
 // on timeout. Phase 2: the winner is decided server-side from the combat ledger,
 // so the client must read the verdict here rather than trust its own detection.
-async function awaitSettlement(matchId, timeoutMs = 24000) {
+async function awaitSettlement(matchId, timeoutMs = 12000) {
   const deadline = Date.now() + timeoutMs;
   let delay = 800;
   while (Date.now() < deadline) {
@@ -736,45 +736,41 @@ async function awaitSettlement(matchId, timeoutMs = 24000) {
       .eq("id", matchId)
       .single();
     if (data?.status === "finished" || data?.status === "disputed") return data;
-    // Not settled yet — nudge finalize in case an opponent disconnected. It
-    // settles once their heartbeat is stale past the grace window; no-op
-    // otherwise (idempotent), so this is safe on normal matches too.
-    try { await supabase.rpc("try_finalize", { p_match_id: matchId }); } catch (_) {}
     await new Promise((r) => setTimeout(r, delay));
-    delay = Math.min(delay * 2, 4000);
+    delay = Math.min(delay * 2, 5000);
   }
   return null;
 }
 
-// Display names for every player in a match, keyed by user_id. Used to label the
-// server-authoritative standings so both clients show identical rows.
-async function fetchMatchPlayerNames(matchId) {
+// The actual participants of a match (bounded by max_players ≤ 10). This is the
+// authoritative roster used to build the game-over standings — NOT the local
+// game state, which can accumulate ghost/duplicate opponents.
+async function fetchMatchPlayers(matchId) {
   try {
     const { data } = await supabase
-      .from("match_players").select("user_id, display_name").eq("match_id", matchId);
-    const map = {};
-    (data || []).forEach((p) => { map[p.user_id] = p.display_name; });
-    return map;
-  } catch (_) { return {}; }
+      .from("match_players").select("user_id, display_name, seat").eq("match_id", matchId);
+    return data || [];
+  } catch (_) { return []; }
 }
 
-// Build standings from the SERVER's settled HP (matches.shadow_meta.hp), which
-// finalize_match derives identically for everyone from the validated combat
-// ledger. This replaces each client's local HP guess, so the winner and loser
-// screens always agree. Returns null when the match had no per-player HP
-// (e.g. a no-combat dispute) so callers can fall back to local standings.
-function serverStandings(settled, nameByUser) {
-  const hp = settled?.shadow_meta?.hp;
-  if (!Array.isArray(hp) || !hp.length) return null;
-  return [...hp]
-    .sort((a, b) => (b.hp - a.hp) || ((a.seat ?? 0) - (b.seat ?? 0)))
-    .map((e, i) => ({
-      rank: i + 1,
-      name: nameByUser?.[e.user_id] || "Fighter",
-      hp: Math.max(0, e.hp),
-      me: e.user_id === state.user?.id,
-      flagged: !!e.flagged,
-    }));
+// Build standings STRICTLY from the match's real players, attaching each one's
+// server-derived HP (matches.shadow_meta.hp) when available so the winner and
+// loser screens agree. Bounding to match_players prevents phantom rows.
+function buildBoundedStandings(players, settled) {
+  const hpByUser = {};
+  const arr = settled?.shadow_meta?.hp;
+  if (Array.isArray(arr)) {
+    arr.forEach((e) => { hpByUser[e.user_id] = { hp: Math.max(0, e.hp), flagged: !!e.flagged }; });
+  }
+  const rows = players.map((p) => ({
+    name: p.display_name,
+    seat: p.seat ?? 0,
+    hp: hpByUser[p.user_id]?.hp ?? null,
+    flagged: hpByUser[p.user_id]?.flagged ?? false,
+    me: p.user_id === state.user?.id,
+  }));
+  rows.sort((a, b) => ((b.hp ?? -1) - (a.hp ?? -1)) || (a.seat - b.seat));
+  return rows.map((r, i) => ({ rank: i + 1, name: r.name, hp: r.hp ?? 0, me: r.me, flagged: r.flagged }));
 }
 
 function renderStandings(standings) {
@@ -1266,11 +1262,10 @@ async function beginMatch(skipCountdown = false, startAt = null) {
   game.generateMap(state.match?.id || "pvp");  // seed by match id so all clients match
   game.resetForMatch(state.match?.id, state.seat);
   ledger.reset();
-  // Never let anti-cheat / heartbeat setup abort the match start (which would
-  // leave the player uncontrollable).
+  // Never let anti-cheat setup abort the match start (which would leave the
+  // player uncontrollable).
   if (state.match?.mode === "pvp") {
     try { startIntegrityWatch(); } catch (e) { console.error(e); }
-    try { startHeartbeat(state.match?.id); } catch (e) { console.error(e); }
   }
   game.setMatchPhase("countdown");
   game.setControllable(false);
@@ -1308,33 +1303,23 @@ async function beginMatch(skipCountdown = false, startAt = null) {
 // ---------------------------------------------------------------------------
 // Result handling (PvP only) — loser is whoever hits 0 HP or disconnects
 // ---------------------------------------------------------------------------
-// A rival dropped the connection: remove them. If they were the last one and
-// we're still standing, we take the win — but only if the server hasn't already
-// settled the match with a different winner (e.g. winner legitimately won, claimed
-// payout, then left; without this check the loser would see a false victory).
+// A rival dropped the connection. Per design, a disconnect does NOTHING to the
+// match: we just remove the ghost avatar and leave the match running — it settles
+// naturally at its timer. We only reconcile if the server has ALREADY settled
+// (e.g. the rival won, claimed, then left), so a stale client shows the real
+// verdict instead of hanging.
 async function handleOpponentLeft(userId) {
   state.remoteIds.delete(userId);
-  const remaining = game.removeOpponent(userId);
+  game.removeOpponent(userId);
   if (state.match?.mode !== "pvp" || state.match.finished || !state.started) return;
-  if (remaining === 0 && game.playerAlive()) {
-    const { data: matchRow } = await supabase
-      .from("matches")
-      .select("status, winner_user_id")
-      .eq("id", state.match.id)
-      .maybeSingle();
-
-    if (matchRow?.status === "finished" || matchRow?.status === "disputed") {
-      // Already settled server-side. If we're not the recorded winner, surface
-      // the authoritative outcome (loss or no-contest) rather than a false win.
-      if (matchRow.winner_user_id !== state.user?.id) {
-        reportResult("loss", { standings: game.standings() }).catch(console.error);
-      }
-      return;
-    }
-
-    // Match still active — opponent genuinely disconnected mid-game. The server
-    // still has the final say (this resolves to a win only if the ledger backs it).
-    reportResult("win", { standings: game.standings() }).catch((e) => console.error(e));
+  const { data: matchRow } = await supabase
+    .from("matches")
+    .select("status, winner_user_id")
+    .eq("id", state.match.id)
+    .maybeSingle();
+  if (matchRow?.status === "finished" || matchRow?.status === "disputed") {
+    reportResult(matchRow.winner_user_id === state.user?.id ? "win" : "loss",
+      { standings: game.standings() }).catch(console.error);
   }
 }
 
@@ -1397,10 +1382,10 @@ async function reportResult(resultHint, { standings = [] } = {}) {
   const serverKills = await fetchVerifiedKills(matchId);
   try { await syncProfile(); } catch (e) { console.error(e); }
 
-  // Prefer the server-authoritative standings + duration so the winner's and
-  // loser's screens always show identical HP (local HP desyncs between clients).
-  const nameByUser = await fetchMatchPlayerNames(matchId);
-  const finalStandings = serverStandings(settled, nameByUser) || standings;
+  // Standings built strictly from the match's real players (bounded ≤ 10), with
+  // server-derived HP + duration so both screens agree and no phantom rows appear.
+  const matchPlayers = await fetchMatchPlayers(matchId);
+  const finalStandings = matchPlayers.length ? buildBoundedStandings(matchPlayers, settled) : standings;
   const srvSecs = settled?.shadow_meta?.secs;
   const finalTimeMs = Number.isFinite(srvSecs) ? Math.round(srvSecs * 1000) : matchTimeMs;
 
@@ -1478,7 +1463,6 @@ async function leaveMatch({ silent = false } = {}) {
 async function teardownMatch(keepMatch = false) {
   stopPingLoop();
   stopIntegrityWatch();
-  stopHeartbeat();
   if (state.depositPollTimer) { clearInterval(state.depositPollTimer); state.depositPollTimer = null; }
   if (state.startFallbackTimer) { clearTimeout(state.startFallbackTimer); state.startFallbackTimer = null; }
   state.pendingDepositTx = null;
