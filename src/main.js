@@ -411,7 +411,13 @@ function bindUi() {
     els.pauseOverlay.classList.remove("show");
     els.howToOverlay.classList.add("show");
   });
-  els.leaveMatchBtn.addEventListener("click", () => { els.pauseOverlay.classList.remove("show"); leaveMatch(); });
+  els.leaveMatchBtn.addEventListener("click", async () => {
+    els.pauseOverlay.classList.remove("show");
+    // A confirmed leave fully reloads the page for a clean slate (matches the
+    // game-over "Main Menu" behavior). A cancelled forfeit prompt does not.
+    const left = await leaveMatch();
+    if (left) window.location.reload();
+  });
   document.getElementById("pauseSettingsBtn")?.addEventListener("click", () => {
     els.pauseOverlay.classList.remove("show");
     game.openSettings();
@@ -1425,13 +1431,13 @@ async function leaveMatch({ silent = false } = {}) {
   hidePvpLobby();
   hideGameOver();
   cancelMatchStart();
-  if (!state.match) { if (!silent) setStatus("You're not in a match."); return; }
+  if (!state.match) { if (!silent) setStatus("You're not in a match."); return false; }
   if (state.match.mode === "pvp") {
     if (state.match.status === "waiting" && state.pendingDepositTx == null && !silent) {
       const ok = await confirmDialog(
         "You have already paid the entry fee. Leaving now forfeits your deposit — the pot stays in the contract. Continue?"
       );
-      if (!ok) return;
+      if (!ok) return false;
     }
     try { await supabase.rpc("leave_my_matches"); } catch (error) { console.error(error); }
     try { await syncProfile(); } catch (error) { console.error(error); } // pick up any recorded loss
@@ -1444,6 +1450,7 @@ async function leaveMatch({ silent = false } = {}) {
   game.setMapVariant("game");
   showLobby();
   if (!silent) setStatus(recordSuffix("Left the match."));
+  return true;
 }
 
 async function teardownMatch(keepMatch = false) {
