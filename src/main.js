@@ -230,7 +230,12 @@ let _heartbeatTimer = null;
 function startHeartbeat(matchId) {
   stopHeartbeat();
   if (!matchId) return;
-  const beat = () => { supabase.rpc("heartbeat", { p_match_id: matchId }).catch(() => {}); };
+  // NB: supabase.rpc() returns a thenable (not a real Promise), so `.catch()`
+  // does not exist on it — calling it would throw synchronously. Await inside a
+  // try/catch instead so a heartbeat failure can never break the caller.
+  const beat = async () => {
+    try { await supabase.rpc("heartbeat", { p_match_id: matchId }); } catch (_) {}
+  };
   beat();
   _heartbeatTimer = setInterval(beat, 5000);
 }
@@ -1226,7 +1231,12 @@ async function beginMatch(skipCountdown = false, startAt = null) {
   game.generateMap(state.match?.id || "pvp");  // seed by match id so all clients match
   game.resetForMatch(state.match?.id, state.seat);
   ledger.reset();
-  if (state.match?.mode === "pvp") { startIntegrityWatch(); startHeartbeat(state.match?.id); }
+  // Never let anti-cheat / heartbeat setup abort the match start (which would
+  // leave the player uncontrollable).
+  if (state.match?.mode === "pvp") {
+    try { startIntegrityWatch(); } catch (e) { console.error(e); }
+    try { startHeartbeat(state.match?.id); } catch (e) { console.error(e); }
+  }
   game.setMatchPhase("countdown");
   game.setControllable(false);
   startPingLoop();
