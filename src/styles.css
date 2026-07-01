@@ -1420,7 +1420,7 @@ body.in-game .log-feed { top: 58px; }
 
 .history-row {
   display: grid;
-  grid-template-columns: 64px 1fr auto;
+  grid-template-columns: 64px 1fr auto auto;
   align-items: center;
   gap: 10px;
   padding: 10px 12px;
@@ -1444,7 +1444,17 @@ body.in-game .log-feed { top: 58px; }
 .hr-loss .hr-result { color: #c23b30; }
 
 .hr-mode { color: #51626f; font-size: 13px; letter-spacing: 0.04em; }
-.hr-date { color: #8a939c; font-size: 12px; }
+.hr-date { color: #8a939c; font-size: 12px; white-space: nowrap; }
+.hr-tx {
+  font-family: var(--font-head);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: #d9c66e;
+  text-decoration: none;
+  white-space: nowrap;
+}
+.hr-tx:hover { color: #f4e9b6; text-decoration: underline; }
 
 .history-empty {
   padding: 24px 8px;
@@ -2782,6 +2792,22 @@ body.in-game .game-hud-root {
   filter: drop-shadow(0 0 10px rgba(217,198,110,0.30));
   line-height: 1.15;
 }
+
+.go-prize-tx {
+  margin-top: 4px;
+  font-family: var(--font-head);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: rgba(217, 198, 110, 0.85);
+  text-decoration: none;
+  border-bottom: 1px solid rgba(217, 198, 110, 0.35);
+  padding-bottom: 1px;
+  transition: color 0.15s ease, border-color 0.15s ease;
+}
+.go-prize-tx:hover { color: #f4e9b6; border-color: rgba(244, 233, 182, 0.7); }
+.go-prize-tx.hidden { display: none; }
 
 /* ===========================================================================
    Responsive — current home layout. The earlier @media blocks target an older

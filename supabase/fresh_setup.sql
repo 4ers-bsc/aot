@@ -27,7 +27,18 @@ drop function if exists public.level_for_points(integer);
 drop function if exists public.sync_my_profile(text);
 drop function if exists public.is_match_member(uuid) cascade;
 drop function if exists public.handle_new_user();
+drop function if exists public.enforce_rate_limit(text, int, interval);
+drop function if exists public.report_integrity_signal(uuid, text, jsonb);
+drop function if exists public.is_banned(uuid);
+drop function if exists public.ban_user(uuid, text);
+drop function if exists public.ban_forfeited() cascade;
+drop function if exists public.validate_match_damage() cascade;
+drop function if exists public.validate_match_kills() cascade;
 
+drop table if exists public.banned_users    cascade;
+drop table if exists public.payouts          cascade;
+drop table if exists public.integrity_signals cascade;
+drop table if exists public.rate_limits      cascade;
 drop table if exists public.match_config   cascade;
 drop table if exists public.match_damage   cascade;
 drop table if exists public.match_kills    cascade;
@@ -158,6 +169,31 @@ create table public.integrity_signals (
   created_at timestamptz not null default now()
 );
 
+-- Payout ledger — one record per winning payout with the on-chain tx signature,
+-- surfaced as an explorer link in the victory screen and match history. Written
+-- by the payout edge function (service role); matches.payout_tx stays the claim
+-- source of truth.
+create table public.payouts (
+  match_id       uuid     not null references public.matches(id) on delete cascade,
+  winner_user_id uuid     not null references auth.users(id) on delete cascade,
+  payout_tx      text     not null,
+  amount_raw     bigint   not null,
+  decimals       smallint not null default 6,
+  num_players    int      not null default 0,
+  created_at     timestamptz not null default now(),
+  primary key (match_id)
+);
+create index if not exists idx_payouts_winner on public.payouts(winner_user_id, created_at desc);
+
+-- Banned accounts — cannot join or play. Set automatically on forfeit for
+-- impossible combat output, or by the edge functions on non-browser requests.
+create table public.banned_users (
+  user_id    uuid primary key references auth.users(id) on delete cascade,
+  wallet     text,
+  reason     text,
+  created_at timestamptz not null default now()
+);
+
 create unique index if not exists idx_matches_match_no on public.matches(match_no);
 create index if not exists idx_matches_waiting    on public.matches(status, created_at);
 create index if not exists idx_match_players_user on public.match_players(user_id, joined_at desc);
@@ -270,6 +306,62 @@ begin
 end;
 $$;
 
+-- is_banned / ban_user — account bans. ban_user records the wallet and ejects the
+-- account from any open match (combined with RLS, this neutralises them).
+create or replace function public.is_banned(p_user_id uuid)
+returns boolean
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select exists (select 1 from public.banned_users where user_id = p_user_id);
+$$;
+
+create or replace function public.ban_user(p_user_id uuid, p_reason text)
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  if p_user_id is null then return; end if;
+
+  insert into public.banned_users (user_id, wallet, reason)
+  values (
+    p_user_id,
+    (select wallet_address from public.profiles where user_id = p_user_id),
+    left(coalesce(p_reason, 'violation'), 200)
+  )
+  on conflict (user_id) do nothing;
+
+  delete from public.match_players mp
+  using public.matches m
+  where mp.user_id = p_user_id
+    and mp.match_id = m.id
+    and m.status in ('waiting', 'active');
+end;
+$$;
+
+-- Auto-ban players forfeited for impossible combat output (set by finalize_match
+-- in matches.forfeited_user_ids). Runs in a trigger so the ban commits with the
+-- settlement.
+create or replace function public.ban_forfeited()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  u uuid;
+begin
+  foreach u in array new.forfeited_user_ids loop
+    perform public.ban_user(u, 'impossible_combat_output');
+  end loop;
+  return new;
+end;
+$$;
+
 -- ---------------------------------------------------------------------------
 -- 4. join_pvp_match — deposit-before-join, verified server-side.
 --    Service-role only: the f10join edge function verifies the deposit tx
@@ -304,6 +396,10 @@ begin
   -- is service-role only, so v_uid is trusted.
   if v_uid is null then
     raise exception 'not_authenticated';
+  end if;
+
+  if public.is_banned(v_uid) then
+    raise exception 'banned: this account is banned from play';
   end if;
 
   if p_deposit_tx is null or trim(p_deposit_tx) = '' then
@@ -924,6 +1020,26 @@ alter table public.match_config enable row level security;
 -- functions; RLS on with no policies blocks all direct client access.
 alter table public.rate_limits       enable row level security;
 alter table public.integrity_signals enable row level security;
+alter table public.payouts           enable row level security;
+alter table public.banned_users      enable row level security;
+
+-- Payouts: a player can read their own; inserts come only from the service role.
+create policy "payouts_select_own"
+on public.payouts for select to authenticated
+using (winner_user_id = auth.uid());
+
+-- Bans: a player can check their own ban status; only the service role writes.
+create policy "banned_select_own"
+on public.banned_users for select to authenticated
+using (user_id = auth.uid());
+
+drop trigger if exists trg_ban_forfeited on public.matches;
+create trigger trg_ban_forfeited
+  after update of forfeited_user_ids on public.matches
+  for each row
+  when (new.forfeited_user_ids is distinct from old.forfeited_user_ids
+        and coalesce(array_length(new.forfeited_user_ids, 1), 0) > 0)
+  execute function public.ban_forfeited();
 
 -- Match config: world-readable (non-sensitive; clients read it to set the timer).
 create policy "match_config_select_all"
@@ -979,10 +1095,14 @@ grant select on public.match_players to authenticated;
 grant select, insert on public.match_damage to authenticated;
 grant select, insert on public.match_kills  to authenticated;
 grant select on public.match_config to authenticated, anon;
+grant select on public.payouts      to authenticated;
+grant select on public.banned_users to authenticated;
 
 grant execute on function public.sync_my_profile(text)                 to authenticated;
 grant execute on function public.enforce_rate_limit(text, int, interval) to authenticated, service_role;
 grant execute on function public.report_integrity_signal(uuid, text, jsonb) to authenticated;
+grant execute on function public.is_banned(uuid)              to authenticated, service_role;
+grant execute on function public.ban_user(uuid, text)         to service_role;
 -- join_pvp_match is service-role only: the f10join edge function verifies the
 -- deposit on-chain BEFORE calling it, so the browser cannot admit an unverified
 -- deposit by calling the RPC directly.

@@ -196,36 +196,41 @@ function kickForManipulation(reason) {
   window.location.reload();
 }
 
-// Soft integrity watch: best-effort devtools/tamper detection. TELEMETRY ONLY —
-// it reports a signal for review and never auto-forfeits, because every known
-// console-detection trick has false positives and wrongly forfeiting a paid
-// match would rob honest players. Real enforcement is server-side (above).
+// Devtools watch during a live match. If the developer console is opened, the
+// player is removed from the match with a warning (it does NOT pause the game).
+// Detection is non-pausing: a docked DevTools panel opens a large gap between
+// the window's outer and inner size. Thresholds are conservative to avoid
+// false-positive kicks from normal browser chrome. (Undocked/detached DevTools
+// can't be detected this way — server-side authority remains the real defence.)
 let _integrityTimer = null;
-let _integrityReported = false;
 function startIntegrityWatch() {
   stopIntegrityWatch();
-  _integrityReported = false;
-  _integrityTimer = setInterval(() => {
-    // Timing trap: a paused debugger makes this take far longer than a few ms.
-    // Threshold kept high to minimise false positives on slow devices.
-    const t0 = performance.now();
-    debugger; // eslint-disable-line no-debugger
-    const dt = performance.now() - t0;
-    if (dt > 200 && !_integrityReported) {
-      _integrityReported = true;
-      reportIntegritySignal("devtools_suspected", { dt: Math.round(dt) });
+  const check = () => {
+    if (_kicked) return;
+    const wGap = window.outerWidth - window.innerWidth;
+    const hGap = window.outerHeight - window.innerHeight;
+    if (wGap > 220 || hGap > 220) {
+      reportIntegritySignal("devtools_open", { wGap, hGap });
+      kickForManipulation("Do not open the developer console. You have been removed from the match.");
     }
-  }, 4000);
+  };
+  _integrityTimer = setInterval(check, 1200);
+  check();
 }
 function stopIntegrityWatch() {
   if (_integrityTimer) { clearInterval(_integrityTimer); _integrityTimer = null; }
 }
+let _integrityRpcDisabled = false;
 async function reportIntegritySignal(kind, detail) {
+  if (_integrityRpcDisabled) return;
   try {
-    await supabase.rpc("report_integrity_signal", {
+    const { error } = await supabase.rpc("report_integrity_signal", {
       p_match_id: state.match?.id ?? null, p_kind: kind, p_detail: detail ?? null,
     });
-  } catch (_) { /* best-effort telemetry */ }
+    // If the RPC isn't available yet (migration not applied), stop calling it so
+    // we don't spam the console with 404s.
+    if (error) _integrityRpcDisabled = true;
+  } catch (_) { _integrityRpcDisabled = true; }
 }
 
 // Insert this player's offense (damage dealt + kills landed) before reporting
@@ -567,6 +572,7 @@ function showGameOver(result, reason, standings = [], prizeAmount = null, kills 
       prizeAmt.textContent = prizeAmount === "pending" ? "Processing payout…" : prizeAmount !== null
         ? prizeAmount.toLocaleString(undefined, { maximumFractionDigits: 0 }) + " $FIGHT10"
         : "Payout failed — contact support";
+      setGameOverTxLink(null); // revealed once the payout confirms
       prizeEl.classList.remove("hidden");
     } else {
       prizeEl.classList.add("hidden");
@@ -585,7 +591,24 @@ function refreshGameOverStats() {
   els.gameOverLosses.textContent = state.profile?.losses ?? 0;
 }
 
-function updateGameOverPrize(prizeAmount) {
+// Explorer link for an on-chain signature (mainnet).
+const TX_EXPLORER_BASE = "https://solscan.io/tx/";
+function txExplorerUrl(sig) { return TX_EXPLORER_BASE + encodeURIComponent(sig); }
+
+// Show/hide the "View transaction" link in the victory prize box.
+function setGameOverTxLink(sig) {
+  const link = document.getElementById("gameOverTxLink");
+  if (!link) return;
+  if (sig) {
+    link.href = txExplorerUrl(sig);
+    link.classList.remove("hidden");
+  } else {
+    link.removeAttribute("href");
+    link.classList.add("hidden");
+  }
+}
+
+function updateGameOverPrize(prizeAmount, payoutTx = null) {
   const prizeEl   = document.getElementById("gameOverPrize");
   const prizeAmt  = document.getElementById("gameOverPrizeAmount");
   const retryBtn  = document.getElementById("gameOverRetryBtn");
@@ -593,9 +616,11 @@ function updateGameOverPrize(prizeAmount) {
   if (prizeAmount !== null) {
     prizeAmt.textContent = prizeAmount.toLocaleString(undefined, { maximumFractionDigits: 0 }) + " $FIGHT10";
     retryBtn?.classList.add("hidden");
+    setGameOverTxLink(payoutTx);
   } else {
     prizeAmt.textContent = "Payout failed — tap Retry or contact support";
     retryBtn?.classList.remove("hidden");
+    setGameOverTxLink(null);
   }
   els.gameOverMenuBtn.classList.remove("hidden");
 }
@@ -609,18 +634,20 @@ async function retryPayout() {
   if (prizeAmt) prizeAmt.textContent = "Processing payout…";
   els.gameOverMenuBtn.classList.add("hidden");
   let prizeAmount = null;
+  let payoutTx = null;
   try {
     const { data: payoutData, error: payoutErr } = await supabase.functions.invoke("f10treasurer", {
       body: { match_id: state.match.id },
     });
     if (!payoutErr && payoutData?.winner_amount && payoutData?.decimals != null) {
       prizeAmount = Number(payoutData.winner_amount) / 10 ** payoutData.decimals;
+      payoutTx = payoutData.payout_tx ?? null;
     }
     if (payoutErr) console.error("Retry payout error:", payoutErr);
   } catch (err) {
     console.error("Retry payout error:", err);
   }
-  updateGameOverPrize(prizeAmount);
+  updateGameOverPrize(prizeAmount, payoutTx);
 }
 
 // Polls until the match row is marked 'finished', guarding against read-after-write lag.
@@ -728,6 +755,12 @@ async function fetchLobbyCounts() {
 async function joinPvp(maxPlayers) {
   if (!state.user) { signIn(); return; }
   const size = [2, 5, 10].includes(maxPlayers) ? maxPlayers : 2;
+  // Block banned wallets before any on-chain deposit so they never pay to be
+  // rejected. The server re-checks at admission (this is just UX).
+  try {
+    const { data: banned } = await supabase.rpc("is_banned", { p_user_id: state.user.id });
+    if (banned === true) { setStatus("This wallet is banned from play."); return; }
+  } catch (_) { /* if the check is unavailable, fall through to server enforcement */ }
   try {
     // ── Step 1: deposit on-chain (if not already done from a previous failed attempt) ──
     let txSig = state.pendingDepositTx;
@@ -1316,6 +1349,7 @@ async function reportResult(resultHint, { standings = [] } = {}) {
   // Authoritative win → victory screen + payout.
   showGameOver("win", "Last one standing — you won!", finalStandings, "pending", serverKills ?? matchKills, finalTimeMs);
   let prizeAmount = null;
+  let payoutTx = null;
   try {
     setStatus("Claiming prize…");
     try { refreshGameOverStats(); } catch (e) { console.error(e); }
@@ -1326,13 +1360,14 @@ async function reportResult(resultHint, { standings = [] } = {}) {
       console.error("Payout invoke error:", payoutErr);
     } else if (payoutData?.winner_amount && payoutData?.decimals != null) {
       prizeAmount = Number(payoutData.winner_amount) / 10 ** payoutData.decimals;
+      payoutTx = payoutData.payout_tx ?? null;
     }
     await syncProfile();
     refreshGameOverStats();
   } catch (error) {
     console.error(error);
   }
-  updateGameOverPrize(prizeAmount);
+  updateGameOverPrize(prizeAmount, payoutTx);
 }
 
 async function leaveMatch({ silent = false } = {}) {
@@ -1464,23 +1499,47 @@ async function loadHistory() {
   }
   const rows = (data || [])
     .map((r) => r.matches)
-    .filter((m) => m && m.status === "finished");
+    .filter((m) => m && (m.status === "finished" || m.status === "disputed"));
   if (!rows.length) {
     els.historyList.innerHTML = '<div class="history-empty">No matches played yet.</div>';
     return;
   }
+
+  // Pull this player's payout records (tx + amount) so wins can link to the
+  // on-chain transaction. Keyed by match_id; best-effort.
+  const payoutByMatch = {};
+  try {
+    const { data: payouts } = await supabase
+      .from("payouts")
+      .select("match_id, payout_tx, amount_raw, decimals")
+      .eq("winner_user_id", state.user.id);
+    (payouts || []).forEach((p) => { payoutByMatch[p.match_id] = p; });
+  } catch (e) { console.error("payouts fetch error:", e); }
+
   els.historyList.innerHTML = "";
   for (const m of rows) {
     const win = m.winner_user_id === state.user.id;
-    const noContest = !m.winner_user_id;
+    const noContest = m.status === "disputed" || !m.winner_user_id;
     const row = document.createElement("div");
     row.className = "history-row " + (noContest ? "hr-void" : win ? "hr-win" : "hr-loss");
     const result = noContest ? "—" : win ? "WIN" : "LOSS";
     const when = m.ended_at ? new Date(m.ended_at).toLocaleDateString(undefined, { month: "short", day: "numeric" }) : "";
     const label = m.match_no ? `#${m.match_no} · ${m.max_players}-player` : `${m.max_players}-player`;
+
+    // Winner payout: show amount + a link to the on-chain transaction.
+    const po = win ? payoutByMatch[m.id] : null;
+    let payoutHtml = "";
+    if (po?.payout_tx) {
+      const amt = Number(po.amount_raw) / 10 ** (po.decimals ?? 6);
+      const amtStr = amt.toLocaleString(undefined, { maximumFractionDigits: 0 });
+      payoutHtml =
+        `<a class="hr-tx" href="${txExplorerUrl(po.payout_tx)}" target="_blank" rel="noopener noreferrer" title="View payout transaction">+${amtStr} ↗</a>`;
+    }
+
     row.innerHTML =
       `<span class="hr-result">${result}</span>` +
       `<span class="hr-mode">${label}</span>` +
+      payoutHtml +
       `<span class="hr-date">${when}</span>`;
     els.historyList.appendChild(row);
   }
