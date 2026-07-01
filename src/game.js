@@ -2274,7 +2274,8 @@ function buildHud() {
   const matchTimerEl = add('<div class="match-timer game-ui">0:00</div>');
   const coords = add('<div class="coords game-ui">x 0.0 &middot; z 0.0</div>');
   add('<div class="mm-label game-ui">map</div>');
-  const mmCanvas = add('<canvas class="game-minimap game-ui"></canvas>');
+  const mmWrap = add('<div class="game-minimap-frame game-ui"><canvas class="game-minimap"></canvas></div>');
+  const mmCanvas = mmWrap.querySelector(".game-minimap");
   const hotbar = add('<div class="hotbar game-ui"></div>');
   // Slots 1-4 only: 1=frag, 2=sword, 3=pistol, 4=sniper. No slot 5 (nothing assigned).
   for (let n = 1; n <= 4; n++) {
