@@ -106,6 +106,9 @@ create table public.match_players (
   -- different connected wallet, so the payout function verifies against this.
   deposit_wallet text,
   final_hp     int,
+  -- Liveness heartbeat: clients update this every few seconds while in an active
+  -- match. A stale value marks the player disconnected (see finalize_match).
+  last_seen    timestamptz not null default timezone('utc', now()),
   primary key (match_id, user_id),
   unique (match_id, seat),
   -- Fix: prevents two players recording the same on-chain signature
@@ -727,6 +730,8 @@ declare
   -- Physical ceilings (buffer over real stats: sword ~40 dps, ~1.4 hits/s).
   c_max_dps      constant numeric := 50;   -- per attacker, total across all victims
   c_max_firerate constant numeric := 4;    -- hits per second, per attacker→victim pair
+  -- A player is "disconnected" once its heartbeat lapses past this window.
+  c_dc_grace     constant interval := interval '15 seconds';
 begin
   select status, started_at, max_players into v_status, v_started, v_maxp
   from matches where id = p_match_id for update;
@@ -737,7 +742,10 @@ begin
   -- everyone reports; after it (or on force), settle from the ledger now.
   v_deadline := coalesce(v_started, now()) + make_interval(secs => public.match_duration_seconds(v_maxp));
 
-  select count(*) filter (where final_hp is null) into v_unreported
+  -- Only WAIT on players who are still connected and haven't reported.
+  -- Disconnected (stale heartbeat) players never block settlement.
+  select count(*) filter (where final_hp is null and last_seen >= now() - c_dc_grace)
+    into v_unreported
   from match_players where match_id = p_match_id;
 
   if not p_force and v_unreported > 0 and now() < v_deadline then
@@ -785,31 +793,37 @@ begin
     where hit_count <= c_max_firerate * win_secs
   ),
   hp as (
-    select mp.user_id, mp.seat,
+    select mp.user_id, mp.seat, mp.final_hp, mp.last_seen,
            greatest(0, 100 - coalesce(sum(v.dmg), 0))::int as hp
     from match_players mp
     left join valid v on v.victim = mp.user_id
-    group by mp.user_id, mp.seat
+    group by mp.user_id, mp.seat, mp.final_hp, mp.last_seen
   ),
   ranked as (
     select h.user_id, h.hp, h.seat,
            (f.attacker is not null) as is_flagged,
+           -- Disconnected AND never reported → eliminated (a player who reported
+           -- before leaving keeps their standing).
+           (h.final_hp is null and h.last_seen < now() - c_dc_grace) as is_dc,
            row_number() over (
-             -- Clean players rank first; among them, highest HP then lowest seat.
-             order by (f.attacker is not null) asc, h.hp desc, h.seat asc
+             -- Clean, connected players rank first; among them, highest HP then seat.
+             order by (f.attacker is not null
+                       or (h.final_hp is null and h.last_seen < now() - c_dc_grace)) asc,
+                      h.hp desc, h.seat asc
            ) as rn
     from hp h
     left join flagged f on f.attacker = h.user_id
   )
   select
-    (select user_id from ranked where rn = 1 and not is_flagged),
+    (select user_id from ranked where rn = 1 and not is_flagged and not is_dc),
     (select coalesce(array_agg(user_id), '{}') from ranked where is_flagged),
     jsonb_build_object(
       'secs',  v_secs,
       'caps',  jsonb_build_object('dps', c_max_dps, 'firerate', c_max_firerate),
-      'hp',    (select jsonb_agg(jsonb_build_object('user_id', user_id, 'hp', hp, 'seat', seat, 'flagged', is_flagged)
+      'hp',    (select jsonb_agg(jsonb_build_object('user_id', user_id, 'hp', hp, 'seat', seat, 'flagged', is_flagged, 'dc', is_dc)
                                  order by hp desc, seat asc) from ranked),
       'flagged',      (select coalesce(jsonb_agg(attacker), '[]'::jsonb) from flagged),
+      'disconnected', (select coalesce(jsonb_agg(user_id), '[]'::jsonb) from ranked where is_dc),
       'attacker_out', (select jsonb_object_agg(attacker::text, out_total) from attacker_totals)
     )
     into v_winner, v_forfeited, v_meta;
@@ -831,6 +845,45 @@ begin
       perform public.apply_match_result(p_match_id, v_winner);
     end if;
   end if;
+end;
+$$;
+
+-- ---------------------------------------------------------------------------
+-- 8c. heartbeat / try_finalize — disconnect-aware settlement helpers.
+--     Clients heartbeat while in an active match; a lapsed heartbeat marks a
+--     player disconnected (finalize_match then stops waiting on them and excludes
+--     them from winner selection). try_finalize lets a survivor nudge settlement.
+-- ---------------------------------------------------------------------------
+create or replace function public.heartbeat(p_match_id uuid)
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  update public.match_players
+  set last_seen = now()
+  where match_id = p_match_id and user_id = auth.uid();
+end;
+$$;
+
+create or replace function public.try_finalize(p_match_id uuid)
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  if auth.uid() is null then
+    raise exception 'not_authenticated';
+  end if;
+  if not exists (
+    select 1 from public.match_players
+    where match_id = p_match_id and user_id = auth.uid()
+  ) then
+    raise exception 'not_a_participant';
+  end if;
+  perform public.finalize_match(p_match_id);
 end;
 $$;
 
@@ -1110,6 +1163,8 @@ revoke all on function public.join_pvp_match(uuid, smallint, text, text, text) f
 grant execute on function public.join_pvp_match(uuid, smallint, text, text, text) to service_role;
 grant execute on function public.leave_my_matches()                    to authenticated;
 grant execute on function public.finish_match(uuid, int)               to authenticated;
+grant execute on function public.heartbeat(uuid)                       to authenticated;
+grant execute on function public.try_finalize(uuid)                    to authenticated;
 grant execute on function public.claim_payout_slot(uuid)               to authenticated;
 grant execute on function public.level_for_points(integer)             to authenticated;
 grant execute on function public.match_duration_seconds(smallint)      to authenticated, service_role, anon;

@@ -5,7 +5,10 @@ export const html = `
       <div class="hero-big-fight">FIGHT</div>
       <div class="hero-big-10">10</div>
     </div>
-    <p class="hero-tagline">Last One Standing — A tactical isometric arena. Every fighter spawns with the same health, the same attack, and the same weapons — no advantages, pure skill. Each player puts in <strong>2,500 $FIGHT10</strong> — last one standing takes the entire pot. Connect your Solana wallet, then drop into a demo match against the computer or queue for 2, 5, or 10-player PvP. <strong>Winner takes it all.</strong></p>
+    <div class="hero-tagline">
+      <h2 class="hero-subtitle">LAST ONE STANDING</h2>
+      <p class="hero-desc">A tactical isometric arena. Every fighter spawns with the same health, the same attack, and the same weapons — no advantages, pure skill. Each player puts in <strong>2,500 $FIGHT10</strong> — last one standing takes the entire pot. Connect your Solana wallet, then drop into a demo match against the computer or queue for 2, 5, or 10-player PvP. <strong>Winner takes it all.</strong></p>
+    </div>
   </section>
 
   <!-- ===== Action buttons ===== -->

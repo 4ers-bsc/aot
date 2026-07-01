@@ -77,6 +77,7 @@ const els = {
   whitepaperBtn: document.getElementById("whitepaperBtn"),
   whitepaperOverlay: document.getElementById("whitepaperOverlay"),
   whitepaperClose: document.getElementById("whitepaperClose"),
+  themeToggleBtn: document.getElementById("themeToggleBtn"),
   pauseOverlay: document.getElementById("pauseOverlay"),
   pauseClose: document.getElementById("pauseClose"),
   resumeBtn: document.getElementById("resumeBtn"),
@@ -259,6 +260,21 @@ async function startIntegrityWatch() {
 function stopIntegrityWatch() {
   try { _devtoolsDetector?.stop(); } catch (_) { /* not launched */ }
 }
+
+// Liveness heartbeat: while in an active match, tell the server we're still here
+// every few seconds. If this lapses (tab closed / dropped), finalize_match marks
+// us disconnected so the match can settle without waiting on us.
+let _heartbeatTimer = null;
+function startHeartbeat(matchId) {
+  stopHeartbeat();
+  if (!matchId) return;
+  const beat = () => { supabase.rpc("heartbeat", { p_match_id: matchId }).catch(() => {}); };
+  beat();
+  _heartbeatTimer = setInterval(beat, 5000);
+}
+function stopHeartbeat() {
+  if (_heartbeatTimer) { clearInterval(_heartbeatTimer); _heartbeatTimer = null; }
+}
 let _integrityRpcDisabled = false;
 async function reportIntegritySignal(kind, detail) {
   if (_integrityRpcDisabled) return;
@@ -366,6 +382,13 @@ function bindUi() {
   els.whitepaperClose?.addEventListener("click", () => els.whitepaperOverlay.classList.remove("show"));
   els.whitepaperOverlay?.addEventListener("pointerdown", (e) => {
     if (e.target === els.whitepaperOverlay) els.whitepaperOverlay.classList.remove("show");
+  });
+  // Theme switcher (persisted). "mono" = default monochrome, "tactical" = Night-Ops.
+  applyTheme(localStorage.getItem("theme") || "mono");
+  els.themeToggleBtn?.addEventListener("click", () => {
+    const next = document.body.classList.contains("theme-tactical") ? "mono" : "tactical";
+    try { localStorage.setItem("theme", next); } catch (_) {}
+    applyTheme(next);
   });
   els.profileBtn.addEventListener("click", openProfile);
   els.profileClose.addEventListener("click", () => els.profileOverlay.classList.remove("show"));
@@ -695,7 +718,7 @@ async function retryPayout() {
 // ({ status, winner_user_id }) once status is 'finished' or 'disputed', or null
 // on timeout. Phase 2: the winner is decided server-side from the combat ledger,
 // so the client must read the verdict here rather than trust its own detection.
-async function awaitSettlement(matchId, timeoutMs = 12000) {
+async function awaitSettlement(matchId, timeoutMs = 24000) {
   const deadline = Date.now() + timeoutMs;
   let delay = 800;
   while (Date.now() < deadline) {
@@ -705,8 +728,12 @@ async function awaitSettlement(matchId, timeoutMs = 12000) {
       .eq("id", matchId)
       .single();
     if (data?.status === "finished" || data?.status === "disputed") return data;
+    // Not settled yet — nudge finalize in case an opponent disconnected. It
+    // settles once their heartbeat is stale past the grace window; no-op
+    // otherwise (idempotent), so this is safe on normal matches too.
+    try { await supabase.rpc("try_finalize", { p_match_id: matchId }); } catch (_) {}
     await new Promise((r) => setTimeout(r, delay));
-    delay = Math.min(delay * 2, 5000);
+    delay = Math.min(delay * 2, 4000);
   }
   return null;
 }
@@ -1231,7 +1258,7 @@ async function beginMatch(skipCountdown = false, startAt = null) {
   game.generateMap(state.match?.id || "pvp");  // seed by match id so all clients match
   game.resetForMatch(state.match?.id, state.seat);
   ledger.reset();
-  if (state.match?.mode === "pvp") startIntegrityWatch();
+  if (state.match?.mode === "pvp") { startIntegrityWatch(); startHeartbeat(state.match?.id); }
   game.setMatchPhase("countdown");
   game.setControllable(false);
   startPingLoop();
@@ -1437,6 +1464,7 @@ async function leaveMatch({ silent = false } = {}) {
 async function teardownMatch(keepMatch = false) {
   stopPingLoop();
   stopIntegrityWatch();
+  stopHeartbeat();
   if (state.depositPollTimer) { clearInterval(state.depositPollTimer); state.depositPollTimer = null; }
   if (state.startFallbackTimer) { clearTimeout(state.startFallbackTimer); state.startFallbackTimer = null; }
   state.pendingDepositTx = null;
@@ -1663,6 +1691,12 @@ function cancelMatchStart() {
 
 function toggle(el, show) {
   if (el) el.classList.toggle("hidden", !show);
+}
+
+function applyTheme(theme) {
+  const tactical = theme === "tactical";
+  document.body.classList.toggle("theme-tactical", tactical);
+  if (els.themeToggleBtn) els.themeToggleBtn.textContent = tactical ? "◑ NIGHT-OPS" : "◑ MONO";
 }
 
 // Non-blocking replacement for window.confirm() — returns a Promise<boolean>.
