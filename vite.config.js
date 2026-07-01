@@ -15,7 +15,9 @@ export default defineConfig({
         stringEncodingThreshold: 0.6,
         renameGlobals: false,
         selfDefending: true,
-        disableConsoleOutput: true,
+        // Must stay false: the devtools-open detection in main.js relies on
+        // console.log firing a property getter. Stubbing console breaks it.
+        disableConsoleOutput: false,
         rotateStringArray: true,
         shuffleStringArray: true,
         splitStrings: true,
