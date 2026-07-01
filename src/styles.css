@@ -2979,23 +2979,14 @@ body.in-game .game-hud-root {
 
   .match-timer { top: 10px; font-size: 16px; padding: 4px 10px; }
 
-  /* Dropped below the whole top-right stack (gear/raider-count/fps/ping — or
-     gear/timer/fps/ping in PvP) so it never has to dodge them horizontally.
-     Kept as a small, left-anchored badge — capped narrower than the full
-     width — rather than a full-width banner: this is reference text, not a
-     control, so it shouldn't dominate the top of the screen. */
-  .hint {
-    top: 116px;
-    left: 10px;
-    right: auto;
-    max-width: 62%;
-    font-size: 7.5px;
-    padding: 4px 6px;
-    line-height: 1.3;
-  }
-  .hint .key { padding: 0 3px; font-size: 7px; }
+  /* Keyboard/mouse reference text (wasd/click/drag/scroll/Esc) doesn't apply
+     to a touchscreen anyway, and there's no room to keep it from competing
+     with the HUD for space — drop it entirely on mobile. */
+  .hint { display: none; }
 
-  body.in-game .log-feed { top: 168px; left: 10px; }
+  /* Only needs to clear the top-right stack now (gear/raider-count/fps/ping,
+     or gear/timer/fps/ping in PvP) since the hint no longer sits above it. */
+  body.in-game .log-feed { top: 120px; left: 10px; }
 
   /* Bottom row: minimap and the weapon panel share a band above the hotbar
      instead of sitting beside it, so nothing has to overlap to fit. */
