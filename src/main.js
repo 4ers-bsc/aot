@@ -726,7 +726,7 @@ async function retryPayout() {
 // ({ status, winner_user_id }) once status is 'finished' or 'disputed', or null
 // on timeout. Phase 2: the winner is decided server-side from the combat ledger,
 // so the client must read the verdict here rather than trust its own detection.
-async function awaitSettlement(matchId, timeoutMs = 12000) {
+async function awaitSettlement(matchId, timeoutMs = 24000) {
   const deadline = Date.now() + timeoutMs;
   let delay = 800;
   while (Date.now() < deadline) {
@@ -736,8 +736,11 @@ async function awaitSettlement(matchId, timeoutMs = 12000) {
       .eq("id", matchId)
       .single();
     if (data?.status === "finished" || data?.status === "disputed") return data;
+    // Not settled yet — nudge finalize in case an opponent disconnected (settles
+    // once their heartbeat is stale past the grace window; idempotent otherwise).
+    try { await supabase.rpc("try_finalize", { p_match_id: matchId }); } catch (_) {}
     await new Promise((r) => setTimeout(r, delay));
-    delay = Math.min(delay * 2, 5000);
+    delay = Math.min(delay * 2, 4000);
   }
   return null;
 }
@@ -1262,10 +1265,11 @@ async function beginMatch(skipCountdown = false, startAt = null) {
   game.generateMap(state.match?.id || "pvp");  // seed by match id so all clients match
   game.resetForMatch(state.match?.id, state.seat);
   ledger.reset();
-  // Never let anti-cheat setup abort the match start (which would leave the
-  // player uncontrollable).
+  // Never let anti-cheat / heartbeat setup abort the match start (which would
+  // leave the player uncontrollable).
   if (state.match?.mode === "pvp") {
     try { startIntegrityWatch(); } catch (e) { console.error(e); }
+    try { startHeartbeat(state.match?.id); } catch (e) { console.error(e); }
   }
   game.setMatchPhase("countdown");
   game.setControllable(false);
@@ -1303,23 +1307,30 @@ async function beginMatch(skipCountdown = false, startAt = null) {
 // ---------------------------------------------------------------------------
 // Result handling (PvP only) — loser is whoever hits 0 HP or disconnects
 // ---------------------------------------------------------------------------
-// A rival dropped the connection. Per design, a disconnect does NOTHING to the
-// match: we just remove the ghost avatar and leave the match running — it settles
-// naturally at its timer. We only reconcile if the server has ALREADY settled
-// (e.g. the rival won, claimed, then left), so a stale client shows the real
-// verdict instead of hanging.
+// A rival dropped the connection: remove their avatar. If they were the last
+// rival and we're still standing, report our result so the server settles — the
+// disconnected player is excluded server-side (stale heartbeat) and we win.
+// If the server has ALREADY settled, surface its authoritative verdict instead
+// of assuming a win.
 async function handleOpponentLeft(userId) {
   state.remoteIds.delete(userId);
-  game.removeOpponent(userId);
+  const remaining = game.removeOpponent(userId);
   if (state.match?.mode !== "pvp" || state.match.finished || !state.started) return;
-  const { data: matchRow } = await supabase
-    .from("matches")
-    .select("status, winner_user_id")
-    .eq("id", state.match.id)
-    .maybeSingle();
-  if (matchRow?.status === "finished" || matchRow?.status === "disputed") {
-    reportResult(matchRow.winner_user_id === state.user?.id ? "win" : "loss",
-      { standings: game.standings() }).catch(console.error);
+  if (remaining === 0 && game.playerAlive()) {
+    const { data: matchRow } = await supabase
+      .from("matches")
+      .select("status, winner_user_id")
+      .eq("id", state.match.id)
+      .maybeSingle();
+    if (matchRow?.status === "finished" || matchRow?.status === "disputed") {
+      if (matchRow.winner_user_id !== state.user?.id) {
+        reportResult("loss", { standings: game.standings() }).catch(console.error);
+      }
+      return;
+    }
+    // Rival genuinely disconnected mid-game — report and let the server crown us
+    // (walkover / ledger-backed win once their heartbeat goes stale).
+    reportResult("win", { standings: game.standings() }).catch((e) => console.error(e));
   }
 }
 
@@ -1463,6 +1474,7 @@ async function leaveMatch({ silent = false } = {}) {
 async function teardownMatch(keepMatch = false) {
   stopPingLoop();
   stopIntegrityWatch();
+  stopHeartbeat();
   if (state.depositPollTimer) { clearInterval(state.depositPollTimer); state.depositPollTimer = null; }
   if (state.startFallbackTimer) { clearTimeout(state.startFallbackTimer); state.startFallbackTimer = null; }
   state.pendingDepositTx = null;
