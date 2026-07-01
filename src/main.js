@@ -839,9 +839,10 @@ async function joinPvp(maxPlayers) {
     let txSig = state.pendingDepositTx;
     if (!txSig) {
       // Warn BEFORE payment — the entry fee is non-refundable once paid.
-      const ok = window.confirm(
-        "Heads up: the 2,500 $FIGHT10 entry fee is NON-REFUNDABLE.\n\n" +
-        "Once you pay, leaving the queue or the match will NOT refund your entry — the deposit stays in the pot.\n\n" +
+      // Uses the non-blocking confirmDialog (window.confirm freezes the render loop).
+      const ok = await confirmDialog(
+        "Heads up: the 2,500 $FIGHT10 entry fee is NON-REFUNDABLE. " +
+        "Once you pay, leaving the queue or the match will NOT refund your entry — the deposit stays in the pot. " +
         "Continue and pay the entry fee?"
       );
       if (!ok) return;
