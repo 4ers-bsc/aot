@@ -430,9 +430,15 @@ function bindUi() {
   });
   els.leaveMatchBtn.addEventListener("click", async () => {
     els.pauseOverlay.classList.remove("show");
+    const isActivePvp = state.match?.mode === "pvp" && state.match?.status !== "waiting";
+    const confirmMsg = isActivePvp
+      ? "Leave this match now? You'll forfeit the fight and your entry fee stays in the pot."
+      : "Leave this match now?";
+    const ok = await confirmDialog(confirmMsg);
+    if (!ok) return;
     // A confirmed leave fully reloads the page for a clean slate (matches the
     // game-over "Main Menu" behavior). A cancelled forfeit prompt does not.
-    const left = await leaveMatch();
+    const left = await leaveMatch({ skipConfirm: true });
     if (left) window.location.reload();
   });
   document.getElementById("pauseSettingsBtn")?.addEventListener("click", () => {
@@ -1446,13 +1452,13 @@ async function reportResult(resultHint, { standings = [] } = {}) {
   updateGameOverPrize(prizeAmount, payoutTx);
 }
 
-async function leaveMatch({ silent = false } = {}) {
+async function leaveMatch({ silent = false, skipConfirm = false } = {}) {
   hidePvpLobby();
   hideGameOver();
   cancelMatchStart();
   if (!state.match) { if (!silent) setStatus("You're not in a match."); return false; }
   if (state.match.mode === "pvp") {
-    if (state.match.status === "waiting" && state.pendingDepositTx == null && !silent) {
+    if (state.match.status === "waiting" && state.pendingDepositTx == null && !silent && !skipConfirm) {
       const ok = await confirmDialog(
         "You have already paid the entry fee. Leaving now forfeits your deposit — the pot stays in the contract. Continue?"
       );

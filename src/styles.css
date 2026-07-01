@@ -1459,7 +1459,10 @@ body.in-game .log-feed { top: 58px; }
 .hr-loss .hr-result { color: #c23b30; }
 
 .hr-mode { color: #51626f; font-size: 13px; letter-spacing: 0.04em; }
-.hr-date { color: #8a939c; font-size: 12px; white-space: nowrap; }
+/* Pin to the last column explicitly — rows without a payout link (losses,
+   unpaid wins) only have 3 children, and without this they'd auto-place
+   into column 3 instead of 4, misaligning the date against other rows. */
+.hr-date { grid-column: 4; color: #8a939c; font-size: 12px; white-space: nowrap; }
 .hr-tx {
   font-family: var(--font-head);
   font-size: 12px;
@@ -2832,7 +2835,11 @@ body.in-game .game-hud-root {
    on narrow/short screens. Sizing is ratio-based (fr / clamp / %).
    =========================================================================== */
 @media (max-width: 860px) {
-  .arena-mount { position: fixed; }
+  /* The home content below drops position:absolute for a natural flow, which
+     would otherwise let this positioned-but-z-index:auto layer paint above it
+     (positioned elements stack above non-positioned in-flow content). Pin it
+     behind everything so the arena stays a background, not an overlay. */
+  .arena-mount { position: fixed; z-index: -1; }
 
   .site-nav {
     position: fixed;
