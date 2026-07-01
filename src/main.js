@@ -197,48 +197,67 @@ function kickForManipulation(reason) {
 }
 
 // Devtools watch during a live match. If the developer console is opened, the
-// player is removed from the match with a warning — it does NOT pause the game.
+// player is instantly removed from the match with a warning.
 //
-// Detection is EVENT-BASED, not window-size based: we log an object with a
-// property getter. When the console panel is open, the browser reads that
-// property to render the object, firing the getter; when the console is closed
-// the getter never runs. This catches both docked AND undocked/detached
-// DevTools and has far fewer false positives than an outer/inner size gap.
-// (Requires console output enabled — see disableConsoleOutput in vite.config.js.)
-let _integrityTimer = null;
-function startIntegrityWatch() {
-  stopIntegrityWatch();
-  let opened = false;
-  // Bait 1: object with a property getter — read when the console builds the
-  // object's preview (panel open).
-  const objBait = {};
-  Object.defineProperty(objBait, "id", {
-    configurable: true,
-    get() { opened = true; return ""; },
-  });
-  // Bait 2: a value whose toString runs only when the console RENDERS it as the
-  // %c style string — i.e. when the panel is actually open. Neither bait coerces
-  // eagerly, so a closed console never trips them (no false-positive kicks).
-  const styleBait = document.createElement("div");
-  styleBait.toString = function () { opened = true; return ""; };
-  const check = () => {
-    if (_kicked) return;
-    opened = false;
-    // eslint-disable-next-line no-console
-    console.log(objBait);
-    // eslint-disable-next-line no-console
-    console.log("%c", styleBait);
-    try { console.clear(); } catch (_) {}
-    if (opened) {
-      reportIntegritySignal("devtools_open", {});
-      kickForManipulation("Do not open the developer console. You have been removed from the match.");
+// Detection uses the `devtools-detector` library (multiple detection strategies:
+// window size, toString/defineProperty baits, debug libs). It's loaded lazily
+// from the CDN via dynamic import (matching this app's other deps) and wrapped in
+// try/catch so a load failure disables detection instead of breaking the game.
+let _devtoolsDetector = null;
+let _dtListenerAdded = false;
+
+// Fires whenever DevTools open/close. We only kick while a live PvP match is in
+// progress (opening the console on menus doesn't reload the page).
+function onDevtoolsChange(isOpen) {
+  if (!isOpen || _kicked) return;
+  if (state.match?.mode === "pvp" && !state.match?.finished) {
+    reportIntegritySignal("devtools_open", {});
+    kickForManipulation("Do not open the developer console. You have been removed from the match.");
+  }
+}
+
+// Build a detector from the (UMD/ESM) module. Prefer a custom NON-PAUSING
+// checker set — the library's default set includes a `debugger`-based checker
+// that would freeze the game; we exclude it (and the flaky timing checkers).
+// Falls back to the library's default detector if the custom shape isn't found.
+function buildDetector(mod) {
+  const ns = (mod.default && typeof mod.default === "object") ? mod.default : mod;
+  const Detector = mod.DevtoolsDetector || ns.DevtoolsDetector;
+  const checkers = mod.checkers || ns.checkers;
+  if (Detector && checkers) {
+    const list = [
+      "regToStringChecker", "elementIdChecker", "functionToStringChecker",
+      "dateToStringChecker", "depRegToStringChecker", "devtoolsFormatterChecker",
+      "erudaChecker",
+    ].map((k) => checkers[k]).filter(Boolean);
+    if (list.length) {
+      try { return new Detector({ checkers: list }); } catch (_) { /* fall through */ }
     }
-  };
-  _integrityTimer = setInterval(check, 1000);
-  check();
+  }
+  const d = mod.devtoolsDetector
+    || (mod.default && typeof mod.default.launch === "function" ? mod.default : null)
+    || (typeof mod.launch === "function" ? mod : null);
+  return (d && typeof d.addListener === "function" && typeof d.launch === "function") ? d : null;
+}
+
+async function startIntegrityWatch() {
+  try {
+    if (!_devtoolsDetector) {
+      const mod = await import("https://esm.sh/devtools-detector@2.0.25");
+      _devtoolsDetector = buildDetector(mod);
+      if (!_devtoolsDetector) { console.error("devtools detector: unexpected module shape"); return; }
+    }
+    if (!_dtListenerAdded) {
+      _devtoolsDetector.addListener(onDevtoolsChange);
+      _dtListenerAdded = true;
+    }
+    _devtoolsDetector.launch();
+  } catch (e) {
+    console.error("devtools detector unavailable:", e);
+  }
 }
 function stopIntegrityWatch() {
-  if (_integrityTimer) { clearInterval(_integrityTimer); _integrityTimer = null; }
+  try { _devtoolsDetector?.stop(); } catch (_) { /* not launched */ }
 }
 let _integrityRpcDisabled = false;
 async function reportIntegritySignal(kind, detail) {
