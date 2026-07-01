@@ -224,7 +224,7 @@ textarea:focus {
   justify-content: space-between;
   gap: 16px;
   padding: 0 28px;
-  height: 52px;
+  height: 64px;
 }
 
 .site-nav-brand {
@@ -234,7 +234,7 @@ textarea:focus {
 }
 
 .site-nav-logo {
-  height: 36px;
+  height: 50px;
   width: auto;
   display: block;
 }
@@ -275,7 +275,7 @@ textarea:focus {
 /* ===== Hero section ===== */
 .hero-section {
   position: absolute;
-  top: 52px;
+  top: 64px;
   bottom: 100px;
   left: 0;
   right: 0;
@@ -2883,7 +2883,7 @@ body.in-game .game-hud-root {
 
 @media (max-width: 480px) {
   .site-nav { padding: 0 14px; }
-  .site-nav-logo { height: 30px; }
+  .site-nav-logo { height: 42px; }
   .home-btn { flex: 1 1 100%; }
   .info-tile { flex: 1 1 50%; }
   .go-summary,

@@ -191,74 +191,59 @@ function kickForManipulation(reason) {
   if (_kicked) return;
   _kicked = true;
   stopIntegrityWatch();
+  stopHeartbeat();
   try { if (state.channel) supabase.removeChannel(state.channel); } catch (_) {}
-  // Full reload returns the player to a clean menu (the match settles server-side).
-  try { window.alert(reason || "You were removed from the match for invalid actions."); } catch (_) {}
-  window.location.reload();
+  // NON-blocking notice — window.alert() freezes the whole page (no input at all)
+  // until dismissed, so we show an overlay and hard-reload to a clean menu shortly
+  // after (the match settles server-side).
+  try {
+    const el = document.createElement("div");
+    el.style.cssText =
+      "position:fixed;inset:0;z-index:99999;display:flex;align-items:center;justify-content:center;" +
+      "background:rgba(0,0,0,0.9);color:#fff;font-family:var(--font-head);font-size:18px;" +
+      "text-align:center;padding:24px;letter-spacing:0.04em";
+    el.textContent = reason || "You were removed from the match.";
+    document.body.appendChild(el);
+  } catch (_) {}
+  setTimeout(() => { try { window.location.reload(); } catch (_) {} }, 1600);
 }
 
-// Devtools watch during a live match. If the developer console is opened, the
-// player is instantly removed from the match with a warning.
+// Devtools watch during a live match. Self-contained (no external library) and
+// designed to NEVER affect gameplay: it does not pause (no `debugger`), does not
+// block (no `alert`), and everything is wrapped so a fault can't stall the game
+// loop. If the console is opened, the player is removed with a warning.
 //
-// Detection uses the `devtools-detector` library (multiple detection strategies:
-// window size, toString/defineProperty baits, debug libs). It's loaded lazily
-// from the CDN via dynamic import (matching this app's other deps) and wrapped in
-// try/catch so a load failure disables detection instead of breaking the game.
-let _devtoolsDetector = null;
-let _dtListenerAdded = false;
-
-// Fires whenever DevTools open/close. We only kick while a live PvP match is in
-// progress (opening the console on menus doesn't reload the page).
-function onDevtoolsChange(isOpen) {
-  if (!isOpen || _kicked) return;
+// Detection is event-based: logging a bait value fires a getter / toString only
+// when the console panel actually renders it (open). A closed console never trips
+// it, so there are no false-positive kicks during normal play.
+let _integrityTimer = null;
+function _onConsoleOpen() {
+  if (_kicked) return;
   if (state.match?.mode === "pvp" && !state.match?.finished) {
     reportIntegritySignal("devtools_open", {});
     kickForManipulation("Do not open the developer console. You have been removed from the match.");
   }
 }
-
-// Build a detector from the (UMD/ESM) module. Prefer a custom NON-PAUSING
-// checker set — the library's default set includes a `debugger`-based checker
-// that would freeze the game; we exclude it (and the flaky timing checkers).
-// Falls back to the library's default detector if the custom shape isn't found.
-function buildDetector(mod) {
-  const ns = (mod.default && typeof mod.default === "object") ? mod.default : mod;
-  const Detector = mod.DevtoolsDetector || ns.DevtoolsDetector;
-  const checkers = mod.checkers || ns.checkers;
-  if (Detector && checkers) {
-    const list = [
-      "regToStringChecker", "elementIdChecker", "functionToStringChecker",
-      "dateToStringChecker", "depRegToStringChecker", "devtoolsFormatterChecker",
-      "erudaChecker",
-    ].map((k) => checkers[k]).filter(Boolean);
-    if (list.length) {
-      try { return new Detector({ checkers: list }); } catch (_) { /* fall through */ }
-    }
-  }
-  const d = mod.devtoolsDetector
-    || (mod.default && typeof mod.default.launch === "function" ? mod.default : null)
-    || (typeof mod.launch === "function" ? mod : null);
-  return (d && typeof d.addListener === "function" && typeof d.launch === "function") ? d : null;
-}
-
-async function startIntegrityWatch() {
-  try {
-    if (!_devtoolsDetector) {
-      const mod = await import("https://esm.sh/devtools-detector@2.0.25");
-      _devtoolsDetector = buildDetector(mod);
-      if (!_devtoolsDetector) { console.error("devtools detector: unexpected module shape"); return; }
-    }
-    if (!_dtListenerAdded) {
-      _devtoolsDetector.addListener(onDevtoolsChange);
-      _dtListenerAdded = true;
-    }
-    _devtoolsDetector.launch();
-  } catch (e) {
-    console.error("devtools detector unavailable:", e);
-  }
+function startIntegrityWatch() {
+  stopIntegrityWatch();
+  const objBait = {};
+  Object.defineProperty(objBait, "id", { configurable: true, get() { _onConsoleOpen(); return ""; } });
+  const styleBait = document.createElement("div");
+  styleBait.toString = function () { _onConsoleOpen(); return ""; };
+  const check = () => {
+    if (_kicked) return;
+    try {
+      // eslint-disable-next-line no-console
+      console.log(objBait);
+      // eslint-disable-next-line no-console
+      console.log("%c", styleBait);
+      console.clear();
+    } catch (_) { /* never let detection break the game */ }
+  };
+  _integrityTimer = setInterval(check, 1500);
 }
 function stopIntegrityWatch() {
-  try { _devtoolsDetector?.stop(); } catch (_) { /* not launched */ }
+  if (_integrityTimer) { clearInterval(_integrityTimer); _integrityTimer = null; }
 }
 
 // Liveness heartbeat: while in an active match, tell the server we're still here
