@@ -2838,8 +2838,14 @@ body.in-game .game-hud-root {
   /* The home content below drops position:absolute for a natural flow, which
      would otherwise let this positioned-but-z-index:auto layer paint above it
      (positioned elements stack above non-positioned in-flow content). Pin it
-     behind everything so the arena stays a background, not an overlay. */
-  .arena-mount { position: fixed; z-index: -1; }
+     behind everything so the arena stays a background, not an overlay.
+     Scoped to :not(.in-game) — neither .shell nor .arena-shell establish a
+     stacking context of their own (position:relative with no z-index), so an
+     unconditional negative z-index here sinks the whole 3D canvas below the
+     opaque <body> background at the document root, including mid-match —
+     the arena would render, just entirely invisible behind the page. */
+  .arena-mount { position: fixed; }
+  body:not(.in-game) .arena-mount { z-index: -1; }
 
   .site-nav {
     position: fixed;
@@ -2942,19 +2948,20 @@ body.in-game .game-hud-root {
 
   /* Dropped below the whole top-right stack (gear/raider-count/fps/ping — or
      gear/timer/fps/ping in PvP) so it never has to dodge them horizontally —
-     it can just use the full width. */
+     it can just use the full width. Kept small: this is reference text, not
+     a control, so it shouldn't compete with the HUD for space. */
   .hint {
     top: 116px;
     left: 10px;
     right: 10px;
     max-width: none;
-    font-size: 10px;
-    padding: 6px 8px;
-    line-height: 1.45;
+    font-size: 8.5px;
+    padding: 5px 7px;
+    line-height: 1.35;
   }
-  .hint .key { padding: 1px 4px; font-size: 9px; }
+  .hint .key { padding: 1px 3px; font-size: 8px; }
 
-  body.in-game .log-feed { top: 170px; left: 10px; }
+  body.in-game .log-feed { top: 156px; left: 10px; }
 
   /* Bottom row: minimap and the weapon panel share a band above the hotbar
      instead of sitting beside it, so nothing has to overlap to fit. */
