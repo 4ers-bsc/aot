@@ -423,10 +423,10 @@ function bindUi() {
   els.whitepaperOverlay?.addEventListener("pointerdown", (e) => {
     if (e.target === els.whitepaperOverlay) els.whitepaperOverlay.classList.remove("show");
   });
-  // Theme switcher (persisted). "mono" = default monochrome, "tactical" = Night-Ops.
+  // Theme switcher (persisted). "mono" = default monochrome, "terminal" = green CRT.
   applyTheme(localStorage.getItem("theme") || "mono");
   els.themeToggleBtn?.addEventListener("click", () => {
-    const next = document.body.classList.contains("theme-tactical") ? "mono" : "tactical";
+    const next = document.body.classList.contains("theme-terminal") ? "mono" : "terminal";
     try { localStorage.setItem("theme", next); } catch (_) {}
     applyTheme(next);
   });
@@ -1762,9 +1762,9 @@ function toggle(el, show) {
 }
 
 function applyTheme(theme) {
-  const tactical = theme === "tactical";
-  document.body.classList.toggle("theme-tactical", tactical);
-  if (els.themeToggleBtn) els.themeToggleBtn.textContent = tactical ? "◑ NIGHT-OPS" : "◑ MONO";
+  const terminal = theme === "terminal";
+  document.body.classList.toggle("theme-terminal", terminal);
+  if (els.themeToggleBtn) els.themeToggleBtn.textContent = terminal ? "◑ TERMINAL" : "◑ MONO";
 }
 
 // Non-blocking replacement for window.confirm() — returns a Promise<boolean>.
