@@ -27,7 +27,18 @@ drop function if exists public.level_for_points(integer);
 drop function if exists public.sync_my_profile(text);
 drop function if exists public.is_match_member(uuid) cascade;
 drop function if exists public.handle_new_user();
+drop function if exists public.enforce_rate_limit(text, int, interval);
+drop function if exists public.report_integrity_signal(uuid, text, jsonb);
+drop function if exists public.is_banned(uuid);
+drop function if exists public.ban_user(uuid, text);
+drop function if exists public.ban_forfeited() cascade;
+drop function if exists public.validate_match_damage() cascade;
+drop function if exists public.validate_match_kills() cascade;
 
+drop table if exists public.banned_users    cascade;
+drop table if exists public.payouts          cascade;
+drop table if exists public.integrity_signals cascade;
+drop table if exists public.rate_limits      cascade;
 drop table if exists public.match_config   cascade;
 drop table if exists public.match_damage   cascade;
 drop table if exists public.match_kills    cascade;
