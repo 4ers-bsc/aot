@@ -320,9 +320,6 @@ textarea:focus {
   max-width: 560px;
   margin: 1.6rem auto 0;
   padding: 1.2rem 1.6rem;
-  color: #d8d8d8;
-  font-size: clamp(0.78rem, 1.6vw, 0.92rem);
-  line-height: 1.75;
   text-align: center;
   border: 1px solid rgba(255, 255, 255, 0.14);
   border-top: 2px solid rgba(255, 255, 255, 0.55);
@@ -330,11 +327,29 @@ textarea:focus {
   background: linear-gradient(160deg, rgba(0,0,0,0.6) 0%, rgba(10,10,10,0.45) 100%);
   backdrop-filter: blur(10px);
   -webkit-backdrop-filter: blur(10px);
-  letter-spacing: 0.03em;
   box-shadow: 0 4px 32px rgba(0,0,0,0.45), inset 0 1px 0 rgba(255,255,255,0.08);
 }
 
-.hero-tagline strong {
+.hero-subtitle {
+  margin: 0 0 0.7rem;
+  font-family: var(--font-display);
+  font-size: clamp(1.15rem, 3.4vw, 1.9rem);
+  letter-spacing: 0.14em;
+  line-height: 1;
+  color: #ffffff;
+  text-transform: uppercase;
+  text-shadow: 0 0 24px rgba(255, 255, 255, 0.25);
+}
+
+.hero-desc {
+  margin: 0;
+  color: #d8d8d8;
+  font-size: clamp(0.78rem, 1.6vw, 0.92rem);
+  line-height: 1.75;
+  letter-spacing: 0.03em;
+}
+
+.hero-desc strong {
   color: #ffffff;
   font-weight: 700;
 }
@@ -2874,3 +2889,100 @@ body.in-game .game-hud-root {
   .go-summary,
   .go-record { gap: 8px; }
 }
+
+/* ===========================================================================
+   Whitepaper — light document look (black on white with greys), regardless of
+   the active app theme.
+   =========================================================================== */
+#whitepaperOverlay .panel { background: #ffffff; color: #1a1a1a; border-color: #d8d8d8; }
+#whitepaperOverlay .panel-head {
+  background: #f4f4f4; color: #111111; border-bottom: 1px solid #e2e2e2;
+}
+#whitepaperOverlay .panel .close {
+  background: #ececec; color: #555555; border: 1px solid #d5d5d5;
+}
+#whitepaperOverlay .panel .close:hover { background: #e0e0e0; color: #111111; }
+#whitepaperOverlay .wp-intro { color: #333333; }
+#whitepaperOverlay .wp-section { color: #111111; border-bottom: 1px solid #e2e2e2; }
+#whitepaperOverlay .wp-text { color: #444444; }
+#whitepaperOverlay .wp-text em,
+#whitepaperOverlay .wp-text strong,
+#whitepaperOverlay .wp-list strong { color: #111111; }
+#whitepaperOverlay .wp-step {
+  background: #f6f6f6; border: 1px solid #e4e4e4; color: #3a3a3a;
+}
+#whitepaperOverlay .wp-step span { background: #2a2a2a; color: #ffffff; }
+#whitepaperOverlay .wp-list li { color: #444444; }
+#whitepaperOverlay .wp-foot { color: #888888; border-top: 1px solid #e2e2e2; }
+
+/* ===========================================================================
+   Theme switcher (bottom-left) + alternate "Night-Ops" tactical theme.
+   =========================================================================== */
+.theme-toggle {
+  position: fixed;
+  left: 16px;
+  bottom: 16px;
+  z-index: 30;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 9px 14px;
+  border-radius: 8px;
+  font-family: var(--font-head);
+  font-size: 0.62rem;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--text);
+  background: rgba(0, 0, 0, 0.5);
+  border: 1px solid var(--line-strong);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+}
+body.in-game .theme-toggle { display: none; }
+
+/* Night-Ops: dark olive base with phosphor-green accents — a military HUD feel. */
+body.theme-tactical {
+  background:
+    radial-gradient(circle at 50% -10%, rgba(130, 224, 140, 0.10), transparent 42%),
+    linear-gradient(180deg, #0b140d 0%, #050805 100%);
+  --text: #dbe9db;
+  --muted: #9db89d;
+  --soft: #789078;
+  --accent: #8fe08f;
+  --accent-dim: #6fc06f;
+  --accent-soft: rgba(140, 224, 140, 0.16);
+  --line: rgba(140, 224, 140, 0.14);
+  --line-strong: rgba(140, 224, 140, 0.34);
+}
+body.theme-tactical .theme-toggle { background: rgba(6, 16, 8, 0.6); }
+body.theme-tactical .hero-big-fight,
+body.theme-tactical .hero-big-10 {
+  color: #e8f8e8;
+  text-shadow: 0 0 40px rgba(140, 224, 140, 0.35);
+}
+body.theme-tactical .hero-subtitle {
+  color: #a6f0a6;
+  text-shadow: 0 0 24px rgba(140, 224, 140, 0.4);
+}
+body.theme-tactical .hero-tagline {
+  border-color: rgba(140, 224, 140, 0.2);
+  border-top-color: rgba(140, 224, 140, 0.6);
+}
+body.theme-tactical .home-btn-primary,
+body.theme-tactical .nav-connect-btn { background: #8fe08f; color: #06120a; }
+body.theme-tactical .home-btn-secondary {
+  border-color: rgba(140, 224, 140, 0.3);
+  color: rgba(220, 240, 220, 0.75);
+}
+body.theme-tactical .home-btn-secondary:hover {
+  border-color: rgba(140, 224, 140, 0.6);
+  color: #eaffea;
+  background: rgba(20, 40, 20, 0.6);
+}
+body.theme-tactical .info-strip {
+  background: rgba(6, 16, 8, 0.72);
+  border-color: rgba(140, 224, 140, 0.14);
+}
+body.theme-tactical .info-tile { border-right-color: rgba(140, 224, 140, 0.10); }
+body.theme-tactical .info-tile-icon { color: rgba(140, 224, 140, 0.6); }
+body.theme-tactical .site-nav { border-bottom-color: rgba(140, 224, 140, 0.12); }
