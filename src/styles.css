@@ -2984,9 +2984,11 @@ body.in-game .game-hud-root {
      with the HUD for space — drop it entirely on mobile. */
   .hint { display: none; }
 
-  /* Only needs to clear the top-right stack now (gear/raider-count/fps/ping,
-     or gear/timer/fps/ping in PvP) since the hint no longer sits above it. */
-  body.in-game .log-feed { top: 120px; left: 10px; }
+  /* Status toast notifications (log-feed) — dropped on mobile, home and
+     in-game alike, for the same reason as the hint: no room to keep them
+     from competing with the HUD/home content for space. setStatus() still
+     updates state, it just isn't surfaced as a floating toast here. */
+  .log-feed { display: none; }
 
   /* Bottom row: minimap and the weapon panel share a band above the hotbar
      instead of sitting beside it, so nothing has to overlap to fit. */
