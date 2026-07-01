@@ -2898,6 +2898,93 @@ body.in-game .game-hud-root {
 }
 
 /* ===========================================================================
+   In-match HUD — mobile. At full size the top-right stack (gear, raider
+   count, fps, ping) and the reference hint overlap each other, and the
+   bottom row (minimap, hotbar, weapon panel) is wide enough to need ~580px
+   just to lay out side by side without colliding — well past phone widths.
+   Shrink everything and give the hint its own row below the top-right
+   stack instead of racing it for the same horizontal space.
+   =========================================================================== */
+@media (max-width: 640px) {
+  .gear {
+    top: 10px;
+    right: 10px;
+    width: 34px;
+    height: 34px;
+    font-size: 17px;
+  }
+
+  .keys-info-btn {
+    top: 48px;
+    right: 10px;
+    width: 34px;
+    height: 34px;
+    font-size: 15px;
+  }
+
+  .raider-count-ctrl {
+    top: 50px;
+    right: 10px;
+    height: 28px;
+    padding: 0 8px;
+    gap: 5px;
+    font-size: 11px;
+  }
+  .rc-btn { width: 18px; height: 18px; font-size: 13px; }
+  .rc-label { font-size: 10.5px; }
+  .rc-num { font-size: 13px; }
+
+  .game-fps, .game-ping { right: 10px; font-size: 10px; }
+  .game-fps { top: 84px; }
+  .game-ping { top: 98px; }
+
+  .match-timer { top: 10px; font-size: 16px; padding: 4px 10px; }
+
+  /* Dropped below the whole top-right stack (gear/raider-count/fps/ping — or
+     gear/timer/fps/ping in PvP) so it never has to dodge them horizontally —
+     it can just use the full width. */
+  .hint {
+    top: 116px;
+    left: 10px;
+    right: 10px;
+    max-width: none;
+    font-size: 10px;
+    padding: 6px 8px;
+    line-height: 1.45;
+  }
+  .hint .key { padding: 1px 4px; font-size: 9px; }
+
+  body.in-game .log-feed { top: 170px; left: 10px; }
+
+  /* Bottom row: minimap and the weapon panel share a band above the hotbar
+     instead of sitting beside it, so nothing has to overlap to fit. */
+  .game-minimap { bottom: 68px; left: 10px; width: 100px; height: 100px; }
+  .mm-label { bottom: 172px; left: 14px; font-size: 9px; }
+
+  .wpanel {
+    bottom: 68px;
+    right: 10px;
+    padding: 8px 8px 6px;
+    min-width: 60px;
+    gap: 5px;
+  }
+  .wp-icon { width: 26px; height: 26px; }
+  .wp-name { font-size: 7px; letter-spacing: 1.5px; }
+  .wp-stats { height: 52px; gap: 9px; }
+  /* min-width:0 lets the column shrink to its set width instead of the
+     flex default (never shrink below the label's min-content width),
+     which otherwise pushes neighboring labels into each other. */
+  .wp-stat { width: 8px; min-width: 0; }
+  .wp-bar-wrap { width: 8px; height: 42px; }
+  .wp-lbl { font-size: 6px; letter-spacing: 0; }
+
+  .hotbar { bottom: 10px; gap: 6px; }
+  .slot { width: 42px; height: 42px; font-size: 18px; }
+  .slot-icon { width: 26px; height: 26px; }
+  .slot .num { font-size: 9px; }
+}
+
+/* ===========================================================================
    Whitepaper — light document look (black on white with greys), regardless of
    the active app theme.
    =========================================================================== */
