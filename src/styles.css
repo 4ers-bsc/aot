@@ -2797,6 +2797,12 @@ body.in-game .game-hud-root {
   background: rgba(255, 255, 255, 0.06);
 }
 
+.pvp-prize-note {
+  font-size: 0.66rem;
+  font-weight: 500;
+  opacity: 0.65;
+}
+
 .game-over-prize {
   display: flex;
   flex-direction: column;

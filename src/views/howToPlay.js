@@ -13,7 +13,8 @@ export const html = `
         <div class="divider"></div>
         <div class="section">RULES</div>
         <div class="row"><span>Loadout</span><span class="k">everyone starts equal — same HP, attack &amp; weapons</span></div>
-        <div class="row"><span>Win</span><span class="k">last one standing · winner takes it all</span></div>
+        <div class="row"><span>Win</span><span class="k">last one standing · winner takes 90% of the pot</span></div>
+        <div class="row"><span>Protocol fee</span><span class="k">10% of the pot funds the arena</span></div>
         <div class="divider"></div>
         <div class="section">MODES</div>
         <div class="row"><span>Demo Match</span><span class="k">vs the computer</span></div>
@@ -31,7 +32,7 @@ export const html = `
         <div class="divider"></div>
         <div class="section">PROGRESSION</div>
         <div class="row"><span>Play a match</span><span class="k">+10 pts</span></div>
-        <div class="row"><span>Win a match</span><span class="k">+50 pts</span></div>
+        <div class="row"><span>Win a match</span><span class="k">+60 pts</span></div>
         <div class="row"><span>Win streak</span><span class="k">+10 pts × streak (escalates)</span></div>
         <div class="row"><span>A loss</span><span class="k">resets your streak</span></div>
         <div class="row"><span>Levels</span><span class="k">L2 100 · L3 300 · L4 600 · L5 1000 · …</span></div>

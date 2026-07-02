@@ -14,7 +14,12 @@ const TILE = 2;
 const MAP_TILES = 50;
 const MAP_WORLD = MAP_TILES * TILE; // 100
 const MAP_HALF = MAP_WORLD / 2; // 50
-const EMIT_MS = 50;
+// State snapshot broadcast interval. 10 Hz is plenty for the netMove
+// interpolator, and it matters for capacity: every peer emits on the same
+// Realtime channel (at 20 Hz a 10-player match was ≈200 msg/s, past Supabase's
+// default channel rate limits — drops are silent). HP changes still propagate
+// instantly via the forced emitState() in applyDamage.
+const EMIT_MS = 100;
 
 const WEAPONS = {
   sword:  { id: "sword",   name: "Sword",   atk: 25, atkVar: 3, cd: 0.7,  range: 2.4, ranged: false },
@@ -1363,6 +1368,11 @@ export function createArenaGame(options) {
     if (f.isPlayer) { f.attackTarget = null; f.target = null; camCenter.set(sp.x, 0, sp.z); fragRing.visible = player.weapon?.isGrenade ?? false; }
   }
   function regen(f, dt) {
+    // No regeneration in PvP: opponents clamp our HP with min() so it can never
+    // rise on their screens, and the server derives HP as 100 − damage with no
+    // regen either — local healing would only desync the three views and cause
+    // "I survived on my screen but the server says I lost". Demo mode keeps it.
+    if (foeMode === "net") return;
     if (f.hp >= f.maxHp || f.dead) { f.regenAcc = 0; return; }
     f.regenAcc += dt;
     if (f.regenAcc >= 2) { f.hp = Math.min(f.maxHp, f.hp + 1); f.regenAcc -= 2; }
@@ -2212,6 +2222,38 @@ export function createArenaGame(options) {
         ? attacker.weapon.atk + attacker.weapon.atkVar
         : Math.max(...Object.values(WEAPONS).map((w) => w.atk + w.atkVar));
       const dmg = Math.min(Math.max(0, payload.dmg || 0), weaponCap);
+
+      // Coarse plausibility net for a KNOWN attacker: drop events that arrive
+      // faster than the weapon's cooldown allows or hit from beyond its reach.
+      // Thresholds are deliberately loose (network jitter compresses arrival
+      // times; positions are interpolated) — this blocks the blatant hacks
+      // (cross-map melee, machine-gun sniper) from wrecking the live match,
+      // while the money is protected by the server's settlement caps anyway.
+      // The declared weapon is considered alongside the snapshot weapon so a
+      // legit attack right after a weapon switch (snapshot still in flight)
+      // isn't dropped; a false declaration can only widen these sanity bounds,
+      // never the damage cap above.
+      if (attacker) {
+        const declared = WEAPONS[payload.weapon];
+        const w = payload.isGrenade ? WEAPONS.frag : (attacker.weapon || declared || WEAPONS.sword);
+        const cdMs = Math.min(w.cd, declared?.cd ?? w.cd) * 600; // 40% jitter slack
+        const nowMs = performance.now();
+        const lastKey = payload.isGrenade ? "lastFragAt" : "lastAtkAt";
+        if (attacker[lastKey] && nowMs - attacker[lastKey] < cdMs) return;
+        const reach = Math.max(w.range, declared?.range ?? 0) * 1.5 + 4;
+        const ix = payload.isGrenade && typeof payload.tx === "number" ? payload.tx
+          : (payload.targetId === localUserId ? player.group.position.x
+             : opponents.get(payload.targetId)?.group.position.x);
+        const iz = payload.isGrenade && typeof payload.tz === "number" ? payload.tz
+          : (payload.targetId === localUserId ? player.group.position.z
+             : opponents.get(payload.targetId)?.group.position.z);
+        if (typeof ix === "number" && typeof iz === "number") {
+          const d = Math.hypot(ix - attacker.group.position.x, iz - attacker.group.position.z);
+          if (d > reach) return;
+        }
+        attacker[lastKey] = nowMs;
+      }
+
       if (payload.isGrenade && attacker) {
         const tx = typeof payload.tx === "number" ? payload.tx : attacker.group.position.x;
         const tz = typeof payload.tz === "number" ? payload.tz : attacker.group.position.z;

@@ -37,6 +37,7 @@ drop function if exists public.validate_match_damage() cascade;
 drop function if exists public.validate_match_kills() cascade;
 
 drop table if exists public.banned_users    cascade;
+drop table if exists public.consumed_deposits cascade;
 drop table if exists public.payouts          cascade;
 drop table if exists public.integrity_signals cascade;
 drop table if exists public.rate_limits      cascade;
@@ -188,6 +189,17 @@ create table public.payouts (
   primary key (match_id)
 );
 create index if not exists idx_payouts_winner on public.payouts(winner_user_id, created_at desc);
+
+-- Deposit signatures are single-use, permanently. unique(deposit_tx) on
+-- match_players only holds while the seat row exists (leaving a waiting lobby
+-- deletes it), so join_pvp_match also records every signature here the moment
+-- it takes a seat and rejects any signature seen before. Rows are never deleted.
+create table public.consumed_deposits (
+  deposit_tx  text primary key,
+  user_id     uuid references auth.users(id)      on delete set null,
+  match_id    uuid references public.matches(id)  on delete set null,
+  consumed_at timestamptz not null default now()
+);
 
 -- Banned accounts — cannot join or play. Set automatically on forfeit for
 -- impossible combat output, or by the edge functions on non-browser requests.
@@ -490,6 +502,14 @@ begin
     );
   end if;
 
+  -- Deposits are single-use, permanently. unique(deposit_tx) on match_players
+  -- only holds while the seat row exists (leaving a waiting lobby deletes it),
+  -- so a NEW seat must also be checked against the permanent ledger. Runs
+  -- after the rejoin block so a lost-response retry still gets its seat back.
+  if exists (select 1 from public.consumed_deposits where deposit_tx = p_deposit_tx) then
+    raise exception 'deposit_already_used: this deposit was already spent on a match entry';
+  end if;
+
   -- Global capacity cap: never seat more than 150 wallets across all live
   -- matches at once. Only applies to a NEW seat (rejoins already returned
   -- above). The client checks pvp_capacity() before charging the entry fee
@@ -526,6 +546,9 @@ begin
     insert into public.match_players (match_id, user_id, seat, display_name, deposit_tx, deposit_wallet)
     values (v_match_id, v_uid, v_seat, v_name, p_deposit_tx, trim(p_deposit_wallet));
 
+    insert into public.consumed_deposits (deposit_tx, user_id, match_id)
+    values (p_deposit_tx, v_uid, v_match_id);
+
     update public.matches
     set pot_tokens = pot_tokens + c_entry_fee
     where id = v_match_id;
@@ -558,6 +581,9 @@ begin
   v_seat := 1;
   insert into public.match_players (match_id, user_id, seat, display_name, deposit_tx, deposit_wallet)
   values (v_match_id, v_uid, v_seat, v_name, p_deposit_tx, trim(p_deposit_wallet));
+
+  insert into public.consumed_deposits (deposit_tx, user_id, match_id)
+  values (p_deposit_tx, v_uid, v_match_id);
 
   update public.matches
   set pot_tokens = pot_tokens + c_entry_fee
@@ -776,7 +802,7 @@ $$;
 -- ---------------------------------------------------------------------------
 -- 8b. finalize_match — LEDGER-AUTHORITATIVE settlement (Option A, Phase 2).
 --     CANONICAL DEFINITION. Kept byte-for-byte in sync with the incremental
---     migration supabase/migrations/20260705_finalize_match_canonical.sql —
+--     migration supabase/migrations/20260708_finalize_no_early_void.sql —
 --     edit both together (this is the from-scratch path; that is the upgrade
 --     path for already-provisioned databases).
 --     Decides the winner from match_damage, not from self-reported final_hp.
@@ -803,6 +829,7 @@ declare
   v_ended      timestamptz;
   v_secs       numeric;
   v_unreported int;
+  v_live_n     int;
   v_dmg_total  bigint;
   v_winner     uuid;
   v_forfeited  uuid[];
@@ -832,6 +859,28 @@ begin
 
   if not p_force and v_unreported > 0 and now() < v_deadline then
     return;
+  end if;
+
+  -- Early-report guard: before the deadline, everyone reporting is not by
+  -- itself proof the match is over — a spoofed "match-over" broadcast can
+  -- push every honest client to report seconds in. Only settle early when
+  -- the ledger shows a lethal total against someone, or at most one player
+  -- is still connected (walkover). Otherwise hold the match open; the
+  -- deadline path settles it as usual.
+  if not p_force and now() < v_deadline then
+    select count(*) into v_live_n
+    from match_players
+    where match_id = p_match_id
+      and not (final_hp is null and last_seen < now() - c_dc_grace);
+
+    if v_live_n > 1 and not exists (
+      select 1 from match_damage
+      where match_id = p_match_id
+      group by victim
+      having sum(total_damage) >= 100
+    ) then
+      return;
+    end if;
   end if;
 
   v_ended := now();
@@ -893,10 +942,14 @@ begin
     where hit_count <= c_max_firerate * win_secs
   ),
   hp as (
+    -- The match_id filter here is essential: without it every player in every
+    -- match is ranked, and a concurrent match's player could be crowned winner
+    -- of THIS match (winner_user_id is who the treasurer pays).
     select mp.user_id, mp.seat, mp.final_hp, mp.last_seen,
            greatest(0, 100 - coalesce(sum(v.dmg), 0))::int as hp
     from match_players mp
     left join valid v on v.victim = mp.user_id
+    where mp.match_id = p_match_id
     group by mp.user_id, mp.seat, mp.final_hp, mp.last_seen
   ),
   ranked as (
@@ -1175,6 +1228,9 @@ alter table public.rate_limits       enable row level security;
 alter table public.integrity_signals enable row level security;
 alter table public.payouts           enable row level security;
 alter table public.banned_users      enable row level security;
+-- consumed_deposits is written/read only inside join_pvp_match (security
+-- definer); RLS on with no policies blocks all direct client access.
+alter table public.consumed_deposits enable row level security;
 
 -- Payouts: a player can read their own; inserts come only from the service role.
 create policy "payouts_select_own"

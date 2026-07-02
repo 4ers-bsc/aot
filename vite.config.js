@@ -13,8 +13,11 @@ export default defineConfig({
       debugger: false,
       options: {
         compact: true,
-        controlFlowFlattening: true,
-        controlFlowFlatteningThreshold: 0.4,
+        // Off: control-flow flattening measurably slows hot code, and game.js is
+        // per-frame hot path (the render/update loop runs 60×/s). String-array
+        // encoding below stays on and is the real deterrent; flattening added
+        // FPS cost on mid-range devices for little extra obscurity.
+        controlFlowFlattening: false,
         deadCodeInjection: false,
         stringEncoding: true,
         stringEncodingThreshold: 0.6,
