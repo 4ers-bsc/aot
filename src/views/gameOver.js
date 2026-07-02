@@ -4,6 +4,7 @@ export const html = `
     <div class="game-over-card">
       <img class="go-logo" src="/logo.png" alt="FIGHT10" />
       <div class="game-over-title" id="gameOverTitle">VICTORY</div>
+      <div class="go-matchno hidden" id="gameOverMatchNo"></div>
       <div class="game-over-reason" id="gameOverReason"></div>
       <div class="game-over-prize hidden" id="gameOverPrize">
         <div class="go-prize-label">YOU WON</div>

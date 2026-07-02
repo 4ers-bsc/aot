@@ -8,7 +8,8 @@ export const html = `
         <p class="wp-intro">
           FIGHT10 is a skill-based, last-one-standing arena where every fighter
           spawns identical and each player stakes an equal entry. The winner takes
-          the pot. This paper describes how the system stays fair and custodial-safe.
+          90% of the pot; a 10% protocol fee funds operations. This paper describes
+          how the system stays fair and custodial-safe.
           Implementation identifiers are intentionally masked.
         </p>
 
@@ -16,7 +17,7 @@ export const html = `
         <p class="wp-text">
           Every player stakes a fixed entry of the in-game token. All entries for a
           match form a single pot. On a verified result the pot is paid to the sole
-          survivor, less a small protocol fee. Entries are non-refundable once a
+          survivor, less a 10% protocol fee. Entries are non-refundable once a
           match is joined — leaving forfeits the stake to the pot.
         </p>
 

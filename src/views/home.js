@@ -7,7 +7,7 @@ export const html = `
     </div>
     <div class="hero-tagline">
       <h2 class="hero-subtitle">LAST ONE STANDING</h2>
-      <p class="hero-desc">A tactical isometric arena. Every fighter spawns with the same health, the same attack, and the same weapons — no advantages, pure skill. Each player puts in <strong>2,500 $FIGHT10</strong> — last one standing takes the entire pot. Connect your Solana wallet, then drop into a demo match against the computer or queue for 2, 5, or 10-player PvP. <strong>Winner takes it all.</strong></p>
+      <p class="hero-desc">A tactical isometric arena. Every fighter spawns with the same health, the same attack, and the same weapons — no advantages, pure skill. Each player puts in <strong>2,500 $FIGHT10</strong> — the last one standing takes 90% of the pot (a 10% protocol fee keeps the arena running). Connect your Solana wallet, then drop into a demo match against the computer or queue for 2, 5, or 10-player PvP. <strong>Winner takes 90% of the pot.</strong></p>
     </div>
   </section>
 
@@ -46,7 +46,7 @@ export const html = `
     <div class="info-tile info-tile-multiplier">
       <div class="info-tile-multi">2,500 $FIGHT10</div>
       <div class="info-tile-label">ENTRY PER PLAYER</div>
-      <div class="info-tile-desc">Last one standing<br>takes the entire pot.</div>
+      <div class="info-tile-desc">Last one standing<br>takes 90% of the pot.</div>
     </div>
     <div class="info-tile info-tile-online">
       <div class="info-tile-multi"><span class="online-dot"></span><span id="onlineCount">—</span></div>

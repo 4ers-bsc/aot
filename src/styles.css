@@ -1719,6 +1719,25 @@ body.in-game .game-hud-root {
   user-select: none;
 }
 
+/* Friendly match number — pinned under the match timer. */
+.match-no {
+  position: fixed;
+  top: 66px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 12;
+  display: none;
+  font-family: var(--font-head);
+  font-size: 11px;
+  letter-spacing: 0.16em;
+  color: rgba(20, 24, 28, 0.6);
+  background: rgba(255, 255, 255, 0.62);
+  border: 1px solid rgba(20, 24, 28, 0.14);
+  border-radius: 4px;
+  padding: 2px 9px;
+  user-select: none;
+}
+
 /* Minimap */
 .game-minimap {
   position: fixed;
@@ -2675,6 +2694,29 @@ body.in-game .game-hud-root {
 }
 .standing-flagged .standing-name { color: #e88; }
 
+/* Disconnected player row — dimmed, with an explicit tag. */
+.standing-row.standing-dc .standing-name { opacity: 0.6; }
+.standing-dc-tag {
+  margin-left: 7px;
+  font-size: 8.5px;
+  letter-spacing: 0.1em;
+  padding: 1px 5px;
+  border: 1px solid rgba(255,255,255,0.24);
+  border-radius: 3px;
+  color: var(--soft);
+  vertical-align: 1.5px;
+  white-space: nowrap;
+}
+
+/* Match number on the result card, under the verdict title. */
+.go-matchno {
+  font-family: var(--font-head);
+  font-size: 11px;
+  letter-spacing: 0.2em;
+  color: var(--soft);
+  margin: -2px 0 4px;
+}
+
 .standing-name {
   font-family: var(--font-head);
   font-size: 13px;
@@ -2795,6 +2837,12 @@ body.in-game .game-hud-root {
   border: 1px solid rgba(255, 255, 255, 0.26);
   border-radius: 6px;
   background: rgba(255, 255, 255, 0.06);
+}
+
+.pvp-prize-note {
+  font-size: 0.66rem;
+  font-weight: 500;
+  opacity: 0.65;
 }
 
 .game-over-prize {
@@ -2978,6 +3026,7 @@ body.in-game .game-hud-root {
   .game-ping { top: 98px; }
 
   .match-timer { top: 10px; font-size: 16px; padding: 4px 10px; }
+  .match-no { top: 42px; font-size: 9px; padding: 1px 7px; }
 
   /* Keyboard/mouse reference text (wasd/click/drag/scroll/Esc) doesn't apply
      to a touchscreen anyway, and there's no room to keep it from competing

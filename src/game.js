@@ -14,7 +14,12 @@ const TILE = 2;
 const MAP_TILES = 50;
 const MAP_WORLD = MAP_TILES * TILE; // 100
 const MAP_HALF = MAP_WORLD / 2; // 50
-const EMIT_MS = 50;
+// State snapshot broadcast interval. 10 Hz is plenty for the netMove
+// interpolator, and it matters for capacity: every peer emits on the same
+// Realtime channel (at 20 Hz a 10-player match was ≈200 msg/s, past Supabase's
+// default channel rate limits — drops are silent). HP changes still propagate
+// instantly via the forced emitState() in applyDamage.
+const EMIT_MS = 100;
 
 const WEAPONS = {
   sword:  { id: "sword",   name: "Sword",   atk: 25, atkVar: 3, cd: 0.7,  range: 2.4, ranged: false },
@@ -179,17 +184,11 @@ export function createArenaGame(options) {
   const wallObjects = []; // tracks all wall scene objects for disposal
 
   function buildArenaWalls(variant) {
-    // Dispose existing wall objects. Materials are often shared across meshes,
-    // so track disposed ones to avoid calling dispose() more than once per object.
-    const disposedMats = new Set();
+    // Dispose existing wall objects via the shared traversal helper (it
+    // handles shared materials, textures, and nested groups uniformly).
     wallObjects.forEach((obj) => {
       scene.remove(obj);
-      if (obj.geometry) obj.geometry.dispose();
-      if (obj.material && !disposedMats.has(obj.material)) {
-        disposedMats.add(obj.material);
-        if (obj.material.map) obj.material.map.dispose();
-        obj.material.dispose();
-      }
+      disposeObject3D(obj);
     });
     wallObjects.length = 0;
 
@@ -305,11 +304,8 @@ export function createArenaGame(options) {
   const fight10Groups = [];
   function makeFight10Decal() {
     fight10Groups.forEach((g) => {
-      g.traverse((o) => {
-        if (o.geometry) o.geometry.dispose();
-        if (o.material) { if (o.material.map) o.material.map.dispose(); o.material.dispose(); }
-      });
       scene.remove(g);
+      disposeObject3D(g);
     });
     fight10Groups.length = 0;
     const CW = 56, CH = 10;
@@ -567,12 +563,29 @@ export function createArenaGame(options) {
   function recolorFighter(f, palette) {
     Object.keys(f.parts).forEach((key) => f.parts[key].forEach((mat) => mat.color.setHex(palette[key])));
   }
+  // Fully release an Object3D subtree: every descendant's geometry, its
+  // material(s) — material ARRAYS included — and any texture those materials
+  // hold. This is the single disposal path for everything removed from the
+  // scene; ad-hoc `mesh.geometry.dispose()` calls silently leak when the node
+  // is a Group (no geometry/material of its own) or when materials are shared.
+  // The Set keeps shared resources from being visited repeatedly (dispose() is
+  // idempotent in three.js, so a stray double call is still harmless).
+  function disposeObject3D(root) {
+    const seen = new Set();
+    root.traverse((o) => {
+      if (o.geometry && !seen.has(o.geometry)) { seen.add(o.geometry); o.geometry.dispose(); }
+      const mats = Array.isArray(o.material) ? o.material : o.material ? [o.material] : [];
+      for (const m of mats) {
+        if (seen.has(m)) continue;
+        seen.add(m);
+        if (m.map) m.map.dispose();
+        m.dispose();
+      }
+    });
+  }
   function disposeFighter(f) {
     scene.remove(f.group);
-    f.group.traverse((o) => {
-      if (o.geometry) o.geometry.dispose();
-      if (o.material) o.material.dispose();
-    });
+    disposeObject3D(f.group);
     f.bar.el.remove();
   }
 
@@ -674,10 +687,7 @@ export function createArenaGame(options) {
   function clearMap() {
     while (mapGroup.children.length) {
       const c = mapGroup.children[0];
-      c.traverse((o) => {
-        if (o.geometry) o.geometry.dispose();
-        if (o.material) { if (o.material.map) o.material.map.dispose(); o.material.dispose(); }
-      });
+      disposeObject3D(c);
       mapGroup.remove(c);
     }
     solids = [];
@@ -1220,7 +1230,7 @@ export function createArenaGame(options) {
       if (dist <= step || dist < 0.5) {
         if (b.def && !b.def.dead) applyDamage(b.def, b.dmg, b.bySelf);
         scene.remove(b.mesh);
-        b.mesh.traverse((o) => { if (o.geometry) o.geometry.dispose(); if (o.material) o.material.dispose(); });
+        disposeObject3D(b.mesh);
         bullets.splice(i, 1);
       } else {
         b.mesh.position.addScaledVector(_bulletDir.normalize(), step);
@@ -1285,7 +1295,7 @@ export function createArenaGame(options) {
           scene.add(flash);
           explosions.push({ mesh: flash, t: 0 });
           scene.remove(g.mesh);
-          g.mesh.geometry.dispose(); g.mesh.material.dispose();
+          disposeObject3D(g.mesh);
           grenades.splice(i, 1);
         }
       }
@@ -1297,7 +1307,7 @@ export function createArenaGame(options) {
       ex.t += dt;
       if (ex.t >= 0.45) {
         scene.remove(ex.mesh);
-        ex.mesh.geometry.dispose(); ex.mesh.material.dispose();
+        disposeObject3D(ex.mesh);
         explosions.splice(i, 1);
       } else {
         ex.mesh.material.opacity = 0.75 * (1 - ex.t / 0.45);
@@ -1363,6 +1373,11 @@ export function createArenaGame(options) {
     if (f.isPlayer) { f.attackTarget = null; f.target = null; camCenter.set(sp.x, 0, sp.z); fragRing.visible = player.weapon?.isGrenade ?? false; }
   }
   function regen(f, dt) {
+    // No regeneration in PvP: opponents clamp our HP with min() so it can never
+    // rise on their screens, and the server derives HP as 100 − damage with no
+    // regen either — local healing would only desync the three views and cause
+    // "I survived on my screen but the server says I lost". Demo mode keeps it.
+    if (foeMode === "net") return;
     if (f.hp >= f.maxHp || f.dead) { f.regenAcc = 0; return; }
     f.regenAcc += dt;
     if (f.regenAcc >= 2) { f.hp = Math.min(f.maxHp, f.hp + 1); f.regenAcc -= 2; }
@@ -1609,7 +1624,7 @@ export function createArenaGame(options) {
 
   // -- HUD (attached reference set) -----------------------------------------
   const hud = buildHud();
-  const { coords, mmCanvas, hotbar, slots, fpsEl, pingEl, overlay, renderDistBtn, matchTimerEl, raiderCountCtrl, raiderCountEl, scorePanel, weaponPanel, keysInfoPanel } = hud;
+  const { coords, mmCanvas, hotbar, slots, fpsEl, pingEl, overlay, renderDistBtn, matchTimerEl, matchNoEl, raiderCountCtrl, raiderCountEl, scorePanel, weaponPanel, keysInfoPanel } = hud;
 
   // Top-right menu button: open the app's in-game menu (resume / how to play /
   // settings / leave) rather than jumping straight into settings — on touch
@@ -1918,6 +1933,13 @@ export function createArenaGame(options) {
   function showTimer() {
     matchTimerEl.style.display = matchTimerOn && viewIsGame ? "block" : "none";
   }
+  // Friendly sequential match number (matches.match_no), shown under the timer
+  // so players can reference the match in support requests / history.
+  let matchNumber = null;
+  function showMatchNo() {
+    matchNoEl.textContent = matchNumber ? `MATCH #${matchNumber}` : "";
+    matchNoEl.style.display = matchNumber && viewIsGame ? "block" : "none";
+  }
   function tickTimer() {
     if (!matchTimerOn || resultSent || matchPhase !== "active") return;
     const left = matchSecsLeft();
@@ -2064,7 +2086,13 @@ export function createArenaGame(options) {
       document.body.classList.toggle("in-game", viewIsGame);
       applyTheme(viewIsGame ? "game" : "lobby");
       showTimer();
+      showMatchNo();
       if (viewIsGame) { renderWeaponPanel(player.weapon); }
+    },
+    // Friendly match number for the HUD (null hides it, e.g. demo mode).
+    setMatchNumber(n) {
+      matchNumber = n || null;
+      showMatchNo();
     },
     setMode(mode) {
       perspective = mode;
@@ -2153,7 +2181,13 @@ export function createArenaGame(options) {
     resetForMatch(matchId, localSeat) {
       resultSent = false;
       matchTimerOn = false; showTimer();
-      bullets.splice(0).forEach((b) => { scene.remove(b.mesh); b.mesh.geometry.dispose(); b.mesh.material.dispose(); });
+      // Clear leftover projectiles from a previous match. Bullets are Groups
+      // (the old per-mesh dispose calls hit the group, which has no
+      // geometry/material, and leaked the children) — and in-flight grenades /
+      // explosion flashes were never cleared at all.
+      bullets.splice(0).forEach((b) => { scene.remove(b.mesh); disposeObject3D(b.mesh); });
+      grenades.splice(0).forEach((g) => { scene.remove(g.mesh); disposeObject3D(g.mesh); });
+      explosions.splice(0).forEach((ex) => { scene.remove(ex.mesh); disposeObject3D(ex.mesh); });
       Object.assign(player, { hp: player.maxHp, dead: false, cdTimer: 0, atkAnim: 0, hurt: 0, moving: false, attackTarget: null, target: null, chargeTimer: 0 });
       player.group.rotation.set(0, player.group.rotation.y, 0);
       const spawnSeed = (matchId && localSeat != null) ? `${matchId}-spawn-${localSeat}` : null;
@@ -2212,6 +2246,38 @@ export function createArenaGame(options) {
         ? attacker.weapon.atk + attacker.weapon.atkVar
         : Math.max(...Object.values(WEAPONS).map((w) => w.atk + w.atkVar));
       const dmg = Math.min(Math.max(0, payload.dmg || 0), weaponCap);
+
+      // Coarse plausibility net for a KNOWN attacker: drop events that arrive
+      // faster than the weapon's cooldown allows or hit from beyond its reach.
+      // Thresholds are deliberately loose (network jitter compresses arrival
+      // times; positions are interpolated) — this blocks the blatant hacks
+      // (cross-map melee, machine-gun sniper) from wrecking the live match,
+      // while the money is protected by the server's settlement caps anyway.
+      // The declared weapon is considered alongside the snapshot weapon so a
+      // legit attack right after a weapon switch (snapshot still in flight)
+      // isn't dropped; a false declaration can only widen these sanity bounds,
+      // never the damage cap above.
+      if (attacker) {
+        const declared = WEAPONS[payload.weapon];
+        const w = payload.isGrenade ? WEAPONS.frag : (attacker.weapon || declared || WEAPONS.sword);
+        const cdMs = Math.min(w.cd, declared?.cd ?? w.cd) * 600; // 40% jitter slack
+        const nowMs = performance.now();
+        const lastKey = payload.isGrenade ? "lastFragAt" : "lastAtkAt";
+        if (attacker[lastKey] && nowMs - attacker[lastKey] < cdMs) return;
+        const reach = Math.max(w.range, declared?.range ?? 0) * 1.5 + 4;
+        const ix = payload.isGrenade && typeof payload.tx === "number" ? payload.tx
+          : (payload.targetId === localUserId ? player.group.position.x
+             : opponents.get(payload.targetId)?.group.position.x);
+        const iz = payload.isGrenade && typeof payload.tz === "number" ? payload.tz
+          : (payload.targetId === localUserId ? player.group.position.z
+             : opponents.get(payload.targetId)?.group.position.z);
+        if (typeof ix === "number" && typeof iz === "number") {
+          const d = Math.hypot(ix - attacker.group.position.x, iz - attacker.group.position.z);
+          if (d > reach) return;
+        }
+        attacker[lastKey] = nowMs;
+      }
+
       if (payload.isGrenade && attacker) {
         const tx = typeof payload.tx === "number" ? payload.tx : attacker.group.position.x;
         const tz = typeof payload.tz === "number" ? payload.tz : attacker.group.position.z;
@@ -2246,6 +2312,7 @@ export function createArenaGame(options) {
       aiEnemy.name = "Raider";
       player.connected = false;
       matchTimerOn = false; showTimer();
+      matchNumber = null; showMatchNo();
       viewIsGame = false;
       document.body.classList.remove("in-game");
       applyTheme("lobby");
@@ -2272,6 +2339,10 @@ export function createArenaGame(options) {
       aiRaiders.forEach((r) => r.bar.el.remove());
       clearOpponents();
       hud.root.remove();
+      // Release everything still attached to the scene (ground + its canvas
+      // texture, walls, snow, map objects, fighters, projectiles) before
+      // dropping the GL context.
+      disposeObject3D(scene);
       renderer.dispose();
       mount.innerHTML = "";
     }
@@ -2300,6 +2371,7 @@ function buildHud() {
 
   const hint = add('<div class="hint game-ui"><span class="key">wasd</span> move &middot; <span class="key">click</span> move &middot; <span class="key">click rival</span> attack &middot; <span class="key">drag</span> pan &middot; <span class="key">scroll</span> zoom &middot; <span class="key">Esc</span> leave</div>');
   const matchTimerEl = add('<div class="match-timer game-ui">0:00</div>');
+  const matchNoEl = add('<div class="match-no game-ui"></div>');
   const coords = add('<div class="coords game-ui">x 0.0 &middot; z 0.0</div>');
   add('<div class="mm-label game-ui">map</div>');
   const mmCanvas = add('<canvas class="game-minimap game-ui"></canvas>');
@@ -2407,7 +2479,7 @@ function buildHud() {
     });
   }
 
-  return { root, coords, matchTimerEl, mmCanvas, hotbar, slots, fpsEl, pingEl, overlay, renderDistBtn, bindSettings, raiderCountCtrl, raiderCountEl, scorePanel, weaponPanel, keysInfoPanel, gearBtn };
+  return { root, coords, matchTimerEl, matchNoEl, mmCanvas, hotbar, slots, fpsEl, pingEl, overlay, renderDistBtn, bindSettings, raiderCountCtrl, raiderCountEl, scorePanel, weaponPanel, keysInfoPanel, gearBtn };
 }
 
 function clamp(v, min, max) {
@@ -2421,7 +2493,7 @@ function clamp(v, min, max) {
 function stubApi() {
   const noop = () => {};
   return {
-    setView: noop, setMode: noop, setMatchPhase: noop, setControllable: noop, setMatchTimer: noop, setLocalUser: noop,
+    setView: noop, setMode: noop, setMatchPhase: noop, setControllable: noop, setMatchTimer: noop, setMatchNumber: noop, setLocalUser: noop,
     playerAlive: () => false,
     currentHp: () => 0, standings: () => [],
     useAiFoe: noop, usePvpFoes: noop, addOpponent: noop, removeOpponent: () => 0,

@@ -27,6 +27,9 @@ const SOLANA_RPC_URL  = import.meta.env?.VITE_SOLANA_RPC_URL?.trim() || "https:/
 const ENTRY_FEE       = 2500;         // FIGHT10 tokens per player
 const FIGHT10_DECIMALS = 6;           // Pump.fun mints always use 6 decimals
 const ENTRY_FEE_RAW   = BigInt(ENTRY_FEE) * BigInt(10 ** FIGHT10_DECIMALS);
+// Winner's share of the pot. MUST match f10treasurer's payout math
+// ((total * 900) / 1000): every place the UI promises a prize derives from this.
+const WINNER_SHARE    = 0.9;
 
 // The Solana libraries (~1 MB combined) are only needed for deposits and
 // balance checks, never to reach the menu — so they are dynamically imported on
@@ -139,9 +142,11 @@ const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY || "anon-key-not-c
 const state = {
   user: null,
   profile: null,
-  match: null, // { id, mode: 'demo'|'pvp', status, finished, maxPlayers }
+  match: null, // { id, mode: 'demo'|'pvp', status, finished, maxPlayers, matchNo }
   seat: null,
   remoteIds: new Set(),
+  remoteNames: new Map(), // userId -> display_name, for disconnect/reconnect toasts
+  remoteSeen: new Set(),  // every rival seen this match — re-adding one means a reconnect
   started: false,
   channel: null,
   iRoomFiller: false,
@@ -155,6 +160,40 @@ const state = {
   matchDurations: { 2: 300, 5: 420, 10: 600 },
   presenceChannel: null,
 };
+
+// ---------------------------------------------------------------------------
+// Pending-deposit persistence. A confirmed on-chain deposit that hasn't bought
+// a seat yet must survive reloads/crashes — the fee is non-refundable, and
+// before this the signature lived only in memory: a reload between "deposit
+// confirmed" and "seat taken" stranded 2,500 $FIGHT10 in escrow with no way to
+// retry. Keyed per user so one wallet's deposit can never leak to another.
+// ---------------------------------------------------------------------------
+function pendingDepositKey() {
+  return state.user?.id ? `f10_pending_deposit_${state.user.id}` : null;
+}
+function savePendingDeposit(tx, wallet) {
+  state.pendingDepositTx = tx || null;
+  state.pendingDepositWallet = wallet || null;
+  const key = pendingDepositKey();
+  if (!key) return;
+  try {
+    if (tx) localStorage.setItem(key, JSON.stringify({ tx, wallet }));
+    else localStorage.removeItem(key);
+  } catch (_) { /* private browsing — in-memory copy still works this session */ }
+}
+function loadPendingDeposit() {
+  const key = pendingDepositKey();
+  if (!key) return;
+  try {
+    const raw = localStorage.getItem(key);
+    if (!raw) return;
+    const saved = JSON.parse(raw);
+    if (saved?.tx) {
+      state.pendingDepositTx = saved.tx;
+      state.pendingDepositWallet = saved.wallet || null;
+    }
+  } catch (_) {}
+}
 
 // Load per-lobby match durations from the DB so the client timer matches the
 // server's settlement deadline. Best-effort: the defaults above are used on
@@ -277,18 +316,20 @@ function kickForManipulation(reason) {
   setTimeout(() => { try { window.location.reload(); } catch (_) {} }, 1600);
 }
 
-// Devtools watch during a live match — kicks the player if the console opens.
-// Uses the devtools-detector library, loaded lazily from the CDN and fully
-// wrapped so a load/detector fault can never affect gameplay (the earlier PvP
-// freeze was a heartbeat bug, not this). The kick is non-blocking (overlay +
-// reload, no alert).
+// Devtools watch during a live match — TELEMETRY ONLY. Detection libraries
+// misfire (docked panels, unusual browsers, extensions that touch console), and
+// with a real, non-refundable entry fee at stake a false-positive kick costs an
+// honest player money. So an open console is recorded as an integrity signal
+// for review, never auto-punished; actual cheating is caught server-side
+// (write-time validation + settlement rate caps), where kicks remain in force.
 let _devtoolsDetector = null;
 let _dtListenerAdded = false;
+let _dtReported = false;
 function onDevtoolsChange(isOpen) {
-  if (!isOpen || _kicked) return;
+  if (!isOpen || _kicked || _dtReported) return;
   if (state.match?.mode === "pvp" && !state.match?.finished) {
+    _dtReported = true; // one signal per match is enough for review
     reportIntegritySignal("devtools_open", {});
-    kickForManipulation("Do not open the developer console. You have been removed from the match.");
   }
 }
 // Prefer a NON-PAUSING checker set (exclude the debugger checker so the game
@@ -311,6 +352,7 @@ function buildDetector(mod) {
   return (d && typeof d.addListener === "function" && typeof d.launch === "function") ? d : null;
 }
 async function startIntegrityWatch() {
+  _dtReported = false; // fresh signal budget for the new match
   try {
     if (!_devtoolsDetector) {
       const mod = await importDevtoolsDetector();
@@ -378,7 +420,11 @@ async function flushLedger(matchId) {
   }));
   try {
     if (damageRows.length) {
-      const { error } = await supabase.from("match_damage").upsert(damageRows, { onConflict: "match_id,attacker,victim" });
+      // ignoreDuplicates makes this ON CONFLICT DO NOTHING. Without it supabase-js
+      // emits ON CONFLICT DO UPDATE, which needs UPDATE privilege — match_damage is
+      // deliberately insert-only under RLS, so the flush would fail with
+      // "permission denied" on every match and settlement would see zero damage.
+      const { error } = await supabase.from("match_damage").upsert(damageRows, { onConflict: "match_id,attacker,victim", ignoreDuplicates: true });
       if (error) {
         if (isIntegrityError(error)) return kickForManipulation("Removed: invalid combat data detected.");
         console.error("ledger flush error:", error);
@@ -624,7 +670,14 @@ async function handleSession(session) {
     return;
   }
   showLobby();
-  setStatus(recordSuffix("Wallet connected — choose Demo Match or Play PvP."));
+  // Restore a deposit that was confirmed on-chain but never spent on a seat
+  // (e.g. the tab crashed between payment and queue entry).
+  loadPendingDeposit();
+  setStatus(recordSuffix(
+    state.pendingDepositTx
+      ? "You have a confirmed, unused entry deposit — click Play PvP to enter the queue without paying again."
+      : "Wallet connected — choose Demo Match or Play PvP."
+  ));
   refreshFight10Balance().catch(console.error);
 }
 
@@ -643,6 +696,7 @@ function startDemo() {
   state.started = true;
   game.setView("game");
   game.setLocalUser({ userId: state.user?.id ?? null, displayName: state.profile?.display_name || "You" });
+  game.setMatchNumber(null); // demo matches have no match number
   game.useAiFoe();          // single AI raider opponent
   game.generateMap("demo-" + Date.now());
   game.resetForMatch();
@@ -713,6 +767,14 @@ function showGameOver(result, reason, standings = [], prizeAmount = null, kills 
   els.gameOver.classList.toggle("is-win", win);
   els.gameOver.classList.toggle("is-loss", !win);
   els.gameOverReason.textContent = reason || (win ? "Your rival fell in the trench." : "You fell in the trench.");
+  // Friendly match number — matches the HUD and match history so the result
+  // can be referenced later (e.g. in a support request).
+  const matchNoEl = document.getElementById("gameOverMatchNo");
+  if (matchNoEl) {
+    const n = state.match?.matchNo;
+    matchNoEl.textContent = n ? `MATCH #${n} · ${state.match?.maxPlayers || 2}-PLAYER` : "";
+    matchNoEl.classList.toggle("hidden", !n);
+  }
   els.gameOverName.textContent = state.profile?.display_name || "Trench Rookie";
   els.gameOverWins.textContent = state.profile?.wins ?? 0;
   els.gameOverLosses.textContent = state.profile?.losses ?? 0;
@@ -851,17 +913,18 @@ function buildBoundedStandings(players, settled) {
   const hpByUser = {};
   const arr = settled?.shadow_meta?.hp;
   if (Array.isArray(arr)) {
-    arr.forEach((e) => { hpByUser[e.user_id] = { hp: Math.max(0, e.hp), flagged: !!e.flagged }; });
+    arr.forEach((e) => { hpByUser[e.user_id] = { hp: Math.max(0, e.hp), flagged: !!e.flagged, dc: !!e.dc }; });
   }
   const rows = players.map((p) => ({
     name: p.display_name,
     seat: p.seat ?? 0,
     hp: hpByUser[p.user_id]?.hp ?? null,
     flagged: hpByUser[p.user_id]?.flagged ?? false,
+    dc: hpByUser[p.user_id]?.dc ?? false,
     me: p.user_id === state.user?.id,
   }));
   rows.sort((a, b) => ((b.hp ?? -1) - (a.hp ?? -1)) || (a.seat - b.seat));
-  return rows.map((r, i) => ({ rank: i + 1, name: r.name, hp: r.hp ?? 0, me: r.me, flagged: r.flagged }));
+  return rows.map((r, i) => ({ rank: i + 1, name: r.name, hp: r.hp ?? 0, me: r.me, flagged: r.flagged, dc: r.dc }));
 }
 
 function renderStandings(standings) {
@@ -869,9 +932,9 @@ function renderStandings(standings) {
   if (!el) return;
   if (!standings.length) { el.innerHTML = ""; return; }
   el.innerHTML = standings.map((s) =>
-    `<div class="standing-row${s.me ? " standing-me" : ""}${s.flagged ? " standing-flagged" : ""}">` +
+    `<div class="standing-row${s.me ? " standing-me" : ""}${s.flagged ? " standing-flagged" : ""}${s.dc ? " standing-dc" : ""}">` +
     `<span class="standing-rank">#${s.rank}</span>` +
-    `<span class="standing-name">${escapeHtml(s.name)}${s.flagged ? " ⚠" : ""}</span>` +
+    `<span class="standing-name">${escapeHtml(s.name)}${s.flagged ? " ⚠" : ""}${s.dc ? '<span class="standing-dc-tag">DISCONNECTED</span>' : ""}</span>` +
     `<span class="standing-hp">${s.hp} HP</span>` +
     `</div>`
   ).join("");
@@ -1005,8 +1068,9 @@ async function joinPvp(maxPlayers) {
         hidePvpLobby();
         return; // depositEntryFee already set the error/cancel status
       }
-      // Save before joining so a network failure doesn't force re-payment.
-      state.pendingDepositTx = txSig;
+      // depositEntryFee persisted the signature (memory + localStorage) the
+      // moment it confirmed, so a network failure — or a full reload — before
+      // the join lands never forces a re-payment.
     } else {
       showPvpLobby("Retrying queue entry with confirmed deposit…");
     }
@@ -1028,9 +1092,8 @@ async function joinPvp(maxPlayers) {
     if (!resp?.ok) throw new Error(resp?.error || "Could not join a PvP match.");
     const data = resp;
 
-    // Joined successfully — clear the pending deposit.
-    state.pendingDepositTx = null;
-    state.pendingDepositWallet = null;
+    // Joined successfully — the deposit is spent; clear it everywhere.
+    savePendingDeposit(null, null);
 
     state.match = {
       id: data.match_id, mode: "pvp", finished: false,
@@ -1174,9 +1237,10 @@ async function depositEntryFee(numPlayers = 2) {
     els.pvpLobbyStatus.textContent = "Confirming on-chain…";
     await pollTxConfirmation(connection, txSig);
 
-    // Record which wallet actually signed this deposit so join_pvp_match can
-    // store it; the payout function verifies the on-chain authority against it.
-    state.pendingDepositWallet = playerPubkey.toString();
+    // Persist the confirmed signature + signing wallet immediately (memory AND
+    // localStorage): join_pvp_match stores the wallet for payout verification,
+    // and if anything fails from here on the deposit survives a reload.
+    savePendingDeposit(txSig, playerPubkey.toString());
 
     setStatus("Deposit confirmed — entering queue.");
     return txSig;
@@ -1211,7 +1275,9 @@ function updatePrizePot(numPlayers) {
   const potEl = document.getElementById("pvpPrizePool");
   const amtEl = document.getElementById("pvpPrizeAmount");
   if (!potEl || !amtEl) return;
-  amtEl.textContent = (numPlayers * ENTRY_FEE).toLocaleString();
+  // Show what the winner actually receives (the treasurer pays WINNER_SHARE of
+  // the pot), not the raw pot — the two must never be conflated in the UI.
+  amtEl.textContent = Math.floor(numPlayers * ENTRY_FEE * WINNER_SHARE).toLocaleString();
   potEl.classList.remove("hidden");
 }
 
@@ -1270,7 +1336,7 @@ async function enterArena(matchId, iRoomFiller = false) {
 
 async function loadRoster(matchId) {
   const [matchRes, playersRes] = await Promise.all([
-    supabase.from("matches").select("status, max_players").eq("id", matchId).maybeSingle(),
+    supabase.from("matches").select("status, max_players, match_no").eq("id", matchId).maybeSingle(),
     supabase.from("match_players").select("user_id, seat, display_name").eq("match_id", matchId).order("seat", { ascending: true })
   ]);
   if (playersRes.error) { console.warn(playersRes.error); return; }
@@ -1278,13 +1344,24 @@ async function loadRoster(matchId) {
   const matchRow = matchRes.data;
   const max = matchRow?.max_players || state.match?.maxPlayers || 2;
   if (state.match) state.match.maxPlayers = max;
+  // Friendly match number — shown in the HUD and on the result screen so the
+  // match can be referenced in history/support.
+  if (state.match && matchRow?.match_no) {
+    state.match.matchNo = matchRow.match_no;
+    game.setMatchNumber(matchRow.match_no);
+  }
 
   // Add any opponents we haven't seen yet (removals come via presence leave).
   for (const p of players) {
     if (p.user_id === state.user.id) continue;
+    state.remoteNames.set(p.user_id, p.display_name);
     if (!state.remoteIds.has(p.user_id)) {
+      // Re-adding a rival we already saw this match means they reconnected.
+      const returning = state.started && state.remoteSeen.has(p.user_id);
       state.remoteIds.add(p.user_id);
+      state.remoteSeen.add(p.user_id);
       game.addOpponent({ userId: p.user_id, displayName: p.display_name, seat: p.seat, matchId: state.match?.id });
+      if (returning) setStatus(`${p.display_name} reconnected.`);
     }
   }
 
@@ -1476,6 +1553,15 @@ async function handleOpponentLeft(userId) {
   state.remoteIds.delete(userId);
   const remaining = game.removeOpponent(userId);
   if (state.match?.mode !== "pvp" || state.match.finished || !state.started) return;
+  // Tell the player what just happened instead of the rival silently vanishing.
+  // Server rule: a disconnected player is eliminated once their heartbeat goes
+  // stale (~15s) — unless they reconnect first, which loadRoster announces.
+  const name = state.remoteNames.get(userId) || "A rival";
+  if (remaining > 0) {
+    setStatus(`${name} disconnected — they're eliminated unless they reconnect shortly.`);
+  } else if (game.playerAlive()) {
+    setStatus(`${name} disconnected — you're the last one standing. Claiming the win…`);
+  }
   if (remaining === 0 && game.playerAlive()) {
     const { data: matchRow } = await supabase
       .from("matches")
@@ -1495,16 +1581,46 @@ async function handleOpponentLeft(userId) {
 }
 
 // A peer signalled the match is over (someone won, or the timer crowned a
-// winner). Report our own *genuine* current HP so the server can tally without
-// waiting on us, then reconcile with the authoritative match row to decide our
-// screen. A spoofed signal cannot end a live game: we only finalise once the
-// server itself reports status='finished', and we never trust the broadcaster's
-// claim about who won — that comes from winner_user_id.
+// winner). The broadcast itself is UNAUTHENTICATED — any client in the channel
+// can send it — so it is treated as a hint, never as truth. Before reporting we
+// verify against the server: either the match row is already settled, or the
+// combat ledger (which only opponents can write about us) shows we took lethal
+// damage. A spoofed early "match-over" fails both checks and is ignored, so a
+// griefer can no longer push every honest client into reporting seconds into
+// the match and voiding it. (finalize_match has a matching server-side guard.)
 async function handleMatchOver() {
   if (state.match?.mode !== "pvp" || !state.match.id || state.match.finished) return;
-  // A peer signalled the match is over. Report done and let the server's
-  // ledger verdict decide our screen (win / loss / disputed) — reportResult
-  // handles the flush, finish_match, settlement wait and display.
+  const matchId = state.match.id;
+
+  // Settled already? Reconcile with the authoritative verdict.
+  try {
+    const { data: row } = await supabase
+      .from("matches").select("status").eq("id", matchId).maybeSingle();
+    if (row?.status === "finished" || row?.status === "disputed") {
+      await reportResult("loss", { standings: game.standings() });
+      return;
+    }
+  } catch (_) { /* fall through to the ledger check */ }
+
+  // Not settled. If we're locally alive, only accept the signal when the
+  // ledger proves we're actually dead (a desync: opponents saw us fall but we
+  // missed the packets). The sender flushes their ledger BEFORE broadcasting,
+  // so a genuine kill is always visible here by the time the event arrives.
+  if (game.playerAlive()) {
+    let received = 0;
+    try {
+      const { data: dmg } = await supabase
+        .from("match_damage").select("total_damage")
+        .eq("match_id", matchId).eq("victim", state.user.id);
+      received = (dmg || []).reduce((sum, r) => sum + (r.total_damage || 0), 0);
+    } catch (_) {}
+    if (received < 100) {
+      // Premature or spoofed — keep playing, log it for review.
+      reportIntegritySignal("spoofed_match_over", { received });
+      return;
+    }
+  }
+
   await reportResult("loss", { standings: game.standings() });
 }
 
@@ -1548,8 +1664,20 @@ async function reportResult(resultHint, { standings = [] } = {}) {
     await showResultsSpinner(2000); // suspense before the verdict
   }
 
+  // A player eliminated mid-match in a bigger lobby waits for the survivors to
+  // finish — settlement can legitimately be minutes away, not seconds. Poll
+  // until the match's own deadline (+ grace for the settle itself), and show an
+  // interim "eliminated" card so the wait is explained instead of the old
+  // behavior (24s timeout → a confusing "still settling" dead end). The card is
+  // re-rendered with the real verdict below once the server settles.
+  const remainingMs = Math.max(0, (state.match?.endsAtMs ?? 0) - Date.now());
+  if (resultHint !== "win" && remainingMs > 5000) {
+    showGameOver("loss", "Eliminated — the match is still in progress. Final results when it ends.",
+      standings, null, matchKills, matchTimeMs);
+  }
+
   // Read the authoritative verdict.
-  const settled = await awaitSettlement(matchId);
+  const settled = await awaitSettlement(matchId, Math.max(24000, remainingMs + 30000));
   const serverKills = await fetchVerifiedKills(matchId);
   try { await syncProfile(); } catch (e) { console.error(e); }
 
@@ -1581,8 +1709,12 @@ async function reportResult(resultHint, { standings = [] } = {}) {
     return;
   }
 
-  // Authoritative win → victory screen + payout.
-  showGameOver("win", "Last one standing — you won!", finalStandings, "pending", serverKills ?? matchKills, finalTimeMs);
+  // Authoritative win → victory screen + payout. Name the walkover case so a
+  // fight-less win is explained instead of looking like a glitch.
+  const winReason = settled?.shadow_meta?.reason === "walkover"
+    ? "All rivals disconnected — you win by walkover."
+    : "Last one standing — you won!";
+  showGameOver("win", winReason, finalStandings, "pending", serverKills ?? matchKills, finalTimeMs);
   let prizeAmount = null;
   let payoutTx = null;
   try {
@@ -1637,12 +1769,17 @@ async function teardownMatch(keepMatch = false) {
   stopHeartbeat();
   if (state.depositPollTimer) { clearInterval(state.depositPollTimer); state.depositPollTimer = null; }
   if (state.startFallbackTimer) { clearTimeout(state.startFallbackTimer); state.startFallbackTimer = null; }
-  state.pendingDepositTx = null;
+  // NB: the pending deposit is deliberately NOT cleared here. Its lifecycle is
+  // owned by savePendingDeposit() — cleared exactly when a join succeeds. A
+  // teardown (e.g. leaving a demo match) must not wipe the in-memory copy of a
+  // still-unused deposit, or the next PvP join would charge the player again.
   if (state.channel) {
     await supabase.removeChannel(state.channel);
     state.channel = null;
   }
   state.remoteIds.clear();
+  state.remoteNames.clear();
+  state.remoteSeen.clear();
   state.started = false;
   state.iRoomFiller = false;
   game.clearRemote();
