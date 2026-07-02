@@ -446,14 +446,39 @@ begin
     raise exception 'deposit_wallet_mismatch: deposit must come from your signed-in wallet';
   end if;
 
-  -- One wallet, one unfinished match at a time — return existing seat
-  select mp.match_id, mp.seat, m.status, m.max_players
+  -- One wallet, one unfinished match at a time — return the existing seat, but
+  -- only when that match is genuinely still live. A disconnected player's old
+  -- match can be over in all but status (every client gone, nobody nudged
+  -- settlement), which would otherwise bounce them into a dead match forever.
+  select mp.match_id, mp.seat, m.status, m.max_players, m.started_at
   into   v_existing
   from   public.match_players mp
   join   public.matches m on m.id = mp.match_id
   where  mp.user_id = v_uid
     and  m.status in ('waiting', 'active')
   limit 1;
+
+  if found and v_existing.status = 'active' then
+    -- Settle the old match if it is actually over: force past the hard time
+    -- cap, heartbeat-based otherwise (settles only when every player has
+    -- reported or gone stale; a live match is untouched). Idempotent.
+    perform public.finalize_match(
+      v_existing.match_id,
+      v_existing.started_at is not null
+        and now() >= v_existing.started_at
+                     + make_interval(secs => public.match_duration_seconds(v_existing.max_players))
+    );
+
+    -- Re-check: if finalize settled it (finished/disputed) the seat no longer
+    -- blocks and the player joins fresh below.
+    select mp.match_id, mp.seat, m.status, m.max_players, m.started_at
+    into   v_existing
+    from   public.match_players mp
+    join   public.matches m on m.id = mp.match_id
+    where  mp.user_id = v_uid
+      and  m.status in ('waiting', 'active')
+    limit 1;
+  end if;
 
   if found then
     return jsonb_build_object(

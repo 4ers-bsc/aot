@@ -906,6 +906,26 @@ async function fetchLobbyCounts() {
   });
 }
 
+// Returns this wallet's open ('waiting'/'active') seat as
+// { match_id, seat, status, max_players }, or null. RLS lets a member read
+// their own match rows, so this works even for a not-yet-visible lobby.
+async function findMyOpenSeat() {
+  const { data, error } = await supabase
+    .from("match_players")
+    .select("match_id, seat, matches!inner(status, max_players)")
+    .eq("user_id", state.user.id)
+    .in("matches.status", ["waiting", "active"])
+    .limit(1)
+    .maybeSingle();
+  if (error || !data) return null;
+  return {
+    match_id: data.match_id,
+    seat: data.seat,
+    status: data.matches.status,
+    max_players: data.matches.max_players,
+  };
+}
+
 async function joinPvp(maxPlayers) {
   if (!state.user) { signIn(); return; }
   const size = [2, 5, 10].includes(maxPlayers) ? maxPlayers : 2;
@@ -916,6 +936,39 @@ async function joinPvp(maxPlayers) {
     if (banned === true) { setStatus("This wallet is banned from play."); return; }
   } catch (_) { /* if the check is unavailable, fall through to server enforcement */ }
   try {
+    // ── Step 0: resume any seat we already hold BEFORE paying ────────────────
+    // The entry fee is non-refundable, and join_pvp_match returns the existing
+    // seat ("rejoining") when this wallet already holds one — so paying first
+    // would burn a second deposit only to land back in the same match. If that
+    // match is actually over (e.g. everyone disconnected and nobody nudged
+    // settlement), try_finalize settles it and we fall through to a fresh join.
+    if (!state.pendingDepositTx) {
+      let open = null;
+      try {
+        open = await findMyOpenSeat();
+        if (open && open.status === "active") {
+          // Idempotent: only settles a match that is really over/abandoned.
+          try { await supabase.rpc("try_finalize", { p_match_id: open.match_id }); } catch (_) {}
+          const { data: m } = await supabase
+            .from("matches").select("status").eq("id", open.match_id).maybeSingle();
+          if (m?.status) open.status = m.status;
+        }
+      } catch (_) {
+        open = null; // best-effort; the server-side rejoin check still applies
+      }
+      if (open && (open.status === "waiting" || open.status === "active")) {
+        showPvpLobby("Resuming your existing match…");
+        state.match = {
+          id: open.match_id, mode: "pvp", finished: false,
+          status: open.status, maxPlayers: open.max_players
+        };
+        state.seat = open.seat;
+        await enterArena(open.match_id, false);
+        return;
+      }
+      // Any old match just settled (finished/disputed) — join fresh below.
+    }
+
     // ── Step 1: deposit on-chain (if not already done from a previous failed attempt) ──
     let txSig = state.pendingDepositTx;
     if (!txSig) {
