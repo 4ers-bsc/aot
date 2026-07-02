@@ -684,6 +684,29 @@ export function createArenaGame(options) {
     }
     return false;
   }
+  // Where a shot fired from A toward B first strikes a solid, or null if the
+  // path is clear. Used so a blocked ranged shot still flies out and thuds into
+  // the obstruction instead of never leaving the barrel.
+  function rayBlockHit(ax, az, bx, bz) {
+    const abx = bx - ax, abz = bz - az;
+    const len = Math.hypot(abx, abz) || 1e-6;
+    const dx = abx / len, dz = abz / len;
+    let bestT = Infinity, hit = null;
+    for (const s of solids) {
+      const fx = ax - s.x, fz = az - s.z;
+      const b = 2 * (fx * dx + fz * dz);
+      const c = fx * fx + fz * fz - s.r * s.r;
+      const disc = b * b - 4 * c;
+      if (disc < 0) continue;
+      const sq = Math.sqrt(disc);
+      let t = (-b - sq) / 2;          // near intersection (entry)
+      if (t < 0) t = (-b + sq) / 2;   // origin inside the solid → use exit
+      if (t < 0 || t > len) continue;
+      if (t < bestT) { bestT = t; hit = s; }
+    }
+    if (!hit) return null;
+    return { x: ax + dx * bestT, z: az + dz * bestT };
+  }
   function clearMap() {
     while (mapGroup.children.length) {
       const c = mapGroup.children[0];
@@ -1204,7 +1227,10 @@ export function createArenaGame(options) {
     }
     if (def === player && foeMode === "net") emitState();
   }
-  function fireBullet(att, def, dmg, deal, weapon) {
+  // `impact` is an { x, z } point where the shot is stopped by a solid before it
+  // can reach `def`. When given, the bullet flies to that point and deals no
+  // damage — the obstruction soaks the round.
+  function fireBullet(att, def, dmg, deal, weapon, impact = null) {
     const bulletSize  = weapon?.bulletSize  ?? 0.13;
     const bulletSpeed = weapon?.bulletSpeed ?? 46;
     const bGroup = new THREE.Group();
@@ -1220,7 +1246,10 @@ export function createArenaGame(options) {
     const fx = Math.sin(att.facing), fz = Math.cos(att.facing);
     bGroup.position.set(att.group.position.x + fx * 0.8, 1.5, att.group.position.z + fz * 0.8);
     scene.add(bGroup);
-    bullets.push({ mesh: bGroup, def: deal ? def : null, dmg, bySelf: att === player, speed: bulletSpeed, target: new THREE.Vector3(def.group.position.x, 1.45, def.group.position.z) });
+    const target = impact
+      ? new THREE.Vector3(impact.x, 1.45, impact.z)
+      : new THREE.Vector3(def.group.position.x, 1.45, def.group.position.z);
+    bullets.push({ mesh: bGroup, def: impact ? null : (deal ? def : null), dmg, bySelf: att === player, speed: bulletSpeed, target });
   }
   function updateBullets(dt) {
     for (let i = bullets.length - 1; i >= 0; i--) {
@@ -1322,8 +1351,17 @@ export function createArenaGame(options) {
     const w = player.weapon;
     player.cdTimer = w.cd;
     player.atkAnim = 0.32;
-    // Trees / snow mountains in the way deflect the blow (swing plays, no hit).
-    if (losBlocked(player.group.position.x, player.group.position.z, def.group.position.x, def.group.position.z)) return true;
+    // Trees / snow mountains in the way stop the attack. Melee simply deflects
+    // (swing plays, no hit); a ranged shot still leaves the barrel and thuds
+    // into the obstruction, dealing no damage to the sheltered target.
+    if (losBlocked(player.group.position.x, player.group.position.z, def.group.position.x, def.group.position.z)) {
+      if (w.ranged) {
+        const impact = rayBlockHit(player.group.position.x, player.group.position.z, def.group.position.x, def.group.position.z)
+          || { x: def.group.position.x, z: def.group.position.z };
+        fireBullet(player, def, 0, false, w, impact);
+      }
+      return true;
+    }
     let dmg = Math.max(1, Math.round(w.atk + (Math.random() * 2 - 1) * w.atkVar));
     if (inRiver(player.group.position.x, player.group.position.z)) dmg = Math.max(1, Math.round(dmg * RIVER_ATK));
     if (foeMode === "net") {
@@ -1344,7 +1382,14 @@ export function createArenaGame(options) {
     const w = e.weapon;
     e.cdTimer = w.cd;
     e.atkAnim = 0.32;
-    if (losBlocked(e.group.position.x, e.group.position.z, player.group.position.x, player.group.position.z)) return;
+    if (losBlocked(e.group.position.x, e.group.position.z, player.group.position.x, player.group.position.z)) {
+      if (w.ranged) {
+        const impact = rayBlockHit(e.group.position.x, e.group.position.z, player.group.position.x, player.group.position.z)
+          || { x: player.group.position.x, z: player.group.position.z };
+        fireBullet(e, player, 0, false, w, impact);
+      }
+      return;
+    }
     let dmg = Math.max(1, Math.round(w.atk + (Math.random() * 2 - 1) * w.atkVar));
     if (inRiver(e.group.position.x, e.group.position.z)) dmg = Math.max(1, Math.round(dmg * RIVER_ATK));
     if (w.ranged) fireBullet(e, player, dmg, false, w);
