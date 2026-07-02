@@ -1,18 +1,10 @@
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+// supabase-js is bundled from node_modules (NOT a CDN import): the app cannot
+// even reach the menu without it, so it must never depend on a third-party CDN
+// being reachable at boot. The Solana libs below stay on the CDN but are loaded
+// lazily — see loadSolanaLibs().
+import { createClient } from "@supabase/supabase-js";
 import { createArenaGame } from "./game.js";
 import { escapeHtml } from "./utils.js";
-import {
-  Connection,
-  PublicKey,
-  Transaction,
-} from "https://esm.sh/@solana/web3.js@1.87.6?bundle";
-import {
-  getAssociatedTokenAddress,
-  createTransferInstruction,
-  createAssociatedTokenAccountInstruction,
-  TOKEN_PROGRAM_ID,
-  ASSOCIATED_TOKEN_PROGRAM_ID,
-} from "https://esm.sh/@solana/spl-token@0.3.5?bundle";
 import { mountViews } from "./views/index.js";
 
 mountViews();
@@ -35,9 +27,39 @@ const ENTRY_FEE       = 2500;         // FIGHT10 tokens per player
 const FIGHT10_DECIMALS = 6;           // Pump.fun mints always use 6 decimals
 const ENTRY_FEE_RAW   = BigInt(ENTRY_FEE) * BigInt(10 ** FIGHT10_DECIMALS);
 
+// The Solana libraries (~1 MB combined) are only needed for deposits and
+// balance checks, never to reach the menu — so they are dynamically imported on
+// first use instead of at boot. A static CDN import here used to hang the whole
+// app at "Initialising…" (especially on mobile networks / in-app browsers)
+// whenever esm.sh was slow, blocked, or unreachable: one failed import kills the
+// entire module, so init() never ran. Now a CDN failure just surfaces as a
+// deposit/balance error message, and a later retry re-attempts the download.
+let _solanaLibsPromise = null;
+function loadSolanaLibs() {
+  if (!_solanaLibsPromise) {
+    _solanaLibsPromise = Promise.all([
+      import(/* @vite-ignore */ "https://esm.sh/@solana/web3.js@1.87.6?bundle"),
+      import(/* @vite-ignore */ "https://esm.sh/@solana/spl-token@0.3.5?bundle"),
+    ]).then(([web3, spl]) => ({
+      Connection: web3.Connection,
+      PublicKey: web3.PublicKey,
+      Transaction: web3.Transaction,
+      getAssociatedTokenAddress: spl.getAssociatedTokenAddress,
+      createTransferInstruction: spl.createTransferInstruction,
+      createAssociatedTokenAccountInstruction: spl.createAssociatedTokenAccountInstruction,
+      ASSOCIATED_TOKEN_PROGRAM_ID: spl.ASSOCIATED_TOKEN_PROGRAM_ID,
+    })).catch((err) => {
+      _solanaLibsPromise = null; // allow a retry on the next call
+      throw new Error("Could not load the Solana libraries — check your connection and try again.");
+    });
+  }
+  return _solanaLibsPromise;
+}
+
 // Lazy singleton — avoids creating a new WebSocket-backed connection on every call.
 let _solanaConn = null;
-function getSolanaConn() {
+async function getSolanaConn() {
+  const { Connection } = await loadSolanaLibs();
   if (!_solanaConn) _solanaConn = new Connection(SOLANA_RPC_URL, "confirmed");
   return _solanaConn;
 }
@@ -106,7 +128,10 @@ const els = {
   logFeed: document.getElementById("logFeed")
 };
 
-const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+// createClient throws on an empty key, which would kill the whole module and
+// strand the loading screen. A placeholder key lets the app reach the menu in a
+// degraded state (every Supabase call fails visibly) instead of bricking boot.
+const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY || "anon-key-not-configured", {
   auth: { persistSession: true, autoRefreshToken: true }
 });
 
@@ -152,10 +177,15 @@ async function loadMatchConfig() {
 // doesn't register as a second visitor) is used until/unless the wallet
 // connects, at which point tracking continues under the same channel.
 function startOnlinePresence() {
-  let key = sessionStorage.getItem("f10_presence_key");
+  // crypto.randomUUID needs a secure context and iOS 15.4+, and sessionStorage
+  // can throw in private browsing — neither may stop the app from booting.
+  let key = null;
+  try { key = sessionStorage.getItem("f10_presence_key"); } catch (_) {}
   if (!key) {
-    key = crypto.randomUUID();
-    sessionStorage.setItem("f10_presence_key", key);
+    key = typeof crypto?.randomUUID === "function"
+      ? crypto.randomUUID()
+      : `f10-${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
+    try { sessionStorage.setItem("f10_presence_key", key); } catch (_) {}
   }
   try {
     const channel = supabase.channel("online-players", { config: { presence: { key } } });
@@ -1025,7 +1055,12 @@ async function depositEntryFee(numPlayers = 2) {
     setStatus("Depositing 2,500 $FIGHT10… approve in wallet.");
     els.pvpLobbyStatus.textContent = "Approve deposit in your wallet…";
 
-    const connection   = getSolanaConn();
+    const {
+      PublicKey, Transaction,
+      getAssociatedTokenAddress, createTransferInstruction,
+      createAssociatedTokenAccountInstruction, ASSOCIATED_TOKEN_PROGRAM_ID,
+    } = await loadSolanaLibs();
+    const connection   = await getSolanaConn();
     const mintPubkey   = new PublicKey(FIGHT10_MINT);
     const escrowPubkey = new PublicKey(ESCROW_WALLET);
     const playerPubkey = wallet.publicKey;
@@ -1092,7 +1127,8 @@ async function depositEntryFee(numPlayers = 2) {
 }
 
 async function getFight10Balance(walletAddress) {
-  const connection   = getSolanaConn();
+  const { PublicKey } = await loadSolanaLibs();
+  const connection   = await getSolanaConn();
   const mintPubkey   = new PublicKey(FIGHT10_MINT);
   const walletPubkey = new PublicKey(walletAddress);
   const { value: accounts } = await connection.getParsedTokenAccountsByOwner(

@@ -63,6 +63,37 @@
     </div>
   </div>
 
+  <!-- Boot failsafe: if the app module fails to load or crashes before it can
+       remove the splash (dead CDN, blocked script, unsupported browser), show
+       the reason and a retry button instead of "Initialising…" forever. -->
+  <script>
+    (function () {
+      var shown = false;
+      function bootFail(msg) {
+        var splash = document.getElementById("appLoading");
+        if (!splash || shown) return; // splash gone = app booted fine
+        shown = true;
+        var status = document.getElementById("loadingStatus");
+        if (status) status.textContent = msg;
+        var retry = document.createElement("button");
+        retry.id = "loadingRetryBtn";
+        retry.textContent = "RETRY";
+        retry.style.cssText = "margin-top:14px;padding:8px 26px;background:#c8940a;color:#000;" +
+          "border:none;border-radius:4px;font:600 13px sans-serif;letter-spacing:0.08em;cursor:pointer";
+        retry.onclick = function () { window.location.reload(); };
+        var inner = splash.querySelector(".app-loading-inner");
+        if (inner) inner.appendChild(retry);
+      }
+      // Resource/script failures can be transient or non-fatal, so wait a beat
+      // and only report if the splash is still up (i.e. init() never finished).
+      function deferFail() { setTimeout(function () { bootFail("Failed to start — check your connection and retry."); }, 4000); }
+      window.addEventListener("error", deferFail, true);
+      window.addEventListener("unhandledrejection", deferFail);
+      // Watchdog: nothing errored, but the app never came up either.
+      setTimeout(function () { bootFail("Taking too long — check your connection and retry."); }, 25000);
+    })();
+  </script>
+
   <!-- GL HF FIGHT banner -->
   <div class="glhf-banner" id="glhfBanner">GL HF, FIGHT!</div>
 
