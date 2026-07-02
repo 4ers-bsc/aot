@@ -8,7 +8,7 @@ export const html = `
         <div class="row"><span>Attack / shoot</span><span class="k">click the rival</span></div>
         <div class="row"><span>Pan camera</span><span class="k">click + drag</span></div>
         <div class="row"><span>Zoom</span><span class="k">mouse wheel</span></div>
-        <div class="row"><span>Switch weapon</span><span class="k">keys 1 – 2</span></div>
+        <div class="row"><span>Switch weapon</span><span class="k">keys 1 – 4</span></div>
         <div class="row"><span>Menu</span><span class="k">Esc</span></div>
         <div class="divider"></div>
         <div class="section">RULES</div>

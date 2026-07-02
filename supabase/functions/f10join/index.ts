@@ -10,12 +10,13 @@
 // Because join_pvp_match is no longer granted to `authenticated`, a malicious
 // user cannot call the RPC directly with a fake signature to fill a lobby.
 //
-// Required Supabase secrets: ESCROW_PRIVATE_KEY (base58), FIGHT10_MINT, RPC_URL
+// Required Supabase secrets: ESCROW_WALLET (base58 public key), FIGHT10_MINT,
+// RPC_URL. Verifying a deposit only needs the escrow's PUBLIC address — the
+// private key stays with f10treasurer, the only function that signs payouts.
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import {
   Connection,
-  Keypair,
   PublicKey,
 } from "npm:@solana/web3.js@1.87.6";
 
@@ -150,15 +151,14 @@ Deno.serve(async (req: Request) => {
     if (alreadyBanned === true) return fail("This account is banned from play.");
 
     // Non-browser / direct (curl) request detection. A genuine browser fetch to
-    // this cross-origin function ALWAYS sends an Origin header; a missing Origin
-    // means the call did not come from the game client → ban the wallet. (A
-    // *mismatched* Origin is intentionally not banned — it's already blocked by
-    // CORS and could be a legitimate alternate domain.)
+    // this cross-origin function normally sends an Origin header, but privacy
+    // extensions, proxies and some webviews strip it — so a missing Origin is
+    // grounds to REJECT the request, never to ban the wallet. Real abuse still
+    // surfaces through the rate limiter and the server-side combat validation.
     const reqOrigin = req.headers.get("Origin");
     if (!reqOrigin) {
-      await adminClient.rpc("ban_user", { p_user_id: user.id, p_reason: "non_browser_request" });
-      console.error("Banned non-browser join (no Origin)", { user: user.id });
-      return fail("Request rejected — this wallet has been banned for automated access.");
+      console.error("Rejected non-browser join (no Origin)", { user: user.id });
+      return fail("Request rejected — please join from the game client.");
     }
 
     // Throttle join attempts per user (anti-abuse). Uses the caller's JWT so
@@ -189,14 +189,17 @@ Deno.serve(async (req: Request) => {
     if (!depositWallet) return fail("deposit_wallet is required");
 
     // ── Escrow / mint config ────────────────────────────────────────────────
-    const escrowB58 = Deno.env.get("ESCROW_PRIVATE_KEY");
+    // Only the escrow's PUBLIC address is needed to verify a deposit landed in
+    // it — the same address the client pays into. Never load the private key
+    // here; f10treasurer is the only function that signs with it.
+    const escrowStr = Deno.env.get("ESCROW_WALLET");
     const mintStr   = Deno.env.get("FIGHT10_MINT");
-    if (!escrowB58 || !mintStr) return jsonResponse({ ok: false, error: "Escrow configuration missing" }, 500);
+    if (!escrowStr || !mintStr) return jsonResponse({ ok: false, error: "Escrow configuration missing" }, 500);
 
-    const B58_CHARS     = /[^123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz]/g;
-    const escrowKeypair = Keypair.fromSecretKey(base58Decode(escrowB58.replace(B58_CHARS, "")));
-    const mintPubkey    = pubkeyFromBase58(mintStr.replace(B58_CHARS, ""));
-    const rpc           = createRpcPool("confirmed");
+    const B58_CHARS    = /[^123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz]/g;
+    const escrowPubkey = pubkeyFromBase58(escrowStr.replace(B58_CHARS, ""));
+    const mintPubkey   = pubkeyFromBase58(mintStr.replace(B58_CHARS, ""));
+    const rpc          = createRpcPool("confirmed");
 
     // The wallet that must have authorised this deposit (the player's own wallet).
     let expectedSender: string;
@@ -216,7 +219,7 @@ Deno.serve(async (req: Request) => {
     const tokenProgStr   = tokenProgramId.toString();
     const tok2022Str     = TOKEN_2022_PROGRAM_ID.toString();
 
-    const escrowAccounts = await rpc.run((c) => c.getParsedTokenAccountsByOwner(escrowKeypair.publicKey, { mint: mintPubkey }));
+    const escrowAccounts = await rpc.run((c) => c.getParsedTokenAccountsByOwner(escrowPubkey, { mint: mintPubkey }));
     if (escrowAccounts.value.length === 0) return jsonResponse({ ok: false, error: "Escrow has no token account for this mint" }, 500);
     const escrowAtaStr = new PublicKey(escrowAccounts.value[0].pubkey).toString();
 
