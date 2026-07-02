@@ -14,7 +14,12 @@ export default defineConfig({
         stringEncoding: true,
         stringEncodingThreshold: 0.6,
         renameGlobals: false,
-        selfDefending: true,
+        // Must stay false: selfDefending locks the app in an infinite loop if
+        // anything re-formats the code after obfuscation — and Vite's esbuild
+        // minify pass does exactly that to transformed chunks. The result is a
+        // production-only hang on the loading screen. It adds no real security
+        // (the string-array obfuscation above is the actual deterrent).
+        selfDefending: false,
         // Must stay false: the devtools-open detection in main.js relies on
         // console.log firing a property getter. Stubbing console breaks it.
         disableConsoleOutput: false,

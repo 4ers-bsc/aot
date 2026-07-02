@@ -72,7 +72,20 @@ export function createArenaGame(options) {
   let theme = THEMES.lobby;
 
   // -- Renderer -------------------------------------------------------------
-  const renderer = new THREE.WebGLRenderer({ antialias: true });
+  // WebGLRenderer THROWS when a WebGL context can't be created (GPU-blacklisted
+  // WebViews, iOS Lockdown Mode, remote desktops). Degrade to the stub API like
+  // the missing-THREE case above instead of crashing the whole app at boot.
+  let renderer;
+  try {
+    renderer = new THREE.WebGLRenderer({ antialias: true });
+  } catch (err) {
+    console.error("WebGL unavailable:", err);
+    const note = document.createElement("div");
+    note.className = "arena-error";
+    note.textContent = "3D graphics are unavailable on this device/browser.";
+    mount.appendChild(note);
+    return stubApi();
+  }
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
   renderer.shadowMap.enabled = true;
   renderer.shadowMap.type = THREE.PCFSoftShadowMap;
@@ -2384,6 +2397,10 @@ function clamp(v, min, max) {
   return Math.max(min, Math.min(max, v));
 }
 
+// Degraded no-op API used when the 3D engine can't start. MUST implement every
+// method the real API returns — a missing one throws deep inside init()/teardown
+// and strands the app on the loading screen (setPing was missed here once and
+// bricked boot whenever the three.js CDN failed).
 function stubApi() {
   const noop = () => {};
   return {
@@ -2393,6 +2410,7 @@ function stubApi() {
     useAiFoe: noop, usePvpFoes: noop, addOpponent: noop, removeOpponent: () => 0,
     clearRemote: noop, resetForMatch: noop, receivePlayerState: noop,
     receiveAttack: noop, generateMap: noop, clearAll: noop, destroy: noop,
-    setMapVariant: noop, showMapToggle: noop, showRaiderCount: noop, setAiCount: noop
+    setMapVariant: noop, showMapToggle: noop, showRaiderCount: noop, setAiCount: noop,
+    setPing: noop, openSettings: noop
   };
 }
