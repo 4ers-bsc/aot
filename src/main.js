@@ -103,7 +103,6 @@ const els = {
   whitepaperBtn: document.getElementById("whitepaperBtn"),
   whitepaperOverlay: document.getElementById("whitepaperOverlay"),
   whitepaperClose: document.getElementById("whitepaperClose"),
-  themeToggleBtn: document.getElementById("themeToggleBtn"),
   pauseOverlay: document.getElementById("pauseOverlay"),
   pauseClose: document.getElementById("pauseClose"),
   resumeBtn: document.getElementById("resumeBtn"),
@@ -511,13 +510,6 @@ function bindUi() {
   els.whitepaperClose?.addEventListener("click", () => els.whitepaperOverlay.classList.remove("show"));
   els.whitepaperOverlay?.addEventListener("pointerdown", (e) => {
     if (e.target === els.whitepaperOverlay) els.whitepaperOverlay.classList.remove("show");
-  });
-  // Theme switcher (persisted). "mono" = default monochrome, "terminal" = green CRT.
-  applyTheme(localStorage.getItem("theme") || "mono");
-  els.themeToggleBtn?.addEventListener("click", () => {
-    const next = document.body.classList.contains("theme-terminal") ? "mono" : "terminal";
-    try { localStorage.setItem("theme", next); } catch (_) {}
-    applyTheme(next);
   });
   els.profileBtn.addEventListener("click", openProfile);
   els.profileClose.addEventListener("click", () => els.profileOverlay.classList.remove("show"));
@@ -935,7 +927,6 @@ function renderStandings(standings) {
     `<div class="standing-row${s.me ? " standing-me" : ""}${s.flagged ? " standing-flagged" : ""}${s.dc ? " standing-dc" : ""}">` +
     `<span class="standing-rank">#${s.rank}</span>` +
     `<span class="standing-name">${escapeHtml(s.name)}${s.flagged ? " ⚠" : ""}${s.dc ? '<span class="standing-dc-tag">DISCONNECTED</span>' : ""}</span>` +
-    `<span class="standing-hp">${s.hp} HP</span>` +
     `</div>`
   ).join("");
 }
@@ -1998,12 +1989,6 @@ function cancelMatchStart() {
 
 function toggle(el, show) {
   if (el) el.classList.toggle("hidden", !show);
-}
-
-function applyTheme(theme) {
-  const terminal = theme === "terminal";
-  document.body.classList.toggle("theme-terminal", terminal);
-  if (els.themeToggleBtn) els.themeToggleBtn.textContent = terminal ? "◑ TERMINAL" : "◑ MONO";
 }
 
 // Non-blocking replacement for window.confirm() — returns a Promise<boolean>.
