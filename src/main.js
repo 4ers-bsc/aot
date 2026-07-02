@@ -433,6 +433,12 @@ const game = createArenaGame({
   },
   onResultSuggestion: (result, standings) => {
     reportResult(result, { standings }).catch((err) => console.error(err));
+  },
+  // HUD menu button (top-right): open the in-game menu, same as pressing Esc.
+  // Settings stays reachable through that menu's Settings entry.
+  onMenu: () => {
+    if (state.match && !state.match.finished) els.pauseOverlay.classList.add("show");
+    else game.openSettings();
   }
 });
 

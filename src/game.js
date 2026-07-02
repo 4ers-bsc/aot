@@ -1604,6 +1604,14 @@ export function createArenaGame(options) {
   const hud = buildHud();
   const { coords, mmCanvas, hotbar, slots, fpsEl, pingEl, overlay, renderDistBtn, matchTimerEl, raiderCountCtrl, raiderCountEl, scorePanel, weaponPanel, keysInfoPanel } = hud;
 
+  // Top-right menu button: open the app's in-game menu (resume / how to play /
+  // settings / leave) rather than jumping straight into settings — on touch
+  // devices there is no Esc key, so this is the only way into that menu.
+  hud.gearBtn.addEventListener("click", () => {
+    if (options.onMenu) options.onMenu();
+    else overlay.classList.add("show");
+  });
+
   // Separate frag cooldown — never pollutes the active weapon's cdTimer
   let fragCd = 0;
 
@@ -2314,7 +2322,7 @@ function buildHud() {
     <div class="ki-row"><span class="ki-key">Esc</span><span class="ki-desc">Leave match</span></div>
     <div class="ki-row"><span class="ki-key">Frag ring</span><span class="ki-desc">Throw range</span></div>
   </div>`);
-  add('<button class="gear game-ui" title="Settings">&#9881;</button>');
+  add('<button class="gear game-ui" title="Menu">&#9776;</button>');
   const gearBtn = root.querySelector(".gear");
   const fpsEl = add('<div class="game-fps game-ui">FPS --</div>');
   const pingEl = add('<div class="game-ping game-ui">-- ms</div>');
@@ -2365,7 +2373,9 @@ function buildHud() {
       overlay.querySelectorAll(".tab-body").forEach((b) => b.classList.toggle("hidden", b.dataset.body !== tab.dataset.tab));
     });
   });
-  gearBtn.addEventListener("click", () => overlay.classList.add("show"));
+  // NB: gearBtn is intentionally NOT bound here — createArenaGame wires it to
+  // the app's in-game menu (options.onMenu), falling back to this settings
+  // overlay only when no menu callback was provided.
   overlay.querySelector(".close").addEventListener("click", () => overlay.classList.remove("show"));
   overlay.addEventListener("pointerdown", (e) => { if (e.target === overlay) overlay.classList.remove("show"); });
 
@@ -2390,7 +2400,7 @@ function buildHud() {
     });
   }
 
-  return { root, coords, matchTimerEl, mmCanvas, hotbar, slots, fpsEl, pingEl, overlay, renderDistBtn, bindSettings, raiderCountCtrl, raiderCountEl, scorePanel, weaponPanel, keysInfoPanel };
+  return { root, coords, matchTimerEl, mmCanvas, hotbar, slots, fpsEl, pingEl, overlay, renderDistBtn, bindSettings, raiderCountCtrl, raiderCountEl, scorePanel, weaponPanel, keysInfoPanel, gearBtn };
 }
 
 function clamp(v, min, max) {
