@@ -51,7 +51,7 @@ export const html = `
     <div class="info-tile info-tile-online">
       <div class="info-tile-multi"><span class="online-dot"></span><span id="onlineCount">—</span></div>
       <div class="info-tile-label">ONLINE NOW</div>
-      <div class="info-tile-desc">Players in the<br>app right now.</div>
+      <div class="info-tile-desc">Players in the<br>game right now.</div>
     </div>
   </div>
 `;
