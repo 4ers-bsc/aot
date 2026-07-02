@@ -5,6 +5,11 @@ export default defineConfig({
   plugins: [
     obfuscatorPlugin({
       apply: "build",
+      // Overrides the plugin's default exclude, so node_modules must be
+      // restated. lazy-deps.js must stay unobfuscated: it holds the dynamic
+      // import() literals that Vite needs to see verbatim to code-split the
+      // Solana/devtools-detector libraries into local chunks (see that file).
+      exclude: [/node_modules/, /src\/lazy-deps\.js$/],
       debugger: false,
       options: {
         compact: true,
@@ -32,6 +37,15 @@ export default defineConfig({
     }),
   ],
   publicDir: "assets",
+  build: {
+    rollupOptions: {
+      output: {
+        // three.js is large and pinned — keep it in its own chunk so app-code
+        // changes don't invalidate its browser cache entry.
+        manualChunks: { three: ["three"] },
+      },
+    },
+  },
   server: {
     host: true,
     // Must match the Supabase project's Site URL (http://localhost:3000) so the
