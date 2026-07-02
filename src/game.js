@@ -7,6 +7,7 @@
 // player against one AI raider. PvP mode supports up to ten network-driven
 // opponents in a free-for-all; the last fighter standing wins.
 
+import * as THREE from "three";
 import { escapeHtml } from "./utils.js";
 
 const TILE = 2;

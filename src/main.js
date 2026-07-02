@@ -1,8 +1,9 @@
-// supabase-js is bundled from node_modules (NOT a CDN import): the app cannot
-// even reach the menu without it, so it must never depend on a third-party CDN
-// being reachable at boot. The Solana libs below stay on the CDN but are loaded
-// lazily — see loadSolanaLibs().
+// All dependencies are bundled from node_modules (NOT CDN imports), so the app
+// never depends on a third-party CDN being reachable — and no third party can
+// alter the code we run. The Solana libs are still loaded lazily as separate
+// local chunks — see loadSolanaLibs().
 import { createClient } from "@supabase/supabase-js";
+import { importSolanaWeb3, importSplToken, importDevtoolsDetector } from "./lazy-deps.js";
 import { createArenaGame } from "./game.js";
 import { escapeHtml } from "./utils.js";
 import { mountViews } from "./views/index.js";
@@ -29,17 +30,17 @@ const ENTRY_FEE_RAW   = BigInt(ENTRY_FEE) * BigInt(10 ** FIGHT10_DECIMALS);
 
 // The Solana libraries (~1 MB combined) are only needed for deposits and
 // balance checks, never to reach the menu — so they are dynamically imported on
-// first use instead of at boot. A static CDN import here used to hang the whole
-// app at "Initialising…" (especially on mobile networks / in-app browsers)
-// whenever esm.sh was slow, blocked, or unreachable: one failed import kills the
-// entire module, so init() never ran. Now a CDN failure just surfaces as a
-// deposit/balance error message, and a later retry re-attempts the download.
+// first use instead of at boot. Vite code-splits these into separate chunks
+// served from our own origin: nothing to download at boot, and no third-party
+// CDN (the old esm.sh imports were a boot-hang and supply-chain risk). A failed
+// chunk load just surfaces as a deposit/balance error message, and a later
+// retry re-attempts the download.
 let _solanaLibsPromise = null;
 function loadSolanaLibs() {
   if (!_solanaLibsPromise) {
     _solanaLibsPromise = Promise.all([
-      import(/* @vite-ignore */ "https://esm.sh/@solana/web3.js@1.87.6?bundle"),
-      import(/* @vite-ignore */ "https://esm.sh/@solana/spl-token@0.3.5?bundle"),
+      importSolanaWeb3(),
+      importSplToken(),
     ]).then(([web3, spl]) => ({
       Connection: web3.Connection,
       PublicKey: web3.PublicKey,
@@ -312,7 +313,7 @@ function buildDetector(mod) {
 async function startIntegrityWatch() {
   try {
     if (!_devtoolsDetector) {
-      const mod = await import("https://esm.sh/devtools-detector@2.0.25");
+      const mod = await importDevtoolsDetector();
       _devtoolsDetector = buildDetector(mod);
       if (!_devtoolsDetector) { console.error("devtools detector: unexpected module shape"); return; }
     }
