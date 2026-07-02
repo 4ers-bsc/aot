@@ -142,9 +142,11 @@ const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY || "anon-key-not-c
 const state = {
   user: null,
   profile: null,
-  match: null, // { id, mode: 'demo'|'pvp', status, finished, maxPlayers }
+  match: null, // { id, mode: 'demo'|'pvp', status, finished, maxPlayers, matchNo }
   seat: null,
   remoteIds: new Set(),
+  remoteNames: new Map(), // userId -> display_name, for disconnect/reconnect toasts
+  remoteSeen: new Set(),  // every rival seen this match — re-adding one means a reconnect
   started: false,
   channel: null,
   iRoomFiller: false,
@@ -694,6 +696,7 @@ function startDemo() {
   state.started = true;
   game.setView("game");
   game.setLocalUser({ userId: state.user?.id ?? null, displayName: state.profile?.display_name || "You" });
+  game.setMatchNumber(null); // demo matches have no match number
   game.useAiFoe();          // single AI raider opponent
   game.generateMap("demo-" + Date.now());
   game.resetForMatch();
@@ -764,6 +767,14 @@ function showGameOver(result, reason, standings = [], prizeAmount = null, kills 
   els.gameOver.classList.toggle("is-win", win);
   els.gameOver.classList.toggle("is-loss", !win);
   els.gameOverReason.textContent = reason || (win ? "Your rival fell in the trench." : "You fell in the trench.");
+  // Friendly match number — matches the HUD and match history so the result
+  // can be referenced later (e.g. in a support request).
+  const matchNoEl = document.getElementById("gameOverMatchNo");
+  if (matchNoEl) {
+    const n = state.match?.matchNo;
+    matchNoEl.textContent = n ? `MATCH #${n} · ${state.match?.maxPlayers || 2}-PLAYER` : "";
+    matchNoEl.classList.toggle("hidden", !n);
+  }
   els.gameOverName.textContent = state.profile?.display_name || "Trench Rookie";
   els.gameOverWins.textContent = state.profile?.wins ?? 0;
   els.gameOverLosses.textContent = state.profile?.losses ?? 0;
@@ -902,17 +913,18 @@ function buildBoundedStandings(players, settled) {
   const hpByUser = {};
   const arr = settled?.shadow_meta?.hp;
   if (Array.isArray(arr)) {
-    arr.forEach((e) => { hpByUser[e.user_id] = { hp: Math.max(0, e.hp), flagged: !!e.flagged }; });
+    arr.forEach((e) => { hpByUser[e.user_id] = { hp: Math.max(0, e.hp), flagged: !!e.flagged, dc: !!e.dc }; });
   }
   const rows = players.map((p) => ({
     name: p.display_name,
     seat: p.seat ?? 0,
     hp: hpByUser[p.user_id]?.hp ?? null,
     flagged: hpByUser[p.user_id]?.flagged ?? false,
+    dc: hpByUser[p.user_id]?.dc ?? false,
     me: p.user_id === state.user?.id,
   }));
   rows.sort((a, b) => ((b.hp ?? -1) - (a.hp ?? -1)) || (a.seat - b.seat));
-  return rows.map((r, i) => ({ rank: i + 1, name: r.name, hp: r.hp ?? 0, me: r.me, flagged: r.flagged }));
+  return rows.map((r, i) => ({ rank: i + 1, name: r.name, hp: r.hp ?? 0, me: r.me, flagged: r.flagged, dc: r.dc }));
 }
 
 function renderStandings(standings) {
@@ -920,9 +932,9 @@ function renderStandings(standings) {
   if (!el) return;
   if (!standings.length) { el.innerHTML = ""; return; }
   el.innerHTML = standings.map((s) =>
-    `<div class="standing-row${s.me ? " standing-me" : ""}${s.flagged ? " standing-flagged" : ""}">` +
+    `<div class="standing-row${s.me ? " standing-me" : ""}${s.flagged ? " standing-flagged" : ""}${s.dc ? " standing-dc" : ""}">` +
     `<span class="standing-rank">#${s.rank}</span>` +
-    `<span class="standing-name">${escapeHtml(s.name)}${s.flagged ? " ⚠" : ""}</span>` +
+    `<span class="standing-name">${escapeHtml(s.name)}${s.flagged ? " ⚠" : ""}${s.dc ? '<span class="standing-dc-tag">DISCONNECTED</span>' : ""}</span>` +
     `<span class="standing-hp">${s.hp} HP</span>` +
     `</div>`
   ).join("");
@@ -1324,7 +1336,7 @@ async function enterArena(matchId, iRoomFiller = false) {
 
 async function loadRoster(matchId) {
   const [matchRes, playersRes] = await Promise.all([
-    supabase.from("matches").select("status, max_players").eq("id", matchId).maybeSingle(),
+    supabase.from("matches").select("status, max_players, match_no").eq("id", matchId).maybeSingle(),
     supabase.from("match_players").select("user_id, seat, display_name").eq("match_id", matchId).order("seat", { ascending: true })
   ]);
   if (playersRes.error) { console.warn(playersRes.error); return; }
@@ -1332,13 +1344,24 @@ async function loadRoster(matchId) {
   const matchRow = matchRes.data;
   const max = matchRow?.max_players || state.match?.maxPlayers || 2;
   if (state.match) state.match.maxPlayers = max;
+  // Friendly match number — shown in the HUD and on the result screen so the
+  // match can be referenced in history/support.
+  if (state.match && matchRow?.match_no) {
+    state.match.matchNo = matchRow.match_no;
+    game.setMatchNumber(matchRow.match_no);
+  }
 
   // Add any opponents we haven't seen yet (removals come via presence leave).
   for (const p of players) {
     if (p.user_id === state.user.id) continue;
+    state.remoteNames.set(p.user_id, p.display_name);
     if (!state.remoteIds.has(p.user_id)) {
+      // Re-adding a rival we already saw this match means they reconnected.
+      const returning = state.started && state.remoteSeen.has(p.user_id);
       state.remoteIds.add(p.user_id);
+      state.remoteSeen.add(p.user_id);
       game.addOpponent({ userId: p.user_id, displayName: p.display_name, seat: p.seat, matchId: state.match?.id });
+      if (returning) setStatus(`${p.display_name} reconnected.`);
     }
   }
 
@@ -1530,6 +1553,15 @@ async function handleOpponentLeft(userId) {
   state.remoteIds.delete(userId);
   const remaining = game.removeOpponent(userId);
   if (state.match?.mode !== "pvp" || state.match.finished || !state.started) return;
+  // Tell the player what just happened instead of the rival silently vanishing.
+  // Server rule: a disconnected player is eliminated once their heartbeat goes
+  // stale (~15s) — unless they reconnect first, which loadRoster announces.
+  const name = state.remoteNames.get(userId) || "A rival";
+  if (remaining > 0) {
+    setStatus(`${name} disconnected — they're eliminated unless they reconnect shortly.`);
+  } else if (game.playerAlive()) {
+    setStatus(`${name} disconnected — you're the last one standing. Claiming the win…`);
+  }
   if (remaining === 0 && game.playerAlive()) {
     const { data: matchRow } = await supabase
       .from("matches")
@@ -1677,8 +1709,12 @@ async function reportResult(resultHint, { standings = [] } = {}) {
     return;
   }
 
-  // Authoritative win → victory screen + payout.
-  showGameOver("win", "Last one standing — you won!", finalStandings, "pending", serverKills ?? matchKills, finalTimeMs);
+  // Authoritative win → victory screen + payout. Name the walkover case so a
+  // fight-less win is explained instead of looking like a glitch.
+  const winReason = settled?.shadow_meta?.reason === "walkover"
+    ? "All rivals disconnected — you win by walkover."
+    : "Last one standing — you won!";
+  showGameOver("win", winReason, finalStandings, "pending", serverKills ?? matchKills, finalTimeMs);
   let prizeAmount = null;
   let payoutTx = null;
   try {
@@ -1742,6 +1778,8 @@ async function teardownMatch(keepMatch = false) {
     state.channel = null;
   }
   state.remoteIds.clear();
+  state.remoteNames.clear();
+  state.remoteSeen.clear();
   state.started = false;
   state.iRoomFiller = false;
   game.clearRemote();
