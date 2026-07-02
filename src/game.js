@@ -31,6 +31,9 @@ Object.values(WEAPONS).forEach(Object.freeze);
 Object.freeze(WEAPONS);
 const WEAPON_LIST = Object.values(WEAPONS).filter((w) => !w.isGrenade);
 function randomAiWeapon() { return WEAPON_LIST[Math.floor(Math.random() * WEAPON_LIST.length)]; }
+// AI raiders have no real profile — hand them a plausible level so their name
+// tag matches the format shown for real players.
+function randomAiLevel() { return 1 + Math.floor(Math.random() * 15); }
 
 const THEMES = {
   game: {
@@ -497,13 +500,14 @@ export function createArenaGame(options) {
     const el = document.createElement("div");
     el.className = "bar game-ui";
     const name = document.createElement("div"); name.className = "bar-name";
+    const level = document.createElement("div"); level.className = "bar-level";
     const track = document.createElement("div"); track.className = "bar-track";
     const fill = document.createElement("div"); fill.className = "bar-fill";
     fill.style.background = barColor;
     track.appendChild(fill);
-    el.append(name, track);
+    el.append(name, level, track);
     document.body.appendChild(el);
-    return { el, name, fill, color: barColor };
+    return { el, name, level, fill, color: barColor };
   }
   function makeFighter(cfg) {
     const P = cfg.palette;
@@ -537,7 +541,7 @@ export function createArenaGame(options) {
     scene.add(g);
     const f = {
       userId: cfg.userId || null,
-      name: cfg.name, isPlayer: !!cfg.isPlayer, group: g,
+      name: cfg.name, level: cfg.level ?? 1, isPlayer: !!cfg.isPlayer, group: g,
       legL, legR, armL, armR, swordMesh, pistolMesh, sniperMesh,
       maxHp: cfg.hp, hp: cfg.hp, weapon: cfg.weapon, speed: cfg.speed,
       cdTimer: 0, atkAnim: 0, hurt: 0, regenAcc: 0, chargeTimer: 0,
@@ -591,7 +595,7 @@ export function createArenaGame(options) {
 
   const player = makeFighter({ name: "You", isPlayer: true, palette: theme.player, pos: new THREE.Vector3(-12, 0, 4), hp: 100, weapon: WEAPONS.sword, speed: 6.5, barColor: theme.playerBar });
   // Demo AI raiders (foeMode === "ai"). PvP uses the opponents map instead.
-  const aiEnemy = makeFighter({ name: "Raider", palette: theme.enemy, pos: new THREE.Vector3(12, 0, -4), hp: 100, weapon: randomAiWeapon(), speed: 4.6, barColor: theme.enemyBar });
+  const aiEnemy = makeFighter({ name: "Raider", palette: theme.enemy, pos: new THREE.Vector3(12, 0, -4), hp: 100, weapon: randomAiWeapon(), speed: 4.6, barColor: theme.enemyBar, level: randomAiLevel() });
   const aiRaiders = [aiEnemy]; // grows/shrinks via setAiCount
   const opponents = new Map(); // userId -> networked fighter
   let foeMode = "ai"; // "ai" (demo) | "net" (pvp)
@@ -609,7 +613,7 @@ export function createArenaGame(options) {
     const f = makeFighter({
       name: `Raider ${i + 1}`, palette: theme.enemy,
       pos: new THREE.Vector3(sp.x, 0, sp.z), hp: 100,
-      weapon: randomAiWeapon(), speed: 4.6, barColor: theme.enemyBar
+      weapon: randomAiWeapon(), speed: 4.6, barColor: theme.enemyBar, level: randomAiLevel()
     });
     f.networked = false;
     f.connected = true;
@@ -1209,7 +1213,7 @@ export function createArenaGame(options) {
     options.onLocalState?.({
       x: +player.group.position.x.toFixed(2), z: +player.group.position.z.toFixed(2),
       hp: player.hp, maxHp: player.maxHp, facing: +player.facing.toFixed(2),
-      weapon: player.weapon.id, name: player.name
+      weapon: player.weapon.id, name: player.name, level: player.level
     });
   }
   function applyDamage(def, dmg, bySelf = false) {
@@ -1557,6 +1561,7 @@ export function createArenaGame(options) {
     f.bar.fill.style.width = (Math.max(0, f.hp / f.maxHp) * 100) + "%";
     f.bar.fill.style.background = f.hurt > 0 ? "#ff6b6b" : f.bar.color;
     f.bar.name.textContent = f.name;
+    f.bar.level.textContent = "LVL " + (f.level ?? 1);
   }
 
   // -- Picking --------------------------------------------------------------
@@ -1906,6 +1911,15 @@ export function createArenaGame(options) {
     buildMinimapStatic();
   }
 
+  // Home / lobby background: dress the idle arena with the full map — river,
+  // trees, snow peaks, corner towers — plus the FIGHT10 ground mark, so the
+  // landing page shows the real arena instead of an empty grid.
+  function idleArena() {
+    generateMap("home-showcase");
+    makeFight10Decal();
+    buildMinimapStatic();
+  }
+
   // -- Resize ---------------------------------------------------------------
   function onResize() {
     dim = size();
@@ -2123,6 +2137,7 @@ export function createArenaGame(options) {
     requestAnimationFrame(animate);
   }
   requestAnimationFrame(animate);
+  idleArena(); // populate the home/landing background on first load
 
   // -- Public API -----------------------------------------------------------
   return {
@@ -2130,6 +2145,7 @@ export function createArenaGame(options) {
       viewIsGame = view === "game";
       document.body.classList.toggle("in-game", viewIsGame);
       applyTheme(viewIsGame ? "game" : "lobby");
+      if (!viewIsGame) idleArena(); // returning to the lobby restores the showcase arena
       showTimer();
       showMatchNo();
       if (viewIsGame) { renderWeaponPanel(player.weapon); }
@@ -2169,12 +2185,13 @@ export function createArenaGame(options) {
     // the server on demand when a peer signals the match is over.
     currentHp() { return player.dead ? 0 : Math.max(0, Math.round(player.hp)); },
     standings() { return buildStandings(); },
-    setLocalUser({ userId, displayName }) {
+    setLocalUser({ userId, displayName, level }) {
       perspective = "player";
       // Do not touch controllable here — callers call setControllable() explicitly
       // after this so they can disable input during countdown without a race.
       localUserId = userId || null;
       player.name = displayName || "You";
+      if (typeof level === "number") player.level = level;
       player.connected = true;
     },
     // Demo: single AI raider.
@@ -2275,6 +2292,7 @@ export function createArenaGame(options) {
       if (typeof snap.facing === "number") f.facing = snap.facing;
       if (snap.weapon && WEAPONS[snap.weapon]) { f.weapon = WEAPONS[snap.weapon]; updateWeaponVis(f); }
       if (snap.name) f.name = snap.name;
+      if (typeof snap.level === "number") f.level = snap.level;
       // State packets may only confirm a death that attack events already drove near-zero.
       // Threshold = 5 HP (lowest weapon min-damage is 1, so ≤5 means 1–5 hits away).
       // This blocks a spoofed jump from full health to 0; real deaths come via
@@ -2361,6 +2379,7 @@ export function createArenaGame(options) {
       viewIsGame = false;
       document.body.classList.remove("in-game");
       applyTheme("lobby");
+      idleArena(); // restore the populated showcase arena behind the home page
     },
     setPing(ms) {
       if (!pingEl) return;

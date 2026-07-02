@@ -687,7 +687,7 @@ function startDemo() {
   state.remoteIds.clear();
   state.started = true;
   game.setView("game");
-  game.setLocalUser({ userId: state.user?.id ?? null, displayName: state.profile?.display_name || "You" });
+  game.setLocalUser({ userId: state.user?.id ?? null, displayName: state.profile?.display_name || "You", level: localLevel() });
   game.setMatchNumber(null); // demo matches have no match number
   game.useAiFoe();          // single AI raider opponent
   game.generateMap("demo-" + Date.now());
@@ -1294,7 +1294,7 @@ async function enterArena(matchId, iRoomFiller = false) {
   state.remoteIds.clear();
   state.started = false;
   // Stay in lobby view while waiting; setView("game") fires when the room fills.
-  game.setLocalUser({ userId: state.user.id, displayName: state.profile?.display_name || "You" });
+  game.setLocalUser({ userId: state.user.id, displayName: state.profile?.display_name || "You", level: localLevel() });
   game.usePvpFoes();
   game.setMatchPhase("waiting");
 
@@ -1843,6 +1843,11 @@ function levelForPoints(p) {
 }
 function cumPointsForLevel(level) {
   return 50 * (level - 1) * level;
+}
+// The local player's current level, straight from their profile (falling back
+// to a points-derived value), for the name tag shown above their fighter.
+function localLevel() {
+  return state.profile?.level ?? levelForPoints(state.profile?.points ?? 0);
 }
 
 // Match history (portfolio): the matches this wallet played, newest first.
