@@ -1268,6 +1268,12 @@ export function createArenaGame(options) {
             if (d <= blastR) {
               const dmg = Math.max(1, Math.round(g.dmg * (1 - d / blastR)));
               applyDamage(f, dmg, g.deal && f !== player);
+              // Grenade damage is only known here — blast falloff, splash on
+              // bystanders, or a clean miss — so the settlement ledger is fed
+              // per victim actually hit, not from the aim at throw time.
+              if (g.deal && f !== player && f.userId && foeMode === "net") {
+                options.onGrenadeDamage?.({ victimId: f.userId, dmg });
+              }
             }
           }
           // Explosion flash

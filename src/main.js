@@ -424,9 +424,15 @@ const game = createArenaGame({
   onAttack: (attackEvent) => {
     state.channel?.send({ type: "broadcast", event: "attack", payload: attackEvent });
     // Shadow ledger: accumulate damage we dealt to a networked opponent.
-    if (state.match?.mode === "pvp" && attackEvent?.targetId && attackEvent.fromId === state.user?.id) {
+    // Grenades are excluded here — their real damage (blast falloff, splash on
+    // other opponents, or a miss) is only known when the explosion resolves,
+    // so it arrives through onGrenadeDamage instead.
+    if (state.match?.mode === "pvp" && attackEvent?.targetId && attackEvent.fromId === state.user?.id && !attackEvent.isGrenade) {
       ledger.recordHit(attackEvent.targetId, attackEvent.dmg);
     }
+  },
+  onGrenadeDamage: ({ victimId, dmg }) => {
+    if (state.match?.mode === "pvp") ledger.recordHit(victimId, dmg);
   },
   onLocalKill: ({ victimId }) => {
     if (state.match?.mode === "pvp") ledger.recordKill(victimId);
@@ -988,7 +994,7 @@ async function joinPvp(maxPlayers) {
       // Uses the non-blocking confirmDialog (window.confirm freezes the render loop).
       const ok = await confirmDialog(
         "Heads up: the 2,500 $FIGHT10 entry fee is NON-REFUNDABLE. " +
-        "Once you pay, leaving the queue or the match will NOT refund your entry — the deposit stays in the pot. " +
+        "Once you pay, leaving the queue or the match will NOT refund your entry. " +
         "Continue and pay the entry fee?"
       );
       if (!ok) return;
@@ -1606,7 +1612,7 @@ async function leaveMatch({ silent = false, skipConfirm = false } = {}) {
   if (state.match.mode === "pvp") {
     if (state.match.status === "waiting" && state.pendingDepositTx == null && !silent && !skipConfirm) {
       const ok = await confirmDialog(
-        "You have already paid the entry fee. Leaving now forfeits your deposit — the pot stays in the contract. Continue?"
+        "You have already paid the entry fee. Leaving now forfeits your deposit. Continue?"
       );
       if (!ok) return false;
     }
