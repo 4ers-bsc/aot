@@ -303,6 +303,98 @@ export function createArenaGame(options) {
 
   buildArenaWalls("game");
 
+  // -- Edge ledge + flame lamps ----------------------------------------------
+  // A polished black ledge ring hugging the map rim, with small flickering
+  // flame lamps spaced along it — scene objects, so they stay anchored to the
+  // map edges (home backdrop and in-game alike) instead of the viewport.
+  const edgeLamps = []; // { sprite, glow, phase } — flickered in animate()
+  {
+    const LEDGE_W = 3.2;   // ledge band width beyond the map rim
+    const LEDGE_H = 0.56;  // ledge thickness; top sits just above the floor
+    const LEDGE_TOP = 0.06;
+    const ledgeMat = new THREE.MeshStandardMaterial({
+      color: 0x0c0c0e, roughness: 0.16, metalness: 0.72, // black polished stone
+    });
+    const ledgeCY = LEDGE_TOP - LEDGE_H / 2;
+    const L_OUT = MAP_HALF + LEDGE_W;
+    // North/south bands span the full width plus both corners; east/west fill between.
+    [
+      { w: MAP_WORLD + LEDGE_W * 2, d: LEDGE_W, x: 0, z: -(MAP_HALF + LEDGE_W / 2) },
+      { w: MAP_WORLD + LEDGE_W * 2, d: LEDGE_W, x: 0, z:  (MAP_HALF + LEDGE_W / 2) },
+      { w: LEDGE_W, d: MAP_WORLD, x: -(MAP_HALF + LEDGE_W / 2), z: 0 },
+      { w: LEDGE_W, d: MAP_WORLD, x:  (MAP_HALF + LEDGE_W / 2), z: 0 },
+    ].forEach(({ w, d, x, z }) => {
+      const band = new THREE.Mesh(new THREE.BoxGeometry(w, LEDGE_H, d), ledgeMat);
+      band.position.set(x, ledgeCY, z);
+      band.receiveShadow = true;
+      scene.add(band);
+    });
+    // Gold trim line along the ledge's outer edge (matches the arena rim lines).
+    scene.add(new THREE.Line(
+      new THREE.BufferGeometry().setFromPoints([
+        new THREE.Vector3(-L_OUT, LEDGE_TOP + 0.02, -L_OUT), new THREE.Vector3(L_OUT, LEDGE_TOP + 0.02, -L_OUT),
+        new THREE.Vector3( L_OUT, LEDGE_TOP + 0.02,  L_OUT), new THREE.Vector3(-L_OUT, LEDGE_TOP + 0.02,  L_OUT),
+        new THREE.Vector3(-L_OUT, LEDGE_TOP + 0.02, -L_OUT),
+      ]),
+      new THREE.LineBasicMaterial({ color: 0xffaa00, transparent: true, opacity: 0.45 })
+    ));
+
+    // Flame sprite texture — soft radial gradient, warm core.
+    const flameCanvas = document.createElement("canvas");
+    flameCanvas.width = 64; flameCanvas.height = 64;
+    const fx = flameCanvas.getContext("2d");
+    const fg = fx.createRadialGradient(32, 38, 2, 32, 34, 30);
+    fg.addColorStop(0.00, "rgba(255,246,214,1)");
+    fg.addColorStop(0.25, "rgba(255,208,116,0.92)");
+    fg.addColorStop(0.55, "rgba(255,138,40,0.55)");
+    fg.addColorStop(1.00, "rgba(255,90,10,0)");
+    fx.fillStyle = fg;
+    fx.fillRect(0, 0, 64, 64);
+    const flameTex = new THREE.CanvasTexture(flameCanvas);
+
+    // Warm glow pool cast on the polished ledge under each flame.
+    const glowCanvas = document.createElement("canvas");
+    glowCanvas.width = 64; glowCanvas.height = 64;
+    const gx2 = glowCanvas.getContext("2d");
+    const gg = gx2.createRadialGradient(32, 32, 1, 32, 32, 31);
+    gg.addColorStop(0.00, "rgba(255,180,80,0.9)");
+    gg.addColorStop(0.45, "rgba(255,130,30,0.35)");
+    gg.addColorStop(1.00, "rgba(255,90,10,0)");
+    gx2.fillStyle = gg;
+    gx2.fillRect(0, 0, 64, 64);
+    const glowTex = new THREE.CanvasTexture(glowCanvas);
+
+    const baseGeo = new THREE.CylinderGeometry(0.3, 0.38, 0.5, 10);
+    const glowGeo = new THREE.PlaneGeometry(3.4, 3.4);
+    const LAMP_MID = MAP_HALF + LEDGE_W / 2; // lamp row centered on the ledge band
+    const lampSpots = [];
+    [-1, -0.5, 0, 0.5, 1].forEach((f) => {
+      const p = f * (MAP_HALF - 3); // five per side, evenly spaced, shy of corners
+      lampSpots.push([p, -LAMP_MID], [p, LAMP_MID], [-LAMP_MID, p], [LAMP_MID, p]);
+    });
+    lampSpots.forEach(([x, z]) => {
+      // Small polished base…
+      const base = new THREE.Mesh(baseGeo, ledgeMat);
+      base.position.set(x, LEDGE_TOP + 0.25, z);
+      scene.add(base);
+      // …its flame…
+      const sprite = new THREE.Sprite(new THREE.SpriteMaterial({
+        map: flameTex, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false,
+      }));
+      sprite.position.set(x, LEDGE_TOP + 0.5 + 0.72, z);
+      sprite.scale.set(1.15, 1.7, 1);
+      scene.add(sprite);
+      // …and the warm pool it throws on the shiny ledge.
+      const glow = new THREE.Mesh(glowGeo, new THREE.MeshBasicMaterial({
+        map: glowTex, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false,
+      }));
+      glow.rotation.x = -Math.PI / 2;
+      glow.position.set(x, LEDGE_TOP + 0.015, z);
+      scene.add(glow);
+      edgeLamps.push({ sprite, glow, phase: Math.random() * Math.PI * 2 });
+    });
+  }
+
   // -- Pixelated FIGHT10 ground decals (black pixel squares, random) --------
   const fight10Groups = [];
   function makeFight10Decal() {
@@ -2130,6 +2222,14 @@ export function createArenaGame(options) {
       fragRing.position.x = player.group.position.x;
       fragRing.position.z = player.group.position.z;
       fragRing.material.opacity = 0.35 + 0.25 * Math.abs(Math.sin(clock.elapsedTime * 2.8));
+    }
+
+    // Edge flame lamps — cheap two-sine flicker, per-lamp phase offset
+    for (const L of edgeLamps) {
+      const f = 0.82 + 0.18 * (0.6 * Math.sin(t * 8 + L.phase) + 0.4 * Math.sin(t * 21 + L.phase * 2.3));
+      L.sprite.material.opacity = f;
+      L.sprite.scale.set(1.0 + 0.25 * f, 1.45 + 0.45 * f, 1);
+      L.glow.material.opacity = 0.6 * f;
     }
 
     drawMinimap();

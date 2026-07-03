@@ -1,18 +1,4 @@
 export const html = `
-  <!-- ===== Arena wall lamps (decorative flames flanking the map) ===== -->
-  <div class="arena-lamps" aria-hidden="true">
-    <span class="lamp lamp-l1"></span>
-    <span class="lamp lamp-l2"></span>
-    <span class="lamp lamp-l3"></span>
-    <span class="lamp lamp-l4"></span>
-    <span class="lamp lamp-l5"></span>
-    <span class="lamp lamp-r1"></span>
-    <span class="lamp lamp-r2"></span>
-    <span class="lamp lamp-r3"></span>
-    <span class="lamp lamp-r4"></span>
-    <span class="lamp lamp-r5"></span>
-  </div>
-
   <!-- ===== Hero ===== -->
   <section class="hero-section">
     <div class="hero-title-block">

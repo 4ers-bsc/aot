@@ -286,6 +286,106 @@ textarea:focus {
   box-shadow: 0 1px 0 rgba(255, 235, 190, 0.2) inset, 0 4px 14px rgba(0, 0, 0, 0.45);
 }
 
+/* ===== Nav center links ===== */
+.site-nav-links {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  display: flex;
+  align-items: center;
+  gap: 34px;
+}
+
+.nav-link {
+  background: none;
+  border: none;
+  padding: 6px 2px;
+  font-family: var(--font-head);
+  font-size: 0.68rem;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: rgba(233, 224, 200, 0.62);
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.7);
+  border-bottom: 1px solid transparent;
+  border-radius: 0;
+}
+
+.nav-link:hover {
+  color: #f2e8cc;
+  border-bottom-color: rgba(212, 160, 23, 0.65);
+  transform: none;
+}
+
+/* ===== Hamburger ===== */
+.nav-hamburger {
+  display: inline-flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 4px;
+  width: 34px;
+  height: 30px;
+  padding: 6px 7px;
+  background: none;
+  border: none;
+}
+
+.nav-hamburger span {
+  display: block;
+  height: 2px;
+  width: 100%;
+  border-radius: 2px;
+  background: rgba(233, 224, 200, 0.7);
+  transition: background 0.15s ease;
+}
+
+.nav-hamburger:hover span { background: #f2e8cc; }
+
+/* ===== Hamburger dropdown ===== */
+.nav-menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 20px;
+  z-index: 20;
+  display: none;
+  flex-direction: column;
+  min-width: 200px;
+  padding: 6px;
+  border: 1px solid rgba(212, 160, 23, 0.3);
+  border-radius: 6px;
+  background: linear-gradient(170deg, rgba(16, 13, 8, 0.97), rgba(8, 7, 5, 0.97));
+  box-shadow: 0 14px 40px rgba(0, 0, 0, 0.65), inset 0 1px 0 rgba(255, 235, 190, 0.06);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+}
+
+.nav-menu.open { display: flex; }
+
+.nav-menu-item {
+  padding: 11px 16px;
+  text-align: left;
+  background: none;
+  border: none;
+  border-radius: 4px;
+  font-family: var(--font-head);
+  font-size: 0.68rem;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: rgba(233, 224, 200, 0.68);
+}
+
+.nav-menu-item:hover {
+  color: #f2e8cc;
+  background: rgba(212, 160, 23, 0.12);
+  transform: none;
+}
+
+/* Center links collide with the actions cluster once the nav tightens —
+   below this the hamburger menu carries them instead. */
+@media (max-width: 1080px) {
+  .site-nav-links { display: none; }
+}
+
 /* ===== Hero section ===== */
 .hero-section {
   position: absolute;
@@ -393,51 +493,8 @@ textarea:focus {
   font-weight: 700;
 }
 
-/* ===== Arena wall lamps (flickering flames along the map's sides) ===== */
-.arena-lamps {
-  position: absolute;
-  inset: 64px 0 90px;
-  z-index: 5;
-  pointer-events: none;
-}
-
-.lamp {
-  position: absolute;
-  width: 8px;
-  height: 12px;
-  border-radius: 50% 50% 50% 50% / 62% 62% 38% 38%;
-  background: radial-gradient(ellipse at 50% 78%, #fff4cc 0%, #ffd074 32%, #ff9a2e 62%, #ff6a08 100%);
-  box-shadow:
-    0 0 8px 3px rgba(255, 150, 50, 0.55),
-    0 0 20px 8px rgba(255, 110, 20, 0.28),
-    0 0 40px 16px rgba(255, 90, 10, 0.12);
-  transform-origin: 50% 100%;
-  animation: lamp-flicker 1.9s ease-in-out infinite;
-}
-
-/* Two diverging rows following the platform edges, left and right */
-.lamp-l1 { left: 27%; top: 41%; }
-.lamp-l2 { left: 22%; top: 51%; animation-delay: -0.4s; }
-.lamp-l3 { left: 17%; top: 61%; animation-delay: -0.9s; }
-.lamp-l4 { left: 13%; top: 71%; animation-delay: -1.3s; }
-.lamp-l5 { left: 10%; top: 80%; animation-delay: -0.6s; }
-
-.lamp-r1 { right: 27%; top: 41%; animation-delay: -0.2s; }
-.lamp-r2 { right: 22%; top: 51%; animation-delay: -1.1s; }
-.lamp-r3 { right: 17%; top: 61%; animation-delay: -0.5s; }
-.lamp-r4 { right: 13%; top: 71%; animation-delay: -1.5s; }
-.lamp-r5 { right: 10%; top: 80%; animation-delay: -0.8s; }
-
-@keyframes lamp-flicker {
-  0%, 100% { opacity: 0.92; transform: scaleY(1) scaleX(1); }
-  25%      { opacity: 1;    transform: scaleY(1.12) scaleX(0.94); }
-  50%      { opacity: 0.8;  transform: scaleY(0.95) scaleX(1.04); }
-  75%      { opacity: 1;    transform: scaleY(1.08) scaleX(0.97); }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .lamp { animation: none; }
-}
+/* Arena wall flame lamps are part of the 3D scene (see edge ledge + lamps in
+   game.js) so they stay anchored to the map edges instead of the viewport. */
 
 /* Cards row below title */
 .hero-cards-row {
@@ -3025,10 +3082,6 @@ body.in-game .game-hud-root {
     -webkit-backdrop-filter: blur(10px);
     border-bottom: 1px solid rgba(255, 255, 255, 0.08);
   }
-
-  /* Decorative arena flames belong to the (now backgrounded) 3D scene, not the
-     vertical content flow — hide them so they don't scatter over the page. */
-  .arena-lamps { display: none; }
 
   /* Flow, don't stack absolutely. */
   .hero-section,
