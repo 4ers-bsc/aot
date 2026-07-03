@@ -5,6 +5,7 @@ export const html = `
       <div class="panel-head">Profile<button class="close" id="profileClose" type="button">&times;</button></div>
       <div class="tabs">
         <button class="tab active" data-ptab="stats">STATS</button>
+        <button class="tab" data-ptab="holdings">$FIGHT10</button>
         <button class="tab" data-ptab="history">MATCH HISTORY</button>
       </div>
 
@@ -34,6 +35,34 @@ export const html = `
           <div class="go-stat"><span class="go-num" id="profileBest">0</span><span class="go-label">Best Streak</span></div>
         </div>
         <button class="profile-save" id="profileSaveBtn" type="button">Save Username</button>
+      </div>
+
+      <div class="tab-body hidden" data-pbody="holdings">
+        <div class="section">YOUR HOLDINGS</div>
+        <div class="holdings-card">
+          <div class="holdings-coin">F10</div>
+          <div class="holdings-amount" id="holdingsAmount">&mdash;</div>
+          <div class="holdings-token">$FIGHT10</div>
+          <div class="holdings-wallet" id="holdingsWallet"></div>
+          <div class="holdings-note" id="holdingsNote"></div>
+        </div>
+
+        <div class="section">HOLDER PERKS</div>
+        <div class="perks-card">
+          <div class="perks-coming"><span class="coming-soon-pill pill-lg">COMING SOON</span></div>
+          <div class="perk-row">
+            <svg class="perk-lock" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg>
+            <span>Exclusive holder skins</span>
+          </div>
+          <div class="perk-row">
+            <svg class="perk-lock" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg>
+            <span>Reduced protocol fees</span>
+          </div>
+          <div class="perk-row">
+            <svg class="perk-lock" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg>
+            <span>Priority queue &amp; early access</span>
+          </div>
+        </div>
       </div>
 
       <div class="tab-body hidden" data-pbody="history">

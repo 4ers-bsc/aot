@@ -612,6 +612,96 @@ textarea:focus {
 
 .home-btn-ghost:hover { color: rgba(233, 224, 200, 0.62); background: #16110a; }
 
+/* ===== Story Mode (coming soon) ===== */
+.home-btn-story {
+  position: relative;
+  overflow: hidden;
+  gap: 10px;
+  background: linear-gradient(180deg, #1a1409 0%, #0c0a07 100%);
+  color: #e8d9a8;
+  border: 1px solid rgba(212, 160, 23, 0.45);
+  cursor: default;
+  /* Embossed: light catching the top edge, shadow pooling along the bottom. */
+  box-shadow:
+    inset 0 1px 0 rgba(242, 206, 91, 0.35),
+    inset 0 -2px 4px rgba(0, 0, 0, 0.6),
+    0 6px 20px rgba(0, 0, 0, 0.5);
+}
+
+.home-btn-story .story-btn-label {
+  /* Letterpress: dark cut above, gold catch-light below. */
+  text-shadow: 0 -1px 0 rgba(0, 0, 0, 0.85), 0 1px 1px rgba(242, 206, 91, 0.3);
+}
+
+/* Shine sweep across the whole button face. `left` is animated (not
+   translateX) so the streak fully exits whatever width the button gets. */
+.home-btn-story::after {
+  content: "";
+  position: absolute;
+  top: -40%;
+  bottom: -40%;
+  left: -80px;
+  width: 56px;
+  background: linear-gradient(105deg, transparent, rgba(255, 240, 190, 0.26), transparent);
+  transform: skewX(-20deg);
+  animation: gold-shine 3.6s ease-in-out infinite;
+  pointer-events: none;
+}
+
+@keyframes gold-shine {
+  0%        { left: -80px; }
+  55%, 100% { left: calc(100% + 40px); }
+}
+
+.coming-soon-pill {
+  font-family: var(--font-head);
+  font-size: 8px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  padding: 3px 8px 2px;
+  border-radius: 3px;
+  color: #2a1e06;
+  background: var(--gold-grad);
+  border: 1px solid rgba(255, 235, 190, 0.5);
+  /* Embossed gold tag: glossy top bevel, shaded lower lip. */
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.45),
+    inset 0 -1px 0 rgba(0, 0, 0, 0.35),
+    0 1px 3px rgba(0, 0, 0, 0.5);
+  text-shadow: 0 1px 0 rgba(255, 240, 200, 0.5);
+  white-space: nowrap;
+}
+
+.coming-soon-pill.pill-lg {
+  position: relative;
+  overflow: hidden;
+  font-size: 10px;
+  letter-spacing: 0.2em;
+  padding: 6px 14px 5px;
+  border-radius: 4px;
+}
+
+.coming-soon-pill.pill-lg::after {
+  content: "";
+  position: absolute;
+  top: -40%;
+  bottom: -40%;
+  left: -80px;
+  width: 30px;
+  background: linear-gradient(105deg, transparent, rgba(255, 255, 255, 0.55), transparent);
+  transform: skewX(-20deg);
+  animation: gold-shine 3s ease-in-out infinite;
+  pointer-events: none;
+}
+
+.home-btn-story.nudge .coming-soon-pill { animation: pill-nudge 0.4s ease; }
+
+@keyframes pill-nudge {
+  0%, 100% { transform: translateX(0); }
+  25%      { transform: translateX(-3px); }
+  60%      { transform: translateX(3px); }
+}
+
 /* ===== X icon in nav ===== */
 .x-nav {
   display: flex;
@@ -2987,6 +3077,137 @@ body.in-game .log-feed { left: 70px; }
   align-self: center;
 }
 
+/* ===== Profile — $FIGHT10 holdings tab ===== */
+.holdings-card {
+  position: relative;
+  overflow: hidden;
+  text-align: center;
+  margin-top: 8px;
+  padding: 22px 16px 18px;
+  border-radius: 12px;
+  border: 1px solid rgba(217, 198, 110, 0.35);
+  /* Glossy black plaque with a faint gold wash (matches the game-over prize). */
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.07), rgba(255, 255, 255, 0.01)),
+    rgba(217, 198, 110, 0.05);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 235, 190, 0.22),
+    inset 0 -2px 6px rgba(0, 0, 0, 0.55),
+    0 0 22px rgba(217, 198, 110, 0.08);
+}
+
+/* Slow shine sweep across the plaque. */
+.holdings-card::after {
+  content: "";
+  position: absolute;
+  top: -40%;
+  bottom: -40%;
+  left: -140px;
+  width: 90px;
+  background: linear-gradient(105deg, transparent, rgba(255, 240, 190, 0.14), transparent);
+  transform: skewX(-20deg);
+  animation: plaque-shine 5s ease-in-out infinite;
+  pointer-events: none;
+}
+
+@keyframes plaque-shine {
+  0%        { left: -140px; }
+  60%, 100% { left: calc(100% + 60px); }
+}
+
+.holdings-coin {
+  width: 46px;
+  height: 46px;
+  margin: 0 auto 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  font-family: var(--font-head);
+  font-size: 12px;
+  letter-spacing: 0.04em;
+  color: #2a1e06;
+  background: radial-gradient(circle at 35% 30%, #f2ce5b, #d4a017 55%, #a9760a);
+  border: 1px solid rgba(255, 235, 190, 0.6);
+  /* Embossed coin: highlight rim on top, shaded rim below. */
+  box-shadow:
+    inset 0 1px 2px rgba(255, 255, 255, 0.55),
+    inset 0 -2px 3px rgba(0, 0, 0, 0.35),
+    0 3px 8px rgba(0, 0, 0, 0.5);
+  text-shadow: 0 1px 0 rgba(255, 240, 200, 0.5);
+}
+
+.holdings-amount {
+  font-family: var(--font-head);
+  font-size: 34px;
+  line-height: 1.15;
+  background: var(--gold-grad);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  /* text-shadow is clipped away with background-clip — emboss via drop-shadow. */
+  filter: drop-shadow(0 2px 2px rgba(0, 0, 0, 0.65));
+}
+
+.holdings-token {
+  margin-top: 2px;
+  font-family: var(--font-head);
+  font-size: 10px;
+  letter-spacing: 0.24em;
+  color: rgba(217, 198, 110, 0.65);
+}
+
+.holdings-wallet {
+  margin-top: 10px;
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  color: rgba(255, 255, 255, 0.35);
+}
+
+.holdings-note {
+  margin-top: 6px;
+  font-size: 10px;
+  letter-spacing: 0.04em;
+  color: rgba(255, 255, 255, 0.4);
+}
+
+.holdings-note:empty { display: none; }
+
+.perks-card {
+  margin-top: 8px;
+  padding: 14px;
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.perks-coming {
+  display: flex;
+  justify-content: center;
+  margin-bottom: 12px;
+}
+
+.perk-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 12px;
+  border-radius: 8px;
+  font-size: 11px;
+  letter-spacing: 0.1em;
+  color: rgba(255, 255, 255, 0.4);
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05), inset 0 -1px 2px rgba(0, 0, 0, 0.4);
+}
+
+.perk-row + .perk-row { margin-top: 6px; }
+
+.perk-lock {
+  flex: none;
+  color: rgba(217, 198, 110, 0.55);
+}
+
 .pvp-prize-pool {
   font-family: var(--font-head);
   font-size: 0.78rem;
@@ -3144,6 +3365,10 @@ body.in-game .log-feed { left: 70px; }
   .info-tile { flex: 1 1 50%; }
   .go-summary,
   .go-record { gap: 8px; }
+  /* Three profile tabs (STATS / $FIGHT10 / MATCH HISTORY) need tighter type
+     to share a phone-width panel without wrapping. */
+  .tabs { gap: 6px; }
+  .tab { font-size: 9px; letter-spacing: 0.06em; padding: 9px 2px; }
 }
 
 /* ===========================================================================

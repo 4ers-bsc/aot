@@ -519,6 +519,13 @@ function bindUi() {
   els.profileSaveBtn.addEventListener("click", saveProfile);
   els.profileNameInput.addEventListener("keydown", (e) => { if (e.key === "Enter") saveProfile(); });
   els.profileTabs.forEach((t) => t.addEventListener("click", () => selectProfileTab(t.dataset.ptab)));
+  // Story Mode isn't playable yet — a click just shakes the COMING SOON pill.
+  const storyBtn = document.getElementById("storyModeBtn");
+  storyBtn?.addEventListener("click", () => {
+    storyBtn.classList.remove("nudge");
+    void storyBtn.offsetWidth; // restart the animation on rapid clicks
+    storyBtn.classList.add("nudge");
+  });
   els.pvpCancelBtn.addEventListener("click", () => leaveMatch());
   // Returning to the menu after a match fully reloads the page. This guarantees a
   // clean slate (3D scene, realtime channel, match state) for the next game.
@@ -604,6 +611,7 @@ function selectProfileTab(tab) {
   els.profileTabs.forEach((t) => t.classList.toggle("active", t.dataset.ptab === tab));
   els.profileBodies.forEach((b) => b.classList.toggle("hidden", b.dataset.pbody !== tab));
   if (tab === "history") loadHistory().catch((e) => console.error(e));
+  if (tab === "holdings") loadHoldings().catch((e) => console.error(e));
 }
 
 async function init() {
@@ -1311,6 +1319,37 @@ async function refreshFight10Balance() {
     balEl.classList.remove("hidden");
   } catch (err) {
     console.error("[refreshFight10Balance]", err);
+  }
+}
+
+// Fills the profile "$FIGHT10" tab: on-chain balance plus the wallet it came from.
+async function loadHoldings() {
+  const amtEl    = document.getElementById("holdingsAmount");
+  const walletEl = document.getElementById("holdingsWallet");
+  const noteEl   = document.getElementById("holdingsNote");
+  if (!amtEl) return;
+  const wallet = getSolanaWallet();
+  const addr = wallet?.publicKey?.toString();
+  if (walletEl) walletEl.textContent = addr ? `${addr.slice(0, 4)}…${addr.slice(-4)}` : "";
+  if (!addr) {
+    amtEl.textContent = "—";
+    if (noteEl) noteEl.textContent = "Connect your wallet to see your holdings.";
+    return;
+  }
+  if (FIGHT10_MINT.startsWith("<")) {
+    amtEl.textContent = "—";
+    if (noteEl) noteEl.textContent = "Live balances go on-chain at token launch.";
+    return;
+  }
+  amtEl.textContent = "…";
+  if (noteEl) noteEl.textContent = "";
+  try {
+    const raw = await getFight10Balance(addr);
+    amtEl.textContent = (Number(raw) / 10 ** FIGHT10_DECIMALS).toLocaleString(undefined, { maximumFractionDigits: 0 });
+  } catch (err) {
+    console.error("[loadHoldings]", err);
+    amtEl.textContent = "—";
+    if (noteEl) noteEl.textContent = "Could not load balance — reopen the tab to retry.";
   }
 }
 
