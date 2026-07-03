@@ -185,6 +185,10 @@ export function createArenaGame(options) {
 
   // -- Arena walls (disposable, theme-aware) ------------------------------------
   const wallObjects = []; // tracks all wall scene objects for disposal
+  // F10 cloth banners draped over the camera-facing map edges. Each entry is
+  // animated per frame in animate(): an unfurl drop when built, then a
+  // continuous fabric wave. { mesh, geo, h, phase, born }
+  const clothBanners = [];
 
   function buildArenaWalls(variant) {
     // Dispose existing wall objects via the shared traversal helper (it
@@ -194,6 +198,7 @@ export function createArenaGame(options) {
       disposeObject3D(obj);
     });
     wallObjects.length = 0;
+    clothBanners.length = 0; // banner meshes live in wallObjects, disposed above
 
     const DEPTH = 10;
     const addObj = (obj) => { scene.add(obj); wallObjects.push(obj); return obj; };
@@ -274,6 +279,69 @@ export function createArenaGame(options) {
       panel.position.set(x, -GH / 2, z);
       panel.rotation.y = ry;
       addObj(panel);
+    });
+
+    // -- F10 cloth banners — gold fabric draped over the rim, falling down the
+    // two camera-facing map sides (the edges visible from the fixed iso view).
+    // Pinned at the rim; animate() unfurls them on build and keeps them waving.
+    const BANNER_W = 10, BANNER_H = 7;
+    const bnc = document.createElement("canvas");
+    bnc.width = 256; bnc.height = 320;
+    const bnx = bnc.getContext("2d");
+    // Swallow-tail silhouette: straight sides, zig-zag fringe along the bottom
+    bnx.beginPath();
+    bnx.moveTo(6, 6);
+    bnx.lineTo(250, 6);
+    bnx.lineTo(250, 278);
+    for (let i = 0; i < 4; i++) {
+      bnx.lineTo(250 - i * 61 - 30.5, 314);
+      bnx.lineTo(250 - (i + 1) * 61, 278);
+    }
+    bnx.closePath();
+    const bGrad = bnx.createLinearGradient(0, 0, 0, 320);
+    bGrad.addColorStop(0, "#d9a413");
+    bGrad.addColorStop(1, "#a87a08");
+    bnx.fillStyle = bGrad;
+    bnx.fill();
+    bnx.save();
+    bnx.clip();
+    bnx.strokeStyle = "rgba(122,88,0,0.28)"; // faint weave lines
+    bnx.lineWidth = 2;
+    for (let y = 26; y < 320; y += 26) {
+      bnx.beginPath(); bnx.moveTo(0, y); bnx.lineTo(256, y); bnx.stroke();
+    }
+    bnx.restore();
+    bnx.strokeStyle = "#7a5800";
+    bnx.lineWidth = 7;
+    bnx.stroke();
+    bnx.fillStyle = "#0a0800";
+    bnx.font = "bold 104px monospace";
+    bnx.textAlign = "center";
+    bnx.textBaseline = "middle";
+    bnx.fillText("F10", 128, 132);
+    const bannerTex = new THREE.CanvasTexture(bnc);
+    const bannerMat = new THREE.MeshBasicMaterial({
+      map: bannerTex, transparent: true, side: THREE.DoubleSide, depthWrite: false,
+    });
+    [
+      { x: 0, z: MAP_HALF, ry: 0,           phase: 0   }, // +z edge (front-left on screen)
+      { x: MAP_HALF, z: 0, ry: Math.PI / 2, phase: 2.1 }, // +x edge (front-right on screen)
+    ].forEach(({ x, z, ry, phase }) => {
+      const geo = new THREE.PlaneGeometry(BANNER_W, BANNER_H, 12, 10);
+      geo.translate(0, -BANNER_H / 2, 0); // pin the top edge at the rim
+      const mesh = new THREE.Mesh(geo, bannerMat);
+      // Nudged outward off the wall so the waving fabric never clips into it
+      mesh.position.set(x + (ry === 0 ? 0 : 0.16), 0.05, z + (ry === 0 ? 0.16 : 0));
+      mesh.rotation.y = ry;
+      mesh.renderOrder = 3; // after the outer dot plane so it shows against the void
+      addObj(mesh);
+      // Fold of cloth lying on the arena floor where the fabric crosses the rim
+      const fold = ry === 0
+        ? box(BANNER_W, 0.1, 0.7, 0xc8940a)
+        : box(0.7, 0.1, BANNER_W, 0xc8940a);
+      fold.position.set(x - (ry === 0 ? 0 : 0.35), 0.05, z - (ry === 0 ? 0.35 : 0));
+      addObj(fold);
+      clothBanners.push({ mesh, geo, h: BANNER_H, phase, born: performance.now() * 0.001 });
     });
 
     // Top rim
@@ -2107,6 +2175,26 @@ export function createArenaGame(options) {
     }
     snowGeo.attributes.position.needsUpdate = true;
     snow.position.set(camCenter.x, 0, camCenter.z);
+
+    // F10 edge banners: unfurl drop after build, then a continuous cloth wave.
+    // Vertices sway along the wall normal, more the further they hang down.
+    const bNow = performance.now() * 0.001;
+    for (const b of clothBanners) {
+      const p = Math.min(1, (bNow - b.born) / 1.6);
+      const ease = 1 - Math.pow(1 - p, 3);
+      b.mesh.scale.y = 0.02 + 0.98 * ease;
+      const flutter = 1 + (1 - ease) * 2.2; // falling cloth flaps harder
+      const pos = b.geo.attributes.position;
+      for (let i = 0; i < pos.count; i++) {
+        const vx = pos.getX(i), vy = pos.getY(i);
+        const droop = -vy / b.h; // 0 at the pinned rim → 1 at the loose hem
+        pos.setZ(i,
+          (Math.sin(vx * 0.85 + bNow * 2.2 + b.phase) * 0.26 +
+           Math.sin(vy * 1.6 + bNow * 3.1 + b.phase * 2) * 0.11) * droop * flutter +
+          droop * droop * 0.4); // gentle outward billow away from the wall
+      }
+      pos.needsUpdate = true;
+    }
 
     if (markerLife > 0) {
       markerLife = Math.max(0, markerLife - dt * 1.4);
