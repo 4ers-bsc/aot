@@ -556,6 +556,25 @@ export function createArenaGame(options) {
     g.rotation.x = -0.08;
     return g;
   }
+  function makeGrenade() {
+    const g = new THREE.Group();
+    // Same dark shell as the thrown projectile in fireGrenade(), hand-sized
+    const body = new THREE.Mesh(
+      new THREE.SphereGeometry(0.17, 8, 6),
+      new THREE.MeshStandardMaterial({ color: 0x222222, roughness: 0.8, metalness: 0.15 })
+    );
+    body.castShadow = true;
+    const cap = box(0.11, 0.09, 0.11, 0x3a3f45); cap.position.y = 0.18;
+    const lever = box(0.05, 0.18, 0.05, 0x8a8f96); lever.position.set(0.08, 0.12, 0.06); lever.rotation.x = 0.5;
+    const pin = new THREE.Mesh(
+      new THREE.TorusGeometry(0.06, 0.016, 6, 10),
+      new THREE.MeshStandardMaterial({ color: 0xb8b0a0, roughness: 0.5, metalness: 0.6 })
+    );
+    pin.position.set(-0.09, 0.19, 0);
+    g.add(body, cap, lever, pin);
+    g.position.set(0, -0.8, 0.14);
+    return g;
+  }
   function makeBar(barColor) {
     const el = document.createElement("div");
     el.className = "bar game-ui";
@@ -595,6 +614,7 @@ export function createArenaGame(options) {
     const swordMesh = makeSword(); armR.add(swordMesh);
     const pistolMesh = makePistol(); pistolMesh.visible = false; armR.add(pistolMesh);
     const sniperMesh = makeSniper(); sniperMesh.visible = false; armR.add(sniperMesh);
+    const grenadeMesh = makeGrenade(); grenadeMesh.visible = false; armR.add(grenadeMesh);
     g.add(legL, legR, torso, shlL, shlR, armL, armR, head, helmet, visor);
     g.position.copy(cfg.pos);
     g.visible = false;
@@ -602,7 +622,7 @@ export function createArenaGame(options) {
     const f = {
       userId: cfg.userId || null,
       name: cfg.name, level: cfg.level ?? 1, isPlayer: !!cfg.isPlayer, group: g,
-      legL, legR, armL, armR, swordMesh, pistolMesh, sniperMesh,
+      legL, legR, armL, armR, swordMesh, pistolMesh, sniperMesh, grenadeMesh,
       maxHp: cfg.hp, hp: cfg.hp, weapon: cfg.weapon, speed: cfg.speed,
       cdTimer: 0, atkAnim: 0, hurt: 0, regenAcc: 0, chargeTimer: 0,
       moving: false, facing: 0, walkPhase: 0,
@@ -620,9 +640,10 @@ export function createArenaGame(options) {
     return f;
   }
   function updateWeaponVis(f) {
-    if (f.swordMesh)  f.swordMesh.visible  = f.weapon.id === "sword";
-    if (f.pistolMesh) f.pistolMesh.visible = f.weapon.id === "pistol";
-    if (f.sniperMesh) f.sniperMesh.visible = f.weapon.id === "sniper";
+    if (f.swordMesh)   f.swordMesh.visible   = f.weapon.id === "sword";
+    if (f.pistolMesh)  f.pistolMesh.visible  = f.weapon.id === "pistol";
+    if (f.sniperMesh)  f.sniperMesh.visible  = f.weapon.id === "sniper";
+    if (f.grenadeMesh) f.grenadeMesh.visible = f.weapon.id === "frag";
   }
   function recolorFighter(f, palette) {
     Object.keys(f.parts).forEach((key) => f.parts[key].forEach((mat) => mat.color.setHex(palette[key])));
