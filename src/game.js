@@ -185,6 +185,10 @@ export function createArenaGame(options) {
 
   // -- Arena walls (disposable, theme-aware) ------------------------------------
   const wallObjects = []; // tracks all wall scene objects for disposal
+  // F10 cloth banner draped over the left map edge. Each entry is animated
+  // per frame in animate(): an unfurl drop when built, then a continuous
+  // fabric wave. { mesh, geo, h, phase, born }
+  const clothBanners = [];
 
   function buildArenaWalls(variant) {
     // Dispose existing wall objects via the shared traversal helper (it
@@ -194,6 +198,7 @@ export function createArenaGame(options) {
       disposeObject3D(obj);
     });
     wallObjects.length = 0;
+    clothBanners.length = 0; // banner meshes live in wallObjects, disposed above
 
     const DEPTH = 10;
     const addObj = (obj) => { scene.add(obj); wallObjects.push(obj); return obj; };
@@ -275,6 +280,61 @@ export function createArenaGame(options) {
       panel.rotation.y = ry;
       addObj(panel);
     });
+
+    // -- F10 cloth banner — gold fabric draped over the rim, falling down the
+    // left map side (the +z edge, front-left from the fixed iso view).
+    // Pinned at the rim; animate() unfurls it on build and keeps it waving.
+    const BANNER_W = 10, BANNER_H = 7;
+    const bnc = document.createElement("canvas");
+    bnc.width = 256; bnc.height = 320;
+    const bnx = bnc.getContext("2d");
+    // Swallow-tail silhouette: straight sides, zig-zag fringe along the bottom
+    bnx.beginPath();
+    bnx.moveTo(6, 6);
+    bnx.lineTo(250, 6);
+    bnx.lineTo(250, 278);
+    for (let i = 0; i < 4; i++) {
+      bnx.lineTo(250 - i * 61 - 30.5, 314);
+      bnx.lineTo(250 - (i + 1) * 61, 278);
+    }
+    bnx.closePath();
+    const bGrad = bnx.createLinearGradient(0, 0, 0, 320);
+    bGrad.addColorStop(0, "#d9a413");
+    bGrad.addColorStop(1, "#a87a08");
+    bnx.fillStyle = bGrad;
+    bnx.fill();
+    bnx.save();
+    bnx.clip();
+    bnx.strokeStyle = "rgba(122,88,0,0.28)"; // faint weave lines
+    bnx.lineWidth = 2;
+    for (let y = 26; y < 320; y += 26) {
+      bnx.beginPath(); bnx.moveTo(0, y); bnx.lineTo(256, y); bnx.stroke();
+    }
+    bnx.restore();
+    bnx.strokeStyle = "#7a5800";
+    bnx.lineWidth = 7;
+    bnx.stroke();
+    bnx.fillStyle = "#0a0800";
+    bnx.font = "bold 104px monospace";
+    bnx.textAlign = "center";
+    bnx.textBaseline = "middle";
+    bnx.fillText("F10", 128, 132);
+    const bannerTex = new THREE.CanvasTexture(bnc);
+    const bannerMat = new THREE.MeshBasicMaterial({
+      map: bannerTex, transparent: true, side: THREE.DoubleSide, depthWrite: false,
+    });
+    const bannerGeo = new THREE.PlaneGeometry(BANNER_W, BANNER_H, 12, 10);
+    bannerGeo.translate(0, -BANNER_H / 2, 0); // pin the top edge at the rim
+    const banner = new THREE.Mesh(bannerGeo, bannerMat);
+    // Nudged outward off the wall so the waving fabric never clips into it
+    banner.position.set(0, 0.05, MAP_HALF + 0.16);
+    banner.renderOrder = 3; // after the outer dot plane so it shows against the void
+    addObj(banner);
+    // Fold of cloth lying on the arena floor where the fabric crosses the rim
+    const fold = box(BANNER_W, 0.1, 0.7, 0xc8940a);
+    fold.position.set(0, 0.05, MAP_HALF - 0.35);
+    addObj(fold);
+    clothBanners.push({ mesh: banner, geo: bannerGeo, h: BANNER_H, phase: 0, born: performance.now() * 0.001 });
 
     // Top rim
     const rimColor = 0xffc830;
@@ -718,7 +778,8 @@ export function createArenaGame(options) {
   }
 
   // -- Map obstacles --------------------------------------------------------
-  // Trees & snow mountains block movement and deflect attacks; the river slows
+  // Trees & snow mountains block movement and deflect attacks; fallen logs are
+  // ankle-high so they block movement but shots fly over them; the river slows
   // movement and weakens attacks. Built deterministically from a seed so every
   // client in a match shares the exact same layout.
   const BODY_R = 0.6;
@@ -726,7 +787,7 @@ export function createArenaGame(options) {
   const RIVER_ATK = 0.5;
   const mapGroup = new THREE.Group();
   scene.add(mapGroup);
-  let solids = [];        // { x, z, r } — blocks movement + line of sight
+  let solids = [];        // { x, z, r, low? } — blocks movement; low ones don't block shots
   let riverSegments = []; // array of {x,z} waypoints defining the river centre-line
   let riverHalfW = 0;     // half-width of the river for capsule checks
   let riverFish = [];     // swimming fish — meshes live in mapGroup, animated per frame
@@ -782,6 +843,7 @@ export function createArenaGame(options) {
   // True if the segment A→B passes within any solid's radius (attack deflected).
   function losBlocked(ax, az, bx, bz) {
     for (const s of solids) {
+      if (s.low) continue; // ankle-high obstacles never deflect attacks
       const abx = bx - ax, abz = bz - az;
       const len2 = abx * abx + abz * abz || 1e-6;
       let t = ((s.x - ax) * abx + (s.z - az) * abz) / len2;
@@ -801,6 +863,7 @@ export function createArenaGame(options) {
     const dx = abx / len, dz = abz / len;
     let bestT = Infinity, hit = null;
     for (const s of solids) {
+      if (s.low) continue; // shots fly over ankle-high obstacles
       const fx = ax - s.x, fz = az - s.z;
       const b = 2 * (fx * dx + fz * dz);
       const c = fx * fx + fz * fz - s.r * s.r;
@@ -974,10 +1037,21 @@ export function createArenaGame(options) {
     );
     snowMesh.position.y = thick * 2;  // top surface of the cylinder
     g.add(logMesh, snowMesh);
-    g.rotation.y = rng() * Math.PI;
+    const ry = rng() * Math.PI;
+    g.rotation.y = ry;
     g.position.set(x, 0, z);
     mapGroup.add(g);
-    // Logs are thin — no solid entry, fighters step around them naturally
+    // Logs stop movement too: approximate the trunk with a chain of small
+    // solids along its axis. They're ankle-high, so `low` keeps attacks
+    // flying over them (losBlocked / rayBlockHit skip low solids).
+    const dirX = Math.cos(ry), dirZ = -Math.sin(ry); // local X axis after Y-rotation
+    const solidR = 0.42;
+    const span = len / 2 - solidR * 0.5;
+    const count = Math.max(2, Math.ceil(len / solidR));
+    for (let i = 0; i < count; i++) {
+      const t = (i / (count - 1)) * 2 - 1; // -1 … 1 along the trunk
+      solids.push({ x: x + dirX * span * t, z: z + dirZ * span * t, r: solidR, low: true });
+    }
   }
   function buildRiver(rng) {
     const hw    = 7 + rng() * 5;                    // half-width 7–12 → river 14–24 u wide
@@ -2246,6 +2320,26 @@ export function createArenaGame(options) {
     }
     snowGeo.attributes.position.needsUpdate = true;
     snow.position.set(camCenter.x, 0, camCenter.z);
+
+    // F10 edge banners: unfurl drop after build, then a continuous cloth wave.
+    // Vertices sway along the wall normal, more the further they hang down.
+    const bNow = performance.now() * 0.001;
+    for (const b of clothBanners) {
+      const p = Math.min(1, (bNow - b.born) / 1.6);
+      const ease = 1 - Math.pow(1 - p, 3);
+      b.mesh.scale.y = 0.02 + 0.98 * ease;
+      const flutter = 1 + (1 - ease) * 2.2; // falling cloth flaps harder
+      const pos = b.geo.attributes.position;
+      for (let i = 0; i < pos.count; i++) {
+        const vx = pos.getX(i), vy = pos.getY(i);
+        const droop = -vy / b.h; // 0 at the pinned rim → 1 at the loose hem
+        pos.setZ(i,
+          (Math.sin(vx * 0.85 + bNow * 2.2 + b.phase) * 0.26 +
+           Math.sin(vy * 1.6 + bNow * 3.1 + b.phase * 2) * 0.11) * droop * flutter +
+          droop * droop * 0.4); // gentle outward billow away from the wall
+      }
+      pos.needsUpdate = true;
+    }
 
     if (markerLife > 0) {
       markerLife = Math.max(0, markerLife - dt * 1.4);
