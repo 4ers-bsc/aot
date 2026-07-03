@@ -65,10 +65,15 @@ create table public.profiles (
   level        integer not null default 1,
   win_streak   integer not null default 0,
   best_streak  integer not null default 0,
-  -- Chosen character skin: 1 = Fighter, 2 = Knight
+  -- Default character: the saved skin preference (1 = Fighter, 2 = Knight)
   skin_id      smallint not null default 1
     check (skin_id in (1, 2)),
-  created_at   timestamptz not null default timezone('utc', now())
+  -- Skins available to this player; server-managed (no client update grant)
+  skins        smallint[] not null default '{1,2}'
+    check (skins <@ array[1, 2]::smallint[]),
+  created_at   timestamptz not null default timezone('utc', now()),
+  -- The saved preference must be a skin the player actually has
+  constraint profiles_skin_in_skins check (skin_id = any (skins))
 );
 
 create table public.matches (
