@@ -9,6 +9,7 @@
 
 import * as THREE from "three";
 import { escapeHtml } from "./utils.js";
+import { APPEARANCE_PRESETS } from "./appearance.js";
 
 const TILE = 2;
 const MAP_TILES = 50;
@@ -1729,7 +1730,8 @@ export function createArenaGame(options) {
     options.onLocalState?.({
       x: +player.group.position.x.toFixed(2), z: +player.group.position.z.toFixed(2),
       hp: player.hp, maxHp: player.maxHp, facing: +player.facing.toFixed(2),
-      weapon: player.weapon.id, name: player.name, level: player.level
+      weapon: player.weapon.id, name: player.name, level: player.level,
+      skin: playerAppearance?.style || "1"
     });
   }
   function applyDamage(def, dmg, bySelf = false) {
@@ -2424,7 +2426,8 @@ export function createArenaGame(options) {
     recolorFighter(player, playerAppearance?.colors || theme.player);
     player.bar.color = theme.playerBar;
     aiRaiders.forEach((r) => { recolorFighter(r, theme.enemy); r.bar.color = theme.enemyBar; });
-    opponents.forEach((o) => { recolorFighter(o, theme.enemy); o.bar.color = theme.enemyBar; });
+    // Networked opponents that already reported a skin keep its colors.
+    opponents.forEach((o) => { recolorFighter(o, o.netSkin ? APPEARANCE_PRESETS[o.netSkin] : theme.enemy); o.bar.color = theme.enemyBar; });
     cursorAttack = !cursorAttack; setCursor(false);
     buildMinimapStatic();
   }
@@ -2860,6 +2863,14 @@ export function createArenaGame(options) {
       if (snap.weapon && WEAPONS[snap.weapon]) { f.weapon = WEAPONS[snap.weapon]; updateWeaponVis(f); }
       if (snap.name) f.name = snap.name;
       if (typeof snap.level === "number") f.level = snap.level;
+      // Opponents wear their own saved skin. The snapshot carries the skin id;
+      // the first one (or a change) swaps the body / recolors from the preset.
+      const skin = snap.skin === "2" ? "2" : snap.skin === "1" ? "1" : null;
+      if (skin && f.netSkin !== skin) {
+        f.netSkin = skin;
+        if (f.bodyStyle !== skin) applyBody(f, skin, APPEARANCE_PRESETS[skin]);
+        else recolorFighter(f, APPEARANCE_PRESETS[skin]);
+      }
       // State packets may only confirm a death that attack events already drove near-zero.
       // Threshold = 5 HP (lowest weapon min-damage is 1, so ≤5 means 1–5 hits away).
       // This blocks a spoofed jump from full health to 0; real deaths come via
