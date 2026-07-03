@@ -2714,6 +2714,10 @@ export function createArenaGame(options) {
     setView(view) {
       viewIsGame = view === "game";
       document.body.classList.toggle("in-game", viewIsGame);
+      // The home page scrolls; a match doesn't. Hiding the home sections
+      // collapses the page back to one viewport, so make sure the HUD (laid
+      // out from the top of the page) starts from an unscrolled position.
+      if (viewIsGame) window.scrollTo(0, 0);
       applyTheme(viewIsGame ? "game" : "lobby");
       if (!viewIsGame) idleArena(); // returning to the lobby restores the showcase arena
       showTimer();

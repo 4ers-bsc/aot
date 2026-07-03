@@ -12,6 +12,8 @@
 // regardless of what's painted on top, so starting earlier would play the
 // entrance animation invisibly behind the splash.
 export function initReveal() {
+  initScrollNav();
+
   const els = document.querySelectorAll("[data-reveal]");
   if (!els.length) return;
 
@@ -44,4 +46,15 @@ export function initReveal() {
   );
 
   els.forEach((el) => io.observe(el));
+}
+
+// Scroll-linked nav backdrop: the fixed nav is transparent over the hero but
+// gains a dark blurred background (.nav-scrolled, see styles.css) as soon as
+// the page scrolls, so it stays readable over the detail sections.
+function initScrollNav() {
+  const nav = document.querySelector(".site-nav");
+  if (!nav) return;
+  const update = () => nav.classList.toggle("nav-scrolled", window.scrollY > 24);
+  window.addEventListener("scroll", update, { passive: true });
+  update();
 }

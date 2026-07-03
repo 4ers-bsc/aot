@@ -608,10 +608,13 @@ function bindUi() {
   const navActions = [
     ["navPlayPvpBtn",     startPvp],
     ["menuPlayPvpBtn",    startPvp],
+    ["ctaPlayBtn",        startPvp],
     ["navHowToBtn",       () => els.howToOverlay.classList.add("show")],
     ["menuHowToBtn",      () => els.howToOverlay.classList.add("show")],
+    ["ctaHowToBtn",       () => els.howToOverlay.classList.add("show")],
     ["navWhitepaperBtn",  () => els.whitepaperOverlay?.classList.add("show")],
     ["menuWhitepaperBtn", () => els.whitepaperOverlay?.classList.add("show")],
+    ["hmWhitepaperBtn",   () => els.whitepaperOverlay?.classList.add("show")],
   ];
   navActions.forEach(([id, action]) =>
     document.getElementById(id)?.addEventListener("click", () => { closeNavMenu(); action(); })
