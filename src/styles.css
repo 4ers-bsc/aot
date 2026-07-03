@@ -3203,6 +3203,8 @@ body.in-game .log-feed { left: 70px; }
 
 .perk-row + .perk-row { margin-top: 6px; }
 
+.perk-row-center { justify-content: center; }
+
 .perk-lock {
   flex: none;
   color: rgba(217, 198, 110, 0.55);
