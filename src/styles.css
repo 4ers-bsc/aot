@@ -1252,7 +1252,7 @@ body:has(.game-over:not(.hidden)) .arena-canvas {
   opacity: 0.95;
 }
 
-/* Match summary — kills (sword) + time taken. */
+/* Match summary — kills + time taken. */
 .go-summary {
   display: grid;
   grid-template-columns: repeat(2, 1fr);

@@ -23,7 +23,7 @@ const MAP_HALF = MAP_WORLD / 2; // 50
 const EMIT_MS = 100;
 
 const WEAPONS = {
-  sword:  { id: "sword",   name: "Sword",   atk: 25, atkVar: 3, cd: 0.7,  range: 2.4, ranged: false },
+  kick:   { id: "kick",    name: "Kick",    atk: 25, atkVar: 3, cd: 0.7,  range: 2.4, ranged: false },
   pistol: { id: "pistol",  name: "Pistol",  atk: 15, atkVar: 4, cd: 0.9,  range: 18,  ranged: true,  bulletSpeed: 46, bulletSize: 0.13, chargeTime: 0    },
   sniper: { id: "sniper",  name: "Sniper",  atk: 20, atkVar: 2, cd: 2.2,  range: 60,  ranged: true,  bulletSpeed: 90, bulletSize: 0.22, chargeTime: 0.45 },
   frag:   { id: "frag",    name: "Frag",    atk: 22, atkVar: 4, cd: 3.5,  range: 23,  ranged: false, isGrenade: true, fuseTime: 1.0, blastRadius: 5 },
@@ -640,21 +640,6 @@ export function createArenaGame(options) {
     x.fillText("F10", 64, 36);
     return new THREE.CanvasTexture(c);
   }
-  // glowColor (optional hex) turns the blade into the knight's glowing sword.
-  function makeSword(glowColor) {
-    const s = new THREE.Group();
-    const blade = box(0.1, 0.06, 0.95, 0xc9d2da); blade.position.set(0, 0, 0.55);
-    if (glowColor != null) {
-      blade.material.dispose();
-      blade.material = new THREE.MeshStandardMaterial({ color: 0xffd75e, emissive: glowColor, emissiveIntensity: 0.85, roughness: 0.4, metalness: 0.3 });
-    }
-    const guard = box(0.34, 0.08, 0.09, glowColor != null ? 0x1a1a1e : 0x3a3f45); guard.position.set(0, 0, 0.05);
-    const grip = box(0.09, 0.09, 0.26, glowColor != null ? 0x1a1a1e : 0x6b4a2a); grip.position.set(0, 0, -0.14);
-    s.add(blade, guard, grip);
-    s.position.set(0, -0.8, 0.05);
-    s.rotation.x = -0.15;
-    return s;
-  }
   function makePistol() {
     const g = new THREE.Group();
     const body = box(0.12, 0.18, 0.3, 0x2a2e33); body.position.set(0, 0, 0.04);
@@ -911,12 +896,11 @@ export function createArenaGame(options) {
     f.bodyStyle = style === "2" ? "2" : "1";
     f.legL = b.legL; f.legR = b.legR; f.armL = b.armL; f.armR = b.armR;
     f.parts = b.parts;
-    // The knight carries the glowing gold blade; other weapons are shared.
-    f.swordMesh = makeSword(f.bodyStyle === "2" ? P.trim : null);
+    // Kick is bare-handed (no held mesh); the other weapons hang off armR.
     f.pistolMesh = makePistol(); f.pistolMesh.visible = false;
     f.sniperMesh = makeSniper(); f.sniperMesh.visible = false;
     f.grenadeMesh = makeGrenade(); f.grenadeMesh.visible = false;
-    b.armR.add(f.swordMesh, f.pistolMesh, f.sniperMesh, f.grenadeMesh);
+    b.armR.add(f.pistolMesh, f.sniperMesh, f.grenadeMesh);
     updateWeaponVis(f);
   }
   // Live turntable preview of a body style, mounted inside a DOM element (the
@@ -962,7 +946,6 @@ export function createArenaGame(options) {
       setAppearance(style, colors) {
         if (body) { pScene.remove(body); disposeObject3D(body); }
         const b = style === "2" ? buildKnightBody(colors) : buildMartialBody(colors);
-        b.armR.add(makeSword(style === "2" ? colors.trim : null));
         body = new THREE.Group();
         body.add(...b.nodes);
         body.rotation.y = 0.5;
@@ -997,7 +980,6 @@ export function createArenaGame(options) {
     return f;
   }
   function updateWeaponVis(f) {
-    if (f.swordMesh)   f.swordMesh.visible   = f.weapon.id === "sword";
     if (f.pistolMesh)  f.pistolMesh.visible  = f.weapon.id === "pistol";
     if (f.sniperMesh)  f.sniperMesh.visible  = f.weapon.id === "sniper";
     if (f.grenadeMesh) f.grenadeMesh.visible = f.weapon.id === "frag";
@@ -1034,14 +1016,14 @@ export function createArenaGame(options) {
     f.bar.el.remove();
   }
 
-  const player = makeFighter({ name: "You", isPlayer: true, palette: theme.player, pos: new THREE.Vector3(-12, 0, 4), hp: 100, weapon: WEAPONS.sword, speed: 6.5, barColor: theme.playerBar });
+  const player = makeFighter({ name: "You", isPlayer: true, palette: theme.player, pos: new THREE.Vector3(-12, 0, 4), hp: 100, weapon: WEAPONS.kick, speed: 6.5, barColor: theme.playerBar });
   // Demo AI raiders (foeMode === "ai"). PvP uses the opponents map instead.
   const aiEnemy = makeFighter({ name: "Raider", palette: theme.enemy, pos: new THREE.Vector3(12, 0, -4), hp: 100, weapon: randomAiWeapon(), speed: 4.6, barColor: theme.enemyBar, level: randomAiLevel() });
   const aiRaiders = [aiEnemy]; // grows/shrinks via setAiCount
   const opponents = new Map(); // userId -> networked fighter
   let foeMode = "ai"; // "ai" (demo) | "net" (pvp)
   const AI_AGGRO = 14;
-  const AI_MELEE_MULT = 0.6; // AI raider sword damage scale (player deals full)
+  const AI_MELEE_MULT = 0.6; // AI raider kick damage scale (player deals full)
 
   let _foeCache = null;
   function foeList() {
@@ -1913,7 +1895,7 @@ export function createArenaGame(options) {
       return;
     }
     let dmg = Math.max(1, Math.round(w.atk + (Math.random() * 2 - 1) * w.atkVar));
-    // AI swords hit softer than a player's so raiders don't shred you up close.
+    // AI kicks hit softer than a player's so raiders don't shred you up close.
     if (!w.ranged) dmg = Math.max(1, Math.round(dmg * AI_MELEE_MULT));
     if (inRiver(e.group.position.x, e.group.position.z)) dmg = Math.max(1, Math.round(dmg * RIVER_ATK));
     if (w.ranged) fireBullet(e, player, dmg, true, w);
@@ -2047,10 +2029,19 @@ export function createArenaGame(options) {
     const ease = Math.min(1, dt * 10);
     if (f.atkAnim > 0) {
       const k = 1 - f.atkAnim / 0.32;
-      f.armR.rotation.x = f.weapon.ranged ? -1.25 * Math.sin(k * Math.PI) : (k < 0.4 ? -2 * (k / 0.4) : -2 + 2.9 * ((k - 0.4) / 0.6));
-      f.legL.rotation.x += -f.legL.rotation.x * ease;
-      f.legR.rotation.x += -f.legR.rotation.x * ease;
-      f.armL.rotation.x += -f.armL.rotation.x * ease;
+      if (f.weapon.id === "kick") {
+        // Front kick: wind the right leg back, then snap it up and forward.
+        // Arms counter-swing for balance; the planted leg stays under the body.
+        f.legR.rotation.x = k < 0.4 ? 0.7 * (k / 0.4) : 0.7 - 2.6 * ((k - 0.4) / 0.6);
+        f.legL.rotation.x += -f.legL.rotation.x * ease;
+        f.armR.rotation.x += (0.55 - f.armR.rotation.x) * ease;
+        f.armL.rotation.x += (-0.55 - f.armL.rotation.x) * ease;
+      } else {
+        f.armR.rotation.x = f.weapon.ranged ? -1.25 * Math.sin(k * Math.PI) : (k < 0.4 ? -2 * (k / 0.4) : -2 + 2.9 * ((k - 0.4) / 0.6));
+        f.legL.rotation.x += -f.legL.rotation.x * ease;
+        f.legR.rotation.x += -f.legR.rotation.x * ease;
+        f.armL.rotation.x += -f.armL.rotation.x * ease;
+      }
     } else {
       const sw = f.moving ? Math.sin(f.walkPhase) * 0.7 : 0;
       f.legL.rotation.x += (sw - f.legL.rotation.x) * ease;
@@ -2208,15 +2199,15 @@ export function createArenaGame(options) {
   let fragCd = 0;
 
   // Weapon stat pikes — normalised 0-100 against max values across all weapons
-  const _wImg = { sword: "/sword.png", pistol: "/pistol.png", sniper: "/sniper.png", frag: "/frag.png" };
+  const _wImg = { kick: "/kick.png", pistol: "/pistol.png", sniper: "/sniper.png", frag: "/frag.png" };
   const _wStats = {
-    sword:  { pwr: 89, rng:  4, spd: 100, aoe:  0 },
+    kick:   { pwr: 89, rng:  4, spd: 100, aoe:  0 },
     pistol: { pwr: 54, rng: 30, spd:  78, aoe:  0 },
     sniper: { pwr: 71, rng:100, spd:  32, aoe:  0 },
     frag:   { pwr: 79, rng: 38, spd:  20, aoe: 100 },
   };
   function renderWeaponPanel(w) {
-    const s = _wStats[w.id] || _wStats.sword;
+    const s = _wStats[w.id] || _wStats.kick;
     const img = _wImg[w.id] || "";
     const bars = [
       { lbl: "PWR", pct: s.pwr },
@@ -2242,7 +2233,7 @@ export function createArenaGame(options) {
     slots.forEach((s) => s.classList.toggle("active", parseInt(s.dataset.slot, 10) === n));
     fragRing.visible = false;
     if (n === 1) { player.weapon = WEAPONS.frag;   player.attackTarget = null; player.chargeTimer = 0; updateWeaponVis(player); fragRing.visible = !player.dead; }
-    else if (n === 2) { player.weapon = WEAPONS.sword;  player.chargeTimer = 0; updateWeaponVis(player); }
+    else if (n === 2) { player.weapon = WEAPONS.kick;   player.chargeTimer = 0; updateWeaponVis(player); }
     else if (n === 3) { player.weapon = WEAPONS.pistol; player.attackTarget = null; player.chargeTimer = 0; updateWeaponVis(player); }
     else if (n === 4) { player.weapon = WEAPONS.sniper; player.attackTarget = null; player.chargeTimer = 0; updateWeaponVis(player); }
     renderWeaponPanel(player.weapon);
@@ -2789,7 +2780,7 @@ export function createArenaGame(options) {
       }
       const f = makeFighter({
         userId, name: displayName || "Rival", palette: theme.enemy,
-        pos: new THREE.Vector3(0, 0, 0), hp: 100, weapon: WEAPONS.sword, speed: 6.5, barColor: theme.enemyBar
+        pos: new THREE.Vector3(0, 0, 0), hp: 100, weapon: WEAPONS.kick, speed: 6.5, barColor: theme.enemyBar
       });
       f.networked = true;
       f.connected = true;
@@ -2882,7 +2873,7 @@ export function createArenaGame(options) {
       const attacker = payload.fromId ? opponents.get(payload.fromId) : null;
       // Clamp to the attacker's known weapon cap; fall back to the global max
       // only when the sender is unknown so a cheating client can't send sniper
-      // damage while holding a sword.
+      // damage while on the melee kick.
       const weaponCap = attacker?.weapon
         ? attacker.weapon.atk + attacker.weapon.atkVar
         : Math.max(...Object.values(WEAPONS).map((w) => w.atk + w.atkVar));
@@ -2900,7 +2891,7 @@ export function createArenaGame(options) {
       // never the damage cap above.
       if (attacker) {
         const declared = WEAPONS[payload.weapon];
-        const w = payload.isGrenade ? WEAPONS.frag : (attacker.weapon || declared || WEAPONS.sword);
+        const w = payload.isGrenade ? WEAPONS.frag : (attacker.weapon || declared || WEAPONS.kick);
         const cdMs = Math.min(w.cd, declared?.cd ?? w.cd) * 600; // 40% jitter slack
         const nowMs = performance.now();
         const lastKey = payload.isGrenade ? "lastFragAt" : "lastAtkAt";
@@ -3018,11 +3009,11 @@ function buildHud() {
   add('<div class="mm-label game-ui">map</div>');
   const mmCanvas = add('<canvas class="game-minimap game-ui"></canvas>');
   const hotbar = add('<div class="hotbar game-ui"></div>');
-  // Slots 1-4 only: 1=frag, 2=sword, 3=pistol, 4=sniper. No slot 5 (nothing assigned).
+  // Slots 1-4 only: 1=frag, 2=kick, 3=pistol, 4=sniper. No slot 5 (nothing assigned).
   for (let n = 1; n <= 4; n++) {
-    const imgSrc = n === 1 ? "/frag.png" : n === 2 ? "/sword.png" : n === 3 ? "/pistol.png" : "/sniper.png";
+    const imgSrc = n === 1 ? "/frag.png" : n === 2 ? "/kick.png" : n === 3 ? "/pistol.png" : "/sniper.png";
     const s = document.createElement("div");
-    s.className = "slot" + (n === 2 ? " active" : ""); // start on sword
+    s.className = "slot" + (n === 2 ? " active" : ""); // start on kick
     s.dataset.slot = String(n);
     s.innerHTML = `<img src="${imgSrc}" class="slot-icon" alt="" /><span class="num">${n}</span><div class="slot-cd"></div>`;
     hotbar.appendChild(s);
@@ -3079,7 +3070,7 @@ function buildHud() {
           <div class="row"><span>Leave match</span><span class="k">Esc</span></div>
         </div>
         <div class="tab-body hidden cmd-list" data-body="commands">
-          <div class="row"><span>/sword</span><span class="k">equip sword</span></div>
+          <div class="row"><span>/kick</span><span class="k">equip kick</span></div>
           <div class="row"><span>/pistol</span><span class="k">equip pistol</span></div>
           <div style="opacity:.55;font-size:13px;padding:10px 2px;">More commands coming soon.</div>
         </div>
