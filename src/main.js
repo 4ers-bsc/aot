@@ -7,6 +7,7 @@ import { importSolanaWeb3, importSplToken, importDevtoolsDetector } from "./lazy
 import { createArenaGame } from "./game.js";
 import { escapeHtml } from "./utils.js";
 import { mountViews } from "./views/index.js";
+import { APPEARANCE_STYLES, APPEARANCE_PARTS, APPEARANCE_PRESETS, COLOR_OPTIONS } from "./appearance.js";
 
 mountViews();
 
@@ -494,7 +495,72 @@ const game = createArenaGame({
   }
 });
 
+// -- Player appearance (profile → APPEARANCE tab) ----------------------------
+// Two body styles with per-part colors, persisted locally per browser.
+const APPEARANCE_KEY = "f10_appearance";
+
+function defaultAppearanceState() {
+  return { active: "1", colors: { 1: { ...APPEARANCE_PRESETS[1] }, 2: { ...APPEARANCE_PRESETS[2] } } };
+}
+
+function loadAppearanceState() {
+  const st = defaultAppearanceState();
+  try {
+    const raw = JSON.parse(localStorage.getItem(APPEARANCE_KEY) || "null");
+    if (raw?.active === "2") st.active = "2";
+    for (const id of ["1", "2"]) {
+      const src = raw?.colors?.[id];
+      if (!src) continue;
+      for (const part of APPEARANCE_PARTS) {
+        const v = src[part.key];
+        if (Number.isInteger(v) && v >= 0 && v <= 0xffffff) st.colors[id][part.key] = v;
+      }
+    }
+  } catch { /* corrupted storage → defaults */ }
+  return st;
+}
+
+const appearanceState = loadAppearanceState();
+
+function saveAppearanceState() {
+  try { localStorage.setItem(APPEARANCE_KEY, JSON.stringify(appearanceState)); } catch { /* private mode */ }
+}
+
+function applyAppearance() {
+  game.setPlayerAppearance({ style: appearanceState.active, colors: appearanceState.colors[appearanceState.active] });
+  saveAppearanceState();
+  renderAppearanceTab();
+}
+
+function renderAppearanceTab() {
+  const active = appearanceState.active;
+  const cur = appearanceState.colors[active];
+  document.querySelectorAll("#skinCards .skin-card").forEach((c) => c.classList.toggle("active", c.dataset.skin === active));
+  const host = document.getElementById("appearanceColors");
+  if (!host) return;
+  host.innerHTML = "";
+  const hexCss = (n) => "#" + n.toString(16).padStart(6, "0");
+  for (const part of APPEARANCE_PARTS) {
+    const row = document.createElement("div"); row.className = "color-row";
+    const lbl = document.createElement("div"); lbl.className = "color-label";
+    lbl.textContent = part.labels[active];
+    const swatches = document.createElement("div"); swatches.className = "color-swatches";
+    for (const col of COLOR_OPTIONS[part.key]) {
+      const b = document.createElement("button");
+      b.type = "button";
+      b.className = "swatch" + (cur[part.key] === col ? " active" : "");
+      b.style.background = hexCss(col);
+      b.title = `${APPEARANCE_STYLES[active]} ${part.labels[active]} ${hexCss(col)}`;
+      b.addEventListener("click", () => { cur[part.key] = col; applyAppearance(); });
+      swatches.appendChild(b);
+    }
+    row.append(lbl, swatches);
+    host.appendChild(row);
+  }
+}
+
 bindUi();
+applyAppearance();
 init();
 
 function bindUi() {
@@ -519,6 +585,14 @@ function bindUi() {
   els.profileSaveBtn.addEventListener("click", saveProfile);
   els.profileNameInput.addEventListener("keydown", (e) => { if (e.key === "Enter") saveProfile(); });
   els.profileTabs.forEach((t) => t.addEventListener("click", () => selectProfileTab(t.dataset.ptab)));
+  document.querySelectorAll("#skinCards .skin-card").forEach((c) => c.addEventListener("click", () => {
+    appearanceState.active = c.dataset.skin === "2" ? "2" : "1";
+    applyAppearance();
+  }));
+  document.getElementById("appearanceResetBtn")?.addEventListener("click", () => {
+    appearanceState.colors[appearanceState.active] = { ...APPEARANCE_PRESETS[appearanceState.active] };
+    applyAppearance();
+  });
   // Story Mode isn't playable yet — a click just shakes the COMING SOON pill.
   const storyBtn = document.getElementById("storyModeBtn");
   storyBtn?.addEventListener("click", () => {

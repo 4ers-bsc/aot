@@ -79,6 +79,9 @@ export function createArenaGame(options) {
   }
 
   let theme = THEMES.lobby;
+  // Player-chosen appearance ({ style, colors }) from the profile's APPEARANCE
+  // tab. When set it overrides theme.player for the local fighter.
+  let playerAppearance = null;
 
   // -- Renderer -------------------------------------------------------------
   // WebGLRenderer THROWS when a WebGL context can't be created (GPU-blacklisted
@@ -636,11 +639,16 @@ export function createArenaGame(options) {
     x.fillText("F10", 64, 36);
     return new THREE.CanvasTexture(c);
   }
-  function makeSword() {
+  // glowColor (optional hex) turns the blade into the knight's glowing sword.
+  function makeSword(glowColor) {
     const s = new THREE.Group();
     const blade = box(0.1, 0.06, 0.95, 0xc9d2da); blade.position.set(0, 0, 0.55);
-    const guard = box(0.34, 0.08, 0.09, 0x3a3f45); guard.position.set(0, 0, 0.05);
-    const grip = box(0.09, 0.09, 0.26, 0x6b4a2a); grip.position.set(0, 0, -0.14);
+    if (glowColor != null) {
+      blade.material.dispose();
+      blade.material = new THREE.MeshStandardMaterial({ color: 0xffd75e, emissive: glowColor, emissiveIntensity: 0.85, roughness: 0.4, metalness: 0.3 });
+    }
+    const guard = box(0.34, 0.08, 0.09, glowColor != null ? 0x1a1a1e : 0x3a3f45); guard.position.set(0, 0, 0.05);
+    const grip = box(0.09, 0.09, 0.26, glowColor != null ? 0x1a1a1e : 0x6b4a2a); grip.position.set(0, 0, -0.14);
     s.add(blade, guard, grip);
     s.position.set(0, -0.8, 0.05);
     s.rotation.x = -0.15;
@@ -702,9 +710,10 @@ export function createArenaGame(options) {
     document.body.appendChild(el);
     return { el, name, level, fill, color: barColor };
   }
-  function makeFighter(cfg) {
-    const P = cfg.palette;
-    const g = new THREE.Group();
+  // Body builders. Both return the same contract — the animated limb pivots,
+  // the nodes to hang off the fighter group, and the material map recolored by
+  // recolorFighter — so a fighter can swap styles in place via applyBody().
+  function buildMartialBody(P) {
     // Legs — gi pants with gold ankle cuffs and bare feet
     const legL = limb(0.36, 0.68, 0.36, P.pants), legR = limb(0.36, 0.68, 0.36, P.pants);
     legL.position.set(-0.22, 0.94, 0); legR.position.set(0.22, 0.94, 0);
@@ -766,27 +775,13 @@ export function createArenaGame(options) {
       [-0.18, 2.64, -0.05, 0.20], [0.14, 2.66, 0.08, 0.18], [0.02, 2.68, -0.14, 0.20],
       [0.27, 2.61, -0.02, 0.16], [-0.06, 2.64, 0.17, 0.16], [-0.27, 2.61, 0.09, 0.16]
     ].map(([x, y, z, s]) => { const sp = box(s, s, s, P.hair); sp.position.set(x, y, z); return sp; });
-    const swordMesh = makeSword(); armR.add(swordMesh);
-    const pistolMesh = makePistol(); pistolMesh.visible = false; armR.add(pistolMesh);
-    const sniperMesh = makeSniper(); sniperMesh.visible = false; armR.add(sniperMesh);
-    const grenadeMesh = makeGrenade(); grenadeMesh.visible = false; armR.add(grenadeMesh);
-    g.add(
-      legL, legR, torso, shlL, shlR, chest, vTrimL, vTrimR, aTrimL, aTrimR, label,
-      belt, knot, strapL, strapR, tipL, tipR, armL, armR,
-      head, eyeL, eyeR, browL, browR, mouth, band, bandStripe, tailA, tailB, hairCap, hairBack, ...spikes
-    );
-    g.position.copy(cfg.pos);
-    g.visible = false;
-    scene.add(g);
-    const f = {
-      userId: cfg.userId || null,
-      name: cfg.name, level: cfg.level ?? 1, isPlayer: !!cfg.isPlayer, group: g,
-      legL, legR, armL, armR, swordMesh, pistolMesh, sniperMesh, grenadeMesh,
-      maxHp: cfg.hp, hp: cfg.hp, weapon: cfg.weapon, speed: cfg.speed,
-      cdTimer: 0, atkAnim: 0, hurt: 0, regenAcc: 0, chargeTimer: 0,
-      moving: false, facing: 0, walkPhase: 0,
-      target: null, attackTarget: null, dead: false, deadTimer: 0,
-      connected: false, networked: false, netTarget: null,
+    return {
+      legL, legR, armL, armR,
+      nodes: [
+        legL, legR, torso, shlL, shlR, chest, vTrimL, vTrimR, aTrimL, aTrimR, label,
+        belt, knot, strapL, strapR, tipL, tipR, armL, armR,
+        head, eyeL, eyeR, browL, browR, mouth, band, bandStripe, tailA, tailB, hairCap, hairBack, ...spikes
+      ],
       parts: {
         skin: [head.material, chest.material, armL.mesh.material, armR.mesh.material, footL.material, footR.material],
         gi: [torso.material, shlL.material, shlR.material, gloveL.material, gloveR.material],
@@ -794,10 +789,151 @@ export function createArenaGame(options) {
                bandStripe.material, tailA.material, tailB.material, cuffL.material, cuffR.material, wristL.material, wristR.material],
         pants: [legL.mesh.material, legR.mesh.material, knot.material, strapL.material, strapR.material],
         hair: [band.material, hairCap.material, hairBack.material, ...spikes.map((sp) => sp.material)]
-      },
+      }
+    };
+  }
+  // Style "2": black/gold armored knight — gold-piped helmet with glowing eyes
+  // and smile, pauldrons, centered F10 chest plate, belted tabard, gauntlets.
+  function buildKnightBody(P) {
+    // Glowing gold face features. recolorFighter re-tints emissive for
+    // materials flagged userData.glow so they follow the trim color.
+    const glow = new THREE.MeshStandardMaterial({ color: P.trim, emissive: P.trim, emissiveIntensity: 0.9, roughness: 0.5, metalness: 0.1 });
+    glow.userData.glow = true;
+    const glowBox = (w, h, d, x, y, z) => {
+      const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), glow);
+      m.position.set(x, y, z);
+      return m;
+    };
+    // Legs — armored, knee trim, boots with a gold square on the front
+    const legL = limb(0.36, 0.94, 0.36, P.pants), legR = limb(0.36, 0.94, 0.36, P.pants);
+    legL.position.set(-0.22, 0.94, 0); legR.position.set(0.22, 0.94, 0);
+    const legTrims = [], boots = [], bootSquares = [];
+    for (const leg of [legL, legR]) {
+      const knee = box(0.38, 0.06, 0.38, P.trim); knee.position.y = -0.42;
+      const boot = box(0.40, 0.24, 0.48, P.pants); boot.position.set(0, -0.82, 0.05);
+      const bootTrim = box(0.42, 0.05, 0.50, P.trim); bootTrim.position.set(0, -0.71, 0.05);
+      const square = glowBox(0.14, 0.10, 0.03, 0, -0.84, 0.29);
+      leg.add(knee, boot, bootTrim, square);
+      legTrims.push(knee.material, bootTrim.material); boots.push(boot.material); bootSquares.push(square);
+    }
+    // Torso — armor plate with gold piping and centered F10
+    const torso = box(1.0, 1.0, 0.58, P.gi); torso.position.y = 1.42;
+    const pipeL = box(0.06, 1.0, 0.05, P.trim); pipeL.position.set(-0.28, 1.42, 0.29);
+    const pipeR = box(0.06, 1.0, 0.05, P.trim); pipeR.position.set( 0.28, 1.42, 0.29);
+    const collar = box(0.62, 0.06, 0.05, P.trim); collar.position.set(0, 1.89, 0.29);
+    const labelTex = makeChestLabelTex();
+    const label = new THREE.Mesh(
+      new THREE.PlaneGeometry(0.34, 0.17),
+      new THREE.MeshBasicMaterial({ map: labelTex, transparent: true, depthWrite: false })
+    );
+    label.position.set(0, 1.66, 0.33);
+    label.renderOrder = 2;
+    // Pauldrons with a gold top plate
+    const shlL = box(0.36, 0.28, 0.52, P.gi); shlL.position.set(-0.68, 1.88, 0);
+    const shlR = box(0.36, 0.28, 0.52, P.gi); shlR.position.set( 0.68, 1.88, 0);
+    const shlTopL = box(0.40, 0.06, 0.56, P.trim); shlTopL.position.set(-0.68, 2.04, 0);
+    const shlTopR = box(0.40, 0.06, 0.56, P.trim); shlTopR.position.set( 0.68, 2.04, 0);
+    // Belt — dark with a gold buckle and edge lines
+    const belt = box(1.06, 0.14, 0.64, P.pants); belt.position.y = 0.96;
+    const beltTop = box(1.07, 0.03, 0.65, P.trim); beltTop.position.y = 1.04;
+    const beltBot = box(1.07, 0.03, 0.65, P.trim); beltBot.position.y = 0.88;
+    const buckle = box(0.20, 0.12, 0.05, P.trim); buckle.position.set(0, 0.96, 0.335);
+    // Tabard — long front/back skirt panels with gold hem and edges
+    const tabardMats = [], tabardTrims = [], tabardNodes = [];
+    for (const zc of [0.26, -0.26]) {
+      const panel = box(0.72, 0.55, 0.10, P.gi); panel.position.set(0, 0.62, zc);
+      const hem = box(0.74, 0.06, 0.12, P.trim); hem.position.set(0, 0.37, zc);
+      const edgeL = box(0.05, 0.55, 0.11, P.trim); edgeL.position.set(-0.36, 0.62, zc);
+      const edgeR = box(0.05, 0.55, 0.11, P.trim); edgeR.position.set( 0.36, 0.62, zc);
+      tabardNodes.push(panel, hem, edgeL, edgeR);
+      tabardMats.push(panel.material); tabardTrims.push(hem.material, edgeL.material, edgeR.material);
+    }
+    // Arms — armored, gauntlets with gold cuffs
+    const armL = limb(0.28, 0.52, 0.28, P.gi), armR = limb(0.28, 0.52, 0.28, P.gi);
+    armL.position.set(-0.64, 1.68, 0); armR.position.set(0.64, 1.68, 0);
+    const cuffL = box(0.36, 0.06, 0.36, P.trim); cuffL.position.y = -0.53;
+    const cuffR = box(0.36, 0.06, 0.36, P.trim); cuffR.position.y = -0.53;
+    const gauntL = box(0.34, 0.28, 0.34, P.gi); gauntL.position.y = -0.70;
+    const gauntR = box(0.34, 0.28, 0.34, P.gi); gauntR.position.y = -0.70;
+    armL.add(cuffL, gauntL); armR.add(cuffR, gauntR);
+    // Helmet — gold cross over the crown, framed dark face, side pads
+    const helm = box(0.66, 0.58, 0.60, P.hair); helm.position.y = 2.28;
+    const crossFB = box(0.10, 0.05, 0.62, P.trim); crossFB.position.y = 2.585;
+    const crossLR = box(0.68, 0.05, 0.10, P.trim); crossLR.position.y = 2.585;
+    const brow = box(0.10, 0.16, 0.05, P.trim); brow.position.set(0, 2.50, 0.29);
+    const face = box(0.46, 0.36, 0.05, P.skin); face.position.set(0, 2.21, 0.305);
+    const frameT = box(0.52, 0.04, 0.06, P.trim); frameT.position.set(0, 2.41, 0.305);
+    const frameB = box(0.52, 0.04, 0.06, P.trim); frameB.position.set(0, 2.01, 0.305);
+    const frameL = box(0.04, 0.44, 0.06, P.trim); frameL.position.set(-0.25, 2.21, 0.305);
+    const frameR = box(0.04, 0.44, 0.06, P.trim); frameR.position.set( 0.25, 2.21, 0.305);
+    const earL = box(0.10, 0.26, 0.26, P.hair); earL.position.set(-0.37, 2.22, 0);
+    const earR = box(0.10, 0.26, 0.26, P.hair); earR.position.set( 0.37, 2.22, 0);
+    const earTopL = box(0.11, 0.04, 0.28, P.trim); earTopL.position.set(-0.37, 2.37, 0);
+    const earTopR = box(0.11, 0.04, 0.28, P.trim); earTopR.position.set( 0.37, 2.37, 0);
+    // Glowing eyes and pixel smile
+    const eyeL = glowBox(0.11, 0.06, 0.03, -0.12, 2.27, 0.34);
+    const eyeR = glowBox(0.11, 0.06, 0.03,  0.12, 2.27, 0.34);
+    const smile = glowBox(0.16, 0.035, 0.03, 0, 2.09, 0.34);
+    const smileL = glowBox(0.035, 0.05, 0.03, -0.10, 2.115, 0.34);
+    const smileR = glowBox(0.035, 0.05, 0.03,  0.10, 2.115, 0.34);
+    return {
+      legL, legR, armL, armR,
+      nodes: [
+        legL, legR, torso, pipeL, pipeR, collar, label, shlL, shlR, shlTopL, shlTopR,
+        belt, beltTop, beltBot, buckle, ...tabardNodes, armL, armR,
+        helm, crossFB, crossLR, brow, face, frameT, frameB, frameL, frameR,
+        earL, earR, earTopL, earTopR, eyeL, eyeR, smile, smileL, smileR
+      ],
+      parts: {
+        skin: [face.material],
+        gi: [torso.material, shlL.material, shlR.material, armL.mesh.material, armR.mesh.material,
+             gauntL.material, gauntR.material, ...tabardMats],
+        trim: [glow, pipeL.material, pipeR.material, collar.material, shlTopL.material, shlTopR.material,
+               beltTop.material, beltBot.material, buckle.material, cuffL.material, cuffR.material,
+               crossFB.material, crossLR.material, brow.material, frameT.material, frameB.material,
+               frameL.material, frameR.material, earTopL.material, earTopR.material, ...legTrims, ...tabardTrims],
+        pants: [legL.mesh.material, legR.mesh.material, belt.material, ...boots],
+        hair: [helm.material, earL.material, earR.material]
+      }
+    };
+  }
+  // Swap a fighter's body in place: dispose the old subtree (weapons included —
+  // they hang off the old armR), attach the new one, and re-point every animated
+  // reference. The fighter's group, position, bar, and combat state are untouched.
+  function applyBody(f, style, P) {
+    if (f.body) { f.group.remove(f.body); disposeObject3D(f.body); }
+    const b = style === "2" ? buildKnightBody(P) : buildMartialBody(P);
+    const body = new THREE.Group();
+    body.add(...b.nodes);
+    f.group.add(body);
+    f.body = body;
+    f.bodyStyle = style === "2" ? "2" : "1";
+    f.legL = b.legL; f.legR = b.legR; f.armL = b.armL; f.armR = b.armR;
+    f.parts = b.parts;
+    // The knight carries the glowing gold blade; other weapons are shared.
+    f.swordMesh = makeSword(f.bodyStyle === "2" ? P.trim : null);
+    f.pistolMesh = makePistol(); f.pistolMesh.visible = false;
+    f.sniperMesh = makeSniper(); f.sniperMesh.visible = false;
+    f.grenadeMesh = makeGrenade(); f.grenadeMesh.visible = false;
+    b.armR.add(f.swordMesh, f.pistolMesh, f.sniperMesh, f.grenadeMesh);
+    updateWeaponVis(f);
+  }
+  function makeFighter(cfg) {
+    const g = new THREE.Group();
+    g.position.copy(cfg.pos);
+    g.visible = false;
+    scene.add(g);
+    const f = {
+      userId: cfg.userId || null,
+      name: cfg.name, level: cfg.level ?? 1, isPlayer: !!cfg.isPlayer, group: g,
+      maxHp: cfg.hp, hp: cfg.hp, weapon: cfg.weapon, speed: cfg.speed,
+      cdTimer: 0, atkAnim: 0, hurt: 0, regenAcc: 0, chargeTimer: 0,
+      moving: false, facing: 0, walkPhase: 0,
+      target: null, attackTarget: null, dead: false, deadTimer: 0,
+      connected: false, networked: false, netTarget: null,
       bar: makeBar(cfg.barColor)
     };
-    updateWeaponVis(f);
+    applyBody(f, cfg.style || "1", cfg.palette);
     return f;
   }
   function updateWeaponVis(f) {
@@ -807,7 +943,10 @@ export function createArenaGame(options) {
     if (f.grenadeMesh) f.grenadeMesh.visible = f.weapon.id === "frag";
   }
   function recolorFighter(f, palette) {
-    Object.keys(f.parts).forEach((key) => f.parts[key].forEach((mat) => mat.color.setHex(palette[key])));
+    Object.keys(f.parts).forEach((key) => f.parts[key].forEach((mat) => {
+      mat.color.setHex(palette[key]);
+      if (mat.userData.glow) mat.emissive.setHex(palette[key]);
+    }));
   }
   // Fully release an Object3D subtree: every descendant's geometry, its
   // material(s) — material ARRAYS included — and any texture those materials
@@ -2220,7 +2359,7 @@ export function createArenaGame(options) {
       currentMapVariant = "game";
       buildArenaWalls("game");
     }
-    recolorFighter(player, theme.player);
+    recolorFighter(player, playerAppearance?.colors || theme.player);
     player.bar.color = theme.playerBar;
     aiRaiders.forEach((r) => { recolorFighter(r, theme.enemy); r.bar.color = theme.enemyBar; });
     opponents.forEach((o) => { recolorFighter(o, theme.enemy); o.bar.color = theme.enemyBar; });
@@ -2498,6 +2637,14 @@ export function createArenaGame(options) {
 
   // -- Public API -----------------------------------------------------------
   return {
+    // Swap the local player's body style ("1" martial artist, "2" knight) and
+    // part colors. Passing null reverts to the theme default.
+    setPlayerAppearance(appearance) {
+      playerAppearance = appearance
+        ? { style: appearance.style === "2" ? "2" : "1", colors: { ...appearance.colors } }
+        : null;
+      applyBody(player, playerAppearance?.style || "1", playerAppearance?.colors || theme.player);
+    },
     setView(view) {
       viewIsGame = view === "game";
       document.body.classList.toggle("in-game", viewIsGame);
@@ -2922,6 +3069,6 @@ function stubApi() {
     clearRemote: noop, resetForMatch: noop, receivePlayerState: noop,
     receiveAttack: noop, generateMap: noop, clearAll: noop, destroy: noop,
     setMapVariant: noop, showMapToggle: noop, showRaiderCount: noop, setAiCount: noop,
-    setPing: noop, openSettings: noop
+    setPing: noop, openSettings: noop, setPlayerAppearance: noop
   };
 }

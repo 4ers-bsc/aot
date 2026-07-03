@@ -6,6 +6,7 @@ export const html = `
       <div class="tabs">
         <button class="tab active" data-ptab="stats">STATS</button>
         <button class="tab" data-ptab="holdings">$FIGHT10</button>
+        <button class="tab" data-ptab="appearance">APPEARANCE</button>
         <button class="tab" data-ptab="history">MATCH HISTORY</button>
       </div>
 
@@ -54,6 +55,17 @@ export const html = `
             <svg class="perk-lock" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg>
           </div>
         </div>
+      </div>
+
+      <div class="tab-body hidden" data-pbody="appearance">
+        <div class="section">CHARACTER STYLE</div>
+        <div class="skin-cards" id="skinCards">
+          <button class="skin-card" type="button" data-skin="1"><span class="skin-card-num">1</span><span class="skin-card-name">FIGHTER</span></button>
+          <button class="skin-card" type="button" data-skin="2"><span class="skin-card-num">2</span><span class="skin-card-name">KNIGHT</span></button>
+        </div>
+        <div class="section">COLORS</div>
+        <div class="appearance-colors" id="appearanceColors"></div>
+        <button class="profile-save" id="appearanceResetBtn" type="button">Reset Colors</button>
       </div>
 
       <div class="tab-body hidden" data-pbody="history">
