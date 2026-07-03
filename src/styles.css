@@ -286,37 +286,6 @@ textarea:focus {
   box-shadow: 0 1px 0 rgba(255, 235, 190, 0.2) inset, 0 4px 14px rgba(0, 0, 0, 0.45);
 }
 
-/* ===== Nav center links ===== */
-.site-nav-links {
-  position: absolute;
-  left: 50%;
-  top: 50%;
-  transform: translate(-50%, -50%);
-  display: flex;
-  align-items: center;
-  gap: 34px;
-}
-
-.nav-link {
-  background: none;
-  border: none;
-  padding: 6px 2px;
-  font-family: var(--font-head);
-  font-size: 0.68rem;
-  letter-spacing: 0.18em;
-  text-transform: uppercase;
-  color: rgba(233, 224, 200, 0.62);
-  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.7);
-  border-bottom: 1px solid transparent;
-  border-radius: 0;
-}
-
-.nav-link:hover {
-  color: #f2e8cc;
-  border-bottom-color: rgba(212, 160, 23, 0.65);
-  transform: none;
-}
-
 /* ===== Hamburger ===== */
 .nav-hamburger {
   display: inline-flex;
@@ -378,12 +347,6 @@ textarea:focus {
   color: #f2e8cc;
   background: rgba(212, 160, 23, 0.12);
   transform: none;
-}
-
-/* Center links collide with the actions cluster once the nav tightens —
-   below this the hamburger menu carries them instead. */
-@media (max-width: 1080px) {
-  .site-nav-links { display: none; }
 }
 
 /* ===== Hero section ===== */

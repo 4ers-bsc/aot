@@ -596,7 +596,7 @@ function bindUi() {
   els.howToOverlay.addEventListener("pointerdown", (e) => {
     if (e.target === els.howToOverlay) els.howToOverlay.classList.remove("show");
   });
-  // Nav center links + hamburger menu — same actions as the home buttons.
+  // Hamburger menu — same actions as the home buttons.
   // startPvp() already falls back to signIn() when no wallet is connected.
   const navMenu = document.getElementById("navMenu");
   const hamburgerBtn = document.getElementById("navHamburgerBtn");
@@ -605,11 +605,8 @@ function bindUi() {
     hamburgerBtn?.setAttribute("aria-expanded", "false");
   };
   const navActions = [
-    ["navPlayPvpBtn",     startPvp],
     ["menuPlayPvpBtn",    startPvp],
-    ["navHowToBtn",       () => els.howToOverlay.classList.add("show")],
     ["menuHowToBtn",      () => els.howToOverlay.classList.add("show")],
-    ["navWhitepaperBtn",  () => els.whitepaperOverlay?.classList.add("show")],
     ["menuWhitepaperBtn", () => els.whitepaperOverlay?.classList.add("show")],
   ];
   navActions.forEach(([id, action]) =>
