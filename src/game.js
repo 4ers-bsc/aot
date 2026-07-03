@@ -729,6 +729,7 @@ export function createArenaGame(options) {
   let solids = [];        // { x, z, r } — blocks movement + line of sight
   let riverSegments = []; // array of {x,z} waypoints defining the river centre-line
   let riverHalfW = 0;     // half-width of the river for capsule checks
+  let riverFish = [];     // swimming fish — meshes live in mapGroup, animated per frame
 
   function makeRng(seedStr) {
     const str = String(seedStr);
@@ -812,6 +813,7 @@ export function createArenaGame(options) {
     solids = [];
     riverSegments = [];
     riverHalfW = 0;
+    riverFish = []; // meshes were children of mapGroup — already disposed above
   }
   function addTower(x, z) {
     const g = new THREE.Group();
@@ -1058,6 +1060,30 @@ export function createArenaGame(options) {
     rctx.lineWidth = lw; rctx.lineCap = "round"; rctx.lineJoin = "round";
     drawPath(); rctx.stroke(); rctx.restore();
 
+    // Gold sprinkles along both banks — baked into the same texture so they
+    // hug the exact drawn curve (echoes the gold trim on the arena edges).
+    const bankPx = (hw / MAP_WORLD) * CS; // river half-width in canvas px
+    for (let i = 1; i < sampledPts.length - 1; i++) {
+      const prev = sampledPts[i - 1], next = sampledPts[i + 1];
+      const dxs = next.x - prev.x, dzs = next.z - prev.z;
+      const dlen = Math.hypot(dxs, dzs) || 1;
+      const perpU = -dzs / dlen, perpV = dxs / dlen;
+      const cu = toU(sampledPts[i].x), cv = toV(sampledPts[i].z);
+      [-1, 1].forEach((side) => {
+        const dots = 1 + Math.floor(rng() * 2); // 1–2 flecks per sample per bank
+        for (let d = 0; d < dots; d++) {
+          const rOff = bankPx + (rng() * 2 - 1) * bankPx * 0.18; // jitter straddles the bank line
+          const u = cu + perpU * rOff * side + (rng() * 2 - 1) * 2;
+          const v = cv + perpV * rOff * side + (rng() * 2 - 1) * 2;
+          const rad = 0.7 + rng() * 1.5;
+          rctx.fillStyle = rng() < 0.5
+            ? `rgba(242,206,91,${(0.5 + rng() * 0.45).toFixed(2)})`
+            : `rgba(212,160,23,${(0.45 + rng() * 0.4).toFixed(2)})`;
+          rctx.beginPath(); rctx.arc(u, v, rad, 0, Math.PI * 2); rctx.fill();
+        }
+      });
+    }
+
     const tex   = new THREE.CanvasTexture(rc);
     const plane = new THREE.Mesh(
       new THREE.PlaneGeometry(MAP_WORLD, MAP_WORLD),
@@ -1083,6 +1109,54 @@ export function createArenaGame(options) {
       if (collidesSolid(bx, bz, 2.2)) continue;
       addRiverBoulder(bx, bz, rng);
       count++;
+    }
+
+    // Fish — koi-gold silhouettes swimming the centre-line with a lazy wiggle.
+    // Distance-parameterised along the sampled curve so speed is uniform.
+    const cum = [0];
+    for (let i = 1; i < sampledPts.length; i++) {
+      cum.push(cum[i - 1] + Math.hypot(
+        sampledPts[i].x - sampledPts[i - 1].x,
+        sampledPts[i].z - sampledPts[i - 1].z
+      ));
+    }
+    const riverLen = cum[cum.length - 1];
+    const posAt = (dist) => {
+      let d = dist % riverLen; if (d < 0) d += riverLen;
+      let i = 1;
+      while (i < cum.length - 1 && cum[i] < d) i++;
+      const a = sampledPts[i - 1], b = sampledPts[i];
+      const seg = cum[i] - cum[i - 1] || 1e-6;
+      const t = (d - cum[i - 1]) / seg;
+      const dx = b.x - a.x, dz = b.z - a.z, len = Math.hypot(dx, dz) || 1;
+      return { x: a.x + dx * t, z: a.z + dz * t, dirx: dx / len, dirz: dz / len };
+    };
+
+    const FISH_COLORS = [0xe8963c, 0xd4a017, 0xf2ce5b];
+    const fishCount = 8 + Math.floor(rng() * 4); // 8–11 per river
+    for (let i = 0; i < fishCount; i++) {
+      const mat = new THREE.MeshStandardMaterial({
+        color: FISH_COLORS[Math.floor(rng() * FISH_COLORS.length)],
+        roughness: 0.55, metalness: 0.35,
+      });
+      const fishG = new THREE.Group();
+      const body = new THREE.Mesh(new THREE.SphereGeometry(0.5, 8, 6), mat);
+      body.scale.set(1.7, 0.3, 0.65); // long, flat, slim — reads as a fish from above
+      const tail = new THREE.Mesh(new THREE.ConeGeometry(0.3, 0.65, 6), mat);
+      tail.rotation.z = Math.PI / 2;   // tip toward -x (body nose faces +x)
+      tail.scale.y = 0.5;
+      tail.position.set(-0.85, 0, 0);
+      fishG.add(body, tail);
+      fishG.position.y = 0.09; // just above the water plane (y = 0.05)
+      mapGroup.add(fishG);
+      riverFish.push({
+        g: fishG, posAt,
+        dist: rng() * riverLen,
+        speed: (2 + rng() * 2.2) * (rng() < 0.5 ? 1 : -1), // both directions
+        lat: hw * (0.15 + rng() * 0.45),   // lateral lane, well inside the banks
+        latPhase: rng() * Math.PI * 2,
+        wigglePhase: rng() * Math.PI * 2,
+      });
     }
   }
   // Paints a transparent biome-tint overlay the same size as the arena floor.
@@ -1766,7 +1840,7 @@ export function createArenaGame(options) {
 
   // -- HUD (attached reference set) -----------------------------------------
   const hud = buildHud();
-  const { coords, mmCanvas, hotbar, slots, fpsEl, pingEl, overlay, renderDistBtn, matchTimerEl, matchNoEl, raiderCountCtrl, raiderCountEl, scorePanel, weaponPanel, keysInfoPanel } = hud;
+  const { coords, mmCanvas, hotbar, slots, rivalsEl, fpsEl, pingEl, overlay, renderDistBtn, matchTimerEl, matchNoEl, raiderCountCtrl, raiderCountEl, scorePanel, weaponPanel, keysInfoPanel } = hud;
 
   // Top-right menu button: open the app's in-game menu (resume / how to play /
   // settings / leave) rather than jumping straight into settings — on touch
@@ -2215,6 +2289,7 @@ export function createArenaGame(options) {
       }
     }
     const aliveRivals = foeList().filter((f) => f.connected && !f.dead).length;
+    rivalsEl.textContent = foeMode === "net" ? `RAIDERS ${aliveRivals}` : `RAIDERS ${aliveRivals} · KILLS ${kills}`;
     coords.textContent = `x ${player.group.position.x.toFixed(1)} · z ${player.group.position.z.toFixed(1)} · ${foeMode === "net" ? `rivals ${aliveRivals}` : `kills ${kills}`}`;
 
     // Frag range ring — follow player, pulse opacity
@@ -2230,6 +2305,17 @@ export function createArenaGame(options) {
       L.sprite.material.opacity = f;
       L.sprite.scale.set(1.0 + 0.25 * f, 1.45 + 0.45 * f, 1);
       L.glow.material.opacity = 0.6 * f;
+    }
+
+    // River fish — glide along the curve, drift across lanes, wiggle the nose
+    for (const F of riverFish) {
+      F.dist += F.speed * dt;
+      const p = F.posAt(F.dist);
+      const sgn = F.speed < 0 ? -1 : 1;
+      const lat = Math.sin(t * 0.5 + F.latPhase) * F.lat;
+      F.g.position.x = p.x - p.dirz * lat;
+      F.g.position.z = p.z + p.dirx * lat;
+      F.g.rotation.y = Math.atan2(-p.dirz * sgn, p.dirx * sgn) + Math.sin(t * 7 + F.wigglePhase) * 0.18;
     }
 
     drawMinimap();
@@ -2567,6 +2653,7 @@ function buildHud() {
   </div>`);
   add('<button class="gear game-ui" title="Menu">&#9776;</button>');
   const gearBtn = root.querySelector(".gear");
+  const rivalsEl = add('<div class="game-rivals game-ui">--</div>');
   const fpsEl = add('<div class="game-fps game-ui">FPS --</div>');
   const pingEl = add('<div class="game-ping game-ui">-- ms</div>');
   const overlay = add(`
@@ -2643,7 +2730,7 @@ function buildHud() {
     });
   }
 
-  return { root, coords, matchTimerEl, matchNoEl, mmCanvas, hotbar, slots, fpsEl, pingEl, overlay, renderDistBtn, bindSettings, raiderCountCtrl, raiderCountEl, scorePanel, weaponPanel, keysInfoPanel, gearBtn };
+  return { root, coords, matchTimerEl, matchNoEl, mmCanvas, hotbar, slots, rivalsEl, fpsEl, pingEl, overlay, renderDistBtn, bindSettings, raiderCountCtrl, raiderCountEl, scorePanel, weaponPanel, keysInfoPanel, gearBtn };
 }
 
 function clamp(v, min, max) {
