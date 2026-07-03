@@ -286,19 +286,20 @@ export function createArenaGame(options) {
     // Pinned at the rim; animate() unfurls it on build and keeps it waving.
     const BANNER_W = 10, BANNER_H = 7;
     const bnc = document.createElement("canvas");
-    bnc.width = 256; bnc.height = 320;
+    // Same aspect ratio as the mesh (10:7) so the F10 mark isn't distorted
+    bnc.width = 512; bnc.height = 360;
     const bnx = bnc.getContext("2d");
     // Swallow-tail silhouette: straight sides, zig-zag fringe along the bottom
     bnx.beginPath();
     bnx.moveTo(6, 6);
-    bnx.lineTo(250, 6);
-    bnx.lineTo(250, 278);
-    for (let i = 0; i < 4; i++) {
-      bnx.lineTo(250 - i * 61 - 30.5, 314);
-      bnx.lineTo(250 - (i + 1) * 61, 278);
+    bnx.lineTo(506, 6);
+    bnx.lineTo(506, 312);
+    for (let i = 0; i < 5; i++) {
+      bnx.lineTo(506 - i * 100 - 50, 352);
+      bnx.lineTo(506 - (i + 1) * 100, 312);
     }
     bnx.closePath();
-    const bGrad = bnx.createLinearGradient(0, 0, 0, 320);
+    const bGrad = bnx.createLinearGradient(0, 0, 0, 360);
     bGrad.addColorStop(0, "#d9a413");
     bGrad.addColorStop(1, "#a87a08");
     bnx.fillStyle = bGrad;
@@ -307,19 +308,21 @@ export function createArenaGame(options) {
     bnx.clip();
     bnx.strokeStyle = "rgba(122,88,0,0.28)"; // faint weave lines
     bnx.lineWidth = 2;
-    for (let y = 26; y < 320; y += 26) {
-      bnx.beginPath(); bnx.moveTo(0, y); bnx.lineTo(256, y); bnx.stroke();
+    for (let y = 30; y < 360; y += 30) {
+      bnx.beginPath(); bnx.moveTo(0, y); bnx.lineTo(512, y); bnx.stroke();
     }
     bnx.restore();
     bnx.strokeStyle = "#7a5800";
-    bnx.lineWidth = 7;
+    bnx.lineWidth = 10;
     bnx.stroke();
+    // The F10 mark — matches the gold tower cloths: bold dark type, centered
     bnx.fillStyle = "#0a0800";
-    bnx.font = "bold 104px monospace";
+    bnx.font = "900 168px monospace";
     bnx.textAlign = "center";
     bnx.textBaseline = "middle";
-    bnx.fillText("F10", 128, 132);
+    bnx.fillText("F10", 256, 150);
     const bannerTex = new THREE.CanvasTexture(bnc);
+    bannerTex.anisotropy = renderer.capabilities.getMaxAnisotropy();
     const bannerMat = new THREE.MeshBasicMaterial({
       map: bannerTex, transparent: true, side: THREE.DoubleSide, depthWrite: false,
     });
