@@ -28,6 +28,11 @@
   --gold-lo: #a9760a;
   --gold-grad: linear-gradient(180deg, #f2ce5b 0%, #d4a017 48%, #a9760a 100%);
   --gold-grad-btn: linear-gradient(180deg, #ecc350 0%, #cd9a10 100%);
+  /* Vintage / antique burnished gold — aged, desaturated, black-tinted */
+  --gold-grad-vintage: linear-gradient(180deg, #d8b357 0%, #a37c22 46%, #654811 100%);
+  --gold-grad-btn-vintage: linear-gradient(180deg, #b28a30 0%, #6f5014 100%);
+  /* Aged bone / weathered off-white for the "FIGHT" wordmark */
+  --bone-grad: linear-gradient(180deg, #e9e3d5 0%, #cfc7b4 52%, #a29a88 100%);
 
   --shadow: 0 26px 64px rgba(0, 0, 0, 0.6);
   --shadow-inset: inset 0 1px 0 rgba(255, 255, 255, 0.06);
@@ -270,14 +275,15 @@ textarea:focus {
 .nav-connect-btn {
   padding: 7px 16px;
   border-radius: 5px;
-  background: var(--gold-grad-btn);
-  color: #1a1200;
+  background: var(--gold-grad-btn-vintage);
+  color: #f4ecd2;
   font-family: var(--font-head);
   font-size: 0.68rem;
   letter-spacing: 0.12em;
   text-transform: uppercase;
-  border: none;
-  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.25) inset, 0 4px 14px rgba(200, 148, 10, 0.32);
+  border: 1px solid rgba(228, 196, 128, 0.35);
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.6);
+  box-shadow: 0 1px 0 rgba(255, 235, 190, 0.2) inset, 0 4px 14px rgba(0, 0, 0, 0.45);
 }
 
 /* ===== Hero section ===== */
@@ -309,22 +315,26 @@ textarea:focus {
   font-family: var(--font-display);
   font-size: clamp(5rem, 15vw, 14rem);
   letter-spacing: 0.06em;
-  color: #f0f0f0;
-  text-shadow:
-    0 2px 0 rgba(0, 0, 0, 0.9),
-    0 8px 48px rgba(0, 0, 0, 0.8);
+  background: var(--bone-grad);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  -webkit-text-fill-color: transparent;
+  filter:
+    drop-shadow(0 2px 0 rgba(0, 0, 0, 0.92))
+    drop-shadow(0 8px 44px rgba(0, 0, 0, 0.85));
 }
 
 .hero-big-10 {
   font-family: var(--font-display);
   font-size: clamp(4rem, 13vw, 12rem);
   letter-spacing: 0.06em;
-  background: var(--gold-grad);
+  background: var(--gold-grad-vintage);
   -webkit-background-clip: text;
   background-clip: text;
   color: transparent;
   -webkit-text-fill-color: transparent;
-  filter: drop-shadow(0 3px 0 rgba(0, 0, 0, 0.85)) drop-shadow(0 10px 40px rgba(0, 0, 0, 0.7));
+  filter: drop-shadow(0 3px 0 rgba(0, 0, 0, 0.9)) drop-shadow(0 10px 38px rgba(0, 0, 0, 0.75));
   margin-top: -0.08em;
 }
 
@@ -343,27 +353,90 @@ textarea:focus {
 }
 
 .hero-subtitle {
-  margin: 0 0 0.7rem;
+  margin: 0 0 0.65rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.75em;
   font-family: var(--font-display);
-  font-size: clamp(1.15rem, 3.4vw, 1.9rem);
-  letter-spacing: 0.14em;
+  font-size: clamp(0.72rem, 1.9vw, 1.05rem);
+  letter-spacing: 0.32em;
   line-height: 1;
-  color: #ffffff;
+  color: #cdba86;
   text-transform: uppercase;
-  text-shadow: 0 0 24px rgba(255, 255, 255, 0.25);
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.9), 0 0 16px rgba(226, 178, 60, 0.18);
+}
+
+/* Flanking gold rules on either side of LAST ONE STANDING */
+.hero-subtitle::before,
+.hero-subtitle::after {
+  content: "";
+  width: clamp(20px, 5vw, 52px);
+  height: 1px;
+  flex-shrink: 0;
+  background: linear-gradient(90deg, transparent, rgba(212, 160, 23, 0.85));
+}
+.hero-subtitle::after {
+  background: linear-gradient(90deg, rgba(212, 160, 23, 0.85), transparent);
 }
 
 .hero-desc {
   margin: 0;
-  color: #d8d8d8;
-  font-size: clamp(0.78rem, 1.6vw, 0.92rem);
-  line-height: 1.75;
+  color: #c6bfb0;
+  font-size: clamp(0.66rem, 1.3vw, 0.8rem);
+  line-height: 1.62;
   letter-spacing: 0.03em;
 }
 
 .hero-desc strong {
-  color: #ffffff;
+  color: #e9e0cb;
   font-weight: 700;
+}
+
+/* ===== Arena wall lamps (flickering flames along the map's sides) ===== */
+.arena-lamps {
+  position: absolute;
+  inset: 64px 0 90px;
+  z-index: 5;
+  pointer-events: none;
+}
+
+.lamp {
+  position: absolute;
+  width: 8px;
+  height: 12px;
+  border-radius: 50% 50% 50% 50% / 62% 62% 38% 38%;
+  background: radial-gradient(ellipse at 50% 78%, #fff4cc 0%, #ffd074 32%, #ff9a2e 62%, #ff6a08 100%);
+  box-shadow:
+    0 0 8px 3px rgba(255, 150, 50, 0.55),
+    0 0 20px 8px rgba(255, 110, 20, 0.28),
+    0 0 40px 16px rgba(255, 90, 10, 0.12);
+  transform-origin: 50% 100%;
+  animation: lamp-flicker 1.9s ease-in-out infinite;
+}
+
+/* Two diverging rows following the platform edges, left and right */
+.lamp-l1 { left: 27%; top: 41%; }
+.lamp-l2 { left: 22%; top: 51%; animation-delay: -0.4s; }
+.lamp-l3 { left: 17%; top: 61%; animation-delay: -0.9s; }
+.lamp-l4 { left: 13%; top: 71%; animation-delay: -1.3s; }
+.lamp-l5 { left: 10%; top: 80%; animation-delay: -0.6s; }
+
+.lamp-r1 { right: 27%; top: 41%; animation-delay: -0.2s; }
+.lamp-r2 { right: 22%; top: 51%; animation-delay: -1.1s; }
+.lamp-r3 { right: 17%; top: 61%; animation-delay: -0.5s; }
+.lamp-r4 { right: 13%; top: 71%; animation-delay: -1.5s; }
+.lamp-r5 { right: 10%; top: 80%; animation-delay: -0.8s; }
+
+@keyframes lamp-flicker {
+  0%, 100% { opacity: 0.92; transform: scaleY(1) scaleX(1); }
+  25%      { opacity: 1;    transform: scaleY(1.12) scaleX(0.94); }
+  50%      { opacity: 0.8;  transform: scaleY(0.95) scaleX(1.04); }
+  75%      { opacity: 1;    transform: scaleY(1.08) scaleX(0.97); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .lamp { animation: none; }
 }
 
 /* Cards row below title */
@@ -450,34 +523,35 @@ textarea:focus {
 }
 
 .home-btn-primary {
-  background: var(--gold-grad-btn);
-  color: #1a1200;
-  border: none;
-  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.28) inset, 0 6px 20px rgba(200, 148, 10, 0.35);
+  background: var(--gold-grad-btn-vintage);
+  color: #f4ecd2;
+  border: 1px solid rgba(228, 196, 128, 0.35);
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.6);
+  box-shadow: 0 1px 0 rgba(255, 235, 190, 0.22) inset, 0 6px 20px rgba(0, 0, 0, 0.5);
 }
 
 .home-btn-secondary {
-  background: #000000;
-  color: rgba(255, 255, 255, 0.65);
-  border: 1px solid rgba(255, 255, 255, 0.2);
+  background: #0c0a07;
+  color: rgba(233, 224, 200, 0.7);
+  border: 1px solid rgba(212, 160, 23, 0.28);
 }
 
 .home-btn-secondary:hover {
-  color: #ffffff;
-  border-color: rgba(255, 255, 255, 0.5);
-  background: #111111;
+  color: #f2e8cc;
+  border-color: rgba(212, 160, 23, 0.6);
+  background: #16110a;
 }
 
 .home-btn-ghost {
-  background: #000000;
-  color: rgba(255, 255, 255, 0.3);
-  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: #0c0a07;
+  color: rgba(233, 224, 200, 0.32);
+  border: 1px solid rgba(212, 160, 23, 0.12);
   min-width: auto;
   font-size: 0.62rem;
   letter-spacing: 0.12em;
 }
 
-.home-btn-ghost:hover { color: rgba(255, 255, 255, 0.6); background: #111111; }
+.home-btn-ghost:hover { color: rgba(233, 224, 200, 0.62); background: #16110a; }
 
 /* ===== X icon in nav ===== */
 .x-nav {
@@ -2951,6 +3025,10 @@ body.in-game .game-hud-root {
     -webkit-backdrop-filter: blur(10px);
     border-bottom: 1px solid rgba(255, 255, 255, 0.08);
   }
+
+  /* Decorative arena flames belong to the (now backgrounded) 3D scene, not the
+     vertical content flow — hide them so they don't scatter over the page. */
+  .arena-lamps { display: none; }
 
   /* Flow, don't stack absolutely. */
   .hero-section,
