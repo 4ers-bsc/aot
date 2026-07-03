@@ -185,9 +185,9 @@ export function createArenaGame(options) {
 
   // -- Arena walls (disposable, theme-aware) ------------------------------------
   const wallObjects = []; // tracks all wall scene objects for disposal
-  // F10 cloth banners draped over the camera-facing map edges. Each entry is
-  // animated per frame in animate(): an unfurl drop when built, then a
-  // continuous fabric wave. { mesh, geo, h, phase, born }
+  // F10 cloth banner draped over the left map edge. Each entry is animated
+  // per frame in animate(): an unfurl drop when built, then a continuous
+  // fabric wave. { mesh, geo, h, phase, born }
   const clothBanners = [];
 
   function buildArenaWalls(variant) {
@@ -281,9 +281,9 @@ export function createArenaGame(options) {
       addObj(panel);
     });
 
-    // -- F10 cloth banners — gold fabric draped over the rim, falling down the
-    // two camera-facing map sides (the edges visible from the fixed iso view).
-    // Pinned at the rim; animate() unfurls them on build and keeps them waving.
+    // -- F10 cloth banner — gold fabric draped over the rim, falling down the
+    // left map side (the +z edge, front-left from the fixed iso view).
+    // Pinned at the rim; animate() unfurls it on build and keeps it waving.
     const BANNER_W = 10, BANNER_H = 7;
     const bnc = document.createElement("canvas");
     bnc.width = 256; bnc.height = 320;
@@ -323,26 +323,18 @@ export function createArenaGame(options) {
     const bannerMat = new THREE.MeshBasicMaterial({
       map: bannerTex, transparent: true, side: THREE.DoubleSide, depthWrite: false,
     });
-    [
-      { x: 0, z: MAP_HALF, ry: 0,           phase: 0   }, // +z edge (front-left on screen)
-      { x: MAP_HALF, z: 0, ry: Math.PI / 2, phase: 2.1 }, // +x edge (front-right on screen)
-    ].forEach(({ x, z, ry, phase }) => {
-      const geo = new THREE.PlaneGeometry(BANNER_W, BANNER_H, 12, 10);
-      geo.translate(0, -BANNER_H / 2, 0); // pin the top edge at the rim
-      const mesh = new THREE.Mesh(geo, bannerMat);
-      // Nudged outward off the wall so the waving fabric never clips into it
-      mesh.position.set(x + (ry === 0 ? 0 : 0.16), 0.05, z + (ry === 0 ? 0.16 : 0));
-      mesh.rotation.y = ry;
-      mesh.renderOrder = 3; // after the outer dot plane so it shows against the void
-      addObj(mesh);
-      // Fold of cloth lying on the arena floor where the fabric crosses the rim
-      const fold = ry === 0
-        ? box(BANNER_W, 0.1, 0.7, 0xc8940a)
-        : box(0.7, 0.1, BANNER_W, 0xc8940a);
-      fold.position.set(x - (ry === 0 ? 0 : 0.35), 0.05, z - (ry === 0 ? 0.35 : 0));
-      addObj(fold);
-      clothBanners.push({ mesh, geo, h: BANNER_H, phase, born: performance.now() * 0.001 });
-    });
+    const bannerGeo = new THREE.PlaneGeometry(BANNER_W, BANNER_H, 12, 10);
+    bannerGeo.translate(0, -BANNER_H / 2, 0); // pin the top edge at the rim
+    const banner = new THREE.Mesh(bannerGeo, bannerMat);
+    // Nudged outward off the wall so the waving fabric never clips into it
+    banner.position.set(0, 0.05, MAP_HALF + 0.16);
+    banner.renderOrder = 3; // after the outer dot plane so it shows against the void
+    addObj(banner);
+    // Fold of cloth lying on the arena floor where the fabric crosses the rim
+    const fold = box(BANNER_W, 0.1, 0.7, 0xc8940a);
+    fold.position.set(0, 0.05, MAP_HALF - 0.35);
+    addObj(fold);
+    clothBanners.push({ mesh: banner, geo: bannerGeo, h: BANNER_H, phase: 0, born: performance.now() * 0.001 });
 
     // Top rim
     const rimColor = 0xffc830;
