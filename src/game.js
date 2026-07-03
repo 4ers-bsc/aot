@@ -184,6 +184,11 @@ export function createArenaGame(options) {
   scene.add(border);
 
   // -- Arena walls (disposable, theme-aware) ------------------------------------
+  // Ledge ring dimensions — shared by the edge ledge below and the cloth
+  // banner, which drapes over the ledge's outer edge.
+  const LEDGE_W = 3.2;   // ledge band width beyond the map rim
+  const LEDGE_H = 0.56;  // ledge thickness; top sits just above the floor
+  const LEDGE_TOP = 0.06;
   const wallObjects = []; // tracks all wall scene objects for disposal
   // F10 cloth banner draped over the left map edge. Each entry is animated
   // per frame in animate(): an unfurl drop when built, then a continuous
@@ -289,23 +294,25 @@ export function createArenaGame(options) {
     // Same aspect ratio as the mesh (10:7) so the F10 mark isn't distorted
     bnc.width = 512; bnc.height = 360;
     const bnx = bnc.getContext("2d");
-    // Swallow-tail silhouette: straight sides, zig-zag fringe along the bottom
-    bnx.beginPath();
-    bnx.moveTo(6, 6);
-    bnx.lineTo(506, 6);
-    bnx.lineTo(506, 312);
+    // Swallow-tail silhouette: straight sides, zig-zag fringe along the bottom.
+    // Kept as a Path2D so the outline stroke below traces this same shape (the
+    // weave-line strokes reset the context's current path).
+    const silhouette = new Path2D();
+    silhouette.moveTo(6, 6);
+    silhouette.lineTo(506, 6);
+    silhouette.lineTo(506, 312);
     for (let i = 0; i < 5; i++) {
-      bnx.lineTo(506 - i * 100 - 50, 352);
-      bnx.lineTo(506 - (i + 1) * 100, 312);
+      silhouette.lineTo(506 - i * 100 - 50, 352);
+      silhouette.lineTo(506 - (i + 1) * 100, 312);
     }
-    bnx.closePath();
+    silhouette.closePath();
     const bGrad = bnx.createLinearGradient(0, 0, 0, 360);
     bGrad.addColorStop(0, "#d9a413");
     bGrad.addColorStop(1, "#a87a08");
     bnx.fillStyle = bGrad;
-    bnx.fill();
+    bnx.fill(silhouette);
     bnx.save();
-    bnx.clip();
+    bnx.clip(silhouette);
     bnx.strokeStyle = "rgba(122,88,0,0.28)"; // faint weave lines
     bnx.lineWidth = 2;
     for (let y = 30; y < 360; y += 30) {
@@ -314,7 +321,7 @@ export function createArenaGame(options) {
     bnx.restore();
     bnx.strokeStyle = "#7a5800";
     bnx.lineWidth = 10;
-    bnx.stroke();
+    bnx.stroke(silhouette);
     // The F10 mark — matches the gold tower cloths: bold dark type, centered
     bnx.fillStyle = "#0a0800";
     bnx.font = "900 168px monospace";
@@ -329,13 +336,15 @@ export function createArenaGame(options) {
     const bannerGeo = new THREE.PlaneGeometry(BANNER_W, BANNER_H, 12, 10);
     bannerGeo.translate(0, -BANNER_H / 2, 0); // pin the top edge at the rim
     const banner = new THREE.Mesh(bannerGeo, bannerMat);
-    // Nudged outward off the wall so the waving fabric never clips into it
-    banner.position.set(0, 0.05, MAP_HALF + 0.16);
+    // Hangs off the OUTER edge of the black ledge ring (which extends LEDGE_W
+    // beyond the map rim — pinning it at the rim would bury the F10 mark
+    // behind the ledge). Nudged outward so the waving fabric never clips in.
+    banner.position.set(0, LEDGE_TOP + 0.03, MAP_HALF + LEDGE_W + 0.16);
     banner.renderOrder = 3; // after the outer dot plane so it shows against the void
     addObj(banner);
-    // Fold of cloth lying on the arena floor where the fabric crosses the rim
+    // Fold of cloth lying on the ledge top where the fabric crosses its edge
     const fold = box(BANNER_W, 0.1, 0.7, 0xc8940a);
-    fold.position.set(0, 0.05, MAP_HALF - 0.35);
+    fold.position.set(0, LEDGE_TOP + 0.05, MAP_HALF + LEDGE_W - 0.35);
     addObj(fold);
     clothBanners.push({ mesh: banner, geo: bannerGeo, h: BANNER_H, phase: 0, born: performance.now() * 0.001 });
 
@@ -372,9 +381,6 @@ export function createArenaGame(options) {
   // map edges (home backdrop and in-game alike) instead of the viewport.
   const edgeLamps = []; // { sprite, glow, phase } — flickered in animate()
   {
-    const LEDGE_W = 3.2;   // ledge band width beyond the map rim
-    const LEDGE_H = 0.56;  // ledge thickness; top sits just above the floor
-    const LEDGE_TOP = 0.06;
     const ledgeMat = new THREE.MeshStandardMaterial({
       color: 0x0c0c0e, roughness: 0.16, metalness: 0.72, // black polished stone
     });
