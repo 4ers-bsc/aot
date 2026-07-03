@@ -1040,6 +1040,7 @@ export function createArenaGame(options) {
   const opponents = new Map(); // userId -> networked fighter
   let foeMode = "ai"; // "ai" (demo) | "net" (pvp)
   const AI_AGGRO = 14;
+  const AI_MELEE_MULT = 0.6; // AI raider sword damage scale (player deals full)
 
   let _foeCache = null;
   function foeList() {
@@ -1910,8 +1911,10 @@ export function createArenaGame(options) {
       return;
     }
     let dmg = Math.max(1, Math.round(w.atk + (Math.random() * 2 - 1) * w.atkVar));
+    // AI swords hit softer than a player's so raiders don't shred you up close.
+    if (!w.ranged) dmg = Math.max(1, Math.round(dmg * AI_MELEE_MULT));
     if (inRiver(e.group.position.x, e.group.position.z)) dmg = Math.max(1, Math.round(dmg * RIVER_ATK));
-    if (w.ranged) fireBullet(e, player, dmg, false, w);
+    if (w.ranged) fireBullet(e, player, dmg, true, w);
     else applyDamage(player, dmg);
   }
   function killFighter(f) {
