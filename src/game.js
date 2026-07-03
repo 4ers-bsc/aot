@@ -286,19 +286,20 @@ export function createArenaGame(options) {
     // Pinned at the rim; animate() unfurls it on build and keeps it waving.
     const BANNER_W = 10, BANNER_H = 7;
     const bnc = document.createElement("canvas");
-    bnc.width = 256; bnc.height = 320;
+    // Same aspect ratio as the mesh (10:7) so the F10 mark isn't distorted
+    bnc.width = 512; bnc.height = 360;
     const bnx = bnc.getContext("2d");
     // Swallow-tail silhouette: straight sides, zig-zag fringe along the bottom
     bnx.beginPath();
     bnx.moveTo(6, 6);
-    bnx.lineTo(250, 6);
-    bnx.lineTo(250, 278);
-    for (let i = 0; i < 4; i++) {
-      bnx.lineTo(250 - i * 61 - 30.5, 314);
-      bnx.lineTo(250 - (i + 1) * 61, 278);
+    bnx.lineTo(506, 6);
+    bnx.lineTo(506, 312);
+    for (let i = 0; i < 5; i++) {
+      bnx.lineTo(506 - i * 100 - 50, 352);
+      bnx.lineTo(506 - (i + 1) * 100, 312);
     }
     bnx.closePath();
-    const bGrad = bnx.createLinearGradient(0, 0, 0, 320);
+    const bGrad = bnx.createLinearGradient(0, 0, 0, 360);
     bGrad.addColorStop(0, "#d9a413");
     bGrad.addColorStop(1, "#a87a08");
     bnx.fillStyle = bGrad;
@@ -307,19 +308,21 @@ export function createArenaGame(options) {
     bnx.clip();
     bnx.strokeStyle = "rgba(122,88,0,0.28)"; // faint weave lines
     bnx.lineWidth = 2;
-    for (let y = 26; y < 320; y += 26) {
-      bnx.beginPath(); bnx.moveTo(0, y); bnx.lineTo(256, y); bnx.stroke();
+    for (let y = 30; y < 360; y += 30) {
+      bnx.beginPath(); bnx.moveTo(0, y); bnx.lineTo(512, y); bnx.stroke();
     }
     bnx.restore();
     bnx.strokeStyle = "#7a5800";
-    bnx.lineWidth = 7;
+    bnx.lineWidth = 10;
     bnx.stroke();
+    // The F10 mark — matches the gold tower cloths: bold dark type, centered
     bnx.fillStyle = "#0a0800";
-    bnx.font = "bold 104px monospace";
+    bnx.font = "900 168px monospace";
     bnx.textAlign = "center";
     bnx.textBaseline = "middle";
-    bnx.fillText("F10", 128, 132);
+    bnx.fillText("F10", 256, 150);
     const bannerTex = new THREE.CanvasTexture(bnc);
+    bannerTex.anisotropy = renderer.capabilities.getMaxAnisotropy();
     const bannerMat = new THREE.MeshBasicMaterial({
       map: bannerTex, transparent: true, side: THREE.DoubleSide, depthWrite: false,
     });
@@ -648,6 +651,25 @@ export function createArenaGame(options) {
     g.rotation.x = -0.08;
     return g;
   }
+  function makeGrenade() {
+    const g = new THREE.Group();
+    // Same dark shell as the thrown projectile in fireGrenade(), hand-sized
+    const body = new THREE.Mesh(
+      new THREE.SphereGeometry(0.17, 8, 6),
+      new THREE.MeshStandardMaterial({ color: 0x222222, roughness: 0.8, metalness: 0.15 })
+    );
+    body.castShadow = true;
+    const cap = box(0.11, 0.09, 0.11, 0x3a3f45); cap.position.y = 0.18;
+    const lever = box(0.05, 0.18, 0.05, 0x8a8f96); lever.position.set(0.08, 0.12, 0.06); lever.rotation.x = 0.5;
+    const pin = new THREE.Mesh(
+      new THREE.TorusGeometry(0.06, 0.016, 6, 10),
+      new THREE.MeshStandardMaterial({ color: 0xb8b0a0, roughness: 0.5, metalness: 0.6 })
+    );
+    pin.position.set(-0.09, 0.19, 0);
+    g.add(body, cap, lever, pin);
+    g.position.set(0, -0.8, 0.14);
+    return g;
+  }
   function makeBar(barColor) {
     const el = document.createElement("div");
     el.className = "bar game-ui";
@@ -687,6 +709,7 @@ export function createArenaGame(options) {
     const swordMesh = makeSword(); armR.add(swordMesh);
     const pistolMesh = makePistol(); pistolMesh.visible = false; armR.add(pistolMesh);
     const sniperMesh = makeSniper(); sniperMesh.visible = false; armR.add(sniperMesh);
+    const grenadeMesh = makeGrenade(); grenadeMesh.visible = false; armR.add(grenadeMesh);
     g.add(legL, legR, torso, shlL, shlR, armL, armR, head, helmet, visor);
     g.position.copy(cfg.pos);
     g.visible = false;
@@ -694,7 +717,7 @@ export function createArenaGame(options) {
     const f = {
       userId: cfg.userId || null,
       name: cfg.name, level: cfg.level ?? 1, isPlayer: !!cfg.isPlayer, group: g,
-      legL, legR, armL, armR, swordMesh, pistolMesh, sniperMesh,
+      legL, legR, armL, armR, swordMesh, pistolMesh, sniperMesh, grenadeMesh,
       maxHp: cfg.hp, hp: cfg.hp, weapon: cfg.weapon, speed: cfg.speed,
       cdTimer: 0, atkAnim: 0, hurt: 0, regenAcc: 0, chargeTimer: 0,
       moving: false, facing: 0, walkPhase: 0,
@@ -712,9 +735,10 @@ export function createArenaGame(options) {
     return f;
   }
   function updateWeaponVis(f) {
-    if (f.swordMesh)  f.swordMesh.visible  = f.weapon.id === "sword";
-    if (f.pistolMesh) f.pistolMesh.visible = f.weapon.id === "pistol";
-    if (f.sniperMesh) f.sniperMesh.visible = f.weapon.id === "sniper";
+    if (f.swordMesh)   f.swordMesh.visible   = f.weapon.id === "sword";
+    if (f.pistolMesh)  f.pistolMesh.visible  = f.weapon.id === "pistol";
+    if (f.sniperMesh)  f.sniperMesh.visible  = f.weapon.id === "sniper";
+    if (f.grenadeMesh) f.grenadeMesh.visible = f.weapon.id === "frag";
   }
   function recolorFighter(f, palette) {
     Object.keys(f.parts).forEach((key) => f.parts[key].forEach((mat) => mat.color.setHex(palette[key])));
