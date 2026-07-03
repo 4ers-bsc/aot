@@ -16,10 +16,6 @@ export const html = `
     <button class="home-btn home-btn-secondary hidden" id="demoBtn" type="button">DEMO MATCH</button>
     <button class="home-btn home-btn-primary" id="connectWalletBtn" type="button">Connect Wallet</button>
     <button class="home-btn home-btn-primary hidden" id="pvpBtn" type="button">PLAY PVP</button>
-    <button class="home-btn home-btn-story" id="storyModeBtn" type="button" aria-disabled="true">
-      <span class="story-btn-label">STORY MODE</span>
-      <span class="coming-soon-pill">COMING SOON</span>
-    </button>
     <button class="home-btn home-btn-secondary" id="howToPlayBtn" type="button">HOW TO PLAY</button>
     <button class="home-btn home-btn-secondary" id="whitepaperBtn" type="button">WHITEPAPER</button>
     <button class="home-btn home-btn-ghost hidden" id="signOutBtn" type="button">Sign Out</button>

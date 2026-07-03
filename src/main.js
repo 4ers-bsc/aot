@@ -593,13 +593,6 @@ function bindUi() {
     appearanceState.colors[appearanceState.active] = { ...APPEARANCE_PRESETS[appearanceState.active] };
     applyAppearance();
   });
-  // Story Mode isn't playable yet — a click just shakes the COMING SOON pill.
-  const storyBtn = document.getElementById("storyModeBtn");
-  storyBtn?.addEventListener("click", () => {
-    storyBtn.classList.remove("nudge");
-    void storyBtn.offsetWidth; // restart the animation on rapid clicks
-    storyBtn.classList.add("nudge");
-  });
   els.pvpCancelBtn.addEventListener("click", () => leaveMatch());
   // Returning to the menu after a match fully reloads the page. This guarantees a
   // clean slate (3D scene, realtime channel, match state) for the next game.
