@@ -3166,9 +3166,9 @@ body.in-game .log-feed { left: 70px; }
 .appearance-preview {
   position: relative;
   width: 100%;
-  /* Big on desktop, scales down with the viewport so the swatches below stay
-     reachable on phones (the panel itself is capped at 88vh). */
-  height: clamp(180px, 36vh, 320px);
+  /* Big on desktop, scales down with the viewport so the skin cards below
+     stay reachable on phones (the panel itself is capped at 88vh). */
+  height: clamp(220px, 48vh, 430px);
   margin-bottom: 14px;
   border-radius: 12px;
   border: 1px solid rgba(217, 168, 33, 0.18);
@@ -3215,36 +3215,6 @@ body.in-game .log-feed { left: 70px; }
   background: rgba(217, 168, 33, 0.08);
 }
 
-.appearance-colors { margin-bottom: 10px; }
-
-.color-row { display: flex; align-items: center; gap: 10px; padding: 7px 0; }
-
-.color-label {
-  width: 58px;
-  flex: none;
-  font-size: 10px;
-  letter-spacing: 0.14em;
-  text-transform: uppercase;
-  color: rgba(255, 255, 255, 0.45);
-}
-
-.color-swatches { display: flex; gap: 7px; flex-wrap: wrap; }
-
-.swatch {
-  width: 22px;
-  height: 22px;
-  border-radius: 6px;
-  cursor: pointer;
-  border: 2px solid rgba(255, 255, 255, 0.15);
-  padding: 0;
-}
-
-.swatch:hover { border-color: rgba(255, 255, 255, 0.45); }
-
-.swatch.active {
-  border-color: #d9c66e;
-  box-shadow: 0 0 0 2px rgba(217, 168, 33, 0.35);
-}
 
 .perk-lock {
   flex: none;

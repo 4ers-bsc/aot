@@ -59,14 +59,11 @@ export const html = `
 
       <div class="tab-body hidden" data-pbody="appearance">
         <div class="appearance-preview" id="appearancePreview"></div>
-        <div class="section">CHARACTER STYLE</div>
+        <div class="section">SKINS</div>
         <div class="skin-cards" id="skinCards">
           <button class="skin-card" type="button" data-skin="1"><span class="skin-card-num">1</span><span class="skin-card-name">FIGHTER</span></button>
           <button class="skin-card" type="button" data-skin="2"><span class="skin-card-num">2</span><span class="skin-card-name">KNIGHT</span></button>
         </div>
-        <div class="section">COLORS</div>
-        <div class="appearance-colors" id="appearanceColors"></div>
-        <button class="profile-save" id="appearanceResetBtn" type="button">Reset Colors</button>
       </div>
 
       <div class="tab-body hidden" data-pbody="history">
