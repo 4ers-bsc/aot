@@ -496,25 +496,44 @@ const game = createArenaGame({
 });
 
 // -- Player skin (profile → APPEARANCE tab) ----------------------------------
-// Two fixed skins; the chosen id is kept locally for instant boot and synced
-// to the wallet profile (profiles.skin_id) when signed in.
+// Two fixed skins. Picking a card applies the skin live and remembers it on
+// this device; the Save button writes the preference to the wallet profile
+// (profiles.skin_id — the "default character"). Which skins a player has at
+// all comes from profiles.skins (server-managed; everyone has 1 and 2 today).
 const SKIN_KEY = "f10_skin";
 let activeSkin = "1";
+let availableSkins = [1, 2];
 try { if (JSON.parse(localStorage.getItem(SKIN_KEY) || "null") === "2") activeSkin = "2"; } catch { /* corrupted storage → default */ }
 
-function applySkin(id, { persist = true } = {}) {
+function applySkin(id) {
   activeSkin = id === "2" ? "2" : "1";
   game.setPlayerAppearance({ style: activeSkin, colors: APPEARANCE_PRESETS[activeSkin] });
-  document.querySelectorAll("#skinCards .skin-card").forEach((c) => c.classList.toggle("active", c.dataset.skin === activeSkin));
   if (appearancePreview) appearancePreview.setAppearance(activeSkin, APPEARANCE_PRESETS[activeSkin]);
   try { localStorage.setItem(SKIN_KEY, JSON.stringify(activeSkin)); } catch { /* private mode */ }
-  if (persist) saveSkinToProfile().catch((e) => console.error("skin save error:", e));
+  renderSkinCards();
 }
 
-async function saveSkinToProfile() {
-  if (!state.user?.id) return;
+function renderSkinCards() {
+  document.querySelectorAll("#skinCards .skin-card").forEach((c) => {
+    c.classList.toggle("active", c.dataset.skin === activeSkin);
+    c.disabled = !availableSkins.includes(Number(c.dataset.skin));
+  });
+}
+
+async function saveSkin() {
+  const hint = document.getElementById("skinHint");
+  if (!state.user?.id) {
+    if (hint) hint.textContent = "Saved on this device. Connect your wallet to sync it to your profile.";
+    return;
+  }
   const { error } = await supabase.from("profiles").update({ skin_id: Number(activeSkin) }).eq("user_id", state.user.id);
-  if (error) console.error("skin save error:", error);
+  if (error) {
+    console.error("skin save error:", error);
+    if (hint) hint.textContent = "Could not save — try again.";
+    return;
+  }
+  if (state.profile) state.profile.skin_id = Number(activeSkin);
+  if (hint) hint.textContent = "Saved to your wallet profile.";
 }
 
 // The preview owns a WebGL context, so it's created lazily the first time the
@@ -528,7 +547,7 @@ function updateAppearancePreview() {
 }
 
 bindUi();
-applySkin(activeSkin, { persist: false });
+applySkin(activeSkin);
 init();
 
 function bindUi() {
@@ -553,7 +572,12 @@ function bindUi() {
   els.profileSaveBtn.addEventListener("click", saveProfile);
   els.profileNameInput.addEventListener("keydown", (e) => { if (e.key === "Enter") saveProfile(); });
   els.profileTabs.forEach((t) => t.addEventListener("click", () => selectProfileTab(t.dataset.ptab)));
-  document.querySelectorAll("#skinCards .skin-card").forEach((c) => c.addEventListener("click", () => applySkin(c.dataset.skin)));
+  document.querySelectorAll("#skinCards .skin-card").forEach((c) => c.addEventListener("click", () => {
+    const hint = document.getElementById("skinHint");
+    if (hint) hint.textContent = "";
+    applySkin(c.dataset.skin);
+  }));
+  document.getElementById("skinSaveBtn")?.addEventListener("click", () => saveSkin().catch((e) => console.error("skin save error:", e)));
   els.pvpCancelBtn.addEventListener("click", () => leaveMatch());
   // Returning to the menu after a match fully reloads the page. This guarantees a
   // clean slate (3D scene, realtime channel, match state) for the next game.
@@ -721,9 +745,14 @@ async function handleSession(session) {
 
   try {
     await syncProfile();
-    // The wallet profile is the source of truth for the skin once signed in.
+    // The wallet profile is the source of truth once signed in: skins the
+    // player has, and their saved default character.
+    if (Array.isArray(state.profile?.skins) && state.profile.skins.length) {
+      availableSkins = state.profile.skins.map(Number);
+    }
     const serverSkin = state.profile?.skin_id;
-    if (serverSkin === 1 || serverSkin === 2) applySkin(String(serverSkin), { persist: false });
+    if (serverSkin === 1 || serverSkin === 2) applySkin(String(serverSkin));
+    else renderSkinCards();
   } catch (error) {
     console.error("[handleSession]", error);
     setStatus(error.message || "Could not load profile.");

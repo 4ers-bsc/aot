@@ -64,6 +64,8 @@ export const html = `
           <button class="skin-card" type="button" data-skin="1"><span class="skin-card-num">1</span><span class="skin-card-name">FIGHTER</span></button>
           <button class="skin-card" type="button" data-skin="2"><span class="skin-card-num">2</span><span class="skin-card-name">KNIGHT</span></button>
         </div>
+        <button class="profile-save" id="skinSaveBtn" type="button">Save Skin</button>
+        <div class="profile-hint" id="skinHint"></div>
       </div>
 
       <div class="tab-body hidden" data-pbody="history">

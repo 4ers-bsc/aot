@@ -3215,6 +3215,11 @@ body.in-game .log-feed { left: 70px; }
   background: rgba(217, 168, 33, 0.08);
 }
 
+.skin-card:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
 
 .perk-lock {
   flex: none;
