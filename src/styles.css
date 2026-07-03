@@ -28,6 +28,11 @@
   --gold-lo: #a9760a;
   --gold-grad: linear-gradient(180deg, #f2ce5b 0%, #d4a017 48%, #a9760a 100%);
   --gold-grad-btn: linear-gradient(180deg, #ecc350 0%, #cd9a10 100%);
+  /* Vintage / antique burnished gold — aged, desaturated, black-tinted */
+  --gold-grad-vintage: linear-gradient(180deg, #d8b357 0%, #a37c22 46%, #654811 100%);
+  --gold-grad-btn-vintage: linear-gradient(180deg, #b28a30 0%, #6f5014 100%);
+  /* Aged bone / weathered off-white for the "FIGHT" wordmark */
+  --bone-grad: linear-gradient(180deg, #e9e3d5 0%, #cfc7b4 52%, #a29a88 100%);
 
   --shadow: 0 26px 64px rgba(0, 0, 0, 0.6);
   --shadow-inset: inset 0 1px 0 rgba(255, 255, 255, 0.06);
@@ -270,14 +275,115 @@ textarea:focus {
 .nav-connect-btn {
   padding: 7px 16px;
   border-radius: 5px;
-  background: var(--gold-grad-btn);
-  color: #1a1200;
+  background: var(--gold-grad-btn-vintage);
+  color: #f4ecd2;
   font-family: var(--font-head);
   font-size: 0.68rem;
   letter-spacing: 0.12em;
   text-transform: uppercase;
+  border: 1px solid rgba(228, 196, 128, 0.35);
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.6);
+  box-shadow: 0 1px 0 rgba(255, 235, 190, 0.2) inset, 0 4px 14px rgba(0, 0, 0, 0.45);
+}
+
+/* ===== Nav center links ===== */
+.site-nav-links {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  display: flex;
+  align-items: center;
+  gap: 34px;
+}
+
+.nav-link {
+  background: none;
   border: none;
-  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.25) inset, 0 4px 14px rgba(200, 148, 10, 0.32);
+  padding: 6px 2px;
+  font-family: var(--font-head);
+  font-size: 0.68rem;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: rgba(233, 224, 200, 0.62);
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.7);
+  border-bottom: 1px solid transparent;
+  border-radius: 0;
+}
+
+.nav-link:hover {
+  color: #f2e8cc;
+  border-bottom-color: rgba(212, 160, 23, 0.65);
+  transform: none;
+}
+
+/* ===== Hamburger ===== */
+.nav-hamburger {
+  display: inline-flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 4px;
+  width: 34px;
+  height: 30px;
+  padding: 6px 7px;
+  background: none;
+  border: none;
+}
+
+.nav-hamburger span {
+  display: block;
+  height: 2px;
+  width: 100%;
+  border-radius: 2px;
+  background: rgba(233, 224, 200, 0.7);
+  transition: background 0.15s ease;
+}
+
+.nav-hamburger:hover span { background: #f2e8cc; }
+
+/* ===== Hamburger dropdown ===== */
+.nav-menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 20px;
+  z-index: 20;
+  display: none;
+  flex-direction: column;
+  min-width: 200px;
+  padding: 6px;
+  border: 1px solid rgba(212, 160, 23, 0.3);
+  border-radius: 6px;
+  background: linear-gradient(170deg, rgba(16, 13, 8, 0.97), rgba(8, 7, 5, 0.97));
+  box-shadow: 0 14px 40px rgba(0, 0, 0, 0.65), inset 0 1px 0 rgba(255, 235, 190, 0.06);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+}
+
+.nav-menu.open { display: flex; }
+
+.nav-menu-item {
+  padding: 11px 16px;
+  text-align: left;
+  background: none;
+  border: none;
+  border-radius: 4px;
+  font-family: var(--font-head);
+  font-size: 0.68rem;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: rgba(233, 224, 200, 0.68);
+}
+
+.nav-menu-item:hover {
+  color: #f2e8cc;
+  background: rgba(212, 160, 23, 0.12);
+  transform: none;
+}
+
+/* Center links collide with the actions cluster once the nav tightens —
+   below this the hamburger menu carries them instead. */
+@media (max-width: 1080px) {
+  .site-nav-links { display: none; }
 }
 
 /* ===== Hero section ===== */
@@ -309,22 +415,26 @@ textarea:focus {
   font-family: var(--font-display);
   font-size: clamp(5rem, 15vw, 14rem);
   letter-spacing: 0.06em;
-  color: #f0f0f0;
-  text-shadow:
-    0 2px 0 rgba(0, 0, 0, 0.9),
-    0 8px 48px rgba(0, 0, 0, 0.8);
+  background: var(--bone-grad);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  -webkit-text-fill-color: transparent;
+  filter:
+    drop-shadow(0 2px 0 rgba(0, 0, 0, 0.92))
+    drop-shadow(0 8px 44px rgba(0, 0, 0, 0.85));
 }
 
 .hero-big-10 {
   font-family: var(--font-display);
   font-size: clamp(4rem, 13vw, 12rem);
   letter-spacing: 0.06em;
-  background: var(--gold-grad);
+  background: var(--gold-grad-vintage);
   -webkit-background-clip: text;
   background-clip: text;
   color: transparent;
   -webkit-text-fill-color: transparent;
-  filter: drop-shadow(0 3px 0 rgba(0, 0, 0, 0.85)) drop-shadow(0 10px 40px rgba(0, 0, 0, 0.7));
+  filter: drop-shadow(0 3px 0 rgba(0, 0, 0, 0.9)) drop-shadow(0 10px 38px rgba(0, 0, 0, 0.75));
   margin-top: -0.08em;
 }
 
@@ -333,38 +443,60 @@ textarea:focus {
   margin: 1.6rem auto 0;
   padding: 1.2rem 1.6rem;
   text-align: center;
-  border: 1px solid rgba(226, 178, 60, 0.22);
+  border: 1px solid rgba(226, 178, 60, 0.32);
   border-top: 2px solid rgba(226, 178, 60, 0.6);
   border-radius: 6px;
-  background: linear-gradient(160deg, rgba(0,0,0,0.6) 0%, rgba(10,10,10,0.45) 100%);
+  background:
+    radial-gradient(ellipse at 50% 0%, rgba(212, 160, 23, 0.16), transparent 55%),
+    linear-gradient(160deg, rgba(26, 19, 6, 0.94) 0%, rgba(10, 8, 4, 0.92) 50%, rgba(32, 23, 8, 0.94) 100%);
   backdrop-filter: blur(10px);
   -webkit-backdrop-filter: blur(10px);
-  box-shadow: 0 4px 32px rgba(0,0,0,0.45), inset 0 1px 0 rgba(255,255,255,0.08);
+  box-shadow: 0 4px 32px rgba(0,0,0,0.55), inset 0 1px 0 rgba(242, 206, 91, 0.14);
 }
 
 .hero-subtitle {
-  margin: 0 0 0.7rem;
+  margin: 0 0 0.65rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.75em;
   font-family: var(--font-display);
-  font-size: clamp(1.15rem, 3.4vw, 1.9rem);
-  letter-spacing: 0.14em;
+  font-size: clamp(0.72rem, 1.9vw, 1.05rem);
+  letter-spacing: 0.32em;
   line-height: 1;
-  color: #ffffff;
+  color: #cdba86;
   text-transform: uppercase;
-  text-shadow: 0 0 24px rgba(255, 255, 255, 0.25);
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.9), 0 0 16px rgba(226, 178, 60, 0.18);
+}
+
+/* Flanking gold rules on either side of LAST ONE STANDING */
+.hero-subtitle::before,
+.hero-subtitle::after {
+  content: "";
+  width: clamp(20px, 5vw, 52px);
+  height: 1px;
+  flex-shrink: 0;
+  background: linear-gradient(90deg, transparent, rgba(212, 160, 23, 0.85));
+}
+.hero-subtitle::after {
+  background: linear-gradient(90deg, rgba(212, 160, 23, 0.85), transparent);
 }
 
 .hero-desc {
   margin: 0;
-  color: #d8d8d8;
-  font-size: clamp(0.78rem, 1.6vw, 0.92rem);
-  line-height: 1.75;
+  color: #c6bfb0;
+  font-size: clamp(0.66rem, 1.3vw, 0.8rem);
+  line-height: 1.62;
   letter-spacing: 0.03em;
 }
 
 .hero-desc strong {
-  color: #ffffff;
+  color: #e9e0cb;
   font-weight: 700;
 }
+
+/* Arena wall flame lamps are part of the 3D scene (see edge ledge + lamps in
+   game.js) so they stay anchored to the map edges instead of the viewport. */
 
 /* Cards row below title */
 .hero-cards-row {
@@ -450,34 +582,35 @@ textarea:focus {
 }
 
 .home-btn-primary {
-  background: var(--gold-grad-btn);
-  color: #1a1200;
-  border: none;
-  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.28) inset, 0 6px 20px rgba(200, 148, 10, 0.35);
+  background: var(--gold-grad-btn-vintage);
+  color: #f4ecd2;
+  border: 1px solid rgba(228, 196, 128, 0.35);
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.6);
+  box-shadow: 0 1px 0 rgba(255, 235, 190, 0.22) inset, 0 6px 20px rgba(0, 0, 0, 0.5);
 }
 
 .home-btn-secondary {
-  background: #000000;
-  color: rgba(255, 255, 255, 0.65);
-  border: 1px solid rgba(255, 255, 255, 0.2);
+  background: #0c0a07;
+  color: rgba(233, 224, 200, 0.7);
+  border: 1px solid rgba(212, 160, 23, 0.28);
 }
 
 .home-btn-secondary:hover {
-  color: #ffffff;
-  border-color: rgba(255, 255, 255, 0.5);
-  background: #111111;
+  color: #f2e8cc;
+  border-color: rgba(212, 160, 23, 0.6);
+  background: #16110a;
 }
 
 .home-btn-ghost {
-  background: #000000;
-  color: rgba(255, 255, 255, 0.3);
-  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: #0c0a07;
+  color: rgba(233, 224, 200, 0.32);
+  border: 1px solid rgba(212, 160, 23, 0.12);
   min-width: auto;
   font-size: 0.62rem;
   letter-spacing: 0.12em;
 }
 
-.home-btn-ghost:hover { color: rgba(255, 255, 255, 0.6); background: #111111; }
+.home-btn-ghost:hover { color: rgba(233, 224, 200, 0.62); background: #16110a; }
 
 /* ===== X icon in nav ===== */
 .x-nav {
@@ -1607,7 +1740,7 @@ body.in-game .log-feed { top: 58px; }
 /* ===== In-match timer ===== */
 .match-timer {
   position: fixed;
-  top: 16px;
+  top: 56px; /* below the centered help bar */
   left: 50%;
   transform: translateX(-50%);
   z-index: 12;
@@ -1696,8 +1829,9 @@ body.in-game .game-hud-root {
 /* Hint */
 .hint {
   position: fixed;
-  top: 18px;
-  left: 18px;
+  top: 16px;
+  left: 50%;
+  transform: translateX(-50%);
   z-index: 10;
   font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
   font-size: 10px;
@@ -1740,7 +1874,7 @@ body.in-game .game-hud-root {
 /* Friendly match number — pinned under the match timer. */
 .match-no {
   position: fixed;
-  top: 66px;
+  top: 106px;
   left: 50%;
   transform: translateX(-50%);
   z-index: 12;
@@ -1805,8 +1939,8 @@ body.in-game .game-hud-root {
 
 .bar-level {
   font-size: 8px;
-  font-weight: 700;
-  color: #b8860b;
+  font-weight: 800;
+  color: #0a0a0a;
   letter-spacing: 0.06em;
   margin-bottom: 3px;
   white-space: nowrap;
@@ -2029,7 +2163,7 @@ body.in-game .game-hud-root {
 .gear {
   position: fixed;
   top: 16px;
-  right: 16px;
+  left: 16px;
   z-index: 12;
   width: 40px;
   height: 40px;
@@ -2116,7 +2250,7 @@ body.in-game .game-hud-root {
 
 .raider-count-ctrl {
   position: fixed;
-  top: 108px;
+  top: 78px;
   right: 16px;
   z-index: 12;
   display: flex;
@@ -2152,6 +2286,7 @@ body.in-game .game-hud-root {
 .rc-label { color: rgba(220, 235, 220, 0.85); font-size: 12px; white-space: nowrap; }
 .rc-num { color: #ffe8a0; font-size: 15px; font-weight: 700; margin-right: 2px; }
 
+.game-rivals,
 .game-fps,
 .game-ping {
   position: fixed;
@@ -2164,18 +2299,28 @@ body.in-game .game-hud-root {
   user-select: none;
 }
 
-.game-fps { top: 152px; }
-.game-ping { top: 170px; }
+.game-rivals {
+  top: 16px;
+  font-weight: 800;
+  color: var(--gold-lo);
+  text-shadow: 0 1px 1px rgba(255, 255, 255, 0.5);
+}
+.game-fps { top: 36px; }
+.game-ping { top: 54px; }
 
 /* Hide HUD toggle */
 .hud-hidden .hint,
 .hud-hidden .game-minimap,
 .hud-hidden .mm-label,
 .hud-hidden .hotbar,
+.hud-hidden .game-rivals,
 .hud-hidden .game-fps,
 .hud-hidden .game-ping {
   display: none !important;
 }
+
+/* The gear now owns the top-left corner — nudge status toasts right of it. */
+body.in-game .log-feed { left: 70px; }
 
 /* Settings overlay */
 .overlay {
@@ -2817,6 +2962,7 @@ body.in-game .game-hud-root {
 .mm-label,
 .bar-name,
 .slot,
+.game-rivals,
 .game-fps,
 .game-ping,
 .ms-text,
@@ -3011,7 +3157,7 @@ body.in-game .game-hud-root {
 @media (max-width: 640px) {
   .gear {
     top: 10px;
-    right: 10px;
+    left: 10px;
     width: 34px;
     height: 34px;
     font-size: 17px;
@@ -3026,7 +3172,7 @@ body.in-game .game-hud-root {
   }
 
   .raider-count-ctrl {
-    top: 50px;
+    top: 58px;
     right: 10px;
     height: 28px;
     padding: 0 8px;
@@ -3037,9 +3183,10 @@ body.in-game .game-hud-root {
   .rc-label { font-size: 10.5px; }
   .rc-num { font-size: 13px; }
 
-  .game-fps, .game-ping { right: 10px; font-size: 10px; }
-  .game-fps { top: 84px; }
-  .game-ping { top: 98px; }
+  .game-rivals, .game-fps, .game-ping { right: 10px; font-size: 10px; }
+  .game-rivals { top: 10px; }
+  .game-fps { top: 26px; }
+  .game-ping { top: 40px; }
 
   .match-timer { top: 10px; font-size: 16px; padding: 4px 10px; }
   .match-no { top: 42px; font-size: 9px; padding: 1px 7px; }

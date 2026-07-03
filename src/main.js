@@ -537,6 +537,33 @@ function bindUi() {
   els.howToOverlay.addEventListener("pointerdown", (e) => {
     if (e.target === els.howToOverlay) els.howToOverlay.classList.remove("show");
   });
+  // Nav center links + hamburger menu — same actions as the home buttons.
+  // startPvp() already falls back to signIn() when no wallet is connected.
+  const navMenu = document.getElementById("navMenu");
+  const hamburgerBtn = document.getElementById("navHamburgerBtn");
+  const closeNavMenu = () => {
+    navMenu?.classList.remove("open");
+    hamburgerBtn?.setAttribute("aria-expanded", "false");
+  };
+  const navActions = [
+    ["navPlayPvpBtn",     startPvp],
+    ["menuPlayPvpBtn",    startPvp],
+    ["navHowToBtn",       () => els.howToOverlay.classList.add("show")],
+    ["menuHowToBtn",      () => els.howToOverlay.classList.add("show")],
+    ["navWhitepaperBtn",  () => els.whitepaperOverlay?.classList.add("show")],
+    ["menuWhitepaperBtn", () => els.whitepaperOverlay?.classList.add("show")],
+  ];
+  navActions.forEach(([id, action]) =>
+    document.getElementById(id)?.addEventListener("click", () => { closeNavMenu(); action(); })
+  );
+  hamburgerBtn?.addEventListener("click", (e) => {
+    e.stopPropagation(); // keep the document click-away handler from re-closing it
+    const open = navMenu?.classList.toggle("open");
+    hamburgerBtn.setAttribute("aria-expanded", String(!!open));
+  });
+  document.addEventListener("click", (e) => {
+    if (navMenu?.classList.contains("open") && !navMenu.contains(e.target)) closeNavMenu();
+  });
   // In-game menu (Esc opens it — does NOT quit the match)
   els.resumeBtn.addEventListener("click", () => els.pauseOverlay.classList.remove("show"));
   els.pauseClose.addEventListener("click", () => els.pauseOverlay.classList.remove("show"));
@@ -566,6 +593,7 @@ function bindUi() {
   });
   window.addEventListener("keydown", (e) => {
     if (e.key !== "Escape") return;
+    if (navMenu?.classList.contains("open")) { closeNavMenu(); return; }
     const open = document.querySelector(".overlay.show");
     if (open) { open.classList.remove("show"); return; } // close topmost overlay
     if (state.match && !state.match.finished) els.pauseOverlay.classList.add("show");
