@@ -7,6 +7,7 @@ import { importSolanaWeb3, importSplToken, importDevtoolsDetector } from "./lazy
 import { createArenaGame } from "./game.js";
 import { escapeHtml } from "./utils.js";
 import { mountViews } from "./views/index.js";
+import { APPEARANCE_PRESETS } from "./appearance.js";
 
 mountViews();
 
@@ -494,7 +495,40 @@ const game = createArenaGame({
   }
 });
 
+// -- Player skin (profile → APPEARANCE tab) ----------------------------------
+// Two fixed skins; the chosen id is kept locally for instant boot and synced
+// to the wallet profile (profiles.skin_id) when signed in.
+const SKIN_KEY = "f10_skin";
+let activeSkin = "1";
+try { if (JSON.parse(localStorage.getItem(SKIN_KEY) || "null") === "2") activeSkin = "2"; } catch { /* corrupted storage → default */ }
+
+function applySkin(id, { persist = true } = {}) {
+  activeSkin = id === "2" ? "2" : "1";
+  game.setPlayerAppearance({ style: activeSkin, colors: APPEARANCE_PRESETS[activeSkin] });
+  document.querySelectorAll("#skinCards .skin-card").forEach((c) => c.classList.toggle("active", c.dataset.skin === activeSkin));
+  if (appearancePreview) appearancePreview.setAppearance(activeSkin, APPEARANCE_PRESETS[activeSkin]);
+  try { localStorage.setItem(SKIN_KEY, JSON.stringify(activeSkin)); } catch { /* private mode */ }
+  if (persist) saveSkinToProfile().catch((e) => console.error("skin save error:", e));
+}
+
+async function saveSkinToProfile() {
+  if (!state.user?.id) return;
+  const { error } = await supabase.from("profiles").update({ skin_id: Number(activeSkin) }).eq("user_id", state.user.id);
+  if (error) console.error("skin save error:", error);
+}
+
+// The preview owns a WebGL context, so it's created lazily the first time the
+// APPEARANCE tab is opened rather than at boot.
+let appearancePreview = null;
+function updateAppearancePreview() {
+  const host = document.getElementById("appearancePreview");
+  if (!host) return;
+  if (!appearancePreview) appearancePreview = game.mountAppearancePreview(host);
+  appearancePreview?.setAppearance(activeSkin, APPEARANCE_PRESETS[activeSkin]);
+}
+
 bindUi();
+applySkin(activeSkin, { persist: false });
 init();
 
 function bindUi() {
@@ -519,13 +553,7 @@ function bindUi() {
   els.profileSaveBtn.addEventListener("click", saveProfile);
   els.profileNameInput.addEventListener("keydown", (e) => { if (e.key === "Enter") saveProfile(); });
   els.profileTabs.forEach((t) => t.addEventListener("click", () => selectProfileTab(t.dataset.ptab)));
-  // Story Mode isn't playable yet — a click just shakes the COMING SOON pill.
-  const storyBtn = document.getElementById("storyModeBtn");
-  storyBtn?.addEventListener("click", () => {
-    storyBtn.classList.remove("nudge");
-    void storyBtn.offsetWidth; // restart the animation on rapid clicks
-    storyBtn.classList.add("nudge");
-  });
+  document.querySelectorAll("#skinCards .skin-card").forEach((c) => c.addEventListener("click", () => applySkin(c.dataset.skin)));
   els.pvpCancelBtn.addEventListener("click", () => leaveMatch());
   // Returning to the menu after a match fully reloads the page. This guarantees a
   // clean slate (3D scene, realtime channel, match state) for the next game.
@@ -612,6 +640,7 @@ function selectProfileTab(tab) {
   els.profileBodies.forEach((b) => b.classList.toggle("hidden", b.dataset.pbody !== tab));
   if (tab === "history") loadHistory().catch((e) => console.error(e));
   if (tab === "holdings") loadHoldings().catch((e) => console.error(e));
+  if (tab === "appearance") updateAppearancePreview();
 }
 
 async function init() {
@@ -692,6 +721,9 @@ async function handleSession(session) {
 
   try {
     await syncProfile();
+    // The wallet profile is the source of truth for the skin once signed in.
+    const serverSkin = state.profile?.skin_id;
+    if (serverSkin === 1 || serverSkin === 2) applySkin(String(serverSkin), { persist: false });
   } catch (error) {
     console.error("[handleSession]", error);
     setStatus(error.message || "Could not load profile.");

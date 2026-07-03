@@ -65,6 +65,9 @@ create table public.profiles (
   level        integer not null default 1,
   win_streak   integer not null default 0,
   best_streak  integer not null default 0,
+  -- Chosen character skin: 1 = Fighter, 2 = Knight
+  skin_id      smallint not null default 1
+    check (skin_id in (1, 2)),
   created_at   timestamptz not null default timezone('utc', now())
 );
 
@@ -1298,7 +1301,7 @@ using (public.is_match_member(match_id));
 -- ---------------------------------------------------------------------------
 -- 12. Grants
 -- ---------------------------------------------------------------------------
-grant select, update(display_name) on public.profiles to authenticated;
+grant select, update(display_name, skin_id) on public.profiles to authenticated;
 grant select on public.matches      to authenticated;
 grant select on public.match_players to authenticated;
 grant select, insert on public.match_damage to authenticated;
