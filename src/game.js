@@ -768,6 +768,17 @@ export function createArenaGame(options) {
     }
     return false;
   }
+  // Fish are moving obstacles: they block walking (a blocked fighter just
+  // stalls until the fish swims past) but never bullets or line of sight.
+  const FISH_BLOCK_R = 0.85;
+  function collidesFish(x, z, selfR) {
+    for (const F of riverFish) {
+      const dx = x - F.g.position.x, dz = z - F.g.position.z;
+      const rr = FISH_BLOCK_R + selfR;
+      if (dx * dx + dz * dz < rr * rr) return true;
+    }
+    return false;
+  }
   // True if the segment A→B passes within any solid's radius (attack deflected).
   function losBlocked(ax, az, bx, bz) {
     for (const s of solids) {
@@ -1060,30 +1071,6 @@ export function createArenaGame(options) {
     rctx.lineWidth = lw; rctx.lineCap = "round"; rctx.lineJoin = "round";
     drawPath(); rctx.stroke(); rctx.restore();
 
-    // Gold sprinkles along both banks — baked into the same texture so they
-    // hug the exact drawn curve (echoes the gold trim on the arena edges).
-    const bankPx = (hw / MAP_WORLD) * CS; // river half-width in canvas px
-    for (let i = 1; i < sampledPts.length - 1; i++) {
-      const prev = sampledPts[i - 1], next = sampledPts[i + 1];
-      const dxs = next.x - prev.x, dzs = next.z - prev.z;
-      const dlen = Math.hypot(dxs, dzs) || 1;
-      const perpU = -dzs / dlen, perpV = dxs / dlen;
-      const cu = toU(sampledPts[i].x), cv = toV(sampledPts[i].z);
-      [-1, 1].forEach((side) => {
-        const dots = 1 + Math.floor(rng() * 2); // 1–2 flecks per sample per bank
-        for (let d = 0; d < dots; d++) {
-          const rOff = bankPx + (rng() * 2 - 1) * bankPx * 0.18; // jitter straddles the bank line
-          const u = cu + perpU * rOff * side + (rng() * 2 - 1) * 2;
-          const v = cv + perpV * rOff * side + (rng() * 2 - 1) * 2;
-          const rad = 0.7 + rng() * 1.5;
-          rctx.fillStyle = rng() < 0.5
-            ? `rgba(242,206,91,${(0.5 + rng() * 0.45).toFixed(2)})`
-            : `rgba(212,160,23,${(0.45 + rng() * 0.4).toFixed(2)})`;
-          rctx.beginPath(); rctx.arc(u, v, rad, 0, Math.PI * 2); rctx.fill();
-        }
-      });
-    }
-
     const tex   = new THREE.CanvasTexture(rc);
     const plane = new THREE.Mesh(
       new THREE.PlaneGeometry(MAP_WORLD, MAP_WORLD),
@@ -1292,7 +1279,7 @@ export function createArenaGame(options) {
     const nx = Math.max(-lim, Math.min(lim, px + ndx * step));
     const nz = Math.max(-lim, Math.min(lim, pz + ndz * step));
     f.facing = Math.atan2(dx, dz);
-    if (!collidesSolid(nx, nz, BODY_R)) {
+    if (!collidesSolid(nx, nz, BODY_R) && !collidesFish(nx, nz, BODY_R)) {
       f.group.position.x = nx; f.group.position.z = nz;
       f.walkPhase += dt * f.speed * 1.6;
       f.moving = true;
@@ -1329,7 +1316,7 @@ export function createArenaGame(options) {
       const tdist = Math.hypot(tdx, tdz) || 1;
       const anx = Math.max(-lim, Math.min(lim, px + (tdx / tdist) * step));
       const anz = Math.max(-lim, Math.min(lim, pz + (tdz / tdist) * step));
-      if (!collidesSolid(anx, anz, BODY_R)) {
+      if (!collidesSolid(anx, anz, BODY_R) && !collidesFish(anx, anz, BODY_R)) {
         f.group.position.x = anx; f.group.position.z = anz;
         f.facing = Math.atan2(tdx, tdz);
         f.walkPhase += dt * f.speed * 1.6;
@@ -1340,12 +1327,12 @@ export function createArenaGame(options) {
 
     // Tangent also blocked (tight gap) — try sliding along each axis separately.
     const axX = Math.max(-lim, Math.min(lim, px + ndx * step));
-    if (!collidesSolid(axX, pz, BODY_R)) {
+    if (!collidesSolid(axX, pz, BODY_R) && !collidesFish(axX, pz, BODY_R)) {
       f.group.position.x = axX;
       f.walkPhase += dt * f.speed * 1.6; f.moving = true;
     } else {
       const azZ = Math.max(-lim, Math.min(lim, pz + ndz * step));
-      if (!collidesSolid(px, azZ, BODY_R)) {
+      if (!collidesSolid(px, azZ, BODY_R) && !collidesFish(px, azZ, BODY_R)) {
         f.group.position.z = azZ;
         f.walkPhase += dt * f.speed * 1.6; f.moving = true;
       }
