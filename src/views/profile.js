@@ -58,6 +58,7 @@ export const html = `
       </div>
 
       <div class="tab-body hidden" data-pbody="appearance">
+        <div class="appearance-preview" id="appearancePreview"></div>
         <div class="section">CHARACTER STYLE</div>
         <div class="skin-cards" id="skinCards">
           <button class="skin-card" type="button" data-skin="1"><span class="skin-card-num">1</span><span class="skin-card-name">FIGHTER</span></button>

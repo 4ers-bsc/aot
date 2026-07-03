@@ -530,6 +530,17 @@ function applyAppearance() {
   game.setPlayerAppearance({ style: appearanceState.active, colors: appearanceState.colors[appearanceState.active] });
   saveAppearanceState();
   renderAppearanceTab();
+  if (appearancePreview) appearancePreview.setAppearance(appearanceState.active, appearanceState.colors[appearanceState.active]);
+}
+
+// The preview owns a WebGL context, so it's created lazily the first time the
+// APPEARANCE tab is opened rather than at boot.
+let appearancePreview = null;
+function updateAppearancePreview() {
+  const host = document.getElementById("appearancePreview");
+  if (!host) return;
+  if (!appearancePreview) appearancePreview = game.mountAppearancePreview(host);
+  appearancePreview?.setAppearance(appearanceState.active, appearanceState.colors[appearanceState.active]);
 }
 
 function renderAppearanceTab() {
@@ -679,6 +690,7 @@ function selectProfileTab(tab) {
   els.profileBodies.forEach((b) => b.classList.toggle("hidden", b.dataset.pbody !== tab));
   if (tab === "history") loadHistory().catch((e) => console.error(e));
   if (tab === "holdings") loadHoldings().catch((e) => console.error(e));
+  if (tab === "appearance") updateAppearancePreview();
 }
 
 async function init() {

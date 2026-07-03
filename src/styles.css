@@ -3163,6 +3163,27 @@ body.in-game .log-feed { left: 70px; }
 .perk-row-center { justify-content: center; }
 
 /* Profile → APPEARANCE tab */
+.appearance-preview {
+  position: relative;
+  width: 100%;
+  /* Big on desktop, scales down with the viewport so the swatches below stay
+     reachable on phones (the panel itself is capped at 88vh). */
+  height: clamp(180px, 36vh, 320px);
+  margin-bottom: 14px;
+  border-radius: 12px;
+  border: 1px solid rgba(217, 168, 33, 0.18);
+  background:
+    radial-gradient(ellipse at 50% 32%, rgba(217, 168, 33, 0.09), transparent 65%),
+    linear-gradient(180deg, #111111 0%, #0a0a0a 100%);
+  overflow: hidden;
+}
+
+.appearance-preview canvas {
+  display: block;
+  width: 100% !important;
+  height: 100% !important;
+}
+
 .skin-cards { display: flex; gap: 8px; }
 
 .skin-card {

@@ -918,6 +918,65 @@ export function createArenaGame(options) {
     b.armR.add(f.swordMesh, f.pistolMesh, f.sniperMesh, f.grenadeMesh);
     updateWeaponVis(f);
   }
+  // Live turntable preview of a body style, mounted inside a DOM element (the
+  // profile's APPEARANCE tab). Owns a small separate renderer/scene; it only
+  // renders while the host is actually visible (a display:none ancestor makes
+  // offsetParent null), so the hidden tab costs nothing.
+  function mountAppearancePreview(host) {
+    let pr;
+    try {
+      pr = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+    } catch (err) {
+      console.error("appearance preview unavailable:", err);
+      return null;
+    }
+    pr.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    host.appendChild(pr.domElement);
+    const pScene = new THREE.Scene();
+    const pCam = new THREE.PerspectiveCamera(30, 1, 0.1, 50);
+    pCam.position.set(0, 2.0, 7.4);
+    pCam.lookAt(0, 1.4, 0);
+    pScene.add(new THREE.HemisphereLight(0xffffff, 0x3a3a3a, 1.0));
+    const key = new THREE.DirectionalLight(0xffffff, 0.75);
+    key.position.set(2.5, 4, 3);
+    pScene.add(key);
+    let body = null;
+    function resize() {
+      const w = host.clientWidth || 1, h = host.clientHeight || 1;
+      pr.setSize(w, h, false);
+      pCam.aspect = w / h;
+      pCam.updateProjectionMatrix();
+    }
+    const ro = new ResizeObserver(resize);
+    ro.observe(host);
+    resize();
+    let raf = 0;
+    (function loop() {
+      raf = requestAnimationFrame(loop);
+      if (!host.offsetParent) return;
+      if (body) body.rotation.y += 0.008;
+      pr.render(pScene, pCam);
+    })();
+    return {
+      setAppearance(style, colors) {
+        if (body) { pScene.remove(body); disposeObject3D(body); }
+        const b = style === "2" ? buildKnightBody(colors) : buildMartialBody(colors);
+        b.armR.add(makeSword(style === "2" ? colors.trim : null));
+        body = new THREE.Group();
+        body.add(...b.nodes);
+        body.rotation.y = 0.5;
+        pScene.add(body);
+        resize();
+      },
+      destroy() {
+        cancelAnimationFrame(raf);
+        ro.disconnect();
+        if (body) { pScene.remove(body); disposeObject3D(body); }
+        pr.dispose();
+        pr.domElement.remove();
+      }
+    };
+  }
   function makeFighter(cfg) {
     const g = new THREE.Group();
     g.position.copy(cfg.pos);
@@ -2645,6 +2704,7 @@ export function createArenaGame(options) {
         : null;
       applyBody(player, playerAppearance?.style || "1", playerAppearance?.colors || theme.player);
     },
+    mountAppearancePreview,
     setView(view) {
       viewIsGame = view === "game";
       document.body.classList.toggle("in-game", viewIsGame);
@@ -3069,6 +3129,7 @@ function stubApi() {
     clearRemote: noop, resetForMatch: noop, receivePlayerState: noop,
     receiveAttack: noop, generateMap: noop, clearAll: noop, destroy: noop,
     setMapVariant: noop, showMapToggle: noop, showRaiderCount: noop, setAiCount: noop,
-    setPing: noop, openSettings: noop, setPlayerAppearance: noop
+    setPing: noop, openSettings: noop, setPlayerAppearance: noop,
+    mountAppearancePreview: () => null
   };
 }
