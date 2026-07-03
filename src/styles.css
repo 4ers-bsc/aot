@@ -115,6 +115,40 @@ textarea:focus {
   display: none !important;
 }
 
+/* ===== Reveal animations (home) ============================================
+   Elements tagged data-reveal start hidden and slide/fade in once they enter
+   the viewport (src/reveal.js adds .reveal-in via IntersectionObserver).
+   Desktop shows the whole home in one viewport, so this plays as a staggered
+   entrance; on narrow screens the page scrolls and below-the-fold content
+   reveals as it comes into view. Stagger with --reveal-delay per element.
+   Tag containers/tiles, not interactive elements — the transition here would
+   override a button's own hover/active transitions. */
+[data-reveal] {
+  opacity: 0;
+  transition:
+    opacity 0.7s cubic-bezier(0.22, 1, 0.36, 1) var(--reveal-delay, 0s),
+    transform 0.7s cubic-bezier(0.22, 1, 0.36, 1) var(--reveal-delay, 0s);
+}
+
+[data-reveal="fade-up"]    { transform: translateY(26px); }
+[data-reveal="fade-down"]  { transform: translateY(-22px); }
+[data-reveal="fade-left"]  { transform: translateX(30px); }
+[data-reveal="fade-right"] { transform: translateX(-30px); }
+[data-reveal="zoom"]       { transform: scale(0.9); }
+
+[data-reveal].reveal-in {
+  opacity: 1;
+  transform: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  [data-reveal] {
+    opacity: 1;
+    transform: none;
+    transition: none;
+  }
+}
+
 .shell,
 .arena-shell {
   position: relative;

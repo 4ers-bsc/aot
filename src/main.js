@@ -6,6 +6,7 @@ import { createClient } from "@supabase/supabase-js";
 import { importSolanaWeb3, importSplToken, importDevtoolsDetector } from "./lazy-deps.js";
 import { createArenaGame } from "./game.js";
 import { escapeHtml } from "./utils.js";
+import { initReveal } from "./reveal.js";
 import { mountViews } from "./views/index.js";
 import { APPEARANCE_PRESETS } from "./appearance.js";
 
@@ -698,6 +699,9 @@ async function init() {
   if (statusEl) statusEl.textContent = "Ready";
   setTimeout(() => {
     if (loadingEl) { loadingEl.classList.add("fade-out"); setTimeout(() => loadingEl.remove(), 500); }
+    // Start the home reveal animations only now that the splash is fading —
+    // any earlier and the entrance would play hidden behind it.
+    initReveal();
   }, 350);
 }
 
