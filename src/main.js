@@ -546,8 +546,31 @@ function updateAppearancePreview() {
   appearancePreview?.setAppearance(activeSkin, APPEARANCE_PRESETS[activeSkin]);
 }
 
+// -- Home layout (bottom-left switcher) ---------------------------------------
+// Three arrangements of the homepage — classic (centered + bottom info strip),
+// command (left-aligned briefing + right info rail), focus (title and actions
+// only). The choice is applied as body[data-home-layout] so styles.css can
+// restyle the existing markup, and remembered on this device.
+const HOME_LAYOUT_KEY = "f10_home_layout";
+const HOME_LAYOUTS = ["classic", "command", "focus"];
+
+function applyHomeLayout(layout) {
+  const l = HOME_LAYOUTS.includes(layout) ? layout : "classic";
+  document.body.dataset.homeLayout = l;
+  document.querySelectorAll("#homeLayoutSwitcher .hls-btn").forEach((b) => {
+    const active = b.dataset.layout === l;
+    b.classList.toggle("active", active);
+    b.setAttribute("aria-pressed", String(active));
+  });
+  try { localStorage.setItem(HOME_LAYOUT_KEY, l); } catch (_) { /* private mode */ }
+}
+
+let savedHomeLayout = "classic";
+try { savedHomeLayout = localStorage.getItem(HOME_LAYOUT_KEY) || "classic"; } catch (_) { /* private mode */ }
+
 bindUi();
 applySkin(activeSkin);
+applyHomeLayout(savedHomeLayout);
 init();
 
 function bindUi() {
@@ -578,6 +601,8 @@ function bindUi() {
     applySkin(c.dataset.skin);
   }));
   document.getElementById("skinSaveBtn")?.addEventListener("click", () => saveSkin().catch((e) => console.error("skin save error:", e)));
+  document.querySelectorAll("#homeLayoutSwitcher .hls-btn").forEach((b) =>
+    b.addEventListener("click", () => applyHomeLayout(b.dataset.layout)));
   els.pvpCancelBtn.addEventListener("click", () => leaveMatch());
   // Returning to the menu after a match fully reloads the page. This guarantees a
   // clean slate (3D scene, realtime channel, match state) for the next game.

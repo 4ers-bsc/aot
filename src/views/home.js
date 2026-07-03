@@ -54,4 +54,14 @@ export const html = `
       <div class="info-tile-desc">Players in the<br>game right now.</div>
     </div>
   </div>
+
+  <!-- ===== Home layout switcher (bottom-left) =====
+       Three arrangements of the same homepage content. The choice is applied
+       as body[data-home-layout] and remembered per device (see main.js). -->
+  <div class="home-layout-switcher" id="homeLayoutSwitcher" role="group" aria-label="Homepage layout">
+    <span class="hls-label">LAYOUT</span>
+    <button class="hls-btn" data-layout="classic" type="button" aria-pressed="true" title="Centered hero with the info strip along the bottom">CLASSIC</button>
+    <button class="hls-btn" data-layout="command" type="button" aria-pressed="false" title="Left-aligned briefing with the info tiles as a side rail">COMMAND</button>
+    <button class="hls-btn" data-layout="focus" type="button" aria-pressed="false" title="Minimal — just the title, tagline, and actions">FOCUS</button>
+  </div>
 `;
