@@ -626,7 +626,8 @@ export function createArenaGame(options) {
   }
 
   // -- Map obstacles --------------------------------------------------------
-  // Trees & snow mountains block movement and deflect attacks; the river slows
+  // Trees & snow mountains block movement and deflect attacks; fallen logs are
+  // ankle-high so they block movement but shots fly over them; the river slows
   // movement and weakens attacks. Built deterministically from a seed so every
   // client in a match shares the exact same layout.
   const BODY_R = 0.6;
@@ -634,7 +635,7 @@ export function createArenaGame(options) {
   const RIVER_ATK = 0.5;
   const mapGroup = new THREE.Group();
   scene.add(mapGroup);
-  let solids = [];        // { x, z, r } — blocks movement + line of sight
+  let solids = [];        // { x, z, r, low? } — blocks movement; low ones don't block shots
   let riverSegments = []; // array of {x,z} waypoints defining the river centre-line
   let riverHalfW = 0;     // half-width of the river for capsule checks
 
@@ -678,6 +679,7 @@ export function createArenaGame(options) {
   // True if the segment A→B passes within any solid's radius (attack deflected).
   function losBlocked(ax, az, bx, bz) {
     for (const s of solids) {
+      if (s.low) continue; // ankle-high obstacles never deflect attacks
       const abx = bx - ax, abz = bz - az;
       const len2 = abx * abx + abz * abz || 1e-6;
       let t = ((s.x - ax) * abx + (s.z - az) * abz) / len2;
@@ -697,6 +699,7 @@ export function createArenaGame(options) {
     const dx = abx / len, dz = abz / len;
     let bestT = Infinity, hit = null;
     for (const s of solids) {
+      if (s.low) continue; // shots fly over ankle-high obstacles
       const fx = ax - s.x, fz = az - s.z;
       const b = 2 * (fx * dx + fz * dz);
       const c = fx * fx + fz * fz - s.r * s.r;
@@ -869,10 +872,21 @@ export function createArenaGame(options) {
     );
     snowMesh.position.y = thick * 2;  // top surface of the cylinder
     g.add(logMesh, snowMesh);
-    g.rotation.y = rng() * Math.PI;
+    const ry = rng() * Math.PI;
+    g.rotation.y = ry;
     g.position.set(x, 0, z);
     mapGroup.add(g);
-    // Logs are thin — no solid entry, fighters step around them naturally
+    // Logs stop movement too: approximate the trunk with a chain of small
+    // solids along its axis. They're ankle-high, so `low` keeps attacks
+    // flying over them (losBlocked / rayBlockHit skip low solids).
+    const dirX = Math.cos(ry), dirZ = -Math.sin(ry); // local X axis after Y-rotation
+    const solidR = 0.42;
+    const span = len / 2 - solidR * 0.5;
+    const count = Math.max(2, Math.ceil(len / solidR));
+    for (let i = 0; i < count; i++) {
+      const t = (i / (count - 1)) * 2 - 1; // -1 … 1 along the trunk
+      solids.push({ x: x + dirX * span * t, z: z + dirZ * span * t, r: solidR, low: true });
+    }
   }
   function buildRiver(rng) {
     const hw    = 7 + rng() * 5;                    // half-width 7–12 → river 14–24 u wide
