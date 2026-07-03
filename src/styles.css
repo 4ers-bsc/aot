@@ -119,13 +119,15 @@ textarea:focus {
 }
 
 /* ===== Reveal animations (home) ============================================
-   Elements tagged data-reveal start hidden and slide/fade in once they enter
-   the viewport (src/reveal.js adds .reveal-in via IntersectionObserver).
-   Desktop shows the whole home in one viewport, so this plays as a staggered
-   entrance; on narrow screens the page scrolls and below-the-fold content
-   reveals as it comes into view. Stagger with --reveal-delay per element.
-   Tag containers/tiles, not interactive elements — the transition here would
-   override a button's own hover/active transitions. */
+   Elements tagged data-reveal start hidden. Two systems bring them in
+   (src/reveal.js): first-screen elements get .reveal-in for a one-shot timed
+   entrance, while the detail sections are scroll-BOUND — .reveal-scrub marks
+   them and JS interpolates inline opacity/transform from scroll position
+   every frame, so scrolling scrubs them in and out. Stagger with
+   --reveal-delay per element (seconds for the entrance; reused as a
+   fractional scrub offset). Tag containers/tiles, not interactive elements —
+   the transition here would override a button's own hover/active
+   transitions, and scrub frames would fight them. */
 [data-reveal] {
   opacity: 0;
   transition:
@@ -142,6 +144,13 @@ textarea:focus {
 [data-reveal].reveal-in {
   opacity: 1;
   transform: none;
+}
+
+/* Scroll-bound elements: JS writes opacity/transform per frame, so the
+   transition must not lag those writes. The hidden state above still covers
+   the moment before the first frame runs. */
+[data-reveal].reveal-scrub {
+  transition: none;
 }
 
 @media (prefers-reduced-motion: reduce) {
