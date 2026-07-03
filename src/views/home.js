@@ -55,13 +55,16 @@ export const html = `
     </div>
   </div>
 
-  <!-- ===== Home layout switcher (bottom-left) =====
-       Three arrangements of the same homepage content. The choice is applied
-       as body[data-home-layout] and remembered per device (see main.js). -->
-  <div class="home-layout-switcher" id="homeLayoutSwitcher" role="group" aria-label="Homepage layout">
-    <span class="hls-label">LAYOUT</span>
-    <button class="hls-btn" data-layout="classic" type="button" aria-pressed="true" title="Centered hero with the info strip along the bottom">CLASSIC</button>
-    <button class="hls-btn" data-layout="command" type="button" aria-pressed="false" title="Left-aligned briefing with the info tiles as a side rail">COMMAND</button>
-    <button class="hls-btn" data-layout="focus" type="button" aria-pressed="false" title="Minimal — just the title, tagline, and actions">FOCUS</button>
+  <!-- ===== Home theme switcher (bottom-left) =====
+       Five complete restylings of the homepage (palette, type, arrangement).
+       The choice is applied as body[data-home-theme] and remembered per
+       device (see main.js). -->
+  <div class="home-theme-switcher" id="homeThemeSwitcher" role="group" aria-label="Homepage theme">
+    <span class="hts-label">THEME</span>
+    <button class="hts-btn" data-theme="vintage" type="button" aria-pressed="true" title="Gold on black — centered hero with the info strip along the bottom">VINTAGE</button>
+    <button class="hts-btn" data-theme="crimson" type="button" aria-pressed="false" title="Red war room — left-aligned briefing with an info rail on the right">CRIMSON</button>
+    <button class="hts-btn" data-theme="neon" type="button" aria-pressed="false" title="Cyan and magenta arcade — glowing title with floating info cards">NEON</button>
+    <button class="hts-btn" data-theme="arctic" type="button" aria-pressed="false" title="Light frost — minimal title, tagline, and actions only">ARCTIC</button>
+    <button class="hts-btn" data-theme="terminal" type="button" aria-pressed="false" title="Green console — prompt title and command-list buttons">TERMINAL</button>
   </div>
 `;

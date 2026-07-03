@@ -3501,42 +3501,50 @@ body.in-game .log-feed { left: 70px; }
 #whitepaperOverlay .wp-foot { color: #888888; border-top: 1px solid #e2e2e2; }
 
 /* ===========================================================================
-   Home layout variants — three arrangements of the same homepage content,
-   picked from the switcher in the bottom-left corner. The active layout is
-   set as body[data-home-layout] by main.js and remembered per device.
+   Home themes — five complete restylings of the homepage (palette, type, and
+   arrangement), picked from the switcher pinned to the bottom-left corner.
+   main.js applies the choice as body[data-home-theme] and remembers it per
+   device.
 
-     classic  — centered hero, action row above the full-width info strip
-                (the default; base styles above ARE this layout)
-     command  — left-aligned briefing: hero + actions on the left, the info
-                tiles restacked as a rail down the right edge
-     focus    — minimal: oversized centered title, slimmed tagline, actions
-                only — the info strip is dropped entirely
+     vintage  — the default gold-on-black look: centered hero, action row,
+                full-width info strip (the base styles above ARE this theme)
+     crimson  — red/black war room: Oswald type, one-line title on the left,
+                info tiles restacked as a rail down the right edge
+     neon     — cyan/magenta arcade: Rajdhani type, glowing centered title,
+                info tiles as a floating card grid
+     arctic   — light frost: dark slate type over a pale veil, minimal
+                layout with no info strip, light nav
+     terminal — green phosphor console: monospace type, prompt-style title
+                and a command-list button column on the left, readout rail
+                on the right
 
-   All overrides are scoped to desktop widths: below 861px the home content
-   flows statically (see the responsive block above) and the variants would
-   fight it, so mobile always gets the flow layout and the switcher hides.
+   Palette/typography skins apply at every width; geometry overrides live in
+   the min-width:861px block at the end, because below that the home content
+   flows statically (see the responsive block above) and keeps the flow
+   arrangement in every theme.
    =========================================================================== */
 
-/* ----- Switcher ----- */
-.home-layout-switcher {
+/* ----- Theme switcher (bottom-left) ----- */
+.home-theme-switcher {
   position: absolute;
   left: 18px;
-  bottom: 104px; /* just above the 90px info strip */
+  bottom: 104px; /* vintage: clear the 90px info strip */
   z-index: 7;
   display: flex;
-  align-items: center;
-  gap: 4px;
-  padding: 5px 7px;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 3px;
+  padding: 7px;
   border: 1px solid rgba(212, 160, 23, 0.28);
-  border-radius: 5px;
+  border-radius: 6px;
   background: linear-gradient(170deg, rgba(16, 13, 8, 0.92), rgba(8, 7, 5, 0.92));
   backdrop-filter: blur(10px);
   -webkit-backdrop-filter: blur(10px);
   box-shadow: 0 8px 26px rgba(0, 0, 0, 0.55), inset 0 1px 0 rgba(255, 235, 190, 0.06);
 }
 
-.hls-label {
-  padding: 0 6px 0 3px;
+.hts-label {
+  padding: 0 5px 5px;
   font-family: var(--font-head);
   font-size: 0.5rem;
   letter-spacing: 0.24em;
@@ -3544,25 +3552,26 @@ body.in-game .log-feed { left: 70px; }
   user-select: none;
 }
 
-.hls-btn {
-  padding: 6px 10px 5px;
+.hts-btn {
+  padding: 5px 12px 4px;
+  text-align: left;
   border: 1px solid transparent;
   border-radius: 3px;
   background: none;
   font-family: var(--font-head);
   font-size: 0.56rem;
-  letter-spacing: 0.16em;
+  letter-spacing: 0.14em;
   text-transform: uppercase;
   color: rgba(233, 224, 200, 0.55);
 }
 
-.hls-btn:hover {
+.hts-btn:hover {
   color: #f2e8cc;
-  background: rgba(212, 160, 23, 0.1);
+  background: rgba(255, 255, 255, 0.07);
   transform: none;
 }
 
-.hls-btn.active {
+.hts-btn.active {
   color: #2a1e06;
   background: var(--gold-grad);
   border-color: rgba(255, 235, 190, 0.5);
@@ -3571,51 +3580,506 @@ body.in-game .log-feed { left: 70px; }
 }
 
 /* The switcher is home-only chrome — never over the live match. */
-body.in-game .home-layout-switcher { display: none !important; }
+body.in-game .home-theme-switcher { display: none !important; }
 
+/* Below 861px the home content flows; the switcher joins the flow after the
+   info strip (as a horizontal pill row) instead of pinning to a corner. */
+@media (max-width: 860px) {
+  .home-theme-switcher {
+    position: static;
+    flex-direction: row;
+    flex-wrap: wrap;
+    align-items: center;
+    width: max-content;
+    max-width: calc(100vw - 32px);
+    margin: 14px 16px 20px;
+  }
+  .hts-label { padding: 0 6px 0 3px; }
+}
+
+/* ===========================================================================
+   CRIMSON — red/black war room (Oswald)
+   =========================================================================== */
+body[data-home-theme="crimson"] .hero-big-fight,
+body[data-home-theme="crimson"] .hero-big-10 {
+  font-family: "Oswald", "Arial Narrow", sans-serif;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+}
+body[data-home-theme="crimson"] .hero-big-fight {
+  background: linear-gradient(180deg, #ffffff 0%, #d8d8d8 55%, #9a9a9a 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+}
+body[data-home-theme="crimson"] .hero-big-10 {
+  background: linear-gradient(180deg, #ff6255 0%, #d31f1f 50%, #7c0e0e 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+}
+body[data-home-theme="crimson"] .hero-subtitle {
+  font-family: "Oswald", "Arial Narrow", sans-serif;
+  font-weight: 600;
+  color: #ff7b6e;
+  letter-spacing: 0.42em;
+}
+body[data-home-theme="crimson"] .hero-subtitle::before {
+  background: linear-gradient(90deg, transparent, rgba(224, 43, 43, 0.9));
+}
+body[data-home-theme="crimson"] .hero-subtitle::after {
+  background: linear-gradient(90deg, rgba(224, 43, 43, 0.9), transparent);
+}
+body[data-home-theme="crimson"] .hero-tagline {
+  border: 1px solid rgba(224, 43, 43, 0.35);
+  border-top: 2px solid rgba(224, 43, 43, 0.7);
+  background:
+    radial-gradient(ellipse at 50% 0%, rgba(224, 43, 43, 0.14), transparent 55%),
+    linear-gradient(160deg, rgba(26, 7, 7, 0.95) 0%, rgba(12, 4, 4, 0.93) 100%);
+  box-shadow: 0 4px 32px rgba(0, 0, 0, 0.55), inset 0 1px 0 rgba(255, 120, 110, 0.12);
+}
+body[data-home-theme="crimson"] .hero-desc { color: #cdb6b0; }
+body[data-home-theme="crimson"] .hero-desc strong { color: #ffe3dc; }
+body[data-home-theme="crimson"] .home-btn {
+  font-family: "Oswald", "Arial Narrow", sans-serif;
+  font-weight: 600;
+  letter-spacing: 0.24em;
+  border-radius: 0;
+}
+body[data-home-theme="crimson"] .home-btn-primary {
+  background: linear-gradient(180deg, #e04040 0%, #8f1414 100%);
+  color: #ffffff;
+  border: 1px solid rgba(255, 120, 110, 0.45);
+}
+body[data-home-theme="crimson"] .home-btn-secondary {
+  background: #0c0707;
+  color: rgba(255, 220, 214, 0.7);
+  border: 1px solid rgba(224, 43, 43, 0.35);
+}
+body[data-home-theme="crimson"] .home-btn-secondary:hover {
+  color: #ffe3dc;
+  border-color: rgba(224, 43, 43, 0.7);
+  background: #160a0a;
+}
+body[data-home-theme="crimson"] .info-strip { background: rgba(10, 3, 3, 0.8); }
+body[data-home-theme="crimson"] .info-tile-icon { color: #e04040; }
+body[data-home-theme="crimson"] .info-tile-label {
+  font-family: "Oswald", "Arial Narrow", sans-serif;
+  font-weight: 600;
+  letter-spacing: 0.28em;
+}
+body[data-home-theme="crimson"] .info-tile-multiplier {
+  border: 1px solid rgba(224, 43, 43, 0.55);
+  background: rgba(224, 43, 43, 0.07);
+}
+body[data-home-theme="crimson"] .info-tile-multiplier .info-tile-multi {
+  color: #ff7b6e;
+  text-shadow: 0 0 12px rgba(224, 43, 43, 0.35);
+}
+body[data-home-theme="crimson"] .nav-connect-btn {
+  background: linear-gradient(180deg, #c23232 0%, #7c1010 100%);
+  color: #ffe9e6;
+  border-color: rgba(255, 120, 110, 0.4);
+}
+body[data-home-theme="crimson"] .home-theme-switcher { border-color: rgba(224, 43, 43, 0.3); }
+body[data-home-theme="crimson"] .hts-btn.active {
+  background: linear-gradient(180deg, #ff6255 0%, #a51616 100%);
+  color: #ffffff;
+  border-color: rgba(255, 130, 120, 0.5);
+  text-shadow: none;
+}
+
+/* ===========================================================================
+   NEON — cyan/magenta arcade (Rajdhani)
+   =========================================================================== */
+body[data-home-theme="neon"] .hero-big-fight,
+body[data-home-theme="neon"] .hero-big-10 {
+  font-family: "Rajdhani", "Arial Narrow", sans-serif;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+}
+body[data-home-theme="neon"] .hero-big-fight {
+  background: linear-gradient(180deg, #c4f6ff 0%, #3fd9f6 55%, #0d90b6 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  filter: drop-shadow(0 2px 0 rgba(0, 0, 0, 0.85)) drop-shadow(0 0 26px rgba(63, 217, 246, 0.4));
+}
+body[data-home-theme="neon"] .hero-big-10 {
+  background: linear-gradient(180deg, #ffa5d8 0%, #ff36a3 55%, #b01371 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  filter: drop-shadow(0 2px 0 rgba(0, 0, 0, 0.85)) drop-shadow(0 0 26px rgba(255, 54, 163, 0.4));
+}
+body[data-home-theme="neon"] .hero-subtitle {
+  font-family: "Rajdhani", "Arial Narrow", sans-serif;
+  font-weight: 700;
+  color: #8ceaff;
+  letter-spacing: 0.5em;
+  text-shadow: 0 0 14px rgba(63, 217, 246, 0.45);
+}
+body[data-home-theme="neon"] .hero-subtitle::before {
+  background: linear-gradient(90deg, transparent, rgba(63, 217, 246, 0.85));
+}
+body[data-home-theme="neon"] .hero-subtitle::after {
+  background: linear-gradient(90deg, rgba(63, 217, 246, 0.85), transparent);
+}
+body[data-home-theme="neon"] .hero-tagline {
+  border: 1px solid rgba(63, 217, 246, 0.35);
+  border-top: 2px solid rgba(255, 54, 163, 0.55);
+  border-radius: 12px;
+  background:
+    radial-gradient(ellipse at 50% 0%, rgba(255, 54, 163, 0.1), transparent 55%),
+    linear-gradient(160deg, rgba(5, 14, 22, 0.92) 0%, rgba(4, 8, 14, 0.9) 100%);
+  box-shadow: 0 4px 32px rgba(0, 0, 0, 0.55), 0 0 24px rgba(63, 217, 246, 0.1);
+}
+body[data-home-theme="neon"] .hero-desc {
+  font-family: "Rajdhani", "Arial Narrow", sans-serif;
+  font-weight: 500;
+  color: #a9c6d2;
+}
+body[data-home-theme="neon"] .hero-desc strong { color: #dff6ff; }
+body[data-home-theme="neon"] .home-btn {
+  font-family: "Rajdhani", "Arial Narrow", sans-serif;
+  font-weight: 700;
+  letter-spacing: 0.26em;
+  border-radius: 999px;
+}
+body[data-home-theme="neon"] .home-btn-primary {
+  background: linear-gradient(180deg, #54e0fa 0%, #0d90b6 100%);
+  color: #02222d;
+  border: 1px solid rgba(180, 240, 255, 0.5);
+  text-shadow: none;
+  box-shadow: 0 0 22px rgba(63, 217, 246, 0.35), inset 0 1px 0 rgba(255, 255, 255, 0.35);
+}
+body[data-home-theme="neon"] .home-btn-secondary {
+  background: rgba(5, 14, 22, 0.75);
+  color: #8ceaff;
+  border: 1px solid rgba(63, 217, 246, 0.4);
+}
+body[data-home-theme="neon"] .home-btn-secondary:hover {
+  color: #dff6ff;
+  border-color: rgba(63, 217, 246, 0.8);
+  background: rgba(9, 24, 36, 0.85);
+}
+body[data-home-theme="neon"] .info-tile-icon { color: #3fd9f6; }
+body[data-home-theme="neon"] .info-tile-label {
+  font-family: "Rajdhani", "Arial Narrow", sans-serif;
+  font-weight: 700;
+  letter-spacing: 0.3em;
+  color: #cfeef7;
+}
+body[data-home-theme="neon"] .info-tile-multi { font-family: "Rajdhani", "Arial Narrow", sans-serif; font-weight: 700; }
+body[data-home-theme="neon"] .info-tile-multiplier {
+  border: 1px solid rgba(255, 54, 163, 0.5);
+  background: rgba(255, 54, 163, 0.06);
+}
+body[data-home-theme="neon"] .info-tile-multiplier .info-tile-multi {
+  color: #ff8ac8;
+  text-shadow: 0 0 12px rgba(255, 54, 163, 0.4);
+}
+body[data-home-theme="neon"] .nav-connect-btn {
+  background: linear-gradient(180deg, #54e0fa 0%, #0d90b6 100%);
+  color: #02222d;
+  border-color: rgba(180, 240, 255, 0.5);
+  text-shadow: none;
+}
+body[data-home-theme="neon"] .home-theme-switcher { border-color: rgba(63, 217, 246, 0.3); }
+body[data-home-theme="neon"] .hts-btn.active {
+  background: linear-gradient(180deg, #54e0fa 0%, #0d90b6 100%);
+  color: #02222d;
+  border-color: rgba(180, 240, 255, 0.5);
+  text-shadow: none;
+}
+
+/* ===========================================================================
+   ARCTIC — light frost (Oswald), minimal layout
+   =========================================================================== */
+/* Pale page + a frost veil over the 3D arena so the dark scene reads as a
+   faint silhouette. Scoped to :not(.in-game): mid-match everything reverts. */
+body[data-home-theme="arctic"]:not(.in-game) {
+  background: linear-gradient(180deg, #eef3f8 0%, #dfe8f1 100%);
+}
+body[data-home-theme="arctic"]:not(.in-game) .arena-mount::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: linear-gradient(180deg, rgba(238, 243, 248, 0.92), rgba(214, 226, 238, 0.88));
+}
+body[data-home-theme="arctic"]:not(.in-game) .world-vignette,
+body[data-home-theme="arctic"]:not(.in-game) .world-grain,
+body[data-home-theme="arctic"]:not(.in-game) .world-scanlines,
+body[data-home-theme="arctic"]:not(.in-game) .world-glitch { display: none; }
+
+body[data-home-theme="arctic"] .hero-big-fight,
+body[data-home-theme="arctic"] .hero-big-10 {
+  font-family: "Oswald", "Arial Narrow", sans-serif;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  filter: drop-shadow(0 2px 10px rgba(30, 50, 70, 0.2));
+}
+body[data-home-theme="arctic"] .hero-big-fight {
+  background: linear-gradient(180deg, #243447 0%, #42586e 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+}
+body[data-home-theme="arctic"] .hero-big-10 {
+  background: linear-gradient(180deg, #2e6cad 0%, #174a80 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+}
+body[data-home-theme="arctic"] .hero-subtitle {
+  font-family: "Oswald", "Arial Narrow", sans-serif;
+  font-weight: 600;
+  color: #51677e;
+  text-shadow: none;
+}
+body[data-home-theme="arctic"] .hero-subtitle::before {
+  background: linear-gradient(90deg, transparent, rgba(46, 108, 173, 0.7));
+}
+body[data-home-theme="arctic"] .hero-subtitle::after {
+  background: linear-gradient(90deg, rgba(46, 108, 173, 0.7), transparent);
+}
+/* Tagline sheds its dark panel — bare slate text on the frost. */
+body[data-home-theme="arctic"] .hero-tagline {
+  border: none;
+  background: none;
+  box-shadow: none;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  padding: 0;
+}
+body[data-home-theme="arctic"] .hero-desc { color: #425262; }
+body[data-home-theme="arctic"] .hero-desc strong { color: #1d2a38; }
+body[data-home-theme="arctic"] .home-btn { border-radius: 6px; }
+body[data-home-theme="arctic"] .home-btn-primary {
+  background: linear-gradient(180deg, #2b5d92 0%, #17406e 100%);
+  color: #f2f7fc;
+  border: 1px solid rgba(23, 64, 110, 0.5);
+  text-shadow: none;
+  box-shadow: 0 6px 18px rgba(23, 64, 110, 0.25);
+}
+body[data-home-theme="arctic"] .home-btn-secondary {
+  background: #ffffff;
+  color: #31435a;
+  border: 1px solid #c2d0dd;
+}
+body[data-home-theme="arctic"] .home-btn-secondary:hover {
+  color: #17406e;
+  border-color: #8fa9c2;
+  background: #f4f8fb;
+}
+body[data-home-theme="arctic"] .home-btn-ghost {
+  background: #ffffff;
+  color: rgba(49, 67, 90, 0.55);
+  border: 1px solid #d6e0e9;
+}
+body[data-home-theme="arctic"] .home-btn-ghost:hover { color: #31435a; background: #f4f8fb; }
+/* Minimal: no info strip in this theme (any width). */
+body[data-home-theme="arctic"]:not(.in-game) .info-strip { display: none; }
+/* Light nav */
+body[data-home-theme="arctic"]:not(.in-game) .site-nav {
+  background: rgba(255, 255, 255, 0.72);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  border-bottom: 1px solid rgba(30, 50, 70, 0.12);
+}
+/* The logo art is light-on-transparent — darken it so it reads on the frost. */
+body[data-home-theme="arctic"]:not(.in-game) .site-nav-logo { filter: brightness(0.3) saturate(0.5); }
+body[data-home-theme="arctic"] .nav-link { color: #4d6076; text-shadow: none; }
+body[data-home-theme="arctic"] .nav-link:hover { color: #17406e; border-bottom-color: rgba(46, 108, 173, 0.6); }
+body[data-home-theme="arctic"] .nav-hamburger span { background: #41546a; }
+body[data-home-theme="arctic"] .nav-hamburger:hover span { background: #17406e; }
+body[data-home-theme="arctic"] .x-nav { color: #5b7189; }
+body[data-home-theme="arctic"] .x-nav:hover { color: #17406e; }
+body[data-home-theme="arctic"] .nav-profile-btn { background: #ffffff; border-color: #c2d0dd; color: #31435a; }
+body[data-home-theme="arctic"] .nav-connect-btn {
+  background: linear-gradient(180deg, #2b5d92 0%, #17406e 100%);
+  color: #f2f7fc;
+  border-color: rgba(23, 64, 110, 0.5);
+  text-shadow: none;
+  box-shadow: 0 4px 14px rgba(23, 64, 110, 0.25);
+}
+body[data-home-theme="arctic"] .fight10-balance { color: #31435a; }
+body[data-home-theme="arctic"] .nav-menu { background: #ffffff; border-color: #c2d0dd; }
+body[data-home-theme="arctic"] .nav-menu-item { color: #4d6076; }
+body[data-home-theme="arctic"] .nav-menu-item:hover { color: #17406e; background: rgba(46, 108, 173, 0.1); }
+/* Light switcher */
+body[data-home-theme="arctic"] .home-theme-switcher {
+  background: rgba(255, 255, 255, 0.85);
+  border-color: #c2d0dd;
+  box-shadow: 0 8px 26px rgba(30, 50, 70, 0.18);
+}
+body[data-home-theme="arctic"] .hts-label { color: #7c8ea0; }
+body[data-home-theme="arctic"] .hts-btn { color: #4d6076; }
+body[data-home-theme="arctic"] .hts-btn:hover { color: #17406e; background: rgba(46, 108, 173, 0.08); }
+body[data-home-theme="arctic"] .hts-btn.active {
+  background: linear-gradient(180deg, #2b5d92 0%, #17406e 100%);
+  color: #ffffff;
+  border-color: transparent;
+  text-shadow: none;
+}
+
+/* ===========================================================================
+   TERMINAL — green phosphor console (monospace)
+   =========================================================================== */
+body[data-home-theme="terminal"] .hero-big-fight,
+body[data-home-theme="terminal"] .hero-big-10 {
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  letter-spacing: 0.02em;
+  background: none;
+  color: #4ade80;
+  -webkit-text-fill-color: #4ade80;
+  filter: none;
+  text-shadow: 0 0 18px rgba(74, 222, 128, 0.4);
+}
+body[data-home-theme="terminal"] .hero-big-10 {
+  color: #86efac;
+  -webkit-text-fill-color: #86efac;
+}
+/* Blinking block cursor after the title. */
+body[data-home-theme="terminal"] .hero-big-10::after {
+  content: "▌";
+  animation: f10-term-blink 1.1s steps(1, end) infinite;
+}
+@keyframes f10-term-blink {
+  0%, 49% { opacity: 1; }
+  50%, 100% { opacity: 0; }
+}
+body[data-home-theme="terminal"] .hero-subtitle {
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  color: #86efac;
+  letter-spacing: 0.3em;
+  text-shadow: none;
+}
+body[data-home-theme="terminal"] .hero-subtitle::before {
+  background: linear-gradient(90deg, transparent, rgba(74, 222, 128, 0.7));
+}
+body[data-home-theme="terminal"] .hero-subtitle::after {
+  background: linear-gradient(90deg, rgba(74, 222, 128, 0.7), transparent);
+}
+body[data-home-theme="terminal"] .hero-tagline {
+  border: 1px solid rgba(74, 222, 128, 0.35);
+  border-radius: 0;
+  background: rgba(2, 9, 4, 0.9);
+  box-shadow: none;
+}
+body[data-home-theme="terminal"] .hero-desc {
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  color: #9fd8b2;
+  line-height: 1.7;
+}
+body[data-home-theme="terminal"] .hero-desc strong { color: #d7ffe3; }
+body[data-home-theme="terminal"] .home-btn {
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  letter-spacing: 0.12em;
+  border-radius: 0;
+}
+body[data-home-theme="terminal"] .home-btn::before {
+  content: ">";
+  margin-right: 8px;
+  opacity: 0.65;
+}
+body[data-home-theme="terminal"] .home-btn-primary {
+  background: #0b2a16;
+  color: #4ade80;
+  border: 1px solid rgba(74, 222, 128, 0.65);
+  text-shadow: none;
+  box-shadow: 0 0 16px rgba(74, 222, 128, 0.15);
+}
+body[data-home-theme="terminal"] .home-btn-secondary {
+  background: rgba(2, 9, 4, 0.85);
+  color: rgba(154, 235, 178, 0.75);
+  border: 1px solid rgba(74, 222, 128, 0.3);
+}
+body[data-home-theme="terminal"] .home-btn-secondary:hover {
+  color: #d7ffe3;
+  border-color: rgba(74, 222, 128, 0.7);
+  background: rgba(6, 20, 10, 0.9);
+}
+body[data-home-theme="terminal"] .info-strip { background: rgba(2, 9, 4, 0.85); }
+body[data-home-theme="terminal"] .info-tile-icon { color: #4ade80; }
+body[data-home-theme="terminal"] .info-tile-label {
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  color: #86efac;
+  letter-spacing: 0.18em;
+}
+body[data-home-theme="terminal"] .info-tile-desc {
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  color: rgba(154, 235, 178, 0.65);
+}
+body[data-home-theme="terminal"] .info-tile-multi {
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  color: #d7ffe3;
+}
+body[data-home-theme="terminal"] .info-tile-multiplier {
+  border: 1px solid rgba(74, 222, 128, 0.5);
+  background: rgba(74, 222, 128, 0.06);
+}
+body[data-home-theme="terminal"] .info-tile-multiplier .info-tile-multi {
+  color: #4ade80;
+  text-shadow: 0 0 12px rgba(74, 222, 128, 0.35);
+}
+body[data-home-theme="terminal"] .nav-connect-btn {
+  background: #0b2a16;
+  color: #4ade80;
+  border-color: rgba(74, 222, 128, 0.5);
+  text-shadow: none;
+  box-shadow: none;
+}
+body[data-home-theme="terminal"] .home-theme-switcher { border-color: rgba(74, 222, 128, 0.3); }
+body[data-home-theme="terminal"] .hts-label,
+body[data-home-theme="terminal"] .hts-btn {
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+}
+body[data-home-theme="terminal"] .hts-btn.active {
+  background: #0b2a16;
+  color: #4ade80;
+  border-color: rgba(74, 222, 128, 0.6);
+  text-shadow: none;
+  box-shadow: none;
+}
+
+/* ===========================================================================
+   Theme geometry — desktop arrangements
+   =========================================================================== */
 @media (min-width: 861px) {
-  /* ----- COMMAND: left-aligned briefing + right info rail ----- */
-  body[data-home-layout="command"] .hero-section {
+  /* Keep the default centered action row clear of the switcher in the corner. */
+  .home-actions { padding: 0 150px; }
+
+  /* ----- CRIMSON: left briefing + right info rail ----- */
+  body[data-home-theme="crimson"] .hero-section {
     left: clamp(24px, 5vw, 72px);
-    right: max(46%, 340px);
-    bottom: 190px;
+    right: max(44%, 340px);
+    bottom: 260px;
     align-items: flex-start;
   }
-
-  /* Title reads as one line: FIGHT 10 */
-  body[data-home-layout="command"] .hero-title-block {
+  body[data-home-theme="crimson"] .hero-title-block {
     flex-direction: row;
     align-items: baseline;
-    gap: 0.22em;
+    gap: 0.24em;
     text-align: left;
   }
-  body[data-home-layout="command"] .hero-big-fight,
-  body[data-home-layout="command"] .hero-big-10 {
-    font-size: clamp(3.2rem, 6.5vw, 6.4rem);
+  body[data-home-theme="crimson"] .hero-big-fight,
+  body[data-home-theme="crimson"] .hero-big-10 {
+    font-size: clamp(3.2rem, 6.5vw, 6.6rem);
     margin-top: 0;
   }
-
-  body[data-home-layout="command"] .hero-tagline {
+  body[data-home-theme="crimson"] .hero-tagline {
     margin: 1.4rem 0 0;
     max-width: 520px;
     text-align: left;
-    border-top: 1px solid rgba(226, 178, 60, 0.32);
-    border-left: 3px solid rgba(226, 178, 60, 0.65);
+    border-top: 1px solid rgba(224, 43, 43, 0.35);
+    border-left: 3px solid #e02b2b;
   }
-  body[data-home-layout="command"] .hero-subtitle { justify-content: flex-start; }
-  body[data-home-layout="command"] .hero-subtitle::before { display: none; }
-
-  /* Action row hugs the same left edge as the hero. */
-  body[data-home-layout="command"] .home-actions {
+  body[data-home-theme="crimson"] .hero-subtitle { justify-content: flex-start; }
+  body[data-home-theme="crimson"] .hero-subtitle::before { display: none; }
+  body[data-home-theme="crimson"] .home-actions {
     left: clamp(24px, 5vw, 72px);
-    right: max(46%, 340px);
-    bottom: 96px;
+    right: max(44%, 340px);
+    bottom: 190px;
     justify-content: flex-start;
     padding: 0;
   }
-
-  /* Info strip becomes a rail of tiles down the right edge. */
-  body[data-home-layout="command"] .info-strip {
+  body[data-home-theme="crimson"] .info-strip {
     top: 88px;
     bottom: 24px;
     left: auto;
@@ -3623,46 +4087,122 @@ body.in-game .home-layout-switcher { display: none !important; }
     width: min(300px, 26vw);
     height: auto;
     flex-direction: column;
-    border: 1px solid rgba(255, 255, 255, 0.1);
+    border: 1px solid rgba(224, 43, 43, 0.3);
     border-radius: 8px;
     overflow: hidden;
   }
-  body[data-home-layout="command"] .info-tile {
+  body[data-home-theme="crimson"] .info-tile {
     border-right: none;
     border-bottom: 1px solid rgba(255, 255, 255, 0.08);
   }
-  body[data-home-layout="command"] .info-tile:last-child { border-bottom: none; }
+  body[data-home-theme="crimson"] .info-tile:last-child { border-bottom: none; }
+  body[data-home-theme="crimson"] .home-theme-switcher { bottom: 18px; }
 
-  /* Bottom-left corner is free of the strip here — drop the switcher down. */
-  body[data-home-layout="command"] .home-layout-switcher { bottom: 18px; }
-
-  /* ----- FOCUS: title, tagline, actions — nothing else ----- */
-  body[data-home-layout="focus"] .hero-section { bottom: 200px; }
-
-  body[data-home-layout="focus"] .hero-big-fight { font-size: clamp(6rem, 17vw, 16rem); }
-  body[data-home-layout="focus"] .hero-big-10   { font-size: clamp(5rem, 15vw, 14rem); }
-
-  /* Tagline sheds its panel — bare text under the title. */
-  body[data-home-layout="focus"] .hero-tagline {
-    margin-top: 2rem;
-    padding: 0;
-    border: none;
+  /* ----- NEON: centered hero + floating card grid ----- */
+  body[data-home-theme="neon"] .hero-section { bottom: 330px; }
+  body[data-home-theme="neon"] .hero-big-fight { font-size: clamp(4rem, 10vw, 8.5rem); }
+  body[data-home-theme="neon"] .hero-big-10 { font-size: clamp(3.2rem, 8vw, 7rem); }
+  body[data-home-theme="neon"] .home-actions { bottom: 262px; }
+  body[data-home-theme="neon"] .info-strip {
+    top: auto;
+    bottom: 24px;
+    left: 50%;
+    right: auto;
+    transform: translateX(-50%);
+    width: min(880px, calc(100vw - 280px));
+    height: auto;
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 12px;
     background: none;
-    box-shadow: none;
+    border: none;
     backdrop-filter: none;
-    -webkit-backdrop-filter: none;
   }
-  body[data-home-layout="focus"] .hero-desc { display: none; }
+  body[data-home-theme="neon"] .info-tile {
+    border: 1px solid rgba(63, 217, 246, 0.3);
+    border-radius: 10px;
+    background: rgba(5, 14, 22, 0.72);
+    backdrop-filter: blur(10px);
+    padding: 12px;
+  }
+  body[data-home-theme="neon"] .info-tile-multiplier { border-color: rgba(255, 54, 163, 0.5); }
+  body[data-home-theme="neon"] .home-theme-switcher { bottom: 18px; }
 
-  body[data-home-layout="focus"] .home-actions { bottom: 120px; }
-  body[data-home-layout="focus"] .home-btn { height: 50px; min-width: 180px; }
+  /* ----- ARCTIC: minimal focus layout ----- */
+  body[data-home-theme="arctic"] .hero-section { bottom: 200px; }
+  body[data-home-theme="arctic"] .hero-big-fight { font-size: clamp(5rem, 14vw, 12rem); }
+  body[data-home-theme="arctic"] .hero-big-10 { font-size: clamp(4rem, 12vw, 10rem); }
+  body[data-home-theme="arctic"] .hero-tagline { margin-top: 1.8rem; max-width: 640px; }
+  body[data-home-theme="arctic"] .home-actions { bottom: 110px; }
+  body[data-home-theme="arctic"] .home-btn { height: 48px; }
+  body[data-home-theme="arctic"] .home-theme-switcher { bottom: 18px; }
 
-  body[data-home-layout="focus"] .info-strip { display: none; }
-  body[data-home-layout="focus"] .home-layout-switcher { bottom: 18px; }
-}
-
-/* Below 861px the home content flows statically and the variants don't
-   apply — hide the switcher rather than offer choices that do nothing. */
-@media (max-width: 860px) {
-  .home-layout-switcher { display: none; }
+  /* ----- TERMINAL: prompt title + command column left, readout rail right ----- */
+  body[data-home-theme="terminal"] .hero-section {
+    left: clamp(24px, 5vw, 80px);
+    right: 46%;
+    bottom: 380px;
+    align-items: flex-start;
+    justify-content: flex-end;
+  }
+  body[data-home-theme="terminal"] .hero-title-block {
+    flex-direction: row;
+    align-items: baseline;
+    gap: 0.3em;
+    text-align: left;
+  }
+  body[data-home-theme="terminal"] .hero-title-block::before {
+    content: "~$";
+    font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    font-size: clamp(1.2rem, 2vw, 2rem);
+    color: rgba(134, 239, 172, 0.55);
+    margin-right: 0.3em;
+  }
+  body[data-home-theme="terminal"] .hero-big-fight,
+  body[data-home-theme="terminal"] .hero-big-10 {
+    font-size: clamp(2.4rem, 4.5vw, 4.4rem);
+    margin-top: 0;
+  }
+  body[data-home-theme="terminal"] .hero-tagline {
+    margin: 1.3rem 0 0;
+    max-width: 520px;
+    text-align: left;
+  }
+  body[data-home-theme="terminal"] .hero-subtitle { justify-content: flex-start; }
+  body[data-home-theme="terminal"] .hero-subtitle::before { display: none; }
+  body[data-home-theme="terminal"] .home-actions {
+    left: clamp(24px, 5vw, 80px);
+    right: auto;
+    width: 320px;
+    bottom: 200px;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 8px;
+    padding: 0;
+  }
+  body[data-home-theme="terminal"] .home-btn {
+    height: 40px;
+    justify-content: flex-start;
+    padding: 0 16px;
+    min-width: 0;
+  }
+  body[data-home-theme="terminal"] .info-strip {
+    top: 88px;
+    bottom: 24px;
+    left: auto;
+    right: 24px;
+    width: min(300px, 25vw);
+    height: auto;
+    flex-direction: column;
+    border: 1px solid rgba(74, 222, 128, 0.3);
+    overflow: hidden;
+  }
+  body[data-home-theme="terminal"] .info-tile {
+    align-items: flex-start;
+    text-align: left;
+    border-right: none;
+    border-bottom: 1px solid rgba(74, 222, 128, 0.18);
+  }
+  body[data-home-theme="terminal"] .info-tile:last-child { border-bottom: none; }
+  body[data-home-theme="terminal"] .home-theme-switcher { bottom: 18px; }
 }
