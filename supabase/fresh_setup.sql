@@ -25,6 +25,7 @@ drop function if exists public.join_pvp_match(smallint, text);
 drop function if exists public.pvp_capacity();
 drop function if exists public.leave_my_matches();
 drop function if exists public.level_for_points(integer);
+drop function if exists public.get_leaderboard(integer);
 drop function if exists public.sync_my_profile(text);
 drop function if exists public.is_match_member(uuid) cascade;
 drop function if exists public.handle_new_user();
@@ -702,6 +703,39 @@ as $$
 $$;
 
 -- ---------------------------------------------------------------------------
+-- 6a. get_leaderboard — public points leaderboard.
+--     profiles RLS only exposes a player's own row, so the leaderboard is
+--     served by this security definer RPC. It returns only display data
+--     (name, level, points, wins) — never user_id or wallet_address — plus an
+--     is_me flag computed server-side so the client can highlight the
+--     caller's row without the RPC leaking anyone's identity.
+-- ---------------------------------------------------------------------------
+create or replace function public.get_leaderboard(p_limit integer default 20)
+returns table (
+  rank         bigint,
+  display_name text,
+  level        integer,
+  points       integer,
+  wins         integer,
+  is_me        boolean
+)
+language sql
+security definer
+set search_path = public
+stable
+as $$
+  select row_number() over (order by p.points desc, p.wins desc, p.created_at asc) as rank,
+         p.display_name,
+         p.level,
+         p.points,
+         p.wins,
+         coalesce(p.user_id = auth.uid(), false) as is_me
+  from public.profiles p
+  order by p.points desc, p.wins desc, p.created_at asc
+  limit least(greatest(coalesce(p_limit, 20), 1), 100);
+$$;
+
+-- ---------------------------------------------------------------------------
 -- 6b. match_duration_seconds — per-lobby match length from match_config,
 --     with a safe fallback. Single source for the server deadline + client timer.
 -- ---------------------------------------------------------------------------
@@ -1331,6 +1365,7 @@ grant execute on function public.heartbeat(uuid)                       to authen
 grant execute on function public.try_finalize(uuid)                    to authenticated;
 grant execute on function public.claim_payout_slot(uuid)               to authenticated;
 grant execute on function public.level_for_points(integer)             to authenticated;
+grant execute on function public.get_leaderboard(integer)              to authenticated, anon;
 grant execute on function public.match_duration_seconds(smallint)      to authenticated, service_role, anon;
 grant execute on function public.pvp_capacity()                        to authenticated, anon;
 grant execute on function public.pvp_capacity_cap()                    to authenticated, anon;

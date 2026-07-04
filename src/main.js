@@ -586,7 +586,14 @@ function bindUi() {
   els.whitepaperOverlay?.addEventListener("pointerdown", (e) => {
     if (e.target === els.whitepaperOverlay) els.whitepaperOverlay.classList.remove("show");
   });
-  els.profileBtn.addEventListener("click", openProfile);
+  els.profileBtn.addEventListener("click", () => openProfile());
+  // The nav $FIGHT10 balance chip jumps straight to the profile's $FIGHT10 tab.
+  document.getElementById("fight10Balance")?.addEventListener("click", () => openProfile("holdings"));
+  // Holder perk "PLAY FIGHT10 PVP": close the profile and enter the PvP flow.
+  document.getElementById("perkPlayPvpBtn")?.addEventListener("click", () => {
+    els.profileOverlay.classList.remove("show");
+    startPvp();
+  });
   els.profileClose.addEventListener("click", () => els.profileOverlay.classList.remove("show"));
   els.profileOverlay.addEventListener("pointerdown", (e) => {
     if (e.target === els.profileOverlay) els.profileOverlay.classList.remove("show");
@@ -628,6 +635,7 @@ function bindUi() {
   };
   const navActions = [
     ["menuPlayPvpBtn",    startPvp],
+    ["menuLeaderboardBtn", () => { openLeaderboard().catch((e) => console.error(e)); }],
     ["menuHowToBtn",      () => els.howToOverlay.classList.add("show")],
     ["menuWhitepaperBtn", () => els.whitepaperOverlay?.classList.add("show")],
     ["signOutBtn",        signOut],
@@ -665,6 +673,12 @@ function bindUi() {
     // game-over "Main Menu" behavior). A cancelled forfeit prompt does not.
     const left = await leaveMatch({ skipConfirm: true });
     if (left) window.location.reload();
+  });
+  // Leaderboard + Buy-$FIGHT10 overlays: close button and backdrop click.
+  [["leaderboardOverlay", "leaderboardClose"], ["buyFight10Overlay", "buyFight10Close"]].forEach(([ovId, closeId]) => {
+    const ov = document.getElementById(ovId);
+    document.getElementById(closeId)?.addEventListener("click", () => ov?.classList.remove("show"));
+    ov?.addEventListener("pointerdown", (e) => { if (e.target === ov) ov.classList.remove("show"); });
   });
   document.getElementById("pauseSettingsBtn")?.addEventListener("click", () => {
     els.pauseOverlay.classList.remove("show");
@@ -1053,10 +1067,82 @@ function hideGameOver() {
   els.gameOver.classList.add("hidden");
 }
 
-function startPvp() {
+async function startPvp() {
   if (!state.user) { signIn(); return; }
+  // Balance gate BEFORE the lobby-size picker: entering PvP costs 2,500
+  // $FIGHT10, so a wallet that can't cover it gets the buy prompt right away
+  // instead of a payment flow that would only fail later. A held (already
+  // confirmed) deposit skips the check, and an unreadable balance falls
+  // through to the authoritative re-check inside depositEntryFee — this gate
+  // must never block a legitimate join on an RPC hiccup.
+  if (!state.pendingDepositTx && !FIGHT10_MINT.startsWith("<")) {
+    const wallet = getSolanaWallet();
+    if (wallet?.publicKey) {
+      try {
+        setStatus("Checking $FIGHT10 balance…");
+        const raw = await getFight10Balance(wallet.publicKey.toString());
+        if (raw < ENTRY_FEE_RAW) {
+          const have = Number(raw) / 10 ** FIGHT10_DECIMALS;
+          setStatus(`Insufficient $FIGHT10 — need ${ENTRY_FEE.toLocaleString()}, have ${have.toFixed(0)}.`);
+          showBuyFight10(have);
+          return;
+        }
+      } catch (err) {
+        console.error("[startPvp balance check]", err);
+      }
+    }
+  }
   els.pvpSizeOverlay.classList.add("show");
   fetchLobbyCounts().catch(() => {});
+}
+
+// Where to buy $FIGHT10 — the token's Pump.fun page once the mint is
+// configured, the Pump.fun home page before launch.
+const BUY_FIGHT10_URL = FIGHT10_MINT.startsWith("<")
+  ? "https://pump.fun"
+  : `https://pump.fun/coin/${FIGHT10_MINT}`;
+
+// "Not enough $FIGHT10" popup with a buy link. haveTokens (optional) is the
+// wallet's current balance in whole tokens, shown for context.
+function showBuyFight10(haveTokens = null) {
+  const balEl = document.getElementById("buyFight10Balance");
+  if (balEl) {
+    balEl.textContent = haveTokens != null
+      ? `Your balance: ${haveTokens.toLocaleString(undefined, { maximumFractionDigits: 0 })} $FIGHT10`
+      : "";
+  }
+  const link = document.getElementById("buyFight10Link");
+  if (link) link.href = BUY_FIGHT10_URL;
+  document.getElementById("buyFight10Overlay")?.classList.add("show");
+}
+
+// ---------------------------------------------------------------------------
+// Leaderboard — top fighters by points, from the get_leaderboard RPC (the
+// profiles table itself is RLS'd to own-row reads).
+// ---------------------------------------------------------------------------
+async function openLeaderboard() {
+  const list = document.getElementById("leaderboardList");
+  document.getElementById("leaderboardOverlay")?.classList.add("show");
+  if (!list) return;
+  list.innerHTML = '<div class="lb-empty">Loading…</div>';
+  const { data, error } = await supabase.rpc("get_leaderboard", { p_limit: 20 });
+  if (error || !Array.isArray(data)) {
+    console.error("[leaderboard]", error);
+    list.innerHTML = '<div class="lb-empty">Could not load the leaderboard — try again.</div>';
+    return;
+  }
+  if (!data.length) {
+    list.innerHTML = '<div class="lb-empty">No fighters ranked yet — win matches to get on the board.</div>';
+    return;
+  }
+  list.innerHTML = data.map((r) =>
+    `<div class="lb-row${r.is_me ? " lb-me" : ""}">` +
+    `<span class="lb-rank">#${r.rank}</span>` +
+    `<span class="lb-name">${escapeHtml(r.display_name)}${r.is_me ? '<span class="lb-you-tag">YOU</span>' : ""}</span>` +
+    `<span class="lb-level">LVL ${r.level}</span>` +
+    `<span class="lb-points">${Number(r.points).toLocaleString()} PTS</span>` +
+    `</div>`
+  ).join("");
 }
 
 async function fetchLobbyCounts() {
@@ -1285,6 +1371,7 @@ async function depositEntryFee(numPlayers = 2) {
   if (balance < ENTRY_FEE_RAW) {
     const have = Number(balance) / 10 ** FIGHT10_DECIMALS;
     setStatus(`Insufficient $FIGHT10 balance — need 2,500, have ${have.toFixed(0)}.`);
+    showBuyFight10(have);
     return null;
   }
 
@@ -1950,15 +2037,15 @@ function showLobby() {
 // ---------------------------------------------------------------------------
 // Profile — edit username (saved to the DB) and view stats
 // ---------------------------------------------------------------------------
-function openProfile() {
+function openProfile(tab = "stats") {
   if (!state.user) { signIn(); return; }
   renderProfileStats();
   els.profileNameInput.value = state.profile?.display_name || "";
   els.profileHint.textContent = "Saved to your wallet profile.";
   els.profileHint.classList.remove("error");
-  selectProfileTab("stats");
+  selectProfileTab(tab);
   els.profileOverlay.classList.add("show");
-  els.profileNameInput.focus();
+  if (tab === "stats") els.profileNameInput.focus();
 }
 
 function renderProfileStats() {
