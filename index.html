@@ -49,6 +49,9 @@
         </div>
       </nav>
 
+      <!-- Idle-landing cue: the map is playable — click it to take control -->
+      <div id="homePlayPrompt"><span class="hpp-dot"></span>Click the battlefield to play</div>
+
       <!-- Dynamic views mount point -->
       <div id="views-root"></div>
 
@@ -116,6 +119,11 @@
     <div class="ms-text">MATCH STARTING</div>
     <div class="ms-count" id="matchStartCount">3</div>
   </div>
+
+  <!-- Landing free-play hint: shown while playing the player on the home map -->
+  <button class="home-play-hint hidden" id="homePlayHint" type="button">
+    Press <kbd>Esc</kbd> to return &nbsp;·&nbsp; <span class="hph-move">WASD</span> or click to move
+  </button>
 
   <!-- Top-left status log -->
   <div class="log-feed" id="logFeed"></div>

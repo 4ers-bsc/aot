@@ -128,7 +128,8 @@ const els = {
   gameOverLosses: document.getElementById("gameOverLosses"),
   gameOverName: document.getElementById("gameOverName"),
   gameOverMenuBtn: document.getElementById("gameOverMenuBtn"),
-  logFeed: document.getElementById("logFeed")
+  logFeed: document.getElementById("logFeed"),
+  homePlayHint: document.getElementById("homePlayHint")
 };
 
 // createClient throws on an empty key, which would kill the whole module and
@@ -490,9 +491,31 @@ const game = createArenaGame({
   // Settings stays reachable through that menu's Settings entry.
   onMenu: () => {
     if (state.match && !state.match.finished) els.pauseOverlay.classList.add("show");
+    else if (game.isHomePlaying()) game.stopHomePlay();
     else game.openSettings();
+  },
+  // Gate for starting landing free-play on a map tap: only on a clean home
+  // screen — never during a match, matchmaking, or with a menu overlay open.
+  canHomePlay: () => canStartHomePlay(),
+  // Enter/leave landing free-play: hide the landing chrome and show the game
+  // HUD + the "press Esc to return" hint (and the reverse).
+  onHomePlay: (active) => {
+    document.body.classList.toggle("home-free-play", active);
+    game.showRaiderCount(active);
+    els.homePlayHint?.classList.toggle("hidden", !active);
   }
 });
+
+// True only on the idle landing page — no match in flight, matchmaking closed,
+// and no menu overlay or nav dropdown open — so a stray map tap can't hijack
+// matchmaking or a modal.
+function canStartHomePlay() {
+  if (state.match) return false;
+  if (els.pvpLobby && !els.pvpLobby.classList.contains("hidden")) return false;
+  if (document.querySelector(".overlay.show")) return false;
+  if (document.getElementById("navMenu")?.classList.contains("open")) return false;
+  return true;
+}
 
 // -- Player skin (profile → APPEARANCE tab) ----------------------------------
 // Two fixed skins. Picking a card applies the skin live and remembers it on
@@ -552,6 +575,8 @@ init();
 function bindUi() {
   els.signInWalletBtn.addEventListener("click", signIn);
   document.getElementById("joinFightBtn")?.addEventListener("click", signIn);
+  // Tapping the hint leaves free-play too (touch devices have no Esc key).
+  els.homePlayHint?.addEventListener("click", () => game.stopHomePlay());
   els.demoBtn.addEventListener("click", startDemo);
   els.pvpBtn.addEventListener("click", startPvp);
   els.howToPlayBtn.addEventListener("click", () => els.howToOverlay.classList.add("show"));
@@ -650,6 +675,7 @@ function bindUi() {
     if (navMenu?.classList.contains("open")) { closeNavMenu(); return; }
     const open = document.querySelector(".overlay.show");
     if (open) { open.classList.remove("show"); return; } // close topmost overlay
+    if (game.isHomePlaying()) { game.stopHomePlay(); return; } // leave landing free-play
     if (state.match && !state.match.finished) els.pauseOverlay.classList.add("show");
   });
 }
@@ -1916,6 +1942,9 @@ function showLobby() {
   toggle(els.signOutBtn, connected);
   const balEl = document.getElementById("fight10Balance");
   if (balEl && !connected) balEl.classList.add("hidden");
+  // Bring the player onto the landing map so it's ready to play the moment the
+  // battlefield is clicked.
+  game.showHomeScene();
 }
 
 // ---------------------------------------------------------------------------
