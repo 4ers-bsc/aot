@@ -556,7 +556,6 @@ function bindUi() {
   document.getElementById("joinFightBtn")?.addEventListener("click", signIn);
   els.demoBtn.addEventListener("click", startDemo);
   els.pvpBtn.addEventListener("click", startPvp);
-  els.signOutBtn.addEventListener("click", signOut);
   els.howToPlayBtn.addEventListener("click", () => els.howToOverlay.classList.add("show"));
   els.howToClose.addEventListener("click", () => els.howToOverlay.classList.remove("show"));
   els.whitepaperBtn?.addEventListener("click", () => els.whitepaperOverlay.classList.add("show"));
@@ -608,6 +607,7 @@ function bindUi() {
     ["menuPlayPvpBtn",    startPvp],
     ["menuHowToBtn",      () => els.howToOverlay.classList.add("show")],
     ["menuWhitepaperBtn", () => els.whitepaperOverlay?.classList.add("show")],
+    ["signOutBtn",        signOut],
   ];
   navActions.forEach(([id, action]) =>
     document.getElementById(id)?.addEventListener("click", () => { closeNavMenu(); action(); })
@@ -1912,7 +1912,9 @@ function showLobby() {
   toggle(els.howToPlayBtn, true);
   toggle(els.profileBtn, connected);
   toggle(els.demoBtn, true);
-  toggle(els.pvpBtn, connected);
+  // PLAY PVP is the hero CTA and always visible — startPvp() falls back to
+  // signIn() when no wallet is connected.
+  toggle(els.pvpBtn, true);
   toggle(els.signOutBtn, connected);
   const balEl = document.getElementById("fight10Balance");
   if (balEl && !connected) balEl.classList.add("hidden");

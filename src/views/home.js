@@ -7,18 +7,42 @@ export const html = `
     </div>
     <div class="hero-tagline">
       <h2 class="hero-subtitle">LAST ONE STANDING</h2>
-      <p class="hero-desc">A tactical isometric arena. Every fighter spawns with the same health, the same attack, and the same weapons — no advantages, pure skill. Each player puts in <strong>2,500 $FIGHT10</strong> — the last one standing takes 90% of the pot (a 10% protocol fee keeps the arena running). Connect your Solana wallet, then drop into a demo match against the computer or queue for 2, 5, or 10-player PvP. <strong>Winner takes 90% of the pot.</strong></p>
+      <div class="hero-stats">
+        <div class="hero-stat">
+          <div class="hero-stat-value">2,500</div>
+          <div class="hero-stat-label">$FIGHT10 Entry</div>
+        </div>
+        <div class="hero-stat-divider"></div>
+        <div class="hero-stat">
+          <div class="hero-stat-value">90%</div>
+          <div class="hero-stat-label">Winner's Pot</div>
+        </div>
+        <div class="hero-stat-divider"></div>
+        <div class="hero-stat">
+          <div class="hero-stat-value">2·5·10</div>
+          <div class="hero-stat-label">Player Matches</div>
+        </div>
+      </div>
     </div>
   </section>
 
+  <!-- ===== Featured fighter ===== -->
+  <aside class="featured-fighter">
+    <div class="featured-fighter-tag">FEATURED FIGHTER</div>
+    <img class="featured-fighter-img" src="/NORAB.png" alt="NORAB — featured F10 fighter" />
+    <div class="featured-fighter-name">NORAB</div>
+    <div class="featured-fighter-sub">F10 ROSTER · 01</div>
+  </aside>
+
   <!-- ===== Action buttons ===== -->
   <div class="home-actions">
-    <button class="home-btn home-btn-secondary hidden" id="demoBtn" type="button">DEMO MATCH</button>
-    <button class="home-btn home-btn-primary" id="connectWalletBtn" type="button">Connect Wallet</button>
-    <button class="home-btn home-btn-primary hidden" id="pvpBtn" type="button">PLAY PVP</button>
-    <button class="home-btn home-btn-secondary" id="howToPlayBtn" type="button">HOW TO PLAY</button>
-    <button class="home-btn home-btn-secondary" id="whitepaperBtn" type="button">WHITEPAPER</button>
-    <button class="home-btn home-btn-ghost hidden" id="signOutBtn" type="button">Sign Out</button>
+    <button class="home-btn home-btn-hero" id="pvpBtn" type="button">PLAY PVP</button>
+    <div class="home-actions-row">
+      <button class="home-btn home-btn-secondary hidden" id="demoBtn" type="button">DEMO MATCH</button>
+      <button class="home-btn home-btn-secondary" id="connectWalletBtn" type="button">Connect Wallet</button>
+      <button class="home-btn home-btn-secondary" id="howToPlayBtn" type="button">HOW TO PLAY</button>
+      <button class="home-btn home-btn-secondary" id="whitepaperBtn" type="button">WHITEPAPER</button>
+    </div>
   </div>
 
   <!-- ===== Info strip ===== -->
