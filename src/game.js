@@ -1323,23 +1323,6 @@ export function createArenaGame(options) {
     logMesh.position.y = thick;         // sit on ground
     logMesh.castShadow = true; logMesh.receiveShadow = true;
     g.add(logMesh);
-    // Bits of snow — a few small patches dotted along the top instead of a
-    // full-length drape, so the log stays wood-colored.
-    const snowMat = new THREE.MeshStandardMaterial({ color: 0xe2eef8, roughness: 0.9, metalness: 0 });
-    const patchCount = 2 + Math.floor(rng() * 3); // 2–4 patches
-    for (let i = 0; i < patchCount; i++) {
-      const pLen = len * (0.08 + rng() * 0.12);
-      const patch = new THREE.Mesh(
-        new THREE.BoxGeometry(pLen, thick * 0.22, thick * (0.8 + rng() * 0.6)),
-        snowMat
-      );
-      patch.position.set(
-        (rng() - 0.5) * (len - pLen) * 0.9, // random spot along the trunk
-        thick * 2,                           // top surface of the cylinder
-        (rng() - 0.5) * thick * 0.6
-      );
-      g.add(patch);
-    }
     const ry = rng() * Math.PI;
     g.rotation.y = ry;
     g.position.set(x, 0, z);
