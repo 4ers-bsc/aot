@@ -769,7 +769,17 @@ async function signOut() {
 }
 
 async function handleSession(session) {
+  const prevUserId = state.user?.id;
   state.user = session?.user ?? null;
+
+  // Supabase re-fires auth events for the SAME user (token refresh, tab
+  // refocus re-emitting SIGNED_IN — e.g. returning from the wallet popup).
+  // Rebuilding the lobby then would stomp a live queue or match: showLobby()
+  // → showHomeScene() flips the arena back to the AI showcase — stray
+  // "Raider", invisible rivals, frozen player. Keep the refreshed session and
+  // touch nothing else.
+  if (state.user && state.user.id === prevUserId &&
+      (state.channel || (state.match && !state.match.finished))) return;
 
   if (!state.user) {
     state.profile = null;
@@ -1728,6 +1738,12 @@ async function beginMatch(skipCountdown = false, startAt = null) {
   }
   hidePvpLobby();
   game.setView("game");
+  // Re-assert PvP arena state right before the reset: anything that flipped
+  // the arena back to the AI showcase during the waiting lobby (a stray auth
+  // refresh, an overlapping UI flow) would otherwise start the match with
+  // foeMode "ai" — invisible rivals, a leftover Raider, and a frozen player.
+  game.usePvpFoes();
+  game.setMode("player");
   game.generateMap(state.match?.id || "pvp");  // seed by match id so all clients match
   game.resetForMatch(state.match?.id, state.seat);
   ledger.reset();
