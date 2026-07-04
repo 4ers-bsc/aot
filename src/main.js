@@ -873,9 +873,9 @@ function showGameOver(result, reason, standings = [], prizeAmount = null, kills 
   const prizeAmt = document.getElementById("gameOverPrizeAmount");
   if (prizeEl && prizeAmt) {
     if (win) {
-      prizeAmt.textContent = prizeAmount === "pending" ? "Processing payout…" : prizeAmount !== null
-        ? prizeAmount.toLocaleString(undefined, { maximumFractionDigits: 0 }) + " $FIGHT10"
-        : "Payout failed — contact support";
+      if (prizeAmount === "pending") prizeAmt.textContent = "Processing payout…";
+      else if (prizeAmount !== null) renderPrizeAmount(prizeAmt, prizeAmount);
+      else prizeAmt.textContent = "Payout failed — contact support";
       setGameOverTxLink(null); // revealed once the payout confirms
       prizeEl.classList.remove("hidden");
     } else {
@@ -893,6 +893,15 @@ function showGameOver(result, reason, standings = [], prizeAmount = null, kills 
 function refreshGameOverStats() {
   els.gameOverWins.textContent = state.profile?.wins ?? 0;
   els.gameOverLosses.textContent = state.profile?.losses ?? 0;
+}
+
+// Render a confirmed prize as two lines — big white amount over the gold
+// token ticker — matching the victory-card design. Message states (pending,
+// failed) go through textContent and stay a single plain line.
+function renderPrizeAmount(el, amount) {
+  el.innerHTML =
+    `<span class="go-prize-num">${amount.toLocaleString(undefined, { maximumFractionDigits: 0 })}</span>` +
+    `<span class="go-prize-token">$FIGHT10</span>`;
 }
 
 // Explorer link for an on-chain signature (mainnet).
@@ -918,7 +927,7 @@ function updateGameOverPrize(prizeAmount, payoutTx = null) {
   const retryBtn  = document.getElementById("gameOverRetryBtn");
   if (!prizeEl || !prizeAmt) return;
   if (prizeAmount !== null) {
-    prizeAmt.textContent = prizeAmount.toLocaleString(undefined, { maximumFractionDigits: 0 }) + " $FIGHT10";
+    renderPrizeAmount(prizeAmt, prizeAmount);
     retryBtn?.classList.add("hidden");
     setGameOverTxLink(payoutTx);
   } else {
