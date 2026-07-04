@@ -2,6 +2,7 @@ export const html = `
   <!-- Game over -->
   <div class="game-over hidden" id="gameOver">
     <div class="game-over-card">
+      <div class="go-card-shine" aria-hidden="true"></div>
       <img class="go-logo" src="/logo.png" alt="FIGHT10" />
       <div class="game-over-title" id="gameOverTitle">VICTORY</div>
       <div class="go-matchno hidden" id="gameOverMatchNo"></div>

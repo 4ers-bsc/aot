@@ -1256,7 +1256,8 @@ body:has(.game-over:not(.hidden)) .arena-canvas {
 /* Winner: mostly the same glossy black/white card — gold lives ONLY in the four
    corners and fades inward, so the look is restrained, not gold-flooded. */
 .game-over.is-win .game-over-card {
-  border-color: rgba(217,198,110,0.28);
+  /* Warm gold framing + outer glow, matching the homepage hero button. */
+  border-color: rgba(228,196,128,0.45);
   background:
     radial-gradient(42% 30% at 0% 0%,   rgba(217,198,110,0.20), transparent 60%),
     radial-gradient(42% 30% at 100% 0%, rgba(217,198,110,0.16), transparent 60%),
@@ -1264,7 +1265,58 @@ body:has(.game-over:not(.hidden)) .arena-canvas {
     radial-gradient(46% 34% at 100% 100%, rgba(217,198,110,0.12), transparent 60%),
     radial-gradient(120% 80% at 50% -10%, rgba(255,255,255,0.10), transparent 55%),
     linear-gradient(160deg, rgba(30,29,24,0.97), rgba(9,8,5,0.99));
-  box-shadow: 0 32px 80px rgba(0,0,0,0.78), inset 0 1px 0 rgba(255,255,255,0.12);
+  box-shadow:
+    0 32px 80px rgba(0,0,0,0.78),
+    inset 0 1px 0 rgba(255,235,190,0.22),
+    0 0 24px rgba(212,160,23,0.20);
+  /* Springy entrance, then the gold glow breathes like the hero CTA. */
+  animation:
+    go-pop-win 0.45s cubic-bezier(0.3, 1.25, 0.4, 1),
+    go-win-glow 3.2s ease-in-out 0.45s infinite;
+}
+
+@keyframes go-pop-win {
+  from { transform: scale(0.82) translateY(16px); opacity: 0; }
+  60%  { opacity: 1; }
+  to   { transform: none; opacity: 1; }
+}
+
+@keyframes go-win-glow {
+  0%, 100% {
+    box-shadow:
+      0 32px 80px rgba(0,0,0,0.78),
+      inset 0 1px 0 rgba(255,235,190,0.22),
+      0 0 24px rgba(212,160,23,0.20);
+  }
+  50% {
+    box-shadow:
+      0 32px 80px rgba(0,0,0,0.78),
+      inset 0 1px 0 rgba(255,235,190,0.28),
+      0 0 46px rgba(212,160,23,0.42);
+  }
+}
+
+/* Recurring shine sweep across the victory card — same skewed light band the
+   homepage hero button and gold pills use (gold-shine / plaque-shine). Hidden
+   unless the card is a win; the card's overflow:hidden clips the sweep. */
+.go-card-shine { display: none; }
+.game-over.is-win .go-card-shine {
+  display: block;
+  position: absolute;
+  top: -20%;
+  height: 140%;
+  left: -140px;
+  width: 90px;
+  transform: skewX(-20deg);
+  background: linear-gradient(105deg, transparent, rgba(255, 240, 190, 0.18), transparent);
+  animation: go-card-shine 4.2s ease-in-out 0.45s infinite;
+  pointer-events: none;
+  z-index: 2;
+}
+
+@keyframes go-card-shine {
+  0%        { left: -140px; }
+  55%, 100% { left: calc(100% + 80px); }
 }
 /* Soft gold top edge (toned down from the previous bright line). */
 .game-over.is-win .game-over-card::before {
@@ -1334,6 +1386,10 @@ body:has(.game-over:not(.hidden)) .arena-canvas {
 .game-over.is-win .go-summary-item {
   border-color: rgba(217,198,110,0.22);
   background: linear-gradient(180deg, rgba(217,198,110,0.08), rgba(217,198,110,0.02));
+  /* Embossed gold bevel, like the homepage's gold tags. */
+  box-shadow:
+    inset 0 1px 0 rgba(255,235,190,0.18),
+    inset 0 -1px 0 rgba(0,0,0,0.35);
 }
 .game-over.is-win .go-summary-num { color: #e6d488; }
 .go-summary-label {
