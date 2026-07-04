@@ -3828,3 +3828,75 @@ body.in-game .log-feed { left: 70px; }
 #whitepaperOverlay .wp-step span { background: #2a2a2a; color: #ffffff; }
 #whitepaperOverlay .wp-list li { color: #444444; }
 #whitepaperOverlay .wp-foot { color: #888888; border-top: 1px solid #e2e2e2; }
+
+/* ===========================================================================
+   Homescreen animations — entrance reveals + scroll effects.
+   The .ha / .ha-in classes are attached at runtime by src/home-anim.js (which
+   is a no-op for prefers-reduced-motion users). Elements stay hidden only
+   between class attachment and their reveal, so a failed script can never
+   leave the home screen blank. animation-fill-mode:backwards keeps an element
+   at the "from" frame through its stagger delay, then releases all styles
+   back to the stylesheet once the reveal finishes — hover transforms and the
+   hero button's shine keep working exactly as before.
+   =========================================================================== */
+.ha:not(.ha-in) { opacity: 0; }
+
+.ha-in {
+  animation: ha-up 0.6s cubic-bezier(0.22, 0.61, 0.36, 1) backwards;
+}
+
+/* Nav drops in from above. */
+.ha-down.ha-in { animation-name: ha-down; }
+
+/* "FIGHT" wordmark surges up out of the battlefield. */
+.ha-fight.ha-in { animation-name: ha-fight; animation-duration: 0.85s; }
+
+/* "10" stamps down onto the page with a slight overshoot. */
+.ha-stamp.ha-in {
+  animation-name: ha-stamp;
+  animation-duration: 0.6s;
+  animation-timing-function: cubic-bezier(0.3, 1.4, 0.5, 1);
+}
+
+/* Hero CTA rises and its gold glow blooms in. */
+.ha-rise.ha-in { animation-name: ha-rise; animation-duration: 0.7s; }
+
+@keyframes ha-up {
+  from { opacity: 0; transform: translateY(22px); }
+  to   { opacity: 1; transform: none; }
+}
+
+@keyframes ha-down {
+  from { opacity: 0; transform: translateY(-18px); }
+  to   { opacity: 1; transform: none; }
+}
+
+@keyframes ha-fight {
+  from { opacity: 0; transform: translateY(38px) scale(0.96); }
+  to   { opacity: 1; transform: none; }
+}
+
+@keyframes ha-stamp {
+  from { opacity: 0; transform: scale(1.5); }
+  55%  { opacity: 1; }
+  to   { opacity: 1; transform: none; }
+}
+
+@keyframes ha-rise {
+  from { opacity: 0; transform: translateY(26px) scale(0.96); }
+  to   { opacity: 1; transform: none; }
+}
+
+/* Fixed nav on the scrolling (narrow) layout: pick up a shadow and a warmer
+   hairline once the page is scrolled, so it reads as floating over content. */
+.site-nav.nav-scrolled {
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.45);
+  border-bottom-color: rgba(212, 160, 23, 0.28);
+}
+
+/* Belt and braces: even if classes were attached, reduced-motion users see
+   everything instantly with no movement. */
+@media (prefers-reduced-motion: reduce) {
+  .ha { opacity: 1 !important; }
+  .ha-in { animation: none !important; }
+}

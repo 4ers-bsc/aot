@@ -7,9 +7,11 @@ import { importSolanaWeb3, importSplToken, importDevtoolsDetector } from "./lazy
 import { createArenaGame } from "./game.js";
 import { escapeHtml } from "./utils.js";
 import { mountViews } from "./views/index.js";
+import { initHomeAnimations } from "./home-anim.js";
 import { APPEARANCE_PRESETS } from "./appearance.js";
 
 mountViews();
+initHomeAnimations();
 
 const SUPABASE_URL =
   import.meta.env?.VITE_SUPABASE_URL?.trim() || "https://sajvismyvcgaszjcafcr.supabase.co";
