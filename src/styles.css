@@ -60,7 +60,10 @@ body {
 }
 
 body {
+  /* dvh tracks the *visible* viewport on mobile (URL bar shown/hidden);
+     the vh line stays as a fallback for browsers without dvh support. */
   min-height: 100vh;
+  min-height: 100dvh;
   overflow: hidden;
 }
 
@@ -119,6 +122,7 @@ textarea:focus {
 .arena-shell {
   position: relative;
   min-height: 100vh;
+  min-height: 100dvh;
 }
 
 .arena-shell {
@@ -393,7 +397,10 @@ textarea:focus {
 
 .hero-big-fight {
   font-family: var(--font-display);
-  font-size: clamp(5rem, 15vw, 14rem);
+  /* Scale with the smaller of width/height so short-but-wide screens
+     (1366×768 laptops, landscape tablets) don't grow a title tall enough
+     to collide with the action buttons anchored below the hero. */
+  font-size: clamp(5rem, min(15vw, 22vh), 14rem);
   letter-spacing: 0.06em;
   background: var(--bone-grad);
   -webkit-background-clip: text;
@@ -407,7 +414,7 @@ textarea:focus {
 
 .hero-big-10 {
   font-family: var(--font-display);
-  font-size: clamp(4rem, 13vw, 12rem);
+  font-size: clamp(4rem, min(13vw, 19vh), 12rem);
   letter-spacing: 0.06em;
   background: var(--gold-grad-vintage);
   -webkit-background-clip: text;
@@ -1096,12 +1103,13 @@ textarea:focus {
   flex-direction: column;
   align-items: center;
   gap: 22px;
-  padding: 48px 52px;
+  padding: clamp(28px, 6vw, 48px) clamp(20px, 7vw, 52px);
   border: 1px solid var(--line-strong);
   border-radius: 18px;
   background: linear-gradient(160deg, rgba(28,28,28,0.95), rgba(10,10,10,0.98));
   box-shadow: 0 32px 80px rgba(0,0,0,0.7), inset 0 1px 0 rgba(255,255,255,0.07);
-  min-width: 320px;
+  min-width: min(320px, calc(100vw - 32px));
+  max-width: calc(100vw - 32px);
   text-align: center;
 }
 
@@ -2301,7 +2309,8 @@ body.in-game #homePlayPrompt { display: none !important; }
   background: rgba(0, 0, 0, 0.9);
   border: 1px solid rgba(255, 255, 255, 0.18);
   border-radius: 10px;
-  min-width: 300px;
+  min-width: min(300px, calc(100vw - 24px));
+  max-width: calc(100vw - 24px);
   padding: 18px 22px;
   backdrop-filter: blur(10px);
   pointer-events: none;
@@ -2472,7 +2481,8 @@ body.in-game #homePlayPrompt { display: none !important; }
   border-radius: 10px;
   backdrop-filter: blur(8px);
   padding: 10px 14px 12px;
-  min-width: 200px;
+  min-width: min(200px, calc(100vw - 32px));
+  max-width: calc(100vw - 32px);
 }
 .ki-title {
   font-size: 10px;
@@ -2598,6 +2608,7 @@ body.in-game .log-feed { left: 70px; }
   width: 430px;
   max-width: 92vw;
   max-height: 88vh;
+  max-height: 88dvh;
   overflow: hidden;
   display: flex;
   flex-direction: column;
@@ -2662,7 +2673,7 @@ body.in-game .log-feed { left: 70px; }
 
 /* ===== Whitepaper ===== */
 .panel.panel-wide { width: 640px; max-width: 94vw; }
-.wp-body { max-height: 78vh; }
+.wp-body { max-height: 78vh; max-height: 78dvh; }
 .wp-intro {
   font-size: clamp(12px, 3.4vw, 13.5px);
   line-height: 1.65;
@@ -2819,6 +2830,7 @@ body.in-game .log-feed { left: 70px; }
 
   .arena-panel {
     min-height: 100vh;
+    min-height: 100dvh;
     padding: 116px 18px 24px;
     display: flex;
     flex-direction: column;
@@ -3763,9 +3775,38 @@ body.in-game .log-feed { left: 70px; }
   }
 }
 
+/* Short desktop/laptop viewports (768p laptops, small landscape tablets).
+   The hero centres between top:64 / bottom:100 while the action buttons float
+   at bottom:108 inside that same band — on short screens the centred tagline
+   runs into the buttons. Centre the hero in the space *above* the button zone
+   instead, and tighten the tagline. */
+@media (min-width: 861px) and (max-height: 820px) {
+  .hero-section { bottom: 236px; }
+  .hero-tagline { margin-top: 1rem; padding: 0.9rem 1.2rem; }
+}
+
+/* Very short landscape viewports — shrink the wordmark and tagline further so
+   title + tagline + buttons + info strip all fit without overlap. */
+@media (min-width: 861px) and (max-height: 640px) {
+  /* Start below the "click the battlefield" pill (top:76 + ~30px tall). */
+  .hero-section { top: 112px; }
+  .hero-big-fight { font-size: clamp(3.5rem, 18vh, 14rem); }
+  .hero-big-10 { font-size: clamp(3rem, 15vh, 12rem); }
+  .hero-tagline { margin-top: 0.6rem; padding: 0.7rem 1.1rem; }
+  .hero-subtitle { margin-bottom: 0.45rem; }
+}
+
 @media (max-width: 480px) {
-  .site-nav { padding: 0 14px; }
+  .site-nav { padding: 0 14px; gap: 10px; }
   .site-nav-logo { height: 42px; }
+  /* Signed-in state stacks balance + profile + X + hamburger in the action
+     row — compact everything so it still fits a 360px-wide phone. */
+  .site-nav-actions { gap: 6px; }
+  .fight10-balance { font-size: 0.6rem; padding: 0.22rem 0.4rem; }
+  .nav-profile-btn,
+  .nav-connect-btn { padding: 6px 10px; font-size: 0.6rem; letter-spacing: 0.08em; }
+  .nav-profile-btn { gap: 5px; }
+  .nav-menu { right: 14px; }
   .home-btn { flex: 1 1 100%; }
   .info-tile { flex: 1 1 50%; }
   .go-summary,
