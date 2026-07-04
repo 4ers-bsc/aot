@@ -1906,10 +1906,13 @@ body.in-game .log-feed { top: 58px; }
   text-shadow: 0 0 40px rgba(255, 255, 255, 0.5);
 }
 
-body.in-game {
+body.in-game,
+body.home-free-play {
   overflow: hidden;
 }
 
+/* Landing free-play reuses the in-match chrome rules: hide the marketing UI and
+   show the game HUD so the home map plays exactly like a match. */
 body.in-game .site-nav,
 body.in-game .hero-section,
 body.in-game .home-actions,
@@ -1917,12 +1920,112 @@ body.in-game .info-strip,
 body.in-game .world-vignette,
 body.in-game .world-grain,
 body.in-game .world-scanlines,
-body.in-game .world-glitch {
+body.in-game .world-glitch,
+body.home-free-play .site-nav,
+body.home-free-play .hero-section,
+body.home-free-play .home-actions,
+body.home-free-play .info-strip,
+body.home-free-play .world-vignette,
+body.home-free-play .world-grain,
+body.home-free-play .world-scanlines,
+body.home-free-play .world-glitch,
+body.home-free-play #homePlayPrompt {
   display: none !important;
 }
 
-body.in-game .game-hud-root {
+body.in-game .game-hud-root,
+body.home-free-play .game-hud-root {
   display: block;
+}
+
+/* The concise "press Esc to return" hint replaces the verbose in-match control
+   reference on the landing map, so they don't stack on top of each other. */
+body.home-free-play .hint {
+  display: none !important;
+}
+
+/* "Click the battlefield to play" cue on the idle landing page. Hidden once
+   free-play starts (rule above) or during a match, and on touch layouts where
+   the map sits behind scrolling content and can't be tapped directly. */
+#homePlayPrompt {
+  position: absolute;
+  top: 76px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 6;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 16px;
+  border-radius: 999px;
+  border: 1px solid rgba(212, 160, 23, 0.35);
+  background: rgba(12, 10, 6, 0.55);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  color: rgba(233, 224, 200, 0.82);
+  font-family: var(--font-head);
+  font-size: 0.62rem;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  pointer-events: none;
+  animation: hpp-pulse 2.6s ease-in-out infinite;
+}
+
+#homePlayPrompt .hpp-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #e4c480;
+  box-shadow: 0 0 8px 1px rgba(228, 196, 128, 0.8);
+}
+
+@keyframes hpp-pulse {
+  0%, 100% { opacity: 0.55; }
+  50% { opacity: 1; }
+}
+
+body.in-game #homePlayPrompt { display: none !important; }
+
+/* Free-play "press Esc to return" hint — centred at the top over the HUD. */
+.home-play-hint {
+  position: fixed;
+  top: 14px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 40;
+  padding: 9px 20px;
+  border-radius: 999px;
+  border: 1px solid rgba(212, 160, 23, 0.4);
+  background: rgba(12, 10, 6, 0.72);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  color: rgba(240, 232, 210, 0.92);
+  font-family: var(--font-head);
+  font-size: 0.66rem;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  box-shadow: 0 8px 26px rgba(0, 0, 0, 0.5);
+  animation: hph-in 0.3s ease;
+}
+
+.home-play-hint.hidden { display: none; }
+
+.home-play-hint kbd {
+  display: inline-block;
+  padding: 1px 7px;
+  margin: 0 1px;
+  border-radius: 4px;
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  background: rgba(255, 255, 255, 0.08);
+  font-family: var(--font-head);
+  font-size: 0.62rem;
+  letter-spacing: 0.08em;
+}
+
+@keyframes hph-in {
+  from { opacity: 0; transform: translate(-50%, -8px); }
+  to { opacity: 1; transform: translate(-50%, 0); }
 }
 
 /* Hint */
@@ -3380,6 +3483,10 @@ body.in-game .log-feed { left: 70px; }
      the arena would render, just entirely invisible behind the page. */
   .arena-mount { position: fixed; }
   body:not(.in-game) .arena-mount { z-index: -1; }
+
+  /* The map sits behind the opaque, scrolling page here, so it can't be tapped
+     directly — drop the "click the battlefield" cue. */
+  #homePlayPrompt { display: none !important; }
 
   .site-nav {
     position: fixed;

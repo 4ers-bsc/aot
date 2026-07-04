@@ -1627,6 +1627,10 @@ export function createArenaGame(options) {
   let kills = 0;
   let viewIsGame = false;
   let localUserId = null;
+  // Landing-page free-play: the player + a sparring raider live on the home
+  // showcase map. A tap on the map drops into free-play (control enabled, the
+  // app hides its landing UI); Esc — or the app — calls stopHomePlay() to leave.
+  let homePlay = false;
 
   // -- Combat ---------------------------------------------------------------
   const ARRIVE = 0.06;
@@ -2181,7 +2185,16 @@ export function createArenaGame(options) {
     }
     lx = e.clientX; ly = e.clientY;
   }
-  function _onPointerUp(e) { if (!isDown) return; isDown = false; if (!dragging) handleTap(e.clientX, e.clientY); }
+  function _onPointerUp(e) {
+    if (!isDown) return;
+    isDown = false;
+    if (dragging) return;
+    // On the landing page a tap on the live map starts free-play, provided the
+    // app says it's safe (no match/matchmaking/overlay). enterHomePlay() enables
+    // control, so the same tap below also moves the player to where they clicked.
+    if (!viewIsGame && !homePlay && (options.canHomePlay?.() ?? false)) enterHomePlay();
+    handleTap(e.clientX, e.clientY);
+  }
   function _onWheel(e) {
     e.preventDefault();
     camera.zoom = Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, camera.zoom * Math.exp(-e.deltaY * 0.0012)));
@@ -2282,6 +2295,58 @@ export function createArenaGame(options) {
   // Reset movement keys on blur so held keys don't keep the player moving after alt-tab.
   function _onBlur() { wasd.w = false; wasd.a = false; wasd.s = false; wasd.d = false; }
   window.addEventListener("blur", _onBlur);
+
+  // -- Home free-play -------------------------------------------------------
+  // Dress the landing background with a controllable player + one AI raider so
+  // the home page shows a living arena you can jump straight into.
+  function showHomeScene() {
+    foeMode = "ai";
+    // Keep exactly one sparring raider (a previous demo may have left extras).
+    while (aiRaiders.length > 1) disposeAiRaider(aiRaiders.pop());
+    aiEnemy.networked = false;
+    aiEnemy.connected = true;
+    aiEnemy.name = "Raider";
+    updateWeaponVis(aiEnemy);
+    updateWeaponVis(player);
+    reviveFighter(player, -12, 4);
+    reviveFighter(aiEnemy, 12, -4);
+    player.connected = true;
+    perspective = "offline";
+    controllable = false;
+    homePlay = false;
+    following = false;
+  }
+  function reviveFighter(f, x, z) {
+    Object.assign(f, { hp: f.maxHp, dead: false, cdTimer: 0, atkAnim: 0, hurt: 0, moving: false, target: null, attackTarget: null });
+    f.group.position.set(x, 0, z);
+    f.group.rotation.set(0, f.group.rotation.y, 0);
+  }
+  function enterHomePlay() {
+    if (homePlay || viewIsGame) return;
+    homePlay = true;
+    perspective = "player";
+    controllable = true;
+    if (player.dead) reviveFighter(player, player.group.position.x, player.group.position.z);
+    camCenter.set(player.group.position.x, 0, player.group.position.z);
+    following = true;
+    selectSlot(2); // start on the sword and sync the hotbar/weapon panel
+    options.onHomePlay?.(true);
+  }
+  function exitHomePlay() {
+    if (!homePlay) return;
+    homePlay = false;
+    controllable = false;
+    perspective = "offline";
+    player.target = null;
+    player.attackTarget = null;
+    wasd.w = wasd.a = wasd.s = wasd.d = false;
+    // Restore a tidy showcase: both fighters up, camera re-framed on the arena.
+    reviveFighter(player, -12, 4);
+    reviveFighter(aiEnemy, 12, -4);
+    camCenter.set(0, 0, 0);
+    following = false;
+    options.onHomePlay?.(false);
+  }
 
   // Settings
   const settings = { renderDistance: "Far", fog: false, msaa: true, animations: true, centerCamera: false, hideHud: false, fps: true, ping: true, location: false };
@@ -2713,6 +2778,7 @@ export function createArenaGame(options) {
     mountAppearancePreview,
     setView(view) {
       viewIsGame = view === "game";
+      if (viewIsGame) exitHomePlay(); // never keep landing free-play into a match
       document.body.classList.toggle("in-game", viewIsGame);
       applyTheme(viewIsGame ? "game" : "lobby");
       if (!viewIsGame) idleArena(); // returning to the lobby restores the showcase arena
@@ -2940,7 +3006,14 @@ export function createArenaGame(options) {
       }
     },
     generateMap(seed) { generateMap(seed); buildMinimapStatic(); },
+    // Populate the landing background with a controllable player + sparring
+    // raider. Called whenever the home screen is shown.
+    showHomeScene() { showHomeScene(); },
+    // Leave landing free-play (Esc / app-driven) and restore the idle showcase.
+    stopHomePlay() { exitHomePlay(); },
+    isHomePlaying() { return homePlay; },
     clearAll() {
+      exitHomePlay();
       perspective = "offline";
       controllable = false;
       foeMode = "ai";
@@ -3144,6 +3217,7 @@ function stubApi() {
     receiveAttack: noop, generateMap: noop, clearAll: noop, destroy: noop,
     setMapVariant: noop, showMapToggle: noop, showRaiderCount: noop, setAiCount: noop,
     setPing: noop, openSettings: noop, setPlayerAppearance: noop,
+    showHomeScene: noop, stopHomePlay: noop, isHomePlaying: () => false,
     mountAppearancePreview: () => null
   };
 }
