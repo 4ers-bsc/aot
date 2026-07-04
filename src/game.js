@@ -440,11 +440,13 @@ export function createArenaGame(options) {
     const baseGeo = new THREE.CylinderGeometry(0.3, 0.38, 0.5, 10);
     const glowGeo = new THREE.PlaneGeometry(3.4, 3.4);
     const LAMP_MID = MAP_HALF + LEDGE_W / 2; // lamp row centered on the ledge band
-    const lampSpots = [];
-    [-1, -0.5, 0, 0.5, 1].forEach((f) => {
-      const p = f * (MAP_HALF - 3); // five per side, evenly spaced, shy of corners
-      lampSpots.push([p, -LAMP_MID], [p, LAMP_MID], [-LAMP_MID, p], [LAMP_MID, p]);
-    });
+    // Eight lamps total: one at each of the four corners and one at the middle
+    // of each of the four sides.
+    const lampSpots = [
+      [-LAMP_MID, -LAMP_MID], [LAMP_MID, -LAMP_MID], // corners
+      [-LAMP_MID,  LAMP_MID], [LAMP_MID,  LAMP_MID],
+      [0, -LAMP_MID], [0, LAMP_MID], [-LAMP_MID, 0], [LAMP_MID, 0], // mid-sides
+    ];
     lampSpots.forEach(([x, z]) => {
       // Small polished base…
       const base = new THREE.Mesh(baseGeo, ledgeMat);
@@ -2168,10 +2170,22 @@ export function createArenaGame(options) {
     }
   }
   let isDown = false, dragging = false, sx = 0, sy = 0, lx = 0, ly = 0;
+  let hoverFoe = false; // pointer is over a live enemy — drives the crosshair cursor
   const panRight = new THREE.Vector3(), panUp = new THREE.Vector3();
   const canvas = renderer.domElement;
   function _onPointerDown(e) { canvas.setPointerCapture(e.pointerId); isDown = true; dragging = false; sx = lx = e.clientX; sy = ly = e.clientY; }
   function _onPointerMove(e) {
+    // Hover pick: show the attack crosshair whenever the pointer is over a live
+    // enemy, before any click. Skipped while dragging the camera.
+    if (!(isDown && dragging) && controllable && !player.dead) {
+      const rect = mount.getBoundingClientRect();
+      pointer.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
+      pointer.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
+      raycaster.setFromCamera(pointer, camera);
+      hoverFoe = !!pickFoe();
+    } else {
+      hoverFoe = false;
+    }
     if (!isDown) return;
     if (settings.centerCamera) { lx = e.clientX; ly = e.clientY; return; }
     if (!dragging && Math.hypot(e.clientX - sx, e.clientY - sy) > 5) { dragging = true; following = false; }
@@ -2200,9 +2214,11 @@ export function createArenaGame(options) {
     camera.zoom = Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, camera.zoom * Math.exp(-e.deltaY * 0.0012)));
     camera.updateProjectionMatrix();
   }
+  function _onPointerLeave() { hoverFoe = false; }
   canvas.addEventListener("pointerdown", _onPointerDown);
   canvas.addEventListener("pointermove", _onPointerMove);
   canvas.addEventListener("pointerup", _onPointerUp);
+  canvas.addEventListener("pointerleave", _onPointerLeave);
   canvas.addEventListener("wheel", _onWheel, { passive: false });
 
   // -- HUD (attached reference set) -----------------------------------------
@@ -2714,7 +2730,7 @@ export function createArenaGame(options) {
     updateBar(player);
     aiRaiders.forEach((r) => updateBar(r));
     opponents.forEach((o) => updateBar(o));
-    setCursor(controllable && !player.dead && ((player.attackTarget && !player.attackTarget.dead) || player.atkAnim > 0));
+    setCursor(controllable && !player.dead && (hoverFoe || (player.attackTarget && !player.attackTarget.dead) || player.atkAnim > 0));
 
     if (settings.fps) {
       fpsFrames++;
@@ -3046,6 +3062,7 @@ export function createArenaGame(options) {
       canvas.removeEventListener("pointerdown", _onPointerDown);
       canvas.removeEventListener("pointermove", _onPointerMove);
       canvas.removeEventListener("pointerup", _onPointerUp);
+      canvas.removeEventListener("pointerleave", _onPointerLeave);
       canvas.removeEventListener("wheel", _onWheel);
       window.removeEventListener("keydown", _onKeyDown);
       window.removeEventListener("keyup", _onKeyUp);
