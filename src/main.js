@@ -71,7 +71,6 @@ async function getSolanaConn() {
 
 const els = {
   signInWalletBtn: document.getElementById("signInWalletBtn"),
-  connectWalletBtn: document.getElementById("connectWalletBtn"),
   howToPlayBtn: document.getElementById("howToPlayBtn"),
   profileBtn: document.getElementById("profileBtn"),
   profileOverlay: document.getElementById("profileOverlay"),
@@ -552,7 +551,6 @@ init();
 
 function bindUi() {
   els.signInWalletBtn.addEventListener("click", signIn);
-  els.connectWalletBtn.addEventListener("click", signIn);
   document.getElementById("joinFightBtn")?.addEventListener("click", signIn);
   els.demoBtn.addEventListener("click", startDemo);
   els.pvpBtn.addEventListener("click", startPvp);
@@ -1907,14 +1905,14 @@ async function teardownMatch(keepMatch = false) {
 // ---------------------------------------------------------------------------
 function showLobby() {
   const connected = !!state.user;
-  toggle(els.connectWalletBtn, !connected);
   toggle(els.signInWalletBtn, !connected);
   toggle(els.howToPlayBtn, true);
   toggle(els.profileBtn, connected);
   toggle(els.demoBtn, true);
-  // PLAY PVP is the hero CTA and always visible — startPvp() falls back to
-  // signIn() when no wallet is connected.
+  // One hero CTA: connects the wallet first, becomes PLAY PVP after —
+  // startPvp() falls back to signIn() when no wallet is connected.
   toggle(els.pvpBtn, true);
+  els.pvpBtn.textContent = connected ? "PLAY PVP" : "CONNECT WALLET";
   toggle(els.signOutBtn, connected);
   const balEl = document.getElementById("fight10Balance");
   if (balEl && !connected) balEl.classList.add("hidden");

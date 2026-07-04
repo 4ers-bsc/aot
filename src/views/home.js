@@ -36,10 +36,9 @@ export const html = `
 
   <!-- ===== Action buttons ===== -->
   <div class="home-actions">
-    <button class="home-btn home-btn-hero" id="pvpBtn" type="button">PLAY PVP</button>
+    <button class="home-btn home-btn-hero" id="pvpBtn" type="button">CONNECT WALLET</button>
     <div class="home-actions-row">
       <button class="home-btn home-btn-secondary hidden" id="demoBtn" type="button">DEMO MATCH</button>
-      <button class="home-btn home-btn-secondary" id="connectWalletBtn" type="button">Connect Wallet</button>
       <button class="home-btn home-btn-secondary" id="howToPlayBtn" type="button">HOW TO PLAY</button>
       <button class="home-btn home-btn-secondary" id="whitepaperBtn" type="button">WHITEPAPER</button>
     </div>
