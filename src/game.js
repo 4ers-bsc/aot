@@ -2316,6 +2316,9 @@ export function createArenaGame(options) {
   // Dress the landing background with a controllable player + one AI raider so
   // the home page shows a living arena you can jump straight into.
   function showHomeScene() {
+    // A live match owns the arena — never let a late lobby refresh (auth
+    // events, overlapping UI flows) overwrite it with the idle showcase.
+    if (viewIsGame) return;
     foeMode = "ai";
     // Keep exactly one sparring raider (a previous demo may have left extras).
     while (aiRaiders.length > 1) disposeAiRaider(aiRaiders.pop());
