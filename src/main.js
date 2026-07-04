@@ -873,9 +873,9 @@ function showGameOver(result, reason, standings = [], prizeAmount = null, kills 
   const prizeAmt = document.getElementById("gameOverPrizeAmount");
   if (prizeEl && prizeAmt) {
     if (win) {
-      prizeAmt.textContent = prizeAmount === "pending" ? "Processing payout…" : prizeAmount !== null
-        ? prizeAmount.toLocaleString(undefined, { maximumFractionDigits: 0 }) + " $FIGHT10"
-        : "Payout failed — contact support";
+      if (prizeAmount === "pending") prizeAmt.textContent = "Processing payout…";
+      else if (prizeAmount !== null) setPrizeAmount(prizeAmt, prizeAmount);
+      else prizeAmt.textContent = "Payout failed — contact support";
       setGameOverTxLink(null); // revealed once the payout confirms
       prizeEl.classList.remove("hidden");
     } else {
@@ -899,6 +899,14 @@ function refreshGameOverStats() {
 const TX_EXPLORER_BASE = "https://solscan.io/tx/";
 function txExplorerUrl(sig) { return TX_EXPLORER_BASE + encodeURIComponent(sig); }
 
+// Prize amount as two stacked lines (big white number, gold $FIGHT10),
+// matching the victory-card design.
+function setPrizeAmount(prizeAmt, amount) {
+  prizeAmt.innerHTML =
+    `<span class="go-prize-num">${amount.toLocaleString(undefined, { maximumFractionDigits: 0 })}</span>` +
+    `<span class="go-prize-cur">$FIGHT10</span>`;
+}
+
 // Show/hide the "View transaction" link in the victory prize box.
 function setGameOverTxLink(sig) {
   const link = document.getElementById("gameOverTxLink");
@@ -918,7 +926,7 @@ function updateGameOverPrize(prizeAmount, payoutTx = null) {
   const retryBtn  = document.getElementById("gameOverRetryBtn");
   if (!prizeEl || !prizeAmt) return;
   if (prizeAmount !== null) {
-    prizeAmt.textContent = prizeAmount.toLocaleString(undefined, { maximumFractionDigits: 0 }) + " $FIGHT10";
+    setPrizeAmount(prizeAmt, prizeAmount);
     retryBtn?.classList.add("hidden");
     setGameOverTxLink(payoutTx);
   } else {

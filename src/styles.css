@@ -1217,8 +1217,33 @@ body:has(.game-over:not(.hidden)) .arena-canvas {
   align-items: center;
   justify-content: center;
   padding: 16px;
-  background: rgba(0, 0, 0, 0.82);
+  background: rgba(0, 0, 0, 0.86);
   backdrop-filter: blur(14px);
+  --go-beam: rgba(160, 160, 160, 0.18);
+  --go-glow: rgba(160, 160, 160, 0.05);
+}
+
+.game-over.is-win {
+  --go-beam: rgba(217, 198, 110, 0.3);
+  --go-glow: rgba(217, 198, 110, 0.07);
+}
+
+/* Backdrop dressing: thin crossing diagonals + soft glows on either side of
+   the card (faded out near the center so they never run beneath it). */
+.game-over::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background:
+    linear-gradient(115deg, transparent 17.8%, var(--go-beam) 18%, transparent 18.35%),
+    linear-gradient(65deg,  transparent 17.8%, var(--go-beam) 18%, transparent 18.35%),
+    linear-gradient(115deg, transparent 81.65%, var(--go-beam) 82%, transparent 82.2%),
+    linear-gradient(65deg,  transparent 81.65%, var(--go-beam) 82%, transparent 82.2%),
+    radial-gradient(320px 320px at 12% 72%, var(--go-glow), transparent 70%),
+    radial-gradient(280px 280px at 88% 26%, var(--go-glow), transparent 70%);
+  -webkit-mask-image: radial-gradient(ellipse 60% 70% at center, transparent 42%, #000 72%);
+  mask-image: radial-gradient(ellipse 60% 70% at center, transparent 42%, #000 72%);
 }
 
 .game-over-card {
@@ -1229,7 +1254,7 @@ body:has(.game-over:not(.hidden)) .arena-canvas {
   gap: clamp(12px, 3.5vw, 16px);
   padding: clamp(24px, 6vw, 44px) clamp(20px, 6vw, 46px);
   border: 1px solid var(--line-strong);
-  border-radius: 18px;
+  border-radius: 22px;
   /* Glossy monochrome: soft top highlight over a deep gradient */
   background:
     radial-gradient(120% 80% at 50% -10%, rgba(255,255,255,0.10), transparent 55%),
@@ -1256,7 +1281,7 @@ body:has(.game-over:not(.hidden)) .arena-canvas {
 /* Winner: mostly the same glossy black/white card — gold lives ONLY in the four
    corners and fades inward, so the look is restrained, not gold-flooded. */
 .game-over.is-win .game-over-card {
-  border-color: rgba(217,198,110,0.28);
+  border-color: rgba(217,198,110,0.42);
   background:
     radial-gradient(42% 30% at 0% 0%,   rgba(217,198,110,0.20), transparent 60%),
     radial-gradient(42% 30% at 100% 0%, rgba(217,198,110,0.16), transparent 60%),
@@ -1295,16 +1320,34 @@ body:has(.game-over:not(.hidden)) .arena-canvas {
 }
 .game-over.is-loss .go-logo { filter: grayscale(1) brightness(1.1); opacity: 0.6; }
 
-/* F10 logo at the top of the card. */
+/* F10 brand block at the top of the card — logo over a short rule. */
+.go-brand {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+}
+
+.go-brand::after {
+  content: "";
+  width: 72px;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, rgba(217, 198, 110, 0.6), transparent);
+}
+
+.game-over.is-loss .go-brand::after {
+  background: linear-gradient(90deg, transparent, rgba(160, 160, 160, 0.5), transparent);
+}
+
 .go-logo {
-  width: 56px;
-  height: 56px;
+  width: 52px;
+  height: 52px;
   object-fit: contain;
   filter: grayscale(1) brightness(1.6);
   opacity: 0.95;
 }
 
-/* Match summary — kills (sword) + time taken. */
+/* Match summary — kills + time, as icon tiles (gold icon left, stat right). */
 .go-summary {
   display: grid;
   grid-template-columns: repeat(2, 1fr);
@@ -1313,16 +1356,29 @@ body:has(.game-over:not(.hidden)) .arena-canvas {
 }
 .go-summary-item {
   display: flex;
-  flex-direction: column;
+  flex-direction: row;
   align-items: center;
-  gap: 4px;
+  justify-content: center;
+  gap: 14px;
   min-width: 0;
-  padding: clamp(10px, 3vw, 12px) 10px;
+  padding: clamp(12px, 3vw, 14px) 10px;
   border-radius: 12px;
   /* Glossy monochrome tile */
   background: linear-gradient(180deg, rgba(255,255,255,0.08), rgba(255,255,255,0.02));
   border: 1px solid rgba(255,255,255,0.10);
   box-shadow: inset 0 1px 0 rgba(255,255,255,0.08);
+}
+.go-tile-icon {
+  flex-shrink: 0;
+  color: rgba(217, 198, 110, 0.9);
+}
+.game-over.is-loss .go-tile-icon { color: rgba(190, 190, 190, 0.5); }
+.go-tile-body {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
 }
 .go-summary-num {
   font-family: var(--font-display);
@@ -1335,7 +1391,6 @@ body:has(.game-over:not(.hidden)) .arena-canvas {
   border-color: rgba(217,198,110,0.22);
   background: linear-gradient(180deg, rgba(217,198,110,0.08), rgba(217,198,110,0.02));
 }
-.game-over.is-win .go-summary-num { color: #e6d488; }
 .go-summary-label {
   font-family: var(--font-head);
   font-size: 11px;
@@ -1383,7 +1438,7 @@ body:has(.game-over:not(.hidden)) .arena-canvas {
 .game-over-reason {
   font-family: var(--font-head);
   font-size: 14px;
-  color: var(--muted);
+  color: #e8e4da;
   letter-spacing: 0.05em;
   max-width: 320px;
 }
@@ -1399,11 +1454,36 @@ body:has(.game-over:not(.hidden)) .arena-canvas {
 }
 
 .go-name {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  max-width: 100%;
   font-family: var(--font-head);
-  font-size: 16px;
-  letter-spacing: 0.08em;
-  color: var(--accent);
+  font-size: 15px;
+  letter-spacing: 0.18em;
+  color: #d9c66e;
   text-transform: uppercase;
+}
+
+/* Flanking rules on either side of the player name. */
+.go-name::before,
+.go-name::after {
+  content: "";
+  width: 42px;
+  height: 1px;
+  flex-shrink: 0;
+  background: linear-gradient(90deg, transparent, rgba(217, 198, 110, 0.55));
+}
+.go-name::after {
+  background: linear-gradient(90deg, rgba(217, 198, 110, 0.55), transparent);
+}
+
+.game-over.is-loss .go-name { color: #b6b6b6; }
+.game-over.is-loss .go-name::before {
+  background: linear-gradient(90deg, transparent, rgba(160, 160, 160, 0.45));
+}
+.game-over.is-loss .go-name::after {
+  background: linear-gradient(90deg, rgba(160, 160, 160, 0.45), transparent);
 }
 
 .go-record {
@@ -1428,6 +1508,14 @@ body:has(.game-over:not(.hidden)) .arena-canvas {
   box-shadow: inset 0 1px 0 rgba(255,255,255,0.08);
 }
 
+/* On the result card the wins/losses tiles carry icons (the profile panel
+   reuses .go-stat without them) — lay those out like the summary tiles. */
+.game-over-card .go-stat {
+  flex-direction: row;
+  gap: 14px;
+  padding: clamp(12px, 3vw, 14px) 10px;
+}
+
 .go-num {
   font-family: var(--font-display);
   font-size: clamp(22px, 7vw, 30px);
@@ -1436,6 +1524,7 @@ body:has(.game-over:not(.hidden)) .arena-canvas {
 
 .go-win .go-num { color: #ffffff; }
 .go-loss .go-num { color: #7a7a7a; }
+.game-over-card .go-loss .go-num { color: #ffffff; }
 
 .go-label {
   font-family: var(--font-head);
@@ -1447,19 +1536,25 @@ body:has(.game-over:not(.hidden)) .arena-canvas {
 
 .game-over-menu {
   margin-top: 8px;
-  padding: 13px 40px;
-  border-radius: 10px;
-  background: var(--accent);
-  color: #0a0a0a;
+  width: min(100%, 340px);
+  padding: 15px 40px;
+  border-radius: 8px;
+  background: linear-gradient(180deg, #f2ce5b 0%, #dcb032 55%, #bb8f13 100%);
+  color: #17120a;
+  border: 1px solid rgba(255, 240, 200, 0.5);
   font-family: var(--font-head);
   font-size: 14px;
-  font-weight: 600;
-  letter-spacing: 0.1em;
+  font-weight: 700;
+  letter-spacing: 0.14em;
   text-transform: uppercase;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 245, 214, 0.65),
+    0 6px 24px rgba(0, 0, 0, 0.5),
+    0 0 26px rgba(217, 198, 110, 0.22);
 }
 
 .game-over-menu:hover {
-  filter: brightness(1.1);
+  filter: brightness(1.08);
 }
 
 .game-over-retry {
@@ -2951,12 +3046,17 @@ body.in-game .log-feed { left: 70px; }
 }
 .standing-row:first-child .standing-rank { color: #ffffff; }
 
-/* Winner screen: restrained gold highlight on the leading row. */
+/* Winner screen: the leading row is a solid gold bar with dark text. */
 .game-over.is-win .standing-row:first-child {
-  background: linear-gradient(180deg, rgba(217,198,110,0.10), rgba(217,198,110,0.03));
-  border-color: rgba(217,198,110,0.28);
+  background: linear-gradient(180deg, #f2ce5b 0%, #d9ad2e 60%, #c0951a 100%);
+  border-color: rgba(255, 240, 200, 0.6);
+  box-shadow: inset 0 1px 0 rgba(255, 245, 214, 0.55), 0 0 18px rgba(217, 198, 110, 0.18);
 }
-.game-over.is-win .standing-row:first-child .standing-rank { color: #e6d488; }
+.game-over.is-win .standing-row:first-child .standing-rank,
+.game-over.is-win .standing-row:first-child .standing-name {
+  color: #17120a;
+  font-weight: 700;
+}
 
 /* Forfeited (flagged) player row. */
 .standing-row.standing-flagged {
@@ -2981,12 +3081,28 @@ body.in-game .log-feed { left: 70px; }
 
 /* Match number on the result card, under the verdict title. */
 .go-matchno {
+  display: flex;
+  align-items: center;
+  gap: 10px;
   font-family: var(--font-head);
   font-size: 11px;
-  letter-spacing: 0.2em;
-  color: var(--soft);
+  letter-spacing: 0.24em;
+  color: rgba(217, 198, 110, 0.75);
   margin: -2px 0 4px;
 }
+
+.go-matchno::before,
+.go-matchno::after {
+  content: "";
+  width: 34px;
+  height: 1px;
+  flex-shrink: 0;
+  background: rgba(217, 198, 110, 0.35);
+}
+
+.game-over.is-loss .go-matchno { color: var(--soft); }
+.game-over.is-loss .go-matchno::before,
+.game-over.is-loss .go-matchno::after { background: rgba(160, 160, 160, 0.35); }
 
 .standing-name {
   font-family: var(--font-head);
@@ -3332,33 +3448,55 @@ body.in-game .log-feed { left: 70px; }
 }
 
 .go-prize-amount {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
   font-family: var(--font-display);
-  font-size: clamp(1.5rem, 7vw, 2rem);
+  font-size: clamp(1.1rem, 5vw, 1.4rem);
   font-weight: 700;
   letter-spacing: 0.06em;
-  /* Glossy champagne-gold gradient text, restrained glow. */
+  color: #f3f3f3;
+  line-height: 1.15;
+}
+
+/* Stacked amount: big silver-white number over a gold $FIGHT10. */
+.go-prize-num {
+  font-size: clamp(2rem, 8vw, 2.6rem);
+  background: linear-gradient(180deg, #ffffff 0%, #e8e8e8 55%, #b9b9b9 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  filter: drop-shadow(0 2px 6px rgba(0, 0, 0, 0.6));
+}
+
+.go-prize-cur {
+  font-size: clamp(1.3rem, 6vw, 1.8rem);
   background: linear-gradient(180deg, #f4e9b6 0%, #d9c66e 50%, #b89a3f 100%);
   -webkit-background-clip: text;
   background-clip: text;
   -webkit-text-fill-color: transparent;
-  filter: drop-shadow(0 0 10px rgba(217,198,110,0.30));
-  line-height: 1.15;
+  filter: drop-shadow(0 0 10px rgba(217, 198, 110, 0.3));
 }
 
 .go-prize-tx {
-  margin-top: 4px;
+  margin-top: 8px;
+  padding: 6px 16px;
   font-family: var(--font-head);
   font-size: 11px;
   font-weight: 600;
-  letter-spacing: 0.08em;
+  letter-spacing: 0.12em;
   text-transform: uppercase;
-  color: rgba(217, 198, 110, 0.85);
+  color: rgba(217, 198, 110, 0.9);
   text-decoration: none;
-  border-bottom: 1px solid rgba(217, 198, 110, 0.35);
-  padding-bottom: 1px;
-  transition: color 0.15s ease, border-color 0.15s ease;
+  border: 1px solid rgba(217, 198, 110, 0.4);
+  border-radius: 6px;
+  transition: color 0.15s ease, border-color 0.15s ease, background 0.15s ease;
 }
-.go-prize-tx:hover { color: #f4e9b6; border-color: rgba(244, 233, 182, 0.7); }
+.go-prize-tx:hover {
+  color: #f4e9b6;
+  border-color: rgba(244, 233, 182, 0.7);
+  background: rgba(217, 198, 110, 0.08);
+}
 .go-prize-tx.hidden { display: none; }
 
 /* ===========================================================================
