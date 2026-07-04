@@ -71,7 +71,6 @@ async function getSolanaConn() {
 
 const els = {
   signInWalletBtn: document.getElementById("signInWalletBtn"),
-  connectWalletBtn: document.getElementById("connectWalletBtn"),
   howToPlayBtn: document.getElementById("howToPlayBtn"),
   profileBtn: document.getElementById("profileBtn"),
   profileOverlay: document.getElementById("profileOverlay"),
@@ -552,11 +551,9 @@ init();
 
 function bindUi() {
   els.signInWalletBtn.addEventListener("click", signIn);
-  els.connectWalletBtn.addEventListener("click", signIn);
   document.getElementById("joinFightBtn")?.addEventListener("click", signIn);
   els.demoBtn.addEventListener("click", startDemo);
   els.pvpBtn.addEventListener("click", startPvp);
-  els.signOutBtn.addEventListener("click", signOut);
   els.howToPlayBtn.addEventListener("click", () => els.howToOverlay.classList.add("show"));
   els.howToClose.addEventListener("click", () => els.howToOverlay.classList.remove("show"));
   els.whitepaperBtn?.addEventListener("click", () => els.whitepaperOverlay.classList.add("show"));
@@ -608,6 +605,7 @@ function bindUi() {
     ["menuPlayPvpBtn",    startPvp],
     ["menuHowToBtn",      () => els.howToOverlay.classList.add("show")],
     ["menuWhitepaperBtn", () => els.whitepaperOverlay?.classList.add("show")],
+    ["signOutBtn",        signOut],
   ];
   navActions.forEach(([id, action]) =>
     document.getElementById(id)?.addEventListener("click", () => { closeNavMenu(); action(); })
@@ -1907,12 +1905,14 @@ async function teardownMatch(keepMatch = false) {
 // ---------------------------------------------------------------------------
 function showLobby() {
   const connected = !!state.user;
-  toggle(els.connectWalletBtn, !connected);
   toggle(els.signInWalletBtn, !connected);
   toggle(els.howToPlayBtn, true);
   toggle(els.profileBtn, connected);
   toggle(els.demoBtn, true);
-  toggle(els.pvpBtn, connected);
+  // One hero CTA: connects the wallet first, becomes PLAY PVP after —
+  // startPvp() falls back to signIn() when no wallet is connected.
+  toggle(els.pvpBtn, true);
+  els.pvpBtn.textContent = connected ? "PLAY PVP" : "CONNECT WALLET";
   toggle(els.signOutBtn, connected);
   const balEl = document.getElementById("fight10Balance");
   if (balEl && !connected) balEl.classList.add("hidden");

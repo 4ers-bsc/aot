@@ -159,7 +159,11 @@ textarea:focus {
   position: absolute;
   inset: 0;
   z-index: 1;
-  background: radial-gradient(circle at center, transparent 55%, rgba(0, 0, 0, 0.55) 100%);
+  /* Uniform darkening layer + a heavier edge falloff: keeps the map readable
+     as a backdrop while pushing focus onto the hero content. Hidden in-game. */
+  background:
+    radial-gradient(circle at center, rgba(0, 0, 0, 0.25) 30%, rgba(0, 0, 0, 0.82) 100%),
+    linear-gradient(rgba(0, 0, 0, 0.28), rgba(0, 0, 0, 0.28));
   pointer-events: none;
 }
 
@@ -349,6 +353,19 @@ textarea:focus {
   transform: none;
 }
 
+/* Sign out lives at the bottom of the menu, visually separated */
+.nav-menu-item-signout {
+  margin-top: 4px;
+  border-top: 1px solid rgba(212, 160, 23, 0.18);
+  border-radius: 0 0 4px 4px;
+  color: rgba(224, 130, 100, 0.7);
+}
+
+.nav-menu-item-signout:hover {
+  color: #f0a68e;
+  background: rgba(180, 60, 40, 0.12);
+}
+
 /* ===== Hero section ===== */
 .hero-section {
   position: absolute;
@@ -445,18 +462,48 @@ textarea:focus {
   background: linear-gradient(90deg, rgba(212, 160, 23, 0.85), transparent);
 }
 
-.hero-desc {
-  margin: 0;
-  color: #c6bfb0;
-  font-size: clamp(0.66rem, 1.3vw, 0.8rem);
-  line-height: 1.62;
-  letter-spacing: 0.03em;
+/* Compact match stats (entry / pot share / match sizes) */
+.hero-stats {
+  display: flex;
+  align-items: stretch;
+  justify-content: center;
+  gap: clamp(12px, 2.4vw, 26px);
 }
 
-.hero-desc strong {
-  color: #e9e0cb;
-  font-weight: 700;
+.hero-stat {
+  flex: 1;
+  min-width: 0;
+  text-align: center;
 }
+
+.hero-stat-value {
+  font-family: var(--font-display);
+  font-size: clamp(1rem, 2.6vw, 1.45rem);
+  line-height: 1.1;
+  letter-spacing: 0.04em;
+  background: var(--gold-grad-vintage);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  -webkit-text-fill-color: transparent;
+  filter: drop-shadow(0 1px 0 rgba(0, 0, 0, 0.8));
+}
+
+.hero-stat-label {
+  margin-top: 5px;
+  font-family: var(--font-head);
+  font-size: 0.55rem;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: rgba(233, 224, 200, 0.55);
+}
+
+.hero-stat-divider {
+  width: 1px;
+  flex-shrink: 0;
+  background: linear-gradient(180deg, transparent, rgba(212, 160, 23, 0.4), transparent);
+}
+
 
 /* Arena wall flame lamps are part of the 3D scene (see edge ledge + lamps in
    game.js) so they stay anchored to the map edges instead of the viewport. */
@@ -522,11 +569,19 @@ textarea:focus {
   right: 0;
   z-index: 6;
   display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  padding: 0 24px;
+}
+
+.home-actions-row {
+  display: flex;
   align-items: center;
   justify-content: center;
   gap: 10px;
   flex-wrap: wrap;
-  padding: 0 24px;
 }
 
 .home-btn {
@@ -544,12 +599,46 @@ textarea:focus {
   transition: opacity 0.15s ease, transform 0.15s ease;
 }
 
-.home-btn-primary {
+/* Hero CTA — PLAY PVP */
+.home-btn-hero {
+  position: relative;
+  overflow: hidden;
+  min-width: 320px;
+  height: 62px;
+  padding: 0 56px;
+  font-size: 1rem;
+  letter-spacing: 0.26em;
+  border-radius: 3px;
   background: var(--gold-grad-btn-vintage);
-  color: #f4ecd2;
-  border: 1px solid rgba(228, 196, 128, 0.35);
+  color: #f8f0d8;
+  border: 1px solid rgba(228, 196, 128, 0.55);
   text-shadow: 0 1px 2px rgba(0, 0, 0, 0.6);
-  box-shadow: 0 1px 0 rgba(255, 235, 190, 0.22) inset, 0 6px 20px rgba(0, 0, 0, 0.5);
+  box-shadow:
+    0 1px 0 rgba(255, 235, 190, 0.25) inset,
+    0 10px 34px rgba(0, 0, 0, 0.6),
+    0 0 28px rgba(212, 160, 23, 0.28);
+}
+
+.home-btn-hero:hover {
+  transform: translateY(-1px);
+  box-shadow:
+    0 1px 0 rgba(255, 235, 190, 0.3) inset,
+    0 12px 38px rgba(0, 0, 0, 0.65),
+    0 0 40px rgba(212, 160, 23, 0.45);
+}
+
+/* Recurring shine sweep across the hero button */
+.home-btn-hero::after {
+  content: "";
+  position: absolute;
+  top: -20%;
+  left: -80px;
+  width: 46px;
+  height: 140%;
+  transform: skewX(-20deg);
+  background: linear-gradient(90deg, transparent, rgba(255, 240, 200, 0.35), transparent);
+  animation: gold-shine 3.2s ease-in-out infinite;
+  pointer-events: none;
 }
 
 .home-btn-secondary {
@@ -3324,7 +3413,11 @@ body.in-game .log-feed { left: 70px; }
     padding: 16px 16px 8px;
     gap: 10px;
   }
+  .home-actions-row { width: 100%; }
   .home-btn { flex: 1 1 140px; min-width: 0; }
+  /* Hero button is a direct child of the column container — the flex-basis
+     above would set its height, not width, so pin it back to its own height. */
+  .home-actions > .home-btn-hero { flex: 0 0 auto; width: 100%; min-width: 0; padding: 0 20px; }
 
   .info-strip {
     height: auto;
