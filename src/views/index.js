@@ -6,6 +6,8 @@ import { html as profileHtml }   from './profile.js';
 import { html as pauseHtml }     from './pause.js';
 import { html as howToHtml }     from './howToPlay.js';
 import { html as whitepaperHtml } from './whitepaper.js';
+import { html as leaderboardHtml } from './leaderboard.js';
+import { html as buyFight10Html } from './buyFight10.js';
 
 export function mountViews() {
   document.getElementById('views-root').innerHTML = [
@@ -17,5 +19,7 @@ export function mountViews() {
     pauseHtml,
     howToHtml,
     whitepaperHtml,
+    leaderboardHtml,
+    buyFight10Html,
   ].join('');
 }

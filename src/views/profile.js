@@ -50,9 +50,25 @@ export const html = `
 
         <div class="section">HOLDER PERKS</div>
         <div class="perks-card">
-          <div class="perks-coming"><span class="coming-soon-pill pill-lg">COMING SOON</span></div>
-          <div class="perk-row perk-row-center">
+          <button class="perk-row perk-row-unlocked" id="perkPlayPvpBtn" type="button">
+            <svg class="perk-check" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><polyline points="20 6 9 17 4 12"/></svg>
+            <span class="perk-name">PLAY FIGHT10 PVP</span>
+            <span class="coming-soon-pill">UNLOCKED</span>
+          </button>
+          <div class="perk-row">
             <svg class="perk-lock" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg>
+            <span class="perk-name">EXCLUSIVE SKINS</span>
+            <span class="perk-pill-locked">LOCKED</span>
+          </div>
+          <div class="perk-row">
+            <svg class="perk-lock" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg>
+            <span class="perk-name">HOLDER TOURNAMENTS</span>
+            <span class="perk-pill-locked">LOCKED</span>
+          </div>
+          <div class="perk-row">
+            <svg class="perk-lock" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg>
+            <span class="perk-name">AIRDROPS &amp; REWARDS</span>
+            <span class="perk-pill-locked">LOCKED</span>
           </div>
         </div>
       </div>
