@@ -1996,6 +1996,11 @@ export function createArenaGame(options) {
     } else {
       p.attackTarget = null;
       p.chargeTimer = 0;
+      // Clicking an enemy mid-walk should read as "stop and attack": the
+      // strike commits in a single frame (clearing attackTarget), so without
+      // this hold the WASD/move branch resumes on the very next frame and the
+      // swing/shot plays while running. Plant until the attack animation ends.
+      if (p.atkAnim > 0) return;
       const anyWasd = wasd.w || wasd.a || wasd.s || wasd.d;
       if (anyWasd) {
         // Derive screen-right and screen-up projected on ground from camera matrix
