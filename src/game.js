@@ -1322,13 +1322,7 @@ export function createArenaGame(options) {
     logMesh.rotation.z = Math.PI / 2;  // lay flat
     logMesh.position.y = thick;         // sit on ground
     logMesh.castShadow = true; logMesh.receiveShadow = true;
-    // Snow drape — a flattened box spanning the top of the cylinder
-    const snowMesh = new THREE.Mesh(
-      new THREE.BoxGeometry(len * 1.02, thick * 0.28, thick * 2.0),
-      new THREE.MeshStandardMaterial({ color: 0xe2eef8, roughness: 0.9, metalness: 0 })
-    );
-    snowMesh.position.y = thick * 2;  // top surface of the cylinder
-    g.add(logMesh, snowMesh);
+    g.add(logMesh);
     const ry = rng() * Math.PI;
     g.rotation.y = ry;
     g.position.set(x, 0, z);
