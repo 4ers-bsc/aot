@@ -504,70 +504,6 @@ textarea:focus {
   background: linear-gradient(180deg, transparent, rgba(212, 160, 23, 0.4), transparent);
 }
 
-/* ===== Featured fighter ===== */
-.featured-fighter {
-  position: absolute;
-  right: clamp(20px, 4vw, 56px);
-  top: 50%;
-  transform: translateY(-52%);
-  z-index: 6;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 8px;
-  width: 190px;
-  padding: 16px 20px 14px;
-  text-align: center;
-  border: 1px solid rgba(226, 178, 60, 0.32);
-  border-top: 2px solid rgba(226, 178, 60, 0.6);
-  border-radius: 6px;
-  background:
-    radial-gradient(ellipse at 50% 0%, rgba(212, 160, 23, 0.16), transparent 55%),
-    linear-gradient(160deg, rgba(26, 19, 6, 0.94) 0%, rgba(10, 8, 4, 0.92) 50%, rgba(32, 23, 8, 0.94) 100%);
-  backdrop-filter: blur(10px);
-  -webkit-backdrop-filter: blur(10px);
-  box-shadow: 0 4px 32px rgba(0, 0, 0, 0.55), inset 0 1px 0 rgba(242, 206, 91, 0.14);
-}
-
-.featured-fighter-tag {
-  font-family: var(--font-head);
-  font-size: 0.52rem;
-  letter-spacing: 0.26em;
-  text-transform: uppercase;
-  color: rgba(233, 224, 200, 0.55);
-}
-
-.featured-fighter-img {
-  width: 118px;
-  height: 118px;
-  object-fit: contain;
-  /* Roster art is black-on-transparent; invert to bone-white with a gold aura. */
-  filter: invert(1) brightness(1.12) drop-shadow(0 0 18px rgba(212, 160, 23, 0.35));
-}
-
-.featured-fighter-name {
-  font-family: var(--font-display);
-  font-size: 1.25rem;
-  letter-spacing: 0.12em;
-  background: var(--gold-grad-vintage);
-  -webkit-background-clip: text;
-  background-clip: text;
-  color: transparent;
-  -webkit-text-fill-color: transparent;
-  filter: drop-shadow(0 1px 0 rgba(0, 0, 0, 0.8));
-}
-
-.featured-fighter-sub {
-  font-family: var(--font-head);
-  font-size: 0.52rem;
-  letter-spacing: 0.2em;
-  color: rgba(233, 224, 200, 0.4);
-}
-
-/* Not enough horizontal room next to the centered hero below this. */
-@media (max-width: 1080px) {
-  .featured-fighter { display: none; }
-}
 
 /* Arena wall flame lamps are part of the 3D scene (see edge ledge + lamps in
    game.js) so they stay anchored to the map edges instead of the viewport. */
@@ -1977,7 +1913,6 @@ body.in-game {
 body.in-game .site-nav,
 body.in-game .hero-section,
 body.in-game .home-actions,
-body.in-game .featured-fighter,
 body.in-game .info-strip,
 body.in-game .world-vignette,
 body.in-game .world-grain,

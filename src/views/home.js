@@ -26,14 +26,6 @@ export const html = `
     </div>
   </section>
 
-  <!-- ===== Featured fighter ===== -->
-  <aside class="featured-fighter">
-    <div class="featured-fighter-tag">FEATURED FIGHTER</div>
-    <img class="featured-fighter-img" src="/NORAB.png" alt="NORAB — featured F10 fighter" />
-    <div class="featured-fighter-name">NORAB</div>
-    <div class="featured-fighter-sub">F10 ROSTER · 01</div>
-  </aside>
-
   <!-- ===== Action buttons ===== -->
   <div class="home-actions">
     <button class="home-btn home-btn-hero" id="pvpBtn" type="button">CONNECT WALLET</button>
