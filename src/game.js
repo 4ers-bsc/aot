@@ -198,6 +198,11 @@ export function createArenaGame(options) {
   // per frame in animate(): an unfurl drop when built, then a continuous
   // fabric wave. { mesh, geo, h, phase, born }
   const clothBanners = [];
+  // Laser beams on the arena's outer faces, animated in animate():
+  // "sweep" beams drift down the cliff walls and fade out with depth,
+  // "corner" beams stand at the four corners and breathe slowly.
+  // { mesh, kind: "sweep" | "corner", cycle, phase }
+  const sideLasers = [];
 
   function buildArenaWalls(variant) {
     // Dispose existing wall objects via the shared traversal helper (it
@@ -208,6 +213,7 @@ export function createArenaGame(options) {
     });
     wallObjects.length = 0;
     clothBanners.length = 0; // banner meshes live in wallObjects, disposed above
+    sideLasers.length = 0;   // laser meshes live in wallObjects too
 
     const DEPTH = 10;
     const addObj = (obj) => { scene.add(obj); wallObjects.push(obj); return obj; };
@@ -236,36 +242,48 @@ export function createArenaGame(options) {
     btm.position.y = -DEPTH;
     addObj(btm);
 
-    // Glass panels — golden pixel grid
-    const GH = 6;
+    // Glass panels — golden pixel grid running the full wall depth, fading
+    // toward the bottom so the cliff faces read as receding into the void.
+    const GH = DEPTH;
     const CELL = 8;
     const PW = 256;
-    const PH = 64;
+    const PH = 160; // 20 grid rows across the full depth
     const gc = document.createElement("canvas");
     gc.width = PW; gc.height = PH;
     const gctx = gc.getContext("2d");
     gctx.imageSmoothingEnabled = false;
 
-    for (let row = 0; row < PH / CELL; row++) {
-      const rowAlpha = 1 - row / (PH / CELL);
+    const ROWS = PH / CELL;
+    // Eased fade: holds brightness near the rim, dies out by the bottom
+    const rowFade = (row) => Math.pow(1 - row / ROWS, 1.4);
+    for (let row = 0; row < ROWS; row++) {
+      const rowAlpha = rowFade(row);
       for (let col = 0; col < PW / CELL; col++) {
         const va = 0.85 + Math.random() * 0.15;
+        // Sparse "lit" cells — brighter windows scattered down the grid
+        if (Math.random() < 0.06) {
+          gctx.fillStyle = `rgba(255,214,84,${(rowAlpha * 0.8 * va).toFixed(3)})`;
+          gctx.fillRect(col * CELL, row * CELL, CELL, CELL);
+          continue;
+        }
         const fillAlpha = rowAlpha * 0.28 * va;
         gctx.fillStyle = `rgba(210,175,60,${fillAlpha.toFixed(3)})`;
         gctx.fillRect(col * CELL + 1, row * CELL + 1, CELL - 2, CELL - 2);
       }
     }
-    for (let row = 0; row <= PH / CELL; row++) {
-      const rowAlpha = 1 - row / (PH / CELL);
+    for (let row = 0; row <= ROWS; row++) {
+      const rowAlpha = rowFade(row);
       gctx.strokeStyle = `rgba(255, 200, 48, ${(rowAlpha * 0.72).toFixed(3)})`;
       gctx.lineWidth = 1;
       gctx.beginPath(); gctx.moveTo(0, row * CELL); gctx.lineTo(PW, row * CELL); gctx.stroke();
     }
     for (let col = 0; col <= PW / CELL; col++) {
-      for (let row = 0; row < PH / CELL; row++) {
-        const rowAlpha = 1 - row / (PH / CELL);
-        gctx.strokeStyle = `rgba(255, 200, 48, ${(rowAlpha * 0.55).toFixed(3)})`;
-        gctx.lineWidth = 1;
+      // Structural struts every 8 cells: brighter and drawn 2px wide
+      const strut = col % 8 === 0;
+      for (let row = 0; row < ROWS; row++) {
+        const rowAlpha = rowFade(row);
+        gctx.strokeStyle = `rgba(255, 200, 48, ${(rowAlpha * (strut ? 0.95 : 0.55)).toFixed(3)})`;
+        gctx.lineWidth = strut ? 2 : 1;
         gctx.beginPath(); gctx.moveTo(col * CELL, row * CELL); gctx.lineTo(col * CELL, (row + 1) * CELL); gctx.stroke();
       }
     }
@@ -375,6 +393,74 @@ export function createArenaGame(options) {
       new THREE.BufferGeometry().setFromPoints(rimPts2),
       new THREE.LineBasicMaterial({ color: rimColor2, transparent: true, opacity: 0.38 })
     ));
+
+    // Depth-echo rims — fainter copies of the gold rim stepped down the
+    // walls, so the cliff faces read with depth instead of a flat drop.
+    const eS = MAP_HALF - 0.04;
+    [[-2.6, 0.26], [-5.4, 0.15], [-8.2, 0.07]].forEach(([ey, eo]) => {
+      addObj(new THREE.Line(
+        new THREE.BufferGeometry().setFromPoints([
+          new THREE.Vector3(-eS, ey, -eS), new THREE.Vector3(eS, ey, -eS),
+          new THREE.Vector3( eS, ey,  eS), new THREE.Vector3(-eS, ey,  eS),
+          new THREE.Vector3(-eS, ey, -eS),
+        ]),
+        new THREE.LineBasicMaterial({ color: rimColor2, transparent: true, opacity: eo })
+      ));
+    });
+
+    // -- Side lasers — soft additive light bars on the outer faces ----------
+    // Shared beam texture: a hot white-gold core with a soft falloff.
+    const lzc = document.createElement("canvas");
+    lzc.width = 8; lzc.height = 64;
+    const lzx = lzc.getContext("2d");
+    const lGrad = lzx.createLinearGradient(0, 0, 0, 64);
+    lGrad.addColorStop(0.00, "rgba(255,200,60,0)");
+    lGrad.addColorStop(0.42, "rgba(255,190,70,0.55)");
+    lGrad.addColorStop(0.50, "rgba(255,246,200,1)");
+    lGrad.addColorStop(0.58, "rgba(255,190,70,0.55)");
+    lGrad.addColorStop(1.00, "rgba(255,200,60,0)");
+    lzx.fillStyle = lGrad;
+    lzx.fillRect(0, 0, 8, 64);
+    const laserTex = new THREE.CanvasTexture(lzc);
+    // fog: false — the walls sit at the fog range's far end, which would
+    // crush the additive beams into the background; lasers punch through.
+    const laserMatOpts = {
+      map: laserTex, transparent: true, blending: THREE.AdditiveBlending,
+      side: THREE.DoubleSide, depthWrite: false, opacity: 0, fog: false,
+    };
+
+    // Sweep beams: three per side, each drifting from the rim down the wall
+    // and fading out with depth (positions/opacity driven in animate()).
+    const sweepGeo = new THREE.PlaneGeometry(MAP_WORLD, 1.4);
+    SIDES.forEach(({ x, z, ry }, si) => {
+      const nx = x === 0 ? 0 : -Math.sign(x); // nudge inward off the wall
+      const nz = z === 0 ? 0 : -Math.sign(z); // plane to avoid z-fighting
+      for (let i = 0; i < 3; i++) {
+        const beam = new THREE.Mesh(sweepGeo, new THREE.MeshBasicMaterial(laserMatOpts));
+        beam.position.set(x + nx * 0.1, -0.5, z + nz * 0.1);
+        beam.rotation.y = ry;
+        beam.renderOrder = 2; // over the glass grid panels
+        addObj(beam);
+        sideLasers.push({
+          mesh: beam, kind: "sweep",
+          cycle: 4.5 + Math.random() * 3.5,
+          phase: (si * 3 + i) / 12 + Math.random() * 0.08, // staggered starts
+        });
+      }
+    });
+
+    // Corner beams: vertical pillars of light at the four corners, breathing
+    // slowly — they anchor the sweep beams and mark the arena's extents.
+    const cornerGeo = new THREE.PlaneGeometry(DEPTH, 1.0);
+    [[-1, -1], [1, -1], [-1, 1], [1, 1]].forEach(([sx, sz], ci) => {
+      const beam = new THREE.Mesh(cornerGeo, new THREE.MeshBasicMaterial(laserMatOpts));
+      beam.rotation.z = Math.PI / 2;                 // stand the bar upright
+      beam.rotation.y = Math.atan2(sx, sz);          // face out along the diagonal
+      beam.position.set(sx * (MAP_HALF - 0.12), -DEPTH / 2, sz * (MAP_HALF - 0.12));
+      beam.renderOrder = 2;
+      addObj(beam);
+      sideLasers.push({ mesh: beam, kind: "corner", cycle: 0, phase: ci * 1.7 });
+    });
   }
 
   buildArenaWalls("game");
@@ -2755,6 +2841,19 @@ export function createArenaGame(options) {
       fragRing.position.x = player.group.position.x;
       fragRing.position.z = player.group.position.z;
       fragRing.material.opacity = 0.35 + 0.25 * Math.abs(Math.sin(clock.elapsedTime * 2.8));
+    }
+
+    // Side lasers — sweep beams drift down the cliff faces, flaring in just
+    // under the rim and fading out with depth; corner beams breathe slowly.
+    for (const Lz of sideLasers) {
+      if (Lz.kind === "sweep") {
+        const p = (bNow / Lz.cycle + Lz.phase) % 1;
+        Lz.mesh.position.y = -0.5 - p * 8.4; // rim → near the wall bottom
+        const fade = p < 0.12 ? p / 0.12 : 1 - (p - 0.12) / 0.88;
+        Lz.mesh.material.opacity = fade * (0.75 + 0.25 * Math.sin(t * 6 + Lz.phase * 40));
+      } else {
+        Lz.mesh.material.opacity = 0.25 + 0.2 * (0.5 + 0.5 * Math.sin(t * 0.9 + Lz.phase));
+      }
     }
 
     // Edge flame lamps — cheap two-sine flicker, per-lamp phase offset
