@@ -4005,3 +4005,263 @@ body.in-game .log-feed { left: 70px; }
   .ha { opacity: 1 !important; }
   .ha-in { animation: none !important; }
 }
+
+/* ===========================================================================
+   Theme switch — nav dropdown
+   The active theme id lives in data-theme on <html> (see index.html inline
+   script + src/theme.js); everything below [data-theme="elegant"] further
+   down restyles the chrome per theme.
+--------------------------------------------------------------------------- */
+.theme-switch {
+  position: relative;
+}
+
+.theme-switch-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 7px 12px;
+  border-radius: 5px;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--text);
+  font-family: var(--font-head);
+  font-size: 0.68rem;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+}
+
+.theme-switch-btn svg { flex-shrink: 0; opacity: 0.85; }
+
+.theme-switch-chevron { transition: transform 0.15s ease; }
+.theme-switch-btn[aria-expanded="true"] .theme-switch-chevron { transform: rotate(180deg); }
+
+.theme-menu {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  z-index: 21;
+  display: none;
+  flex-direction: column;
+  min-width: 168px;
+  padding: 6px;
+  border: 1px solid rgba(212, 160, 23, 0.3);
+  border-radius: 6px;
+  background: linear-gradient(170deg, rgba(16, 13, 8, 0.97), rgba(8, 7, 5, 0.97));
+  box-shadow: 0 14px 40px rgba(0, 0, 0, 0.65), inset 0 1px 0 rgba(255, 235, 190, 0.06);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+}
+
+.theme-menu.open { display: flex; }
+
+.theme-menu-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 10px 12px;
+  text-align: left;
+  background: none;
+  border: none;
+  border-radius: 4px;
+  font-family: var(--font-head);
+  font-size: 0.66rem;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: rgba(233, 224, 200, 0.68);
+}
+
+.theme-menu-item:hover {
+  color: #f2e8cc;
+  background: rgba(212, 160, 23, 0.12);
+  transform: none;
+}
+
+.theme-menu-item.active { color: #f2e8cc; }
+.theme-menu-item.active .theme-swatch {
+  border-color: rgba(242, 206, 91, 0.9);
+  box-shadow: 0 0 8px rgba(226, 178, 60, 0.5);
+}
+
+/* Two-tone preview dot: wordmark tone over that theme's gold */
+.theme-swatch {
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  border: 1px solid rgba(255, 255, 255, 0.25);
+}
+.theme-swatch-combat  { background: linear-gradient(135deg, #cfc7b4 50%, #a37c22 50%); }
+.theme-swatch-elegant { background: linear-gradient(135deg, #f5f2ea 50%, #e2b23c 50%); }
+
+@media (max-width: 480px) {
+  /* Icon-only on phones — the label doesn't fit the signed-in action row. */
+  .theme-switch-btn { padding: 6px 8px; gap: 5px; }
+  .theme-switch-label { display: none; }
+  .theme-menu { right: -8px; }
+}
+
+/* ===========================================================================
+   ELEGANT theme
+   Refined luxury take on the same dark-and-gold palette: thin serif wordmark
+   on a single line, airy letter-spaced sans labels, brighter polished gold,
+   soft rounded cards. The default ("combat") theme keeps every rule above
+   untouched.
+--------------------------------------------------------------------------- */
+[data-theme="elegant"] {
+  --font-display: "Cormorant Garamond", "Iowan Old Style", Georgia, serif;
+  --font-head: "Jost", "Avenir Next", "Segoe UI", sans-serif;
+  --font-body: "Jost", "Avenir Next", "Segoe UI", sans-serif;
+
+  /* Brighter, polished golds replace the burnished vintage ramp everywhere
+     the vintage variables are used (wordmark "10", CTAs, badges…). */
+  --gold-grad-vintage: linear-gradient(180deg, #f6dd8b 0%, #ddaf33 48%, #a67c15 100%);
+  --gold-grad-btn-vintage: linear-gradient(180deg, #eec964 0%, #c99a1d 55%, #a67c15 100%);
+  /* Clean ivory for the "FIGHT" wordmark instead of aged bone */
+  --bone-grad: linear-gradient(180deg, #ffffff 0%, #f0ece1 52%, #c8c1af 100%);
+}
+
+/* Buttons carry a heavier hand in Jost than in Black Ops One */
+[data-theme="elegant"] button { letter-spacing: 0.1em; }
+
+/* --- Wordmark: FIGHT10 on one line, thin high-contrast serif --- */
+[data-theme="elegant"] .hero-title-block {
+  flex-direction: row;
+  align-items: baseline;
+  line-height: 1;
+}
+
+[data-theme="elegant"] .hero-big-fight,
+[data-theme="elegant"] .hero-big-10 {
+  font-weight: 500;
+  font-size: clamp(3.25rem, min(14vw, calc((100vh - 500px) * 0.58)), 13.5rem);
+  letter-spacing: 0.08em;
+  margin-top: 0;
+}
+
+/* --- Tagline card --- */
+[data-theme="elegant"] .hero-subtitle {
+  font-family: var(--font-head);
+  font-weight: 300;
+  letter-spacing: 0.5em;
+  text-indent: 0.5em; /* recenter: letter-spacing trails the last glyph */
+  color: #d5c493;
+}
+
+[data-theme="elegant"] .hero-tagline {
+  border: 1px solid rgba(255, 255, 255, 0.09);
+  border-top: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 14px;
+  background: linear-gradient(180deg, rgba(21, 21, 19, 0.8), rgba(11, 11, 10, 0.85));
+  box-shadow: 0 18px 50px rgba(0, 0, 0, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.05);
+}
+
+[data-theme="elegant"] .hero-subtitle::before,
+[data-theme="elegant"] .hero-subtitle::after {
+  background: linear-gradient(90deg, transparent, rgba(226, 178, 60, 0.75));
+}
+[data-theme="elegant"] .hero-subtitle::after {
+  background: linear-gradient(90deg, rgba(226, 178, 60, 0.75), transparent);
+}
+
+[data-theme="elegant"] .hero-stat-value {
+  font-family: var(--font-head);
+  font-weight: 300;
+  letter-spacing: 0.08em;
+  background: none;
+  color: #f5f2ea;
+  -webkit-text-fill-color: #f5f2ea;
+  filter: none;
+}
+
+[data-theme="elegant"] .hero-stat-label {
+  font-weight: 400;
+  letter-spacing: 0.24em;
+  color: rgba(216, 208, 189, 0.55);
+}
+
+[data-theme="elegant"] .hero-stat-divider {
+  background: linear-gradient(180deg, transparent, rgba(255, 255, 255, 0.16), transparent);
+}
+
+/* --- Action buttons --- */
+[data-theme="elegant"] .home-btn {
+  border-radius: 10px;
+  font-weight: 500;
+}
+
+[data-theme="elegant"] .home-btn-hero {
+  border-radius: 12px;
+  background: linear-gradient(180deg, #f0cd6a 0%, #d3a125 55%, #b07f14 100%);
+  color: #241804;
+  font-weight: 600;
+  letter-spacing: 0.32em;
+  text-indent: 0.32em;
+  text-shadow: 0 1px 0 rgba(255, 241, 200, 0.4);
+  border: 1px solid rgba(255, 228, 150, 0.6);
+  box-shadow:
+    0 1px 0 rgba(255, 244, 214, 0.5) inset,
+    0 10px 34px rgba(0, 0, 0, 0.55),
+    0 0 30px rgba(226, 178, 60, 0.3);
+}
+
+[data-theme="elegant"] .home-btn-hero::after {
+  background: linear-gradient(90deg, transparent, rgba(255, 250, 235, 0.45), transparent);
+}
+
+[data-theme="elegant"] .home-btn-secondary {
+  background: rgba(15, 15, 13, 0.66);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  color: rgba(228, 222, 206, 0.78);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+}
+
+[data-theme="elegant"] .home-btn-secondary:hover {
+  color: #f6f1e2;
+  border-color: rgba(221, 175, 51, 0.55);
+  background: rgba(26, 24, 18, 0.78);
+}
+
+/* --- Site nav --- */
+[data-theme="elegant"] .nav-profile-btn,
+[data-theme="elegant"] .nav-connect-btn,
+[data-theme="elegant"] .theme-switch-btn {
+  border-radius: 9px;
+  font-weight: 500;
+}
+
+[data-theme="elegant"] .nav-connect-btn {
+  background: linear-gradient(180deg, #f0cd6a 0%, #c99a1d 100%);
+  color: #241804;
+  text-shadow: none;
+  border-color: rgba(255, 228, 150, 0.6);
+}
+
+[data-theme="elegant"] .fight10-balance { border-radius: 9px; font-weight: 500; }
+
+[data-theme="elegant"] .nav-menu,
+[data-theme="elegant"] .theme-menu {
+  border-radius: 12px;
+  border-color: rgba(255, 255, 255, 0.12);
+  background: linear-gradient(170deg, rgba(21, 21, 19, 0.97), rgba(11, 11, 10, 0.97));
+}
+
+[data-theme="elegant"] .nav-menu-item,
+[data-theme="elegant"] .theme-menu-item {
+  border-radius: 8px;
+  font-weight: 500;
+  color: rgba(228, 222, 206, 0.7);
+}
+
+/* --- Info strip --- */
+[data-theme="elegant"] .info-tile-multi {
+  font-family: var(--font-head);
+  font-weight: 300;
+  letter-spacing: 0.08em;
+}
+
+[data-theme="elegant"] .info-tile-label { font-weight: 500; }

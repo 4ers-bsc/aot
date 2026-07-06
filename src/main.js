@@ -9,9 +9,11 @@ import { escapeHtml } from "./utils.js";
 import { mountViews } from "./views/index.js";
 import { initHomeAnimations } from "./home-anim.js";
 import { APPEARANCE_PRESETS } from "./appearance.js";
+import { initThemeSwitch } from "./theme.js";
 
 mountViews();
 initHomeAnimations();
+initThemeSwitch();
 
 const SUPABASE_URL =
   import.meta.env?.VITE_SUPABASE_URL?.trim() || "https://sajvismyvcgaszjcafcr.supabase.co";
