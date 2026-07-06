@@ -7,8 +7,20 @@
 <link rel="icon" type="image/png" href="/logo.png" />
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-<link href="https://fonts.googleapis.com/css2?family=Black+Ops+One&family=Oswald:wght@400;500;600;700&family=Rajdhani:wght@500;600;700&display=swap" rel="stylesheet" />
+<link href="https://fonts.googleapis.com/css2?family=Black+Ops+One&family=Oswald:wght@400;500;600;700&family=Rajdhani:wght@500;600;700&family=Cormorant+Garamond:wght@400;500;600&family=Jost:wght@300;400;500;600&display=swap" rel="stylesheet" />
 <link rel="stylesheet" href="./src/styles.css" />
+<!-- Apply the saved theme before first paint so the chrome never flashes the
+     wrong look. src/theme.js owns the same key once the app boots. -->
+<script>
+  (function () {
+    var theme = "combat";
+    try {
+      var saved = localStorage.getItem("fight10.theme");
+      if (saved === "elegant" || saved === "combat") theme = saved;
+    } catch (e) { /* private mode — keep default */ }
+    document.documentElement.setAttribute("data-theme", theme);
+  })();
+</script>
 </head>
 <body>
   <div class="shell">
@@ -34,6 +46,17 @@
             PROFILE
           </button>
           <button class="nav-connect-btn" id="signInWalletBtn" type="button">Connect Wallet</button>
+          <div class="theme-switch" id="themeSwitch">
+            <button class="theme-switch-btn" id="themeSwitchBtn" type="button" aria-haspopup="listbox" aria-expanded="false" title="Switch theme">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 3a9 9 0 0 1 0 18z" fill="currentColor" stroke="none"/></svg>
+              <span class="theme-switch-label" id="themeSwitchLabel">Combat</span>
+              <svg class="theme-switch-chevron" width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" aria-hidden="true"><polyline points="6 9 12 15 18 9"/></svg>
+            </button>
+            <div class="theme-menu" id="themeMenu" role="listbox" aria-label="Theme">
+              <button class="theme-menu-item" data-theme="combat" type="button" role="option">Combat<span class="theme-swatch theme-swatch-combat"></span></button>
+              <button class="theme-menu-item" data-theme="elegant" type="button" role="option">Elegant<span class="theme-swatch theme-swatch-elegant"></span></button>
+            </div>
+          </div>
           <a class="x-nav" href="#" aria-label="Twitter / X">
             <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor"><path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-4.714-6.231-5.401 6.231H2.748l7.73-8.835L1.254 2.25H8.08l4.259 5.63 5.905-5.63zm-1.161 17.52h1.833L7.084 4.126H5.117z"/></svg>
           </a>
