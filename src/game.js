@@ -30,8 +30,9 @@ const WEAPONS = {
 };
 Object.values(WEAPONS).forEach(Object.freeze);
 Object.freeze(WEAPONS);
-const WEAPON_LIST = Object.values(WEAPONS).filter((w) => !w.isGrenade);
-function randomAiWeapon() { return WEAPON_LIST[Math.floor(Math.random() * WEAPON_LIST.length)]; }
+// AI raiders all run snipers: they hold position and take charged shots the
+// moment the player wanders into the weapon's (long) range.
+const AI_WEAPON = WEAPONS.sniper;
 // AI raiders have no real profile — hand them a plausible level so their name
 // tag matches the format shown for real players.
 function randomAiLevel() { return 1 + Math.floor(Math.random() * 15); }
@@ -1038,7 +1039,7 @@ export function createArenaGame(options) {
 
   const player = makeFighter({ name: "You", isPlayer: true, palette: theme.player, pos: new THREE.Vector3(-12, 0, 4), hp: 100, weapon: WEAPONS.sword, speed: 6.5, barColor: theme.playerBar });
   // Demo AI raiders (foeMode === "ai"). PvP uses the opponents map instead.
-  const aiEnemy = makeFighter({ name: "Raider", palette: theme.enemy, pos: new THREE.Vector3(12, 0, -4), hp: 100, weapon: randomAiWeapon(), speed: 4.6, barColor: theme.enemyBar, level: randomAiLevel() });
+  const aiEnemy = makeFighter({ name: "Raider", palette: theme.enemy, pos: new THREE.Vector3(12, 0, -4), hp: 100, weapon: AI_WEAPON, speed: 4.6, barColor: theme.enemyBar, level: randomAiLevel() });
   const aiRaiders = [aiEnemy]; // grows/shrinks via setAiCount
   const opponents = new Map(); // userId -> networked fighter
   let foeMode = "ai"; // "ai" (demo) | "net" (pvp)
@@ -1057,7 +1058,7 @@ export function createArenaGame(options) {
     const f = makeFighter({
       name: `Raider ${i + 1}`, palette: theme.enemy,
       pos: new THREE.Vector3(sp.x, 0, sp.z), hp: 100,
-      weapon: randomAiWeapon(), speed: 4.6, barColor: theme.enemyBar, level: randomAiLevel()
+      weapon: AI_WEAPON, speed: 4.6, barColor: theme.enemyBar, level: randomAiLevel()
     });
     f.networked = false;
     f.connected = true;
@@ -1936,7 +1937,7 @@ export function createArenaGame(options) {
   function respawn(f) {
     f.hp = f.maxHp; f.dead = false;
     f.group.rotation.z = 0; f.group.position.y = 0;
-    f.cdTimer = 0; f.atkAnim = 0; f.hurt = 0; f.moving = false;
+    f.cdTimer = 0; f.atkAnim = 0; f.hurt = 0; f.moving = false; f.chargeTimer = 0;
     const sp = randomSpawn();
     f.group.position.set(sp.x, 0, sp.z);
     if (f.isPlayer) { f.attackTarget = null; f.target = null; camCenter.set(sp.x, 0, sp.z); fragRing.visible = player.weapon?.isGrenade ?? false; }
@@ -2028,12 +2029,27 @@ export function createArenaGame(options) {
       if (e.atkAnim > 0) e.atkAnim -= dt;
       e.moving = false;
       regen(e, dt);
-      if (player.dead || !controllable) continue;
+      if (player.dead || !controllable) { e.chargeTimer = 0; continue; }
       const dx = player.group.position.x - e.group.position.x, dz = player.group.position.z - e.group.position.z;
       const dist = Math.hypot(dx, dz);
-      if (dist <= AI_AGGRO) {
-        if (dist > e.weapon.range) moveStep(e, player.group.position.x, player.group.position.z, dt);
-        else { e.facing = Math.atan2(dx, dz); aiAttackOne(e); }
+      if (dist <= e.weapon.range) {
+        // Player is in range: plant, face them, and fire — mirroring the
+        // player's sniper mechanic of holding the aim pose for chargeTime
+        // before the shot is released.
+        e.facing = Math.atan2(dx, dz);
+        const ct = e.weapon.chargeTime ?? 0;
+        if (ct > 0) {
+          if (e.cdTimer <= 0) {
+            e.chargeTimer += dt;
+            e.atkAnim = Math.max(e.atkAnim, 0.1); // hold the aim pose while charging
+            if (e.chargeTimer >= ct) { e.chargeTimer = 0; aiAttackOne(e); }
+          }
+        } else {
+          aiAttackOne(e);
+        }
+      } else {
+        e.chargeTimer = 0;
+        if (dist <= AI_AGGRO) moveStep(e, player.group.position.x, player.group.position.z, dt);
       }
     }
   }
@@ -2335,7 +2351,7 @@ export function createArenaGame(options) {
     following = false;
   }
   function reviveFighter(f, x, z) {
-    Object.assign(f, { hp: f.maxHp, dead: false, cdTimer: 0, atkAnim: 0, hurt: 0, moving: false, target: null, attackTarget: null });
+    Object.assign(f, { hp: f.maxHp, dead: false, cdTimer: 0, atkAnim: 0, hurt: 0, moving: false, target: null, attackTarget: null, chargeTimer: 0 });
     f.group.position.set(x, 0, z);
     f.group.rotation.set(0, f.group.rotation.y, 0);
   }
@@ -2857,7 +2873,7 @@ export function createArenaGame(options) {
       aiEnemy.networked = false;
       aiEnemy.connected = true;
       aiEnemy.name = "Raider";
-      aiEnemy.weapon = randomAiWeapon();
+      aiEnemy.weapon = AI_WEAPON;
       updateWeaponVis(aiEnemy);
     },
     // PvP: switch to networked opponents.
