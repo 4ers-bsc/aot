@@ -1,4 +1,8 @@
 export const html = `
+  <!-- Landing chrome is one full-viewport flex column (hero grows, actions +
+       info strip keep their natural height) so the bands can never overlap,
+       whatever the viewport size. -->
+  <div class="home-screen">
   <!-- ===== Hero ===== -->
   <section class="hero-section">
     <div class="hero-title-block">
@@ -69,4 +73,5 @@ export const html = `
       <div class="info-tile-desc">Players in the<br>game right now.</div>
     </div>
   </div>
+  </div><!-- /.home-screen -->
 `;

@@ -370,19 +370,34 @@ textarea:focus {
   background: rgba(180, 60, 40, 0.12);
 }
 
+/* ===== Home screen column ===== */
+/* One full-viewport flex column for the landing chrome. The hero takes the
+   space left over by the in-flow actions row + info strip, so no viewport
+   size can make the bands run into each other (they used to be independent
+   absolutely-positioned layers whose fit depended on media-query patches). */
+.home-screen {
+  position: absolute;
+  inset: 0;
+  z-index: 6;
+  display: flex;
+  flex-direction: column;
+  /* Let clicks fall through to the battlefield canvas behind; the interactive
+     rows below re-enable their own pointer events. */
+  pointer-events: none;
+}
+
 /* ===== Hero section ===== */
 .hero-section {
-  position: absolute;
-  top: 64px;
-  bottom: 100px;
-  left: 0;
-  right: 0;
-  z-index: 6;
+  flex: 1 1 auto;
+  min-height: 0;
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
   gap: 0;
+  /* Top padding clears the nav (64px) and the "click the battlefield" pill
+     (top: 76px + ~30px tall). */
+  padding: 106px 24px 0;
   pointer-events: none;
 }
 
@@ -397,10 +412,11 @@ textarea:focus {
 
 .hero-big-fight {
   font-family: var(--font-display);
-  /* Scale with the smaller of width/height so short-but-wide screens
-     (1366×768 laptops, landscape tablets) don't grow a title tall enough
-     to collide with the action buttons anchored below the hero. */
-  font-size: clamp(5rem, min(15vw, 22vh), 14rem);
+  /* Scale with the smaller of the width and the viewport height *left over*
+     by the home chrome (nav + tagline + buttons + info strip ≈ 500px), so
+     short-but-wide screens (900p/800p MacBooks, 768p laptops) get a title
+     that always fits the hero band instead of overflowing onto the buttons. */
+  font-size: clamp(3.25rem, min(15vw, calc((100vh - 500px) * 0.58)), 14rem);
   letter-spacing: 0.06em;
   background: var(--bone-grad);
   -webkit-background-clip: text;
@@ -414,7 +430,7 @@ textarea:focus {
 
 .hero-big-10 {
   font-family: var(--font-display);
-  font-size: clamp(4rem, min(13vw, 19vh), 12rem);
+  font-size: clamp(2.75rem, min(13vw, calc((100vh - 500px) * 0.5)), 12rem);
   letter-spacing: 0.06em;
   background: var(--gold-grad-vintage);
   -webkit-background-clip: text;
@@ -427,8 +443,8 @@ textarea:focus {
 
 .hero-tagline {
   max-width: 560px;
-  margin: 1.6rem auto 0;
-  padding: 1.2rem 1.6rem;
+  margin: clamp(0.8rem, 2.2vh, 1.6rem) auto 0;
+  padding: clamp(0.7rem, 1.6vh, 1.2rem) clamp(1rem, 2vw, 1.6rem);
   text-align: center;
   border: 1px solid rgba(226, 178, 60, 0.32);
   border-top: 2px solid rgba(226, 178, 60, 0.6);
@@ -570,17 +586,14 @@ textarea:focus {
 
 /* ===== Action buttons ===== */
 .home-actions {
-  position: absolute;
-  bottom: 108px;
-  left: 0;
-  right: 0;
-  z-index: 6;
+  flex: 0 0 auto;
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 14px;
-  padding: 0 24px;
+  gap: clamp(9px, 1.6vh, 14px);
+  padding: clamp(8px, 1.6vh, 14px) 24px clamp(14px, 2.6vh, 24px);
+  pointer-events: auto;
 }
 
 .home-actions-row {
@@ -596,7 +609,7 @@ textarea:focus {
   align-items: center;
   justify-content: center;
   min-width: 160px;
-  height: 44px;
+  height: clamp(38px, 5.6vh, 44px);
   padding: 0 28px;
   font-family: var(--font-head);
   font-size: 0.72rem;
@@ -610,10 +623,10 @@ textarea:focus {
 .home-btn-hero {
   position: relative;
   overflow: hidden;
-  min-width: 320px;
-  height: 62px;
-  padding: 0 56px;
-  font-size: 1rem;
+  min-width: min(320px, 100%);
+  height: clamp(50px, 7.6vh, 62px);
+  padding: 0 clamp(28px, 4vw, 56px);
+  font-size: clamp(0.85rem, 1.9vh, 1rem);
   letter-spacing: 0.26em;
   border-radius: 3px;
   background: var(--gold-grad-btn-vintage);
@@ -734,18 +747,14 @@ textarea:focus {
 
 /* ===== Info strip ===== */
 .info-strip {
-  position: absolute;
-  bottom: 0;
-  left: 0;
-  right: 0;
-  z-index: 6;
+  flex: 0 0 auto;
   display: flex;
   align-items: stretch;
   background: rgba(0, 0, 0, 0.72);
   border-top: 1px solid rgba(255, 255, 255, 0.1);
   border-bottom: 1px solid rgba(255, 255, 255, 0.1);
   backdrop-filter: blur(12px);
-  height: 90px;
+  pointer-events: auto;
 }
 
 .info-tile {
@@ -754,8 +763,8 @@ textarea:focus {
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 4px;
-  padding: 10px 12px;
+  gap: clamp(2px, 0.5vh, 4px);
+  padding: clamp(6px, 1.3vh, 12px) 12px;
   border-right: 1px solid rgba(255, 255, 255, 0.08);
   text-align: center;
 }
@@ -765,6 +774,8 @@ textarea:focus {
 .info-tile-icon {
   color: var(--gold);
   flex-shrink: 0;
+  width: clamp(20px, 3vh, 28px);
+  height: clamp(20px, 3vh, 28px);
 }
 
 .info-tile-multi {
@@ -1978,6 +1989,7 @@ body.home-free-play {
 /* Landing free-play reuses the in-match chrome rules: hide the marketing UI and
    show the game HUD so the home map plays exactly like a match. */
 body.in-game .site-nav,
+body.in-game .home-screen,
 body.in-game .hero-section,
 body.in-game .home-actions,
 body.in-game .info-strip,
@@ -1986,6 +1998,7 @@ body.in-game .world-grain,
 body.in-game .world-scanlines,
 body.in-game .world-glitch,
 body.home-free-play .site-nav,
+body.home-free-play .home-screen,
 body.home-free-play .hero-section,
 body.home-free-play .home-actions,
 body.home-free-play .info-strip,
@@ -3732,7 +3745,14 @@ body.in-game .log-feed { left: 70px; }
     border-bottom: 1px solid rgba(255, 255, 255, 0.08);
   }
 
-  /* Flow, don't stack absolutely. */
+  /* Flow, don't stack absolutely. The column wrapper joins the page flow so
+     the layout can grow past the viewport and scroll. */
+  .home-screen {
+    position: static;
+    inset: auto;
+    display: block;
+    pointer-events: auto;
+  }
   .hero-section,
   .home-actions,
   .info-strip {
@@ -3775,25 +3795,13 @@ body.in-game .log-feed { left: 70px; }
   }
 }
 
-/* Short desktop/laptop viewports (768p laptops, small landscape tablets).
-   The hero centres between top:64 / bottom:100 while the action buttons float
-   at bottom:108 inside that same band — on short screens the centred tagline
-   runs into the buttons. Centre the hero in the space *above* the button zone
-   instead, and tighten the tagline. */
-@media (min-width: 861px) and (max-height: 820px) {
-  .hero-section { bottom: 236px; }
-  .hero-tagline { margin-top: 1rem; padding: 0.9rem 1.2rem; }
-}
-
-/* Very short landscape viewports — shrink the wordmark and tagline further so
-   title + tagline + buttons + info strip all fit without overlap. */
+/* Very short landscape viewports. Fit itself is handled by the home flex
+   column plus the viewport-height term in the wordmark font sizes — this only
+   tucks in the remaining fixed spacing. */
 @media (min-width: 861px) and (max-height: 640px) {
-  /* Start below the "click the battlefield" pill (top:76 + ~30px tall). */
-  .hero-section { top: 112px; }
-  .hero-big-fight { font-size: clamp(3.5rem, 18vh, 14rem); }
-  .hero-big-10 { font-size: clamp(3rem, 15vh, 12rem); }
-  .hero-tagline { margin-top: 0.6rem; padding: 0.7rem 1.1rem; }
+  .hero-section { padding-top: 92px; }
   .hero-subtitle { margin-bottom: 0.45rem; }
+  #homePlayPrompt { top: 68px; padding: 5px 12px; }
 }
 
 @media (max-width: 480px) {
