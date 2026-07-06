@@ -901,21 +901,121 @@ export function createArenaGame(options) {
       }
     };
   }
+  // Style "3": "Babbler" — black/gold voxel boxer. A chunky near-black body
+  // with glowing gold fists and eyes, blocky voxel hair, and stray lit cubes
+  // sunk into the shoulders and torso, after the pixel-art key art. Same part
+  // contract as the other builders so applyBody/recolorFighter just work.
+  function buildBoxerBody(P) {
+    // Shared glowing gold material; recolorFighter re-tints emissive for
+    // materials flagged userData.glow so they follow the trim color.
+    const glow = new THREE.MeshStandardMaterial({ color: P.trim, emissive: P.trim, emissiveIntensity: 0.95, roughness: 0.45, metalness: 0.1 });
+    glow.userData.glow = true;
+    const glowBox = (w, h, d, x, y, z) => {
+      const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), glow);
+      m.position.set(x, y, z);
+      return m;
+    };
+    // Legs — dark trunks with a gold hem, heavy laced boots
+    const legL = limb(0.38, 0.72, 0.38, P.pants), legR = limb(0.38, 0.72, 0.38, P.pants);
+    legL.position.set(-0.24, 0.94, 0); legR.position.set(0.24, 0.94, 0);
+    const hemMats = [], bootMats = [];
+    for (const leg of [legL, legR]) {
+      const hem = box(0.40, 0.08, 0.40, P.trim); hem.position.y = -0.36;
+      const boot = box(0.40, 0.26, 0.50, P.hair); boot.position.set(0, -0.80, 0.06);
+      const lace = box(0.42, 0.05, 0.52, P.trim); lace.position.set(0, -0.68, 0.06);
+      leg.add(hem, boot, lace);
+      hemMats.push(hem.material, lace.material); bootMats.push(boot.material);
+    }
+    // Torso — bare voxel chest: broad slab with pec and ab blocks standing proud
+    const torso = box(1.08, 0.96, 0.60, P.skin); torso.position.y = 1.46;
+    const pecL = box(0.44, 0.30, 0.10, P.skin); pecL.position.set(-0.25, 1.72, 0.32);
+    const pecR = box(0.44, 0.30, 0.10, P.skin); pecR.position.set( 0.25, 1.72, 0.32);
+    const absA = box(0.52, 0.16, 0.08, P.skin); absA.position.set(0, 1.38, 0.31);
+    const absB = box(0.44, 0.14, 0.08, P.skin); absB.position.set(0, 1.18, 0.31);
+    // Stray lit cubes sunk into the body, like pixels catching the light
+    const litCubes = [
+      glowBox(0.10, 0.10, 0.10, -0.56, 1.64, 0.20), glowBox(0.08, 0.08, 0.08,  0.57, 1.30, 0.18),
+      glowBox(0.09, 0.09, 0.09, -0.38, 1.06, 0.27), glowBox(0.07, 0.07, 0.07,  0.34, 1.88, 0.28)
+    ];
+    // "F10" patch over the left pec
+    const labelTex = makeChestLabelTex();
+    const label = new THREE.Mesh(
+      new THREE.PlaneGeometry(0.22, 0.11),
+      new THREE.MeshBasicMaterial({ map: labelTex, transparent: true, depthWrite: false })
+    );
+    label.position.set(0.25, 1.90, 0.315);
+    label.renderOrder = 2;
+    // Gold waistband over the trunks
+    const belt = box(1.12, 0.14, 0.64, P.trim); belt.position.y = 0.98;
+    // Shoulders — voxel clusters: a big cap plus offset cubes, one lit per side
+    const capL = box(0.46, 0.34, 0.56, P.skin); capL.position.set(-0.70, 1.92, 0);
+    const capR = box(0.46, 0.34, 0.56, P.skin); capR.position.set( 0.70, 1.92, 0);
+    const chipMats = [];
+    const chips = [
+      [-0.84, 2.10, 0.10, 0.16], [-0.62, 2.12, -0.14, 0.14], [0.84, 2.10, -0.08, 0.16], [0.64, 2.13, 0.14, 0.14]
+    ].map(([x, y, z, s]) => { const c = box(s, s, s, P.gi); c.position.set(x, y, z); chipMats.push(c.material); return c; });
+    const shoulderLit = [glowBox(0.09, 0.09, 0.09, -0.90, 1.98, 0.16), glowBox(0.09, 0.09, 0.09, 0.90, 1.98, -0.14)];
+    // Arms — bare, bent at the elbow into a guard, ending in glowing gold fists
+    const armL = limb(0.30, 0.50, 0.30, P.skin), armR = limb(0.30, 0.50, 0.30, P.skin);
+    armL.position.set(-0.70, 1.74, 0); armR.position.set(0.70, 1.74, 0);
+    const foreMats = [], padMats = [], knuckleMats = [];
+    for (const arm of [armL, armR]) {
+      const pad = box(0.32, 0.08, 0.32, P.trim); pad.position.y = -0.50;
+      const fore = box(0.26, 0.44, 0.26, P.skin); fore.position.set(0, -0.66, 0.20); fore.rotation.x = -1.05;
+      const fist = glowBox(0.42, 0.34, 0.38, 0, -0.80, 0.44);
+      const knuckle = box(0.20, 0.14, 0.10, P.hair); knuckle.position.set(0, -0.74, 0.62);
+      arm.add(pad, fore, fist, knuckle);
+      padMats.push(pad.material); foreMats.push(fore.material); knuckleMats.push(knuckle.material);
+    }
+    // Head — dark blocky face, heavy brow, glowing gold eyes
+    const neck = box(0.30, 0.16, 0.30, P.skin); neck.position.y = 2.02;
+    const head = box(0.56, 0.48, 0.54, P.skin); head.position.y = 2.28;
+    const jaw = box(0.44, 0.12, 0.50, P.skin); jaw.position.set(0, 2.02, 0.04);
+    const brow = box(0.58, 0.08, 0.06, P.hair); brow.position.set(0, 2.42, 0.27);
+    const eyeL = glowBox(0.11, 0.07, 0.03, -0.13, 2.32, 0.285);
+    const eyeR = glowBox(0.11, 0.07, 0.03,  0.13, 2.32, 0.285);
+    const mouth = box(0.16, 0.04, 0.03, P.hair); mouth.position.set(0, 2.12, 0.285);
+    // Hair — chunky voxel cubes of mixed sizes, a couple lit gold
+    const hair = [
+      [0, 2.58, -0.04, 0.52, 0.18, 0.50], [-0.20, 2.72, 0.02, 0.22, 0.20, 0.22],
+      [0.12, 2.74, -0.12, 0.20, 0.22, 0.20], [0.26, 2.66, 0.10, 0.16, 0.16, 0.16],
+      [-0.08, 2.78, 0.14, 0.14, 0.14, 0.14], [0.02, 2.62, -0.28, 0.18, 0.16, 0.16],
+      [-0.30, 2.60, -0.16, 0.16, 0.14, 0.16], [0, 2.40, -0.30, 0.50, 0.24, 0.12]
+    ].map(([x, y, z, w, h, d]) => { const c = box(w, h, d, P.hair); c.position.set(x, y, z); return c; });
+    const hairLit = [glowBox(0.10, 0.10, 0.10, 0.24, 2.76, -0.02), glowBox(0.08, 0.08, 0.08, -0.26, 2.70, 0.14)];
+    return {
+      legL, legR, armL, armR,
+      nodes: [
+        legL, legR, torso, pecL, pecR, absA, absB, ...litCubes, label, belt,
+        capL, capR, ...chips, ...shoulderLit, armL, armR,
+        neck, head, jaw, brow, eyeL, eyeR, mouth, ...hair, ...hairLit
+      ],
+      parts: {
+        skin: [torso.material, pecL.material, pecR.material, absA.material, absB.material,
+               capL.material, capR.material, armL.mesh.material, armR.mesh.material, ...foreMats,
+               neck.material, head.material, jaw.material],
+        gi: chipMats,
+        trim: [glow, belt.material, ...hemMats, ...padMats],
+        pants: [legL.mesh.material, legR.mesh.material],
+        hair: [...bootMats, ...knuckleMats, brow.material, mouth.material, ...hair.map((c) => c.material)]
+      }
+    };
+  }
   // Swap a fighter's body in place: dispose the old subtree (weapons included —
   // they hang off the old armR), attach the new one, and re-point every animated
   // reference. The fighter's group, position, bar, and combat state are untouched.
   function applyBody(f, style, P) {
     if (f.body) { f.group.remove(f.body); disposeObject3D(f.body); }
-    const b = style === "2" ? buildKnightBody(P) : buildMartialBody(P);
+    const b = style === "3" ? buildBoxerBody(P) : style === "2" ? buildKnightBody(P) : buildMartialBody(P);
     const body = new THREE.Group();
     body.add(...b.nodes);
     f.group.add(body);
     f.body = body;
-    f.bodyStyle = style === "2" ? "2" : "1";
+    f.bodyStyle = style === "2" || style === "3" ? style : "1";
     f.legL = b.legL; f.legR = b.legR; f.armL = b.armL; f.armR = b.armR;
     f.parts = b.parts;
-    // The knight carries the glowing gold blade; other weapons are shared.
-    f.swordMesh = makeSword(f.bodyStyle === "2" ? P.trim : null);
+    // The knight and boxer carry the glowing gold blade; other weapons are shared.
+    f.swordMesh = makeSword(f.bodyStyle !== "1" ? P.trim : null);
     f.pistolMesh = makePistol(); f.pistolMesh.visible = false;
     f.sniperMesh = makeSniper(); f.sniperMesh.visible = false;
     f.grenadeMesh = makeGrenade(); f.grenadeMesh.visible = false;
@@ -964,8 +1064,8 @@ export function createArenaGame(options) {
     return {
       setAppearance(style, colors) {
         if (body) { pScene.remove(body); disposeObject3D(body); }
-        const b = style === "2" ? buildKnightBody(colors) : buildMartialBody(colors);
-        b.armR.add(makeSword(style === "2" ? colors.trim : null));
+        const b = style === "3" ? buildBoxerBody(colors) : style === "2" ? buildKnightBody(colors) : buildMartialBody(colors);
+        b.armR.add(makeSword(style === "2" || style === "3" ? colors.trim : null));
         body = new THREE.Group();
         body.add(...b.nodes);
         body.rotation.y = 0.5;
@@ -2801,11 +2901,11 @@ export function createArenaGame(options) {
 
   // -- Public API -----------------------------------------------------------
   return {
-    // Swap the local player's body style ("1" martial artist, "2" knight) and
-    // part colors. Passing null reverts to the theme default.
+    // Swap the local player's body style ("1" martial artist, "2" knight,
+    // "3" boxer) and part colors. Passing null reverts to the theme default.
     setPlayerAppearance(appearance) {
       playerAppearance = appearance
-        ? { style: appearance.style === "2" ? "2" : "1", colors: { ...appearance.colors } }
+        ? { style: appearance.style === "2" || appearance.style === "3" ? appearance.style : "1", colors: { ...appearance.colors } }
         : null;
       applyBody(player, playerAppearance?.style || "1", playerAppearance?.colors || theme.player);
     },
@@ -2965,7 +3065,7 @@ export function createArenaGame(options) {
       if (typeof snap.level === "number") f.level = snap.level;
       // Opponents wear their own saved skin. The snapshot carries the skin id;
       // the first one (or a change) swaps the body / recolors from the preset.
-      const skin = snap.skin === "2" ? "2" : snap.skin === "1" ? "1" : null;
+      const skin = snap.skin === "1" || snap.skin === "2" || snap.skin === "3" ? snap.skin : null;
       if (skin && f.netSkin !== skin) {
         f.netSkin = skin;
         if (f.bodyStyle !== skin) applyBody(f, skin, APPEARANCE_PRESETS[skin]);
