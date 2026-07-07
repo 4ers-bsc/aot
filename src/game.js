@@ -589,6 +589,40 @@ export function createArenaGame(options) {
   }));
   scene.add(snow);
 
+  // -- Drifting cloud shadows -------------------------------------------------
+  // Three soft dark blobs sliding slowly across the floor, as if clouds were
+  // passing over the winter sun. Per frame this is just three position adds.
+  const cloudShadows = [];
+  {
+    const cc = document.createElement("canvas");
+    cc.width = cc.height = 128;
+    const cx = cc.getContext("2d");
+    // Lumpy silhouette: several overlapping soft blobs
+    for (let i = 0; i < 7; i++) {
+      const bx = 30 + Math.random() * 68, by = 42 + Math.random() * 44, br = 16 + Math.random() * 20;
+      const g = cx.createRadialGradient(bx, by, 0, bx, by, br);
+      g.addColorStop(0, "rgba(0,0,0,0.5)");
+      g.addColorStop(1, "rgba(0,0,0,0)");
+      cx.fillStyle = g;
+      cx.fillRect(0, 0, 128, 128);
+    }
+    const ctex = new THREE.CanvasTexture(cc);
+    for (let i = 0; i < 2; i++) {
+      const w = 18 + i * 8;
+      const m = new THREE.Mesh(
+        new THREE.PlaneGeometry(w, w * 0.75),
+        new THREE.MeshBasicMaterial({ map: ctex, transparent: true, opacity: 0.1, depthWrite: false })
+      );
+      m.rotation.x = -Math.PI / 2;
+      m.rotation.z = Math.random() * Math.PI * 2;
+      // Above the river plane (0.05) so water darkens too, below the fish (0.09)
+      m.position.set((Math.random() - 0.5) * MAP_WORLD, 0.068 + i * 0.004, (Math.random() - 0.5) * MAP_WORLD);
+      m.renderOrder = 1;
+      scene.add(m);
+      cloudShadows.push({ mesh: m, vx: 0.55 + Math.random() * 0.5, vz: 0.2 + Math.random() * 0.35 });
+    }
+  }
+
   // -- Marker ---------------------------------------------------------------
   const marker = new THREE.Group();
   const markerFill = new THREE.Mesh(new THREE.PlaneGeometry(TILE, TILE), new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0, depthWrite: false }));
@@ -1021,6 +1055,7 @@ export function createArenaGame(options) {
   function disposeObject3D(root) {
     const seen = new Set();
     root.traverse((o) => {
+      if (o.isInstancedMesh) o.dispose(); // frees instance matrix/color buffers
       if (o.geometry && !seen.has(o.geometry)) { seen.add(o.geometry); o.geometry.dispose(); }
       const mats = Array.isArray(o.material) ? o.material : o.material ? [o.material] : [];
       for (const m of mats) {
@@ -1181,6 +1216,7 @@ export function createArenaGame(options) {
     riverSegments = [];
     riverHalfW = 0;
     riverFish = []; // meshes were children of mapGroup — already disposed above
+    decoBits = []; // stale queued decoration bits must not leak into the next map
   }
   function addTower(x, z) {
     const g = new THREE.Group();
@@ -1214,10 +1250,60 @@ export function createArenaGame(options) {
     cloth.rotation.x = -Math.PI / 2;
     cloth.position.y = 14.0;
     g.add(cloth);
+    // Warm-lit arrow-slit windows, two storeys on every face. Instanced —
+    // all eight slits on a tower cost a single draw call.
+    const winMat = new THREE.MeshStandardMaterial({
+      color: 0x1a1206, emissive: 0xffb23e, emissiveIntensity: 1.15, roughness: 0.6,
+    });
+    const wins = new THREE.InstancedMesh(new THREE.BoxGeometry(0.26, 0.62, 0.1), winMat, 8);
+    {
+      const m4 = new THREE.Matrix4(), q = new THREE.Quaternion(), e = new THREE.Euler();
+      const p = new THREE.Vector3(), s = new THREE.Vector3(1, 1, 1);
+      const face = 3.2 / 2 + 0.02; // just proud of the body wall
+      let wi = 0;
+      [[0, face, 0], [0, -face, 0], [face, 0, Math.PI / 2], [-face, 0, Math.PI / 2]]
+        .forEach(([wx, wz, ry]) => {
+          for (const wy of [4.4, 7.9]) {
+            q.setFromEuler(e.set(0, ry, 0));
+            m4.compose(p.set(wx, wy, wz), q, s);
+            wins.setMatrixAt(wi++, m4);
+          }
+        });
+    }
+    g.add(wins);
     g.add(base, body, par, psnow);
     g.position.set(x, 0, z);
     mapGroup.add(g);
     solids.push({ x, z, r: 2.2 });
+  }
+  // Ground-scatter decoration bits. Grass blades, snowy tufts, flower stems
+  // and blooms are all tinted boxes, so instead of one Mesh each (which used
+  // to cost ~250 draw calls per map) they queue up here and render as a
+  // single InstancedMesh built by flushDecoBits() at the end of generateMap.
+  let decoBits = [];
+  function pushDecoBox(x, y, z, sx, sy, sz, ry, color) {
+    decoBits.push({ x, y, z, sx, sy, sz, ry, color });
+  }
+  function flushDecoBits() {
+    if (!decoBits.length) return;
+    const mesh = new THREE.InstancedMesh(
+      new THREE.BoxGeometry(1, 1, 1),
+      new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.85 }),
+      decoBits.length
+    );
+    mesh.castShadow = true; // one instanced shadow draw covers the whole layer
+    mesh.receiveShadow = true;
+    const m4 = new THREE.Matrix4(), q = new THREE.Quaternion(), e = new THREE.Euler();
+    const p = new THREE.Vector3(), s = new THREE.Vector3();
+    const col = new THREE.Color();
+    decoBits.forEach((b, i) => {
+      q.setFromEuler(e.set(0, b.ry, 0));
+      m4.compose(p.set(b.x, b.y, b.z), q, s.set(b.sx, b.sy, b.sz));
+      mesh.setMatrixAt(i, m4);
+      mesh.setColorAt(i, col.setHex(b.color));
+    });
+    mapGroup.add(mesh);
+    decoBits = [];
   }
   function addTowerSnowGrass(cx, cz, rng) {
     const count = 6 + Math.floor(rng() * 5);
@@ -1227,45 +1313,79 @@ export function createArenaGame(options) {
       const px = cx + Math.cos(angle) * dist;
       const pz = cz + Math.sin(angle) * dist;
       if (Math.abs(px) > MAP_HALF - 1 || Math.abs(pz) > MAP_HALF - 1) continue;
-      const g = new THREE.Group();
       const bladeCount = 2 + Math.floor(rng() * 3);
       for (let j = 0; j < bladeCount; j++) {
         const ox = (rng() * 2 - 1) * 0.4, oz = (rng() * 2 - 1) * 0.4;
         const h  = 0.28 + rng() * 0.32;
         const col = rng() < 0.5 ? 0xc8dce0 : 0xa8c8b8;
-        const blade = box(0.12, h, 0.12, col);
-        blade.position.set(ox, h / 2, oz);
-        blade.rotation.y = rng() * Math.PI;
-        g.add(blade);
+        pushDecoBox(px + ox, h / 2, pz + oz, 0.12, h, 0.12, rng() * Math.PI, col);
       }
-      g.position.set(px, 0, pz);
-      mapGroup.add(g);
     }
   }
   function addGrass(x, z, rng) {
-    const g = new THREE.Group();
     const count = 2 + Math.floor(rng() * 3); // 2–4 blades
     for (let i = 0; i < count; i++) {
       const ox = (rng() * 2 - 1) * 0.4, oz = (rng() * 2 - 1) * 0.4;
       const h  = 0.3 + rng() * 0.35;
       const col = rng() < 0.5 ? 0x4a7a38 : 0x5a8a42;
-      const blade = box(0.12, h, 0.12, col);
-      blade.position.set(ox, h / 2, oz);
-      blade.rotation.y = rng() * Math.PI;
-      g.add(blade);
+      pushDecoBox(x + ox, h / 2, z + oz, 0.12, h, 0.12, rng() * Math.PI, col);
     }
-    g.position.set(x, 0, z);
-    mapGroup.add(g);
+    // Occasional wildflower poking out of a tuft
+    if (rng() < 0.3) {
+      const stemH = 0.5 + rng() * 0.25;
+      const fx = x + (rng() * 2 - 1) * 0.3, fz = z + (rng() * 2 - 1) * 0.3;
+      const bloomCol = [0xe8d44f, 0xd9736b, 0xe8e6da][Math.floor(rng() * 3)];
+      pushDecoBox(fx, stemH / 2, fz, 0.06, stemH, 0.06, 0, 0x4a6a30);
+      pushDecoBox(fx, stemH + 0.04, fz, 0.15, 0.1, 0.15, 0, bloomCol);
+    }
     // No solid entry — grass is purely decorative
+  }
+  // Scattered pebbles and small rocks over the whole field. One InstancedMesh
+  // — every stone on the map renders in a single draw call.
+  function addPebbleField(rng) {
+    const COUNT = 130;
+    const stones = new THREE.InstancedMesh(
+      new THREE.DodecahedronGeometry(0.17, 0),
+      new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.95, flatShading: true }),
+      COUNT
+    );
+    stones.castShadow = false;
+    stones.receiveShadow = true;
+    const m4 = new THREE.Matrix4(), q = new THREE.Quaternion(), e = new THREE.Euler();
+    const p = new THREE.Vector3(), s = new THREE.Vector3();
+    const col = new THREE.Color();
+    let placed = 0;
+    for (let attempt = 0; attempt < COUNT * 6 && placed < COUNT; attempt++) {
+      const x = (rng() * 2 - 1) * (MAP_HALF - 2);
+      const z = (rng() * 2 - 1) * (MAP_HALF - 2);
+      if (inRiver(x, z)) continue; // stones would float on the water plane
+      const sc = 0.5 + rng() * 1.1;
+      q.setFromEuler(e.set(rng() * Math.PI, rng() * Math.PI, rng() * Math.PI));
+      // Squashed and half-sunk so they read as ground stones, not droppings
+      m4.compose(p.set(x, 0.05 * sc, z), q, s.set(sc, sc * 0.55, sc));
+      stones.setMatrixAt(placed, m4);
+      // Mostly grey shale, the odd snow-dusted white
+      const l = rng() < 0.22 ? 0.82 + rng() * 0.1 : 0.42 + rng() * 0.25;
+      stones.setColorAt(placed, col.setHSL(0.08, 0.04, l));
+      placed++;
+    }
+    stones.count = placed;
+    mapGroup.add(stones);
   }
   function addTree(x, z, rng) {
     const rand = rng || Math.random.bind(Math);
     const sc = 0.68 + rand() * 0.66;            // 0.68 – 1.34 scale
     const g = new THREE.Group();
     const trunk = box(0.5, 1.6, 0.5, 0x5c3d1e); trunk.position.y = 0.8;
-    const f1 = box(2.0, 1.4, 2.0, 0x2d5e2a); f1.position.y = 2.0;
-    const f2 = box(1.3, 1.2, 1.3, 0x254f22); f2.position.y = 3.0;
-    g.add(trunk, f1, f2);
+    // Two foliage shades so a stand of trees doesn't read as copy-paste
+    const dark = rand() < 0.45;
+    const f1 = box(2.0, 1.4, 2.0, dark ? 0x27522a : 0x2d5e2a); f1.position.y = 2.0;
+    const f2 = box(1.3, 1.2, 1.3, dark ? 0x1f451e : 0x254f22); f2.position.y = 3.0;
+    // Snow resting on each canopy tier — ties the trees to the falling snow,
+    // snow-capped peaks and towers. Tiny slabs, so they skip the shadow pass.
+    const s1 = box(2.06, 0.16, 2.06, 0xe6eef6); s1.position.y = 2.76; s1.castShadow = false;
+    const s2 = box(1.36, 0.14, 1.36, 0xf1f6fb); s2.position.y = 3.65; s2.castShadow = false;
+    g.add(trunk, f1, f2, s1, s2);
     g.scale.setScalar(sc);
     g.position.set(x, 0, z);
     mapGroup.add(g);
@@ -1428,9 +1548,28 @@ export function createArenaGame(options) {
     rctx.lineWidth = lw + 10; rctx.lineCap = "round"; rctx.lineJoin = "round";
     drawPath(); rctx.stroke(); rctx.restore();
 
+    // Pale foam rim hugging both banks — peeks out from under the water stroke
+    rctx.save(); rctx.strokeStyle = "rgba(224,242,250,0.6)";
+    rctx.lineWidth = lw + 4; rctx.lineCap = "round"; rctx.lineJoin = "round";
+    drawPath(); rctx.stroke(); rctx.restore();
+
     rctx.save(); rctx.strokeStyle = "rgba(55,120,175,0.88)";
     rctx.lineWidth = lw; rctx.lineCap = "round"; rctx.lineJoin = "round";
     drawPath(); rctx.stroke(); rctx.restore();
+
+    // Darker deep-water channel down the centre line
+    rctx.save(); rctx.strokeStyle = "rgba(28,78,128,0.5)";
+    rctx.lineWidth = lw * 0.42; rctx.lineCap = "round"; rctx.lineJoin = "round";
+    drawPath(); rctx.stroke(); rctx.restore();
+
+    // Static sun glints on the surface — baked into the texture, zero runtime cost
+    rctx.fillStyle = "rgba(235,248,255,0.5)";
+    for (let i = 0; i < 110; i++) {
+      const sp = sampledPts[Math.floor(rng() * sampledPts.length)];
+      const u = toU(sp.x) + (rng() * 2 - 1) * lw * 0.34;
+      const v = toV(sp.z) + (rng() * 2 - 1) * lw * 0.34;
+      rctx.fillRect(u, v, 1.6 + rng() * 1.6, 1);
+    }
 
     const tex   = new THREE.CanvasTexture(rc);
     const plane = new THREE.Mesh(
@@ -1506,11 +1645,75 @@ export function createArenaGame(options) {
         wigglePhase: rng() * Math.PI * 2,
       });
     }
+
+    // Reeds clumped along both banks. Purely decorative (no solids), and
+    // instanced so the whole bank vegetation is one draw call.
+    {
+      const REEDS = 110;
+      const geo = new THREE.BoxGeometry(0.09, 1, 0.09);
+      geo.translate(0, 0.5, 0); // grow up from ground level
+      const reeds = new THREE.InstancedMesh(
+        geo,
+        new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 1 }),
+        REEDS
+      );
+      reeds.castShadow = false;
+      reeds.receiveShadow = true;
+      const m4 = new THREE.Matrix4(), q = new THREE.Quaternion(), e = new THREE.Euler();
+      const p = new THREE.Vector3(), s = new THREE.Vector3();
+      const col = new THREE.Color();
+      let placed = 0;
+      for (let attempt = 0; attempt < REEDS * 8 && placed < REEDS; attempt++) {
+        const i = 1 + Math.floor(rng() * (sampledPts.length - 1));
+        const a = sampledPts[i - 1], b = sampledPts[i];
+        const dx = b.x - a.x, dz = b.z - a.z, len = Math.hypot(dx, dz) || 1;
+        const side = rng() < 0.5 ? 1 : -1;
+        const d = hw + 0.3 + rng() * 1.6; // just beyond the bank
+        const rx = b.x + (-dz / len) * d * side + (rng() * 2 - 1) * 0.5;
+        const rz = b.z + (dx / len) * d * side + (rng() * 2 - 1) * 0.5;
+        if (Math.abs(rx) > MAP_HALF - 1 || Math.abs(rz) > MAP_HALF - 1) continue;
+        if (inRiver(rx, rz) || collidesSolid(rx, rz, 0.3)) continue;
+        q.setFromEuler(e.set((rng() * 2 - 1) * 0.14, rng() * Math.PI, (rng() * 2 - 1) * 0.14));
+        m4.compose(p.set(rx, 0, rz), q, s.set(1, 0.7 + rng() * 0.9, 1));
+        reeds.setMatrixAt(placed, m4);
+        reeds.setColorAt(placed, col.setHex(rng() < 0.4 ? 0x7d8a44 : 0x5d7036));
+        placed++;
+      }
+      reeds.count = placed;
+      mapGroup.add(reeds);
+
+      // A few lily pads floating in the calmer water near the banks
+      const PADS = 14;
+      const pads = new THREE.InstancedMesh(
+        new THREE.CircleGeometry(0.44, 10),
+        new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.9 }),
+        PADS
+      );
+      pads.castShadow = false;
+      let padCount = 0;
+      for (let attempt = 0; attempt < PADS * 10 && padCount < PADS; attempt++) {
+        const sp = sampledPts[Math.floor(rng() * sampledPts.length)];
+        const px = sp.x + (rng() * 2 - 1) * hw * 0.7;
+        const pz = sp.z + (rng() * 2 - 1) * hw * 0.7;
+        if (!inRiver(px, pz)) continue;
+        if (Math.abs(px) > MAP_HALF - 1 || Math.abs(pz) > MAP_HALF - 1) continue;
+        q.setFromEuler(e.set(-Math.PI / 2, 0, rng() * Math.PI * 2));
+        const sc = 0.7 + rng() * 0.6;
+        // Sits above the water plane (0.05) and below the fish (0.09)
+        m4.compose(p.set(px, 0.07, pz), q, s.set(sc, sc, 1));
+        pads.setMatrixAt(padCount, m4);
+        pads.setColorAt(padCount, col.setHex(rng() < 0.5 ? 0x3f6e33 : 0x4a7a3a));
+        padCount++;
+      }
+      pads.count = padCount;
+      mapGroup.add(pads);
+    }
   }
   // Paints a transparent biome-tint overlay the same size as the arena floor.
-  // Blue-grey near the river banks, darker earth near large mountain bases.
+  // Blue-grey near the river banks, darker earth near large mountain bases,
+  // plus soft snow-drift and worn-earth mottling so the open field isn't flat.
   // Called after all solids are placed so it can read the final solid list.
-  function buildBiomeOverlay() {
+  function buildBiomeOverlay(rng) {
     const CS = 256; // texel resolution; soft blending means high-res isn't needed
     const bc = document.createElement("canvas");
     bc.width = bc.height = CS;
@@ -1563,6 +1766,18 @@ export function createArenaGame(options) {
       }
     }
     bctx.putImageData(imgData, 0, 0);
+
+    // Soft mottling blotches: pale snow drifts and worn dirt patches, baked
+    // into this same texture so they cost nothing extra at runtime.
+    for (let i = 0; i < 18; i++) {
+      const u = rng() * CS, v = rng() * CS, rad = 12 + rng() * 26;
+      const snowy = rng() < 0.5;
+      const grad = bctx.createRadialGradient(u, v, 0, u, v, rad);
+      grad.addColorStop(0, snowy ? "rgba(238,243,250,0.17)" : "rgba(88,74,52,0.13)");
+      grad.addColorStop(1, snowy ? "rgba(238,243,250,0)" : "rgba(88,74,52,0)");
+      bctx.fillStyle = grad;
+      bctx.beginPath(); bctx.arc(u, v, rad, 0, Math.PI * 2); bctx.fill();
+    }
     const tex = new THREE.CanvasTexture(bc);
     const plane = new THREE.Mesh(
       new THREE.PlaneGeometry(MAP_WORLD, MAP_WORLD),
@@ -1598,7 +1813,9 @@ export function createArenaGame(options) {
     scatter(2, (x, z) => addMountain(x, z, rng, 2), 4.8);  // large peaks
     scatter(10, (x, z) => addFallenLog(x, z, rng), 1.4);
     scatter(45, (x, z) => addGrass(x, z, rng), 0.6);
-    buildBiomeOverlay();
+    addPebbleField(rng);
+    flushDecoBits(); // all queued grass/tuft/flower boxes → one InstancedMesh
+    buildBiomeOverlay(rng);
   }
   // A free, dry spawn point anywhere on the map.
   // Pass a seeded rng (from makeRng) for deterministic placement across clients.
@@ -2771,6 +2988,15 @@ export function createArenaGame(options) {
       fragRing.position.x = player.group.position.x;
       fragRing.position.z = player.group.position.z;
       fragRing.material.opacity = 0.35 + 0.25 * Math.abs(Math.sin(clock.elapsedTime * 2.8));
+    }
+
+    // Cloud shadows drift diagonally and wrap back around past the ledge
+    for (const C of cloudShadows) {
+      C.mesh.position.x += C.vx * dt;
+      C.mesh.position.z += C.vz * dt;
+      const wrap = MAP_HALF + 24;
+      if (C.mesh.position.x > wrap) C.mesh.position.x = -wrap;
+      if (C.mesh.position.z > wrap) C.mesh.position.z = -wrap;
     }
 
     // Edge flame lamps — cheap two-sine flicker, per-lamp phase offset
