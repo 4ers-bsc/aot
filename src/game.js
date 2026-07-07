@@ -748,6 +748,11 @@ export function createArenaGame(options) {
     document.body.appendChild(el);
     return { el, name, level, fill, color: barColor };
   }
+  // Uniform visual scale for every fighter (player, AI raiders, PvP
+  // opponents). Purely cosmetic: gameplay positions, speeds, ranges and
+  // collision radii are untouched; the health-bar anchor and bullet heights
+  // multiply by this so they track the bigger bodies.
+  const CHAR_SCALE = 1.25;
   // Body builders. Both return the same contract — the animated limb pivots,
   // the nodes to hang off the fighter group, and the material map recolored by
   // recolorFighter — so a fighter can swap styles in place via applyBody().
@@ -1018,6 +1023,7 @@ export function createArenaGame(options) {
   function makeFighter(cfg) {
     const g = new THREE.Group();
     g.position.copy(cfg.pos);
+    g.scale.setScalar(CHAR_SCALE);
     g.visible = false;
     scene.add(g);
     const f = {
@@ -1984,11 +1990,11 @@ export function createArenaGame(options) {
     );
     bGroup.add(baseM, tipM);
     const fx = Math.sin(att.facing), fz = Math.cos(att.facing);
-    bGroup.position.set(att.group.position.x + fx * 0.8, 1.5, att.group.position.z + fz * 0.8);
+    bGroup.position.set(att.group.position.x + fx * 0.8, 1.5 * CHAR_SCALE, att.group.position.z + fz * 0.8);
     scene.add(bGroup);
     const target = impact
-      ? new THREE.Vector3(impact.x, 1.45, impact.z)
-      : new THREE.Vector3(def.group.position.x, 1.45, def.group.position.z);
+      ? new THREE.Vector3(impact.x, 1.45 * CHAR_SCALE, impact.z)
+      : new THREE.Vector3(def.group.position.x, 1.45 * CHAR_SCALE, def.group.position.z);
     bullets.push({ mesh: bGroup, def: impact ? null : (deal ? def : null), dmg, bySelf: att === player, speed: bulletSpeed, target });
   }
   function updateBullets(dt) {
@@ -2311,7 +2317,7 @@ export function createArenaGame(options) {
   function updateBar(f) {
     if (!viewIsGame || !f.connected || f.dead || settings.hideHud) { f.bar.el.style.display = "none"; return; }
     const rect = mount.getBoundingClientRect();
-    _bv.set(f.group.position.x, 3.05, f.group.position.z).project(camera);
+    _bv.set(f.group.position.x, 3.05 * CHAR_SCALE, f.group.position.z).project(camera);
     if (_bv.z > 1) { f.bar.el.style.display = "none"; return; }
     f.bar.el.style.display = "block";
     f.bar.el.style.left = (rect.left + (_bv.x * 0.5 + 0.5) * rect.width) + "px";
@@ -2442,6 +2448,10 @@ export function createArenaGame(options) {
     handleTap(e.clientX, e.clientY);
   }
   function _onWheel(e) {
+    // On the landing page the wheel belongs to the document — it scrolls the
+    // marketing sections below the fold. Only hijack it for camera zoom while
+    // actually playing (a match or landing free-play).
+    if (!viewIsGame && !homePlay) return;
     e.preventDefault();
     camera.zoom = Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, camera.zoom * Math.exp(-e.deltaY * 0.0012)));
     camera.updateProjectionMatrix();

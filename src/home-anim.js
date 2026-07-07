@@ -22,9 +22,20 @@ const GROUPS = [
   [".hero-big-10",                 "stamp", 340,  0],
   [".hero-tagline",                "up",    540,  0],
   [".hero-stats > *",              "up",    660, 70],
-  [".home-btn-hero",               "rise",  720,  0],
+  [".home-btn-hero:not(.hs-cta-play)", "rise", 720, 0],
   [".home-actions-row .home-btn",  "up",    840, 90],
   [".info-tile",                   "up",    940, 80],
+  // Landing sections below the fold — revealed by scrolling, so the entrance
+  // delay is irrelevant; only the local scroll stagger matters.
+  [".hs-kicker",                   "up",    0,    0],
+  [".hs-title",                    "up",    0,    0],
+  [".hs-card",                     "up",    0,   60],
+  [".hs-footnote",                 "up",    0,    0],
+  [".hs-center",                   "up",    0,    0],
+  [".hs-cta-title",                "up",    0,    0],
+  [".hs-cta-sub",                  "up",    0,    0],
+  [".hs-cta-actions",              "rise",  0,    0],
+  [".hs-footer",                   "up",    0,    0],
 ];
 
 // How long after an entrance starts we still honour the choreographed delays.
@@ -33,7 +44,24 @@ const ENTRANCE_WINDOW_MS = 2500;
 const SCROLL_STAGGER_CAP_MS = 240;
 
 export function initHomeAnimations() {
-  if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+  const reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+  // -- Scroll cue (bottom right) ---------------------------------------------
+  // Wired even for reduced-motion users — it's navigation, not decoration:
+  // clicking it jumps to the landing sections, and it fades away once the
+  // page has actually been scrolled (the hint has served its purpose).
+  const scrollCue = document.getElementById("scrollCue");
+  const sections = document.getElementById("homeSections");
+  scrollCue?.addEventListener("click", () => {
+    sections?.scrollIntoView({ behavior: reduced ? "auto" : "smooth", block: "start" });
+  });
+  const updateCue = () => {
+    scrollCue?.classList.toggle("scroll-cue-hidden", (window.scrollY || 0) > 60);
+  };
+  window.addEventListener("scroll", updateCue, { passive: true });
+  updateCue();
+
+  if (reduced) return;
 
   const els = [];
   GROUPS.forEach(([selector, variant, base, step]) => {
@@ -62,14 +90,48 @@ export function initHomeAnimations() {
   function startSweep() {
     entranceAt = performance.now();
     els.forEach((el) => observer.observe(el));
+    // Once the hero entrance has played, dip the page to tease the sections.
+    if (!hinted) setTimeout(autoScrollHint, 1700);
   }
 
   function resetSweep() {
+    // Leaving the home screen (match / free-play): park the scroll at the top
+    // so the hero — not the middle of the marketing page — greets the return.
+    window.scrollTo(0, 0);
     els.forEach((el) => {
       observer.unobserve(el);
       el.classList.remove("ha-in");
       el.style.animationDelay = "";
     });
+  }
+
+  // -- Auto scroll hint --------------------------------------------------------
+  // First load only: glide the page down toward the sections and back up, so
+  // it's obvious there's more below the fold. Any real user input (wheel,
+  // touch, drag, key) cancels it instantly and hands control straight back.
+  let hinted = false;
+  function autoScrollHint() {
+    if (hinted) return;
+    hinted = true;
+    const max = document.documentElement.scrollHeight - window.innerHeight;
+    if (max < 160 || (window.scrollY || 0) > 4) return; // nothing to tease / user moved
+    const down = Math.min(window.innerHeight * 0.55, max);
+    const DURATION = 2600;
+    let cancelled = false;
+    const inputs = ["wheel", "touchstart", "pointerdown", "keydown"];
+    const cancel = () => { cancelled = true; unbind(); };
+    const unbind = () => inputs.forEach((t) => window.removeEventListener(t, cancel));
+    inputs.forEach((t) => window.addEventListener(t, cancel, { passive: true }));
+    const t0 = performance.now();
+    (function step(now) {
+      if (cancelled) return;
+      const t = Math.min(1, (now - t0) / DURATION);
+      // Ease the clock, then sweep 0 → down → 0 along a half sine.
+      const e = t < 0.5 ? 2 * t * t : 1 - (-2 * t + 2) ** 2 / 2;
+      window.scrollTo(0, Math.round(down * Math.sin(Math.PI * e)));
+      if (t < 1) requestAnimationFrame(step);
+      else unbind();
+    })(t0);
   }
 
   // -- First entrance: wait for the loading splash to lift ------------------

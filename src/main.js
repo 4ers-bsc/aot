@@ -584,6 +584,10 @@ function bindUi() {
   els.howToPlayBtn.addEventListener("click", () => els.howToOverlay.classList.add("show"));
   els.howToClose.addEventListener("click", () => els.howToOverlay.classList.remove("show"));
   els.whitepaperBtn?.addEventListener("click", () => els.whitepaperOverlay.classList.add("show"));
+  // Landing-section CTAs (below the fold) — same actions as the hero buttons.
+  document.getElementById("secPlayBtn")?.addEventListener("click", startPvp);
+  document.getElementById("secHowToBtn")?.addEventListener("click", () => els.howToOverlay.classList.add("show"));
+  document.getElementById("secWhitepaperBtn")?.addEventListener("click", () => els.whitepaperOverlay?.classList.add("show"));
   els.whitepaperClose?.addEventListener("click", () => els.whitepaperOverlay.classList.remove("show"));
   els.whitepaperOverlay?.addEventListener("pointerdown", (e) => {
     if (e.target === els.whitepaperOverlay) els.whitepaperOverlay.classList.remove("show");
