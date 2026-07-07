@@ -37,24 +37,321 @@ const AI_WEAPON = WEAPONS.sniper;
 // tag matches the format shown for real players.
 function randomAiLevel() { return 1 + Math.floor(Math.random() * 15); }
 
-const THEMES = {
-  game: {
+// ---------------------------------------------------------------------------
+// Arena themes — five complete art directions for the battlefield, selectable
+// from the in-arena settings dropdown. Each theme restyles everything the
+// arena shell owns: floor palette, tile grid, rim/border trim, the art painted
+// on the four arena side walls (see WALL_ARTS), the F10 cloth banner, the edge
+// flame lamps, the outer dot field, scene lighting and the ambient particle
+// weather (snow / neon rain / embers / petals / stardust).
+// Fighter palettes, health bars and click markers stay identical across themes
+// so rivals and UI affordances always read the same in every arena.
+const FIGHTER_BASE = {
+  player: { skin: 0xd69a55, gi: 0x17181c, trim: 0xd9a821, pants: 0x101114, hair: 0x0b0b0d },
+  enemy: { skin: 0xd0a884, gi: 0xa83a32, trim: 0x611c1c, pants: 0x2e1414, hair: 0x1a0e0e },
+  bullet: 0xffe08a,
+  markerMove: [0x2f8a2f, 0x1f6f1f], markerAttack: [0xd23b3b, 0xa02020],
+  playerBar: "#33b14a", enemyBar: "#e0473c",
+  cursor: "%23e0473c",
+};
+
+const ARENA_THEMES = {
+  // 1 — The classic: sunlit winter voxel field ringed by golden pixel glass.
+  frostfall: {
+    ...FIGHTER_BASE,
+    label: "Frostfall Keep · Winter Voxel",
     bg: 0x08090c,
     ground: ["#ffffff", "#ffffff", "#ffffff", "#f4f4f4", "#f4f4f4", "#e2e2e2", "#d9d9d9", "#d9d9d9", "#c4c4c4", "#a8a8a8", "#8f8f8f", "#6f6f6f"],
     grid: [0x8a7030, 0xb89040], gridOpacity: 0.38,
-    border: 0xffc830,
-    player: { skin: 0xd69a55, gi: 0x17181c, trim: 0xd9a821, pants: 0x101114, hair: 0x0b0b0d },
-    enemy: { skin: 0xd0a884, gi: 0xa83a32, trim: 0x611c1c, pants: 0x2e1414, hair: 0x1a0e0e },
-    bullet: 0xffe08a,
-    markerMove: [0x2f8a2f, 0x1f6f1f], markerAttack: [0xd23b3b, 0xa02020],
-    playerBar: "#33b14a", enemyBar: "#e0473c",
-    cursor: "%23e0473c",
-    mm: { grid: "rgba(110,120,128,0.16)", border: "rgba(58,106,58,0.8)", cam: "rgba(47,138,47,0.5)", enemy: "#d23b3b", player: "#2f8a2f" }
+    border: 0xffc830, accent: 0xffc830, accent2: 0xffaa00,
+    dots: 0xffffff,
+    decal: "#000000",
+    light: { ambient: 0xffffff, ambientI: 0.85, sun: 0xffffff, sunI: 0.65 },
+    particles: { color: 0xffffff, size: 0.34, opacity: 0.9, dir: 1, speed: [2, 5], sway: 0.4 },
+    lamp: { flame: 0xffc890, glow: 0xffa050 },
+    wall: {
+      art: "pixelGrid", back: 0x0a0804,
+      banner: { top: "#d9a413", bottom: "#a87a08", edge: "#7a5800", text: "#0a0800", weave: "rgba(122,88,0,0.28)", fold: 0xc8940a },
+    },
+    mm: { grid: "rgba(110,120,128,0.16)", border: "rgba(58,106,58,0.8)", cam: "rgba(47,138,47,0.5)", enemy: "#d23b3b", player: "#2f8a2f" },
+  },
+  // 2 — Synthwave: a midnight violet grid, magenta horizon walls, cyan rain.
+  neon: {
+    ...FIGHTER_BASE,
+    label: "Neon Rift · Synthwave",
+    bg: 0x0a0416,
+    ground: ["#140b26", "#170d2b", "#120a22", "#1b1033", "#0f081d", "#0f081d", "#1e1238", "#251646", "#2b1a52", "#170d2b", "#120a22", "#100920"],
+    grid: [0x35e0ff, 0x8b2fd0], gridOpacity: 0.55,
+    border: 0xff3fd4, accent: 0xff3fd4, accent2: 0x35e0ff,
+    dots: 0x7ce9ff,
+    decal: "#ff64d2",
+    light: { ambient: 0xbfaaff, ambientI: 0.72, sun: 0xff64d2, sunI: 0.5 },
+    particles: { color: 0x53e8ff, size: 0.2, opacity: 0.65, dir: 1, speed: [16, 24], sway: 0 },
+    lamp: { flame: 0x5ee9ff, glow: 0x35b8ff },
+    wall: {
+      art: "synthwave", back: 0x0c0518,
+      banner: { top: "#2b0f45", bottom: "#12061f", edge: "#ff3fd4", text: "#35e0ff", weave: "rgba(255,63,212,0.25)", fold: 0x2b0f45 },
+    },
+    mm: { grid: "rgba(120,80,180,0.22)", border: "rgba(255,63,212,0.8)", cam: "rgba(53,224,255,0.5)", enemy: "#d23b3b", player: "#2f8a2f" },
+  },
+  // 3 — Volcanic: cooled basalt floor, walls split by glowing magma cracks,
+  // embers rising off the field.
+  magma: {
+    ...FIGHTER_BASE,
+    label: "Obsidian Forge · Volcanic",
+    bg: 0x0d0605,
+    ground: ["#241f1c", "#2a2420", "#1f1a17", "#302a25", "#282220", "#1a1512", "#241f1c", "#2a2420", "#332c26", "#1f1a17", "#5a2c14", "#7a3a16"],
+    grid: [0xff6a2a, 0x8a3a12], gridOpacity: 0.3,
+    border: 0xff7a30, accent: 0xff7a30, accent2: 0xd8451f,
+    dots: 0xff8a4a,
+    decal: "#ffcf9a",
+    light: { ambient: 0xff9a66, ambientI: 0.6, sun: 0xff6a3a, sunI: 0.62 },
+    particles: { color: 0xff9a3c, size: 0.26, opacity: 0.9, dir: -1, speed: [1.2, 3.0], sway: 0.9 },
+    lamp: { flame: 0xff7a30, glow: 0xff5a1a },
+    wall: {
+      art: "magma", back: 0x120705,
+      banner: { top: "#3a1108", bottom: "#1c0703", edge: "#ff7a30", text: "#ffb03a", weave: "rgba(255,122,48,0.22)", fold: 0x3a1108 },
+    },
+    mm: { grid: "rgba(140,90,60,0.2)", border: "rgba(255,122,48,0.8)", cam: "rgba(255,176,58,0.5)", enemy: "#d23b3b", player: "#2f8a2f" },
+  },
+  // 4 — Sumi-e temple garden: rice-paper floor, ink-brushed bamboo walls,
+  // sakura petals drifting down.
+  sakura: {
+    ...FIGHTER_BASE,
+    label: "Jade Temple · Ink & Sakura",
+    bg: 0x0b100e,
+    ground: ["#e9e4cf", "#e4dfc8", "#efe9d6", "#dcd7c0", "#e9e4cf", "#d2cdb6", "#c8c9ac", "#e4dfc8", "#efe9d6", "#dcd7c0", "#b9c49b", "#d2cdb6"],
+    grid: [0x3f6e55, 0x77a081], gridOpacity: 0.35,
+    border: 0xe0526e, accent: 0xe0526e, accent2: 0x3f6e55,
+    dots: 0xffc9d8,
+    decal: "#3a2e28",
+    light: { ambient: 0xfff2e0, ambientI: 0.9, sun: 0xffd9b0, sunI: 0.6 },
+    particles: { color: 0xf7a8bd, size: 0.42, opacity: 0.95, dir: 1, speed: [0.7, 1.5], sway: 1.4 },
+    lamp: { flame: 0xffd9a0, glow: 0xffb070 },
+    wall: {
+      art: "inkSakura", back: 0x141210,
+      banner: { top: "#f4e7d3", bottom: "#e2cfb4", edge: "#8a2f3c", text: "#8a2f3c", weave: "rgba(138,47,60,0.2)", fold: 0xe8d9c0 },
+    },
+    mm: { grid: "rgba(120,110,90,0.2)", border: "rgba(224,82,110,0.8)", cam: "rgba(63,110,85,0.55)", enemy: "#d23b3b", player: "#2f8a2f" },
+  },
+  // 5 — Deep space: a shattered starfield platform, nebula walls, stardust
+  // floating up into the void.
+  void: {
+    ...FIGHTER_BASE,
+    label: "Astral Break · Cosmic Nebula",
+    bg: 0x050310,
+    ground: ["#100c20", "#120e24", "#0d0a1b", "#151129", "#0a0716", "#0a0716", "#120e24", "#100c20", "#151129", "#0d0a1b", "#4a3f8a", "#8f86c9"],
+    grid: [0x8a6cff, 0x4436a8], gridOpacity: 0.42,
+    border: 0xa88cff, accent: 0xa88cff, accent2: 0x5ee6d8,
+    dots: 0xb9a8ff,
+    decal: "#cfc4ff",
+    light: { ambient: 0x9fa8ff, ambientI: 0.68, sun: 0xb08cff, sunI: 0.55 },
+    particles: { color: 0xcdbcff, size: 0.3, opacity: 0.8, dir: -1, speed: [0.25, 0.8], sway: 1.2 },
+    lamp: { flame: 0xb9a2ff, glow: 0x8a6cff },
+    wall: {
+      art: "nebula", back: 0x070512,
+      banner: { top: "#241a4e", bottom: "#0e0926", edge: "#a88cff", text: "#5ee6d8", weave: "rgba(168,140,255,0.22)", fold: 0x241a4e },
+    },
+    mm: { grid: "rgba(110,100,170,0.2)", border: "rgba(168,140,255,0.8)", cam: "rgba(94,230,216,0.5)", enemy: "#d23b3b", player: "#2f8a2f" },
   },
 };
-// The landing/lobby arena shows the exact same white-ground look as a real
-// match, so the home page previews precisely what a fight looks like.
-THEMES.lobby = THEMES.game;
+const ARENA_THEME_KEY = "fight10.arenaTheme";
+
+// Side-wall art painters — each renders one theme's 256×64 panel texture that
+// wraps the four arena walls hanging below the floor rim. Canvas row 0 sits at
+// the floor edge; the art is brightest there and dissolves with depth (the
+// pixelGrid painter bakes its own per-row fade, the rest get fadeWallArt).
+const WALL_ARTS = {
+  // Golden pixel glass — the original FIGHT10 look.
+  pixelGrid(ctx, W, H) {
+    ctx.imageSmoothingEnabled = false;
+    const CELL = 8;
+    for (let row = 0; row < H / CELL; row++) {
+      const rowAlpha = 1 - row / (H / CELL);
+      for (let col = 0; col < W / CELL; col++) {
+        const va = 0.85 + Math.random() * 0.15;
+        const fillAlpha = rowAlpha * 0.28 * va;
+        ctx.fillStyle = `rgba(210,175,60,${fillAlpha.toFixed(3)})`;
+        ctx.fillRect(col * CELL + 1, row * CELL + 1, CELL - 2, CELL - 2);
+      }
+    }
+    for (let row = 0; row <= H / CELL; row++) {
+      const rowAlpha = 1 - row / (H / CELL);
+      ctx.strokeStyle = `rgba(255, 200, 48, ${(rowAlpha * 0.72).toFixed(3)})`;
+      ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.moveTo(0, row * CELL); ctx.lineTo(W, row * CELL); ctx.stroke();
+    }
+    for (let col = 0; col <= W / CELL; col++) {
+      for (let row = 0; row < H / CELL; row++) {
+        const rowAlpha = 1 - row / (H / CELL);
+        ctx.strokeStyle = `rgba(255, 200, 48, ${(rowAlpha * 0.55).toFixed(3)})`;
+        ctx.lineWidth = 1;
+        ctx.beginPath(); ctx.moveTo(col * CELL, row * CELL); ctx.lineTo(col * CELL, (row + 1) * CELL); ctx.stroke();
+      }
+    }
+  },
+  // Retrowave horizon — magenta perspective grid, cyan beams, striped suns
+  // sinking below the floor line.
+  synthwave(ctx, W, H) {
+    const base = ctx.createLinearGradient(0, 0, 0, H);
+    base.addColorStop(0, "rgba(34,8,58,0.65)");
+    base.addColorStop(1, "rgba(34,8,58,0)");
+    ctx.fillStyle = base; ctx.fillRect(0, 0, W, H);
+    // hot magenta horizon strip right at the arena floor edge
+    ctx.fillStyle = "rgba(255,63,212,0.95)"; ctx.fillRect(0, 0, W, 2);
+    const hGlow = ctx.createLinearGradient(0, 0, 0, 14);
+    hGlow.addColorStop(0, "rgba(255,63,212,0.55)"); hGlow.addColorStop(1, "rgba(255,63,212,0)");
+    ctx.fillStyle = hGlow; ctx.fillRect(0, 2, W, 12);
+    // perspective grid: horizontal lines spread apart as they fall away
+    let y = 4, step = 3;
+    while (y < H) {
+      ctx.strokeStyle = `rgba(255,63,212,${(Math.max(0, 1 - y / H) * 0.75).toFixed(3)})`;
+      ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(W, y); ctx.stroke();
+      y += step; step += 2.2;
+    }
+    // cyan vertical beams
+    for (let x = 8; x < W; x += 16) {
+      const g = ctx.createLinearGradient(0, 0, 0, H);
+      g.addColorStop(0, "rgba(53,224,255,0.5)");
+      g.addColorStop(1, "rgba(53,224,255,0)");
+      ctx.strokeStyle = g; ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, H); ctx.stroke();
+    }
+    // striped synth suns dipping under the horizon
+    for (const fx of [0.25, 0.75]) {
+      const cx = W * fx, r = 15;
+      const g = ctx.createRadialGradient(cx, 4, 1, cx, 4, r);
+      g.addColorStop(0, "rgba(255,170,80,0.9)");
+      g.addColorStop(0.6, "rgba(255,80,160,0.5)");
+      g.addColorStop(1, "rgba(255,80,160,0)");
+      ctx.fillStyle = g;
+      ctx.beginPath(); ctx.arc(cx, 4, r, 0, Math.PI); ctx.fill();
+      ctx.globalCompositeOperation = "destination-out";
+      for (let sy = 8; sy < 20; sy += 5) ctx.fillRect(cx - r, sy, r * 2, 2);
+      ctx.globalCompositeOperation = "source-over";
+    }
+  },
+  // Cooled basalt split by glowing magma veins, molten seam at the rim.
+  magma(ctx, W, H) {
+    const base = ctx.createLinearGradient(0, 0, 0, H);
+    base.addColorStop(0, "rgba(30,16,10,0.85)");
+    base.addColorStop(1, "rgba(12,6,4,0)");
+    ctx.fillStyle = base; ctx.fillRect(0, 0, W, H);
+    ctx.fillStyle = "rgba(255,120,30,0.85)"; ctx.fillRect(0, 0, W, 2);
+    const seam = ctx.createLinearGradient(0, 0, 0, 10);
+    seam.addColorStop(0, "rgba(255,90,20,0.5)"); seam.addColorStop(1, "rgba(255,90,20,0)");
+    ctx.fillStyle = seam; ctx.fillRect(0, 2, W, 8);
+    // jagged glowing cracks running down the rock — dim wide pass under a
+    // bright thin core
+    for (let c = 0; c < 14; c++) {
+      let x = Math.random() * W, y = 0;
+      const pts = [[x, y]];
+      while (y < H) { x += (Math.random() - 0.5) * 9; y += 3 + Math.random() * 5; pts.push([x, y]); }
+      const trace = () => {
+        ctx.beginPath(); ctx.moveTo(pts[0][0], pts[0][1]);
+        for (const [px, py] of pts) ctx.lineTo(px, py);
+      };
+      const a = 0.35 + Math.random() * 0.4;
+      ctx.strokeStyle = `rgba(255,80,10,${(a * 0.5).toFixed(3)})`; ctx.lineWidth = 2.6; trace(); ctx.stroke();
+      ctx.strokeStyle = `rgba(255,190,90,${a.toFixed(3)})`; ctx.lineWidth = 0.9; trace(); ctx.stroke();
+    }
+    // ember specks drifting off the rock
+    for (let s = 0; s < 60; s++) {
+      const x = Math.random() * W, y = Math.random() * H;
+      const a = Math.max(0, 1 - y / H) * (0.3 + Math.random() * 0.6);
+      ctx.fillStyle = `rgba(255,${140 + ((Math.random() * 60) | 0)},50,${a.toFixed(3)})`;
+      ctx.fillRect(x, y, 1.2, 1.2);
+    }
+  },
+  // Sumi-e mural: rice-paper wash, ink bamboo, drifting blossom dabs and a
+  // red hanko seal.
+  inkSakura(ctx, W, H) {
+    const base = ctx.createLinearGradient(0, 0, 0, H);
+    base.addColorStop(0, "rgba(240,230,208,0.5)");
+    base.addColorStop(1, "rgba(240,230,208,0.08)");
+    ctx.fillStyle = base; ctx.fillRect(0, 0, W, H);
+    ctx.fillStyle = "rgba(63,110,85,0.9)"; ctx.fillRect(0, 0, W, 2);
+    // ink bamboo stalks with culm nodes and leaf strokes
+    for (let b = 0; b < 8; b++) {
+      const x = 8 + Math.random() * (W - 16);
+      const ink = 0.5 + Math.random() * 0.3;
+      ctx.strokeStyle = `rgba(44,54,46,${ink.toFixed(3)})`;
+      ctx.lineWidth = 2.2 + Math.random() * 1.4;
+      ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x + (Math.random() - 0.5) * 6, H); ctx.stroke();
+      ctx.lineWidth = 1;
+      for (let ny = 6 + Math.random() * 6; ny < H; ny += 10 + Math.random() * 6) {
+        ctx.beginPath(); ctx.moveTo(x - 3, ny); ctx.lineTo(x + 3, ny); ctx.stroke();
+      }
+      ctx.lineWidth = 1.8;
+      for (let l = 0; l < 4; l++) {
+        const ly = Math.random() * H * 0.5, dir = Math.random() < 0.5 ? -1 : 1;
+        ctx.beginPath(); ctx.moveTo(x, ly);
+        ctx.quadraticCurveTo(x + dir * 5, ly + 2, x + dir * 10, ly + 6);
+        ctx.stroke();
+      }
+    }
+    // drifting blossom petals
+    const pinks = ["rgba(244,168,189,", "rgba(232,130,160,", "rgba(250,205,215,"];
+    for (let p = 0; p < 60; p++) {
+      const x = Math.random() * W, y = Math.random() * H;
+      const a = (1 - y / H) * (0.35 + Math.random() * 0.5);
+      ctx.fillStyle = pinks[(Math.random() * 3) | 0] + a.toFixed(3) + ")";
+      ctx.save(); ctx.translate(x, y); ctx.rotate(Math.random() * Math.PI);
+      ctx.beginPath(); ctx.ellipse(0, 0, 1.6 + Math.random() * 1.4, 0.9, 0, 0, Math.PI * 2); ctx.fill();
+      ctx.restore();
+    }
+    // red hanko seal
+    ctx.fillStyle = "rgba(178,44,54,0.85)"; ctx.fillRect(W - 22, 8, 12, 12);
+    ctx.fillStyle = "rgba(240,230,208,0.9)";
+    ctx.font = "bold 7px monospace"; ctx.textAlign = "center"; ctx.textBaseline = "middle";
+    ctx.fillText("F10", W - 16, 14.5);
+  },
+  // Deep space: nebula clouds, a starfield and four-point twinkles below a
+  // shimmering event-horizon rim.
+  nebula(ctx, W, H) {
+    const base = ctx.createLinearGradient(0, 0, 0, H);
+    base.addColorStop(0, "rgba(16,10,40,0.8)");
+    base.addColorStop(1, "rgba(8,5,20,0)");
+    ctx.fillStyle = base; ctx.fillRect(0, 0, W, H);
+    ctx.fillStyle = "rgba(168,140,255,0.9)"; ctx.fillRect(0, 0, W, 2);
+    const hues = ["rgba(122,63,255,", "rgba(63,209,255,", "rgba(255,63,180,"];
+    for (let n = 0; n < 7; n++) {
+      const cx = Math.random() * W, cy = Math.random() * H * 0.8, r = 10 + Math.random() * 20;
+      const col = hues[(Math.random() * 3) | 0];
+      const g = ctx.createRadialGradient(cx, cy, 1, cx, cy, r);
+      const a = (1 - cy / H) * 0.35;
+      g.addColorStop(0, col + a.toFixed(3) + ")");
+      g.addColorStop(1, col + "0)");
+      ctx.fillStyle = g; ctx.beginPath(); ctx.arc(cx, cy, r, 0, Math.PI * 2); ctx.fill();
+    }
+    for (let s = 0; s < 110; s++) {
+      const x = Math.random() * W, y = Math.random() * H;
+      const a = (1 - y / H) * (0.3 + Math.random() * 0.7);
+      ctx.fillStyle = `rgba(235,238,255,${a.toFixed(3)})`;
+      const r = Math.random() < 0.15 ? 1.2 : 0.6;
+      ctx.fillRect(x, y, r, r);
+    }
+    for (let s = 0; s < 6; s++) {
+      const x = Math.random() * W, y = Math.random() * H * 0.6;
+      ctx.strokeStyle = "rgba(235,238,255,0.7)"; ctx.lineWidth = 0.7;
+      ctx.beginPath(); ctx.moveTo(x - 3, y); ctx.lineTo(x + 3, y);
+      ctx.moveTo(x, y - 3); ctx.lineTo(x, y + 3); ctx.stroke();
+    }
+  },
+};
+// Uniform depth fade for the painterly wall arts — erases toward the bottom so
+// every wall dissolves into the void the same way the pixel grid does.
+function fadeWallArt(ctx, W, H) {
+  ctx.globalCompositeOperation = "destination-out";
+  const g = ctx.createLinearGradient(0, 0, 0, H);
+  g.addColorStop(0, "rgba(0,0,0,0)");
+  g.addColorStop(0.55, "rgba(0,0,0,0.25)");
+  g.addColorStop(1, "rgba(0,0,0,0.92)");
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, W, H);
+  ctx.globalCompositeOperation = "source-over";
+}
 const RD_FOG = { Near: [18, 38], Medium: [30, 65], Far: [52, 100] };
 const RD_ORDER = ["Near", "Medium", "Far"];
 
@@ -70,7 +367,13 @@ export function createArenaGame(options) {
     return stubApi();
   }
 
-  let theme = THEMES.lobby;
+  // Player-chosen arena theme, persisted across sessions and restored on boot.
+  let arenaThemeId = "frostfall";
+  try {
+    const savedTheme = localStorage.getItem(ARENA_THEME_KEY);
+    if (savedTheme && ARENA_THEMES[savedTheme]) arenaThemeId = savedTheme;
+  } catch { /* storage unavailable (private mode) — fall back to default */ }
+  let theme = ARENA_THEMES[arenaThemeId];
   // Player-chosen appearance ({ style, colors }) from the profile's APPEARANCE
   // tab. When set it overrides theme.player for the local fighter.
   let playerAppearance = null;
@@ -129,8 +432,9 @@ export function createArenaGame(options) {
   const camCenter = new THREE.Vector3(0, 0, 0);
   let following = true;
 
-  scene.add(new THREE.AmbientLight(0xffffff, 0.85));
-  const sun = new THREE.DirectionalLight(0xffffff, 0.65);
+  const ambient = new THREE.AmbientLight(theme.light.ambient, theme.light.ambientI);
+  scene.add(ambient);
+  const sun = new THREE.DirectionalLight(theme.light.sun, theme.light.sunI);
   sun.castShadow = true;
   sun.shadow.mapSize.set(2048, 2048);
   sun.shadow.camera.near = 1;
@@ -200,7 +504,7 @@ export function createArenaGame(options) {
   // fabric wave. { mesh, geo, h, phase, born }
   const clothBanners = [];
 
-  function buildArenaWalls(variant) {
+  function buildArenaWalls(T) {
     // Dispose existing wall objects via the shared traversal helper (it
     // handles shared materials, textures, and nested groups uniformly).
     wallObjects.forEach((obj) => {
@@ -214,7 +518,7 @@ export function createArenaGame(options) {
     const addObj = (obj) => { scene.add(obj); wallObjects.push(obj); return obj; };
 
     // Dark backing behind each wall
-    const backColor = 0x0a0804;
+    const backColor = T.wall.back;
     const sideMat = new THREE.MeshStandardMaterial({ color: backColor, roughness: 0.98, metalness: 0.0 });
     [
       { x: 0,         z: -MAP_HALF, ry: 0 },
@@ -237,43 +541,22 @@ export function createArenaGame(options) {
     btm.position.y = -DEPTH;
     addObj(btm);
 
-    // Glass panels — golden pixel grid
+    // Glass panels — the theme's side-wall art, painted by its WALL_ARTS style
     const GH = 6;
-    const CELL = 8;
     const PW = 256;
     const PH = 64;
     const gc = document.createElement("canvas");
     gc.width = PW; gc.height = PH;
     const gctx = gc.getContext("2d");
-    gctx.imageSmoothingEnabled = false;
-
-    for (let row = 0; row < PH / CELL; row++) {
-      const rowAlpha = 1 - row / (PH / CELL);
-      for (let col = 0; col < PW / CELL; col++) {
-        const va = 0.85 + Math.random() * 0.15;
-        const fillAlpha = rowAlpha * 0.28 * va;
-        gctx.fillStyle = `rgba(210,175,60,${fillAlpha.toFixed(3)})`;
-        gctx.fillRect(col * CELL + 1, row * CELL + 1, CELL - 2, CELL - 2);
-      }
-    }
-    for (let row = 0; row <= PH / CELL; row++) {
-      const rowAlpha = 1 - row / (PH / CELL);
-      gctx.strokeStyle = `rgba(255, 200, 48, ${(rowAlpha * 0.72).toFixed(3)})`;
-      gctx.lineWidth = 1;
-      gctx.beginPath(); gctx.moveTo(0, row * CELL); gctx.lineTo(PW, row * CELL); gctx.stroke();
-    }
-    for (let col = 0; col <= PW / CELL; col++) {
-      for (let row = 0; row < PH / CELL; row++) {
-        const rowAlpha = 1 - row / (PH / CELL);
-        gctx.strokeStyle = `rgba(255, 200, 48, ${(rowAlpha * 0.55).toFixed(3)})`;
-        gctx.lineWidth = 1;
-        gctx.beginPath(); gctx.moveTo(col * CELL, row * CELL); gctx.lineTo(col * CELL, (row + 1) * CELL); gctx.stroke();
-      }
-    }
+    (WALL_ARTS[T.wall.art] || WALL_ARTS.pixelGrid)(gctx, PW, PH);
+    if (T.wall.art !== "pixelGrid") fadeWallArt(gctx, PW, PH);
 
     const glassTex = new THREE.CanvasTexture(gc);
-    glassTex.magFilter = THREE.NearestFilter;
-    glassTex.minFilter = THREE.NearestFilter;
+    if (T.wall.art === "pixelGrid") {
+      // Crisp pixel-art cells; the painterly styles keep linear filtering.
+      glassTex.magFilter = THREE.NearestFilter;
+      glassTex.minFilter = THREE.NearestFilter;
+    }
     const glassMat = new THREE.MeshBasicMaterial({
       map: glassTex, transparent: true, side: THREE.DoubleSide, depthWrite: false
     });
@@ -291,9 +574,10 @@ export function createArenaGame(options) {
       addObj(panel);
     });
 
-    // -- F10 cloth banner — gold fabric draped over the rim, falling down the
-    // left map side (the +z edge, front-left from the fixed iso view).
+    // -- F10 cloth banner — theme-dyed fabric draped over the rim, falling down
+    // the left map side (the +z edge, front-left from the fixed iso view).
     // Pinned at the rim; animate() unfurls it on build and keeps it waving.
+    const B = T.wall.banner;
     const BANNER_W = 10, BANNER_H = 7;
     const bnc = document.createElement("canvas");
     // Same aspect ratio as the mesh (10:7) so the F10 mark isn't distorted
@@ -312,23 +596,23 @@ export function createArenaGame(options) {
     }
     silhouette.closePath();
     const bGrad = bnx.createLinearGradient(0, 0, 0, 360);
-    bGrad.addColorStop(0, "#d9a413");
-    bGrad.addColorStop(1, "#a87a08");
+    bGrad.addColorStop(0, B.top);
+    bGrad.addColorStop(1, B.bottom);
     bnx.fillStyle = bGrad;
     bnx.fill(silhouette);
     bnx.save();
     bnx.clip(silhouette);
-    bnx.strokeStyle = "rgba(122,88,0,0.28)"; // faint weave lines
+    bnx.strokeStyle = B.weave; // faint weave lines
     bnx.lineWidth = 2;
     for (let y = 30; y < 360; y += 30) {
       bnx.beginPath(); bnx.moveTo(0, y); bnx.lineTo(512, y); bnx.stroke();
     }
     bnx.restore();
-    bnx.strokeStyle = "#7a5800";
+    bnx.strokeStyle = B.edge;
     bnx.lineWidth = 10;
     bnx.stroke(silhouette);
-    // The F10 mark — matches the gold tower cloths: bold dark type, centered
-    bnx.fillStyle = "#0a0800";
+    // The F10 mark — bold type in the theme's banner ink, centered
+    bnx.fillStyle = B.text;
     bnx.font = "900 168px monospace";
     bnx.textAlign = "center";
     bnx.textBaseline = "middle";
@@ -349,14 +633,14 @@ export function createArenaGame(options) {
     banner.renderOrder = 3; // after the outer dot plane so it shows against the void
     addObj(banner);
     // Fold of cloth lying on the ledge top where the fabric crosses its edge
-    const fold = box(BANNER_W * PROP_SCALE, 0.1, 0.7, 0xc8940a);
+    const fold = box(BANNER_W * PROP_SCALE, 0.1, 0.7, B.fold);
     fold.position.set(0, LEDGE_TOP + 0.05, MAP_HALF + LEDGE_W - 0.35);
     addObj(fold);
     clothBanners.push({ mesh: banner, geo: bannerGeo, h: BANNER_H, phase: 0, born: performance.now() * 0.001 });
 
     // Top rim
-    const rimColor = 0xffc830;
-    const rimColor2 = 0xffaa00;
+    const rimColor = T.accent;
+    const rimColor2 = T.accent2;
     const rimPts = [
       new THREE.Vector3(-MAP_HALF, 0.08, -MAP_HALF), new THREE.Vector3(MAP_HALF, 0.08, -MAP_HALF),
       new THREE.Vector3(MAP_HALF, 0.08,  MAP_HALF),  new THREE.Vector3(-MAP_HALF, 0.08,  MAP_HALF),
@@ -379,13 +663,15 @@ export function createArenaGame(options) {
     ));
   }
 
-  buildArenaWalls("game");
+  buildArenaWalls(theme);
+  let wallsThemeId = arenaThemeId; // walls already match the boot theme
 
   // -- Edge ledge + flame lamps ----------------------------------------------
   // A polished black ledge ring hugging the map rim, with small flickering
   // flame lamps spaced along it — scene objects, so they stay anchored to the
   // map edges (home backdrop and in-game alike) instead of the viewport.
   const edgeLamps = []; // { sprite, glow, phase } — flickered in animate()
+  let ledgeTrimMat = null; // outer ledge trim line — re-dyed by applyTheme
   {
     const ledgeMat = new THREE.MeshStandardMaterial({
       color: 0x0c0c0e, roughness: 0.16, metalness: 0.72, // black polished stone
@@ -404,37 +690,41 @@ export function createArenaGame(options) {
       band.receiveShadow = true;
       scene.add(band);
     });
-    // Gold trim line along the ledge's outer edge (matches the arena rim lines).
+    // Trim line along the ledge's outer edge (matches the arena rim lines).
+    // Material kept so applyTheme can re-dye it with the theme accent.
+    ledgeTrimMat = new THREE.LineBasicMaterial({ color: theme.accent2, transparent: true, opacity: 0.45 });
     scene.add(new THREE.Line(
       new THREE.BufferGeometry().setFromPoints([
         new THREE.Vector3(-L_OUT, LEDGE_TOP + 0.02, -L_OUT), new THREE.Vector3(L_OUT, LEDGE_TOP + 0.02, -L_OUT),
         new THREE.Vector3( L_OUT, LEDGE_TOP + 0.02,  L_OUT), new THREE.Vector3(-L_OUT, LEDGE_TOP + 0.02,  L_OUT),
         new THREE.Vector3(-L_OUT, LEDGE_TOP + 0.02, -L_OUT),
       ]),
-      new THREE.LineBasicMaterial({ color: 0xffaa00, transparent: true, opacity: 0.45 })
+      ledgeTrimMat
     ));
 
-    // Flame sprite texture — soft radial gradient, warm core.
+    // Flame sprite texture — neutral white radial gradient; each theme dyes
+    // the sprite material (see applyTheme) so lamps burn gold, cyan, magma…
     const flameCanvas = document.createElement("canvas");
     flameCanvas.width = 64; flameCanvas.height = 64;
     const fx = flameCanvas.getContext("2d");
     const fg = fx.createRadialGradient(32, 38, 2, 32, 34, 30);
-    fg.addColorStop(0.00, "rgba(255,246,214,1)");
-    fg.addColorStop(0.25, "rgba(255,208,116,0.92)");
-    fg.addColorStop(0.55, "rgba(255,138,40,0.55)");
-    fg.addColorStop(1.00, "rgba(255,90,10,0)");
+    fg.addColorStop(0.00, "rgba(255,255,255,1)");
+    fg.addColorStop(0.25, "rgba(255,255,255,0.9)");
+    fg.addColorStop(0.55, "rgba(255,255,255,0.5)");
+    fg.addColorStop(1.00, "rgba(255,255,255,0)");
     fx.fillStyle = fg;
     fx.fillRect(0, 0, 64, 64);
     const flameTex = new THREE.CanvasTexture(flameCanvas);
 
-    // Warm glow pool cast on the polished ledge under each flame.
+    // Glow pool cast on the polished ledge under each flame — neutral too,
+    // tinted per theme alongside the flame.
     const glowCanvas = document.createElement("canvas");
     glowCanvas.width = 64; glowCanvas.height = 64;
     const gx2 = glowCanvas.getContext("2d");
     const gg = gx2.createRadialGradient(32, 32, 1, 32, 32, 31);
-    gg.addColorStop(0.00, "rgba(255,180,80,0.9)");
-    gg.addColorStop(0.45, "rgba(255,130,30,0.35)");
-    gg.addColorStop(1.00, "rgba(255,90,10,0)");
+    gg.addColorStop(0.00, "rgba(255,255,255,0.9)");
+    gg.addColorStop(0.45, "rgba(255,255,255,0.35)");
+    gg.addColorStop(1.00, "rgba(255,255,255,0)");
     gx2.fillStyle = gg;
     gx2.fillRect(0, 0, 64, 64);
     const glowTex = new THREE.CanvasTexture(glowCanvas);
@@ -457,14 +747,14 @@ export function createArenaGame(options) {
       scene.add(base);
       // …its flame…
       const sprite = new THREE.Sprite(new THREE.SpriteMaterial({
-        map: flameTex, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false,
+        map: flameTex, color: theme.lamp.flame, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false,
       }));
       sprite.position.set(x, LEDGE_TOP + (0.5 + 0.72) * PROP_SCALE, z);
       sprite.scale.set(1.15 * PROP_SCALE, 1.7 * PROP_SCALE, 1);
       scene.add(sprite);
-      // …and the warm pool it throws on the shiny ledge.
+      // …and the pool of light it throws on the shiny ledge.
       const glow = new THREE.Mesh(glowGeo, new THREE.MeshBasicMaterial({
-        map: glowTex, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false,
+        map: glowTex, color: theme.lamp.glow, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false,
       }));
       glow.scale.setScalar(PROP_SCALE);
       glow.rotation.x = -Math.PI / 2;
@@ -488,7 +778,7 @@ export function createArenaGame(options) {
     const dctx = dc.getContext("2d");
     dctx.imageSmoothingEnabled = false;
     dctx.clearRect(0, 0, CW, CH);
-    dctx.fillStyle = "#000000";
+    dctx.fillStyle = theme.decal; // ink that reads against this theme's floor
     dctx.font = `bold ${CH}px monospace`;
     dctx.textAlign = "center";
     dctx.textBaseline = "middle";
@@ -514,7 +804,9 @@ export function createArenaGame(options) {
     fight10Groups.push(grp);
   }
 
-  // -- Outer dot plane (black field with receding white dots beyond the ledge) --
+  // -- Outer dot plane (black field with receding dots beyond the ledge) --
+  // Material kept so applyTheme can tint the dots (black stays black).
+  let dotPlaneMat = null;
   (function buildOuterDotPlane() {
     const SIZE = 320;
     const PX = 512;
@@ -552,16 +844,17 @@ export function createArenaGame(options) {
 
     const tex = new THREE.CanvasTexture(dc);
     tex.wrapS = tex.wrapT = THREE.ClampToEdgeWrapping;
-    const plane = new THREE.Mesh(
-      new THREE.PlaneGeometry(SIZE, SIZE),
-      new THREE.MeshBasicMaterial({ map: tex, transparent: true, depthWrite: false })
-    );
+    dotPlaneMat = new THREE.MeshBasicMaterial({ map: tex, transparent: true, depthWrite: false, color: theme.dots });
+    const plane = new THREE.Mesh(new THREE.PlaneGeometry(SIZE, SIZE), dotPlaneMat);
     plane.rotation.x = -Math.PI / 2;
     plane.position.y = -0.01;
     scene.add(plane);
   })();
 
-  // -- Snow -----------------------------------------------------------------
+  // -- Ambient particle weather ----------------------------------------------
+  // One Points cloud follows the camera; each theme re-dyes and re-paces it:
+  // falling snow (frostfall), hammering neon rain (neon), embers rising off
+  // the rock (magma), drifting petals (sakura), stardust floating up (void).
   const SNOW_COUNT = 1400, SNOW_AREA = 48, SNOW_TOP = 30;
   const snowGeo = new THREE.BufferGeometry();
   const snowPos = new Float32Array(SNOW_COUNT * 3);
@@ -571,7 +864,7 @@ export function createArenaGame(options) {
     snowPos[i * 3] = (Math.random() - 0.5) * SNOW_AREA;
     snowPos[i * 3 + 1] = Math.random() * SNOW_TOP;
     snowPos[i * 3 + 2] = (Math.random() - 0.5) * SNOW_AREA;
-    snowVel[i] = 2 + Math.random() * 3;
+    snowVel[i] = theme.particles.speed[0] + Math.random() * (theme.particles.speed[1] - theme.particles.speed[0]);
     snowPhase[i] = Math.random() * Math.PI * 2;
   }
   snowGeo.setAttribute("position", new THREE.BufferAttribute(snowPos, 3));
@@ -588,7 +881,8 @@ export function createArenaGame(options) {
     return new THREE.CanvasTexture(c);
   }
   const snow = new THREE.Points(snowGeo, new THREE.PointsMaterial({
-    size: 0.34, map: makeFlake(), transparent: true, depthWrite: false, opacity: 0.9, sizeAttenuation: true
+    size: theme.particles.size, map: makeFlake(), transparent: true, depthWrite: false,
+    opacity: theme.particles.opacity, sizeAttenuation: true, color: theme.particles.color,
   }));
   scene.add(snow);
 
@@ -2629,6 +2923,11 @@ export function createArenaGame(options) {
   hud.bindSettings({ settings, applyFog, applyMsaa, refreshHud, onCenter: () => { if (settings.centerCamera) following = true; } });
   applyFog(); applyMsaa(); refreshHud();
 
+  // Arena theme dropdown — populate from the registry, restore the saved pick.
+  Object.entries(ARENA_THEMES).forEach(([id, t]) => hud.themeSelect.appendChild(new Option(t.label, id)));
+  hud.themeSelect.value = arenaThemeId;
+  hud.themeSelect.addEventListener("change", () => setArenaTheme(hud.themeSelect.value));
+
   // Raider count control (demo only)
   raiderCountCtrl.querySelector(".rc-minus").addEventListener("click", () => {
     const next = Math.max(1, aiRaiders.length - 1);
@@ -2735,24 +3034,45 @@ export function createArenaGame(options) {
   }
 
   // -- Theme switch ---------------------------------------------------------
-  let currentMapVariant = "game"; // "game" | "golden"
-
-  function applyTheme(name) {
-    theme = THEMES[name] || THEMES.lobby;
+  // Re-dye the ambient particle weather to the current theme's spec and
+  // re-roll each particle's pace inside the theme's speed band.
+  function applyParticleTheme() {
+    const P = theme.particles;
+    snow.material.color.setHex(P.color);
+    snow.material.size = P.size;
+    snow.material.opacity = P.opacity;
+    for (let i = 0; i < SNOW_COUNT; i++) snowVel[i] = P.speed[0] + Math.random() * (P.speed[1] - P.speed[0]);
+  }
+  // Everything tinted rather than rebuilt: lights, lamp flames/glows, the
+  // outer dot field and the ledge trim line.
+  function applyAccentTheme() {
+    ambient.color.setHex(theme.light.ambient); ambient.intensity = theme.light.ambientI;
+    sun.color.setHex(theme.light.sun); sun.intensity = theme.light.sunI;
+    if (dotPlaneMat) dotPlaneMat.color.setHex(theme.dots);
+    if (ledgeTrimMat) ledgeTrimMat.color.setHex(theme.accent2);
+    for (const L of edgeLamps) {
+      L.sprite.material.color.setHex(theme.lamp.flame);
+      L.glow.material.color.setHex(theme.lamp.glow);
+    }
+  }
+  function applyTheme() {
+    theme = ARENA_THEMES[arenaThemeId] || ARENA_THEMES.frostfall;
     renderer.setClearColor(theme.bg, 1);
     scene.background = new THREE.Color(theme.bg);
     applyFog();
-    if (name === "game") makeFight10Decal();
+    makeFight10Decal();
     const newTex = makeGroundTex(theme.ground);
     ground.material.map.dispose();
     ground.material.map = newTex;
     ground.material.needsUpdate = true;
     buildGrid();
     border.material.color.setHex(theme.border);
-    if ("game" !== currentMapVariant) {
-      currentMapVariant = "game";
-      buildArenaWalls("game");
+    if (wallsThemeId !== arenaThemeId) {
+      wallsThemeId = arenaThemeId;
+      buildArenaWalls(theme);
     }
+    applyParticleTheme();
+    applyAccentTheme();
     recolorFighter(player, playerAppearance?.colors || theme.player);
     player.bar.color = theme.playerBar;
     aiRaiders.forEach((r) => { recolorFighter(r, theme.enemy); r.bar.color = theme.enemyBar; });
@@ -2760,6 +3080,15 @@ export function createArenaGame(options) {
     opponents.forEach((o) => { recolorFighter(o, o.netSkin ? APPEARANCE_PRESETS[o.netSkin] : theme.enemy); o.bar.color = theme.enemyBar; });
     cursorAttack = !cursorAttack; setCursor(false);
     buildMinimapStatic();
+  }
+  // Switch to another arena theme (from the settings dropdown or the API),
+  // persist the pick, and restyle the whole arena in place.
+  function setArenaTheme(id) {
+    if (!ARENA_THEMES[id] || id === arenaThemeId) return;
+    arenaThemeId = id;
+    try { localStorage.setItem(ARENA_THEME_KEY, id); } catch { /* private mode */ }
+    if (hud.themeSelect.value !== id) hud.themeSelect.value = id;
+    applyTheme();
   }
 
   // Home / lobby background: dress the idle arena with the full map — river,
@@ -2936,11 +3265,17 @@ export function createArenaGame(options) {
     sun.position.copy(player.group.position).add(_sunOffset);
     sun.target.position.copy(player.group.position);
 
+    // Ambient weather — theme decides fall/rise direction, pace and sway
     const sp = snowGeo.attributes.position.array, t = clock.elapsedTime;
+    const PART = theme.particles;
     for (let i = 0; i < SNOW_COUNT; i++) {
-      sp[i * 3 + 1] -= snowVel[i] * dt;
-      sp[i * 3] += Math.sin(snowPhase[i] + t * 1.4) * dt * 0.4;
-      if (sp[i * 3 + 1] < 0) { sp[i * 3 + 1] = SNOW_TOP; sp[i * 3] = (Math.random() - 0.5) * SNOW_AREA; sp[i * 3 + 2] = (Math.random() - 0.5) * SNOW_AREA; }
+      sp[i * 3 + 1] -= snowVel[i] * dt * PART.dir;
+      if (PART.sway) sp[i * 3] += Math.sin(snowPhase[i] + t * 1.4) * dt * PART.sway;
+      if (PART.dir > 0 ? sp[i * 3 + 1] < 0 : sp[i * 3 + 1] > SNOW_TOP) {
+        sp[i * 3 + 1] = PART.dir > 0 ? SNOW_TOP : 0;
+        sp[i * 3] = (Math.random() - 0.5) * SNOW_AREA;
+        sp[i * 3 + 2] = (Math.random() - 0.5) * SNOW_AREA;
+      }
     }
     snowGeo.attributes.position.needsUpdate = true;
     snow.position.set(camCenter.x, 0, camCenter.z);
@@ -3054,7 +3389,7 @@ export function createArenaGame(options) {
       viewIsGame = view === "game";
       if (viewIsGame) exitHomePlay(); // never keep landing free-play into a match
       document.body.classList.toggle("in-game", viewIsGame);
-      applyTheme(viewIsGame ? "game" : "lobby");
+      applyTheme();
       if (!viewIsGame) idleArena(); // returning to the lobby restores the showcase arena
       showTimer();
       showMatchNo();
@@ -3069,8 +3404,11 @@ export function createArenaGame(options) {
       perspective = mode;
       controllable = mode === "player";
     },
-    setMapVariant(_variant) { applyTheme("game"); },
+    setMapVariant(_variant) { applyTheme(); },
     showMapToggle(_on) {},
+    // Arena theme: switch by id (see ARENA_THEMES) / read the active id.
+    setArenaTheme,
+    arenaTheme() { return arenaThemeId; },
     showRaiderCount(on) { raiderCountCtrl.classList.toggle("hidden", !on); },
     setAiCount(n) {
       const target = Math.max(1, Math.min(10, n));
@@ -3303,7 +3641,7 @@ export function createArenaGame(options) {
       matchNumber = null; showMatchNo();
       viewIsGame = false;
       document.body.classList.remove("in-game");
-      applyTheme("lobby");
+      applyTheme();
       idleArena(); // restore the populated showcase arena behind the home page
     },
     setPing(ms) {
@@ -3406,6 +3744,7 @@ function buildHud() {
           <button class="tab" data-tab="commands">COMMANDS</button>
         </div>
         <div class="tab-body" data-body="options">
+          <div class="row"><span>Arena Theme</span><select class="theme-select" data-theme-select></select></div>
           <div class="row"><span>Render Distance</span><button class="cycle" data-rd>Far</button></div>
           <div class="row"><span>Fog</span><button class="toggle" data-setting="fog"></button></div>
           <div class="row"><span>Anti-aliasing (MSAA)</span><button class="toggle" data-setting="msaa"></button></div>
@@ -3434,6 +3773,7 @@ function buildHud() {
       </div>
     </div>`);
   const renderDistBtn = overlay.querySelector("[data-rd]");
+  const themeSelect = overlay.querySelector("[data-theme-select]");
 
   // Tabs + open/close
   overlay.querySelectorAll(".tab").forEach((tab) => {
@@ -3470,7 +3810,7 @@ function buildHud() {
     });
   }
 
-  return { root, coords, matchTimerEl, matchNoEl, mmCanvas, hotbar, slots, rivalsEl, fpsEl, pingEl, overlay, renderDistBtn, bindSettings, raiderCountCtrl, raiderCountEl, scorePanel, weaponPanel, keysInfoPanel, gearBtn };
+  return { root, coords, matchTimerEl, matchNoEl, mmCanvas, hotbar, slots, rivalsEl, fpsEl, pingEl, overlay, renderDistBtn, themeSelect, bindSettings, raiderCountCtrl, raiderCountEl, scorePanel, weaponPanel, keysInfoPanel, gearBtn };
 }
 
 function clamp(v, min, max) {
@@ -3491,6 +3831,7 @@ function stubApi() {
     clearRemote: noop, resetForMatch: noop, receivePlayerState: noop,
     receiveAttack: noop, generateMap: noop, clearAll: noop, destroy: noop,
     setMapVariant: noop, showMapToggle: noop, showRaiderCount: noop, setAiCount: noop,
+    setArenaTheme: noop, arenaTheme: () => "frostfall",
     setPing: noop, openSettings: noop, setPlayerAppearance: noop,
     showHomeScene: noop, stopHomePlay: noop, isHomePlaying: () => false,
     mountAppearancePreview: () => null
