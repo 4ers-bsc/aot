@@ -51,20 +51,10 @@ const THEMES = {
     cursor: "%23e0473c",
     mm: { grid: "rgba(110,120,128,0.16)", border: "rgba(58,106,58,0.8)", cam: "rgba(47,138,47,0.5)", enemy: "#d23b3b", player: "#2f8a2f" }
   },
-  lobby: {
-    bg: 0x121212,
-    ground: ["#3a3a3a", "#343434", "#2e2e2e", "#2a2a2a", "#404040", "#363636", "#444444", "#383838", "#303030", "#4a4a4a", "#2c2c2c", "#3d3d3d"],
-    grid: [0x5a5a5a, 0x404040], gridOpacity: 0.32,
-    border: 0x808080,
-    player: { skin: 0xd69a55, gi: 0x17181c, trim: 0xd9a821, pants: 0x101114, hair: 0x0b0b0d },
-    enemy: { skin: 0x9a9a9a, gi: 0x4a4a4a, trim: 0x2c2c2c, pants: 0x242424, hair: 0x141414 },
-    bullet: 0xffffff,
-    markerMove: [0xffffff, 0xffffff], markerAttack: [0xbbbbbb, 0xffffff],
-    playerBar: "#f0f0f0", enemyBar: "#8c8c8c",
-    cursor: "%23ffffff",
-    mm: { grid: "rgba(255,255,255,0.08)", border: "rgba(255,255,255,0.5)", cam: "rgba(255,255,255,0.25)", enemy: "#9a9a9a", player: "#ffffff" }
-  }
 };
+// The landing/lobby arena shows the exact same white-ground look as a real
+// match, so the home page previews precisely what a fight looks like.
+THEMES.lobby = THEMES.game;
 const RD_FOG = { Near: [18, 38], Medium: [30, 65], Far: [52, 100] };
 const RD_ORDER = ["Near", "Medium", "Far"];
 

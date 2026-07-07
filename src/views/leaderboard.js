@@ -9,6 +9,10 @@ export const html = `
         <button class="tab" data-lbtab="holdings">$FIGHT10</button>
       </div>
       <div class="tab-body">
+        <div class="lb-filter">
+          <input id="leaderboardFilter" type="text" placeholder="Filter by name or wallet" autocomplete="off" spellcheck="false" />
+          <button class="lb-me-btn" id="leaderboardMeBtn" type="button">YOUR WALLET</button>
+        </div>
         <div class="section" id="leaderboardTitle">TOP FIGHTERS &middot; POINTS</div>
         <div class="lb-list" id="leaderboardList">
           <div class="lb-empty">Loading&hellip;</div>

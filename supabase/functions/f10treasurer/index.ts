@@ -448,18 +448,17 @@ Deno.serve(async (req: Request) => {
     // shows in the victory screen and match history). Best-effort and idempotent
     // (upsert on match_id) — matches.payout_tx remains the source of truth, so a
     // failure here must not fail an already-confirmed payout.
-    try {
-      await adminClient.from("payouts").upsert({
-        match_id: matchId,
-        winner_user_id: user.id,
-        payout_tx: payoutSig,
-        amount_raw: winnerAmountRaw.toString(),
-        decimals,
-        num_players: players.length,
-      }, { onConflict: "match_id" });
-    } catch (e) {
-      console.error("payouts insert failed (non-fatal):", e);
-    }
+    // supabase-js reports failures via the returned error, not by throwing —
+    // check it explicitly or a failed ledger write vanishes without a trace.
+    const { error: ledgerErr } = await adminClient.from("payouts").upsert({
+      match_id: matchId,
+      winner_user_id: user.id,
+      payout_tx: payoutSig,
+      amount_raw: winnerAmountRaw.toString(),
+      decimals,
+      num_players: players.length,
+    }, { onConflict: "match_id" });
+    if (ledgerErr) console.error("payouts insert failed (non-fatal):", ledgerErr);
 
     console.log(`[f10treasurer] paid match=${matchId} tx=${payoutSig} amount=${winnerAmountRaw.toString()} players=${players.length}`);
     return new Response(
