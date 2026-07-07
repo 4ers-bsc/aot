@@ -91,8 +91,8 @@ export const html = `
         </div>
         <div class="hs-card">
           <div class="hs-card-num">02</div>
-          <div class="hs-card-label">STAKE</div>
-          <div class="hs-card-desc">Put 2,500 $FIGHT10 into the match escrow. Your seat is granted only after the stake is verified on-chain.</div>
+          <div class="hs-card-label">ENTRY</div>
+          <div class="hs-card-desc">Put 2,500 $FIGHT10 into the match escrow. Your seat is granted only after your entry is verified on-chain.</div>
         </div>
         <div class="hs-card">
           <div class="hs-card-num">03</div>
@@ -107,16 +107,16 @@ export const html = `
       </div>
     </section>
 
-    <!-- Modes & stakes -->
+    <!-- Modes & entries -->
     <section class="hs-block">
       <div class="hs-kicker">PICK YOUR BATTLE</div>
-      <h2 class="hs-title">MODES &amp; STAKES</h2>
+      <h2 class="hs-title">MODES &amp; ENTRIES</h2>
       <div class="hs-grid hs-grid-4">
         <div class="hs-card hs-mode">
           <div class="hs-mode-name">DEMO</div>
           <div class="hs-mode-sub">VS The Computer</div>
           <div class="hs-mode-row"><span>Entry</span><span>Free</span></div>
-          <div class="hs-mode-row"><span>Stakes</span><span>None</span></div>
+          <div class="hs-mode-row"><span>Pot</span><span>None</span></div>
           <div class="hs-mode-row"><span>For</span><span>Learning the ropes</span></div>
         </div>
         <div class="hs-card hs-mode">
@@ -165,7 +165,7 @@ export const html = `
           <div class="hs-list-row"><span>Loadout</span><span>everyone starts equal — same HP, attack &amp; weapons</span></div>
           <div class="hs-list-row"><span>Win</span><span>last one standing takes 90% of the pot</span></div>
           <div class="hs-list-row"><span>Time runs out</span><span>highest HP survivor wins</span></div>
-          <div class="hs-list-row"><span>Leaving early</span><span>forfeits your stake to the pot</span></div>
+          <div class="hs-list-row"><span>Leaving early</span><span>forfeits your entry to the pot</span></div>
         </div>
       </div>
     </section>
@@ -205,11 +205,11 @@ export const html = `
       <div class="hs-grid hs-grid-4">
         <div class="hs-card">
           <div class="hs-card-label">ON-CHAIN ESCROW</div>
-          <div class="hs-card-desc">Stakes sit in a program-controlled escrow. Payouts are the only outflow — gated by a verified, finished match.</div>
+          <div class="hs-card-desc">Entries sit in a program-controlled escrow. Payouts are the only outflow — gated by a verified, finished match.</div>
         </div>
         <div class="hs-card">
           <div class="hs-card-label">VERIFIED ADMISSION</div>
-          <div class="hs-card-desc">A seat is granted only after your stake is re-checked on-chain. No deposit, no entry — the browser can't self-admit.</div>
+          <div class="hs-card-desc">A seat is granted only after your entry is re-checked on-chain. No deposit, no seat — the browser can't self-admit.</div>
         </div>
         <div class="hs-card">
           <div class="hs-card-label">SERVER-DECIDED RESULTS</div>
@@ -217,7 +217,7 @@ export const html = `
         </div>
         <div class="hs-card">
           <div class="hs-card-label">CHEATERS FORFEIT</div>
-          <div class="hs-card-desc">Impossible output excludes a fighter from winning — the best clean player still wins, and the cheater's stake stays in the pot.</div>
+          <div class="hs-card-desc">Impossible output excludes a fighter from winning — the best clean player still wins, and the cheater's entry stays in the pot.</div>
         </div>
       </div>
       <div class="hs-center">

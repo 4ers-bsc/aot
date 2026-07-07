@@ -55,6 +55,17 @@ const THEMES = {
 // The landing/lobby arena shows the exact same white-ground look as a real
 // match, so the home page previews precisely what a fight looks like.
 THEMES.lobby = THEMES.game;
+// The F10 marks painted onto canvas textures use the site's display font (the
+// same face as the FIGHT10 title). Canvas text falls back silently while the
+// webfont is still loading, so each mark paints immediately and repaints once
+// the real font is available.
+const F10_MARK_FONT = '"Black Ops One"';
+function repaintWhenFontReady(paint, getTex) {
+  const fonts = document.fonts;
+  if (!fonts?.load || fonts.check(`20px ${F10_MARK_FONT}`)) return;
+  fonts.load(`20px ${F10_MARK_FONT}`).then(() => { paint(); getTex().needsUpdate = true; }).catch(() => {});
+}
+
 const RD_FOG = { Near: [18, 38], Medium: [30, 65], Far: [52, 100] };
 const RD_ORDER = ["Near", "Medium", "Far"];
 
@@ -314,27 +325,32 @@ export function createArenaGame(options) {
     const bGrad = bnx.createLinearGradient(0, 0, 0, 360);
     bGrad.addColorStop(0, "#d9a413");
     bGrad.addColorStop(1, "#a87a08");
-    bnx.fillStyle = bGrad;
-    bnx.fill(silhouette);
-    bnx.save();
-    bnx.clip(silhouette);
-    bnx.strokeStyle = "rgba(122,88,0,0.28)"; // faint weave lines
-    bnx.lineWidth = 2;
-    for (let y = 30; y < 360; y += 30) {
-      bnx.beginPath(); bnx.moveTo(0, y); bnx.lineTo(512, y); bnx.stroke();
-    }
-    bnx.restore();
-    bnx.strokeStyle = "#7a5800";
-    bnx.lineWidth = 10;
-    bnx.stroke(silhouette);
-    // The F10 mark — matches the gold tower cloths: bold dark type, centered
-    bnx.fillStyle = "#0a0800";
-    bnx.font = "900 168px monospace";
-    bnx.textAlign = "center";
-    bnx.textBaseline = "middle";
-    bnx.fillText("F10", 256, 150);
+    const paintBanner = () => {
+      bnx.clearRect(0, 0, 512, 360);
+      bnx.fillStyle = bGrad;
+      bnx.fill(silhouette);
+      bnx.save();
+      bnx.clip(silhouette);
+      bnx.strokeStyle = "rgba(122,88,0,0.28)"; // faint weave lines
+      bnx.lineWidth = 2;
+      for (let y = 30; y < 360; y += 30) {
+        bnx.beginPath(); bnx.moveTo(0, y); bnx.lineTo(512, y); bnx.stroke();
+      }
+      bnx.restore();
+      bnx.strokeStyle = "#7a5800";
+      bnx.lineWidth = 10;
+      bnx.stroke(silhouette);
+      // The F10 mark — matches the gold tower cloths: title-font dark type
+      bnx.fillStyle = "#0a0800";
+      bnx.font = `160px ${F10_MARK_FONT}, monospace`;
+      bnx.textAlign = "center";
+      bnx.textBaseline = "middle";
+      bnx.fillText("F10", 256, 150, 400);
+    };
+    paintBanner();
     const bannerTex = new THREE.CanvasTexture(bnc);
     bannerTex.anisotropy = renderer.capabilities.getMaxAnisotropy();
+    repaintWhenFontReady(paintBanner, () => bannerTex);
     const bannerMat = new THREE.MeshBasicMaterial({
       map: bannerTex, transparent: true, side: THREE.DoubleSide, depthWrite: false,
     });
@@ -673,12 +689,18 @@ export function createArenaGame(options) {
     const c = document.createElement("canvas");
     c.width = 128; c.height = 64;
     const x = c.getContext("2d");
-    x.fillStyle = "#e8b430";
-    x.font = "bold 54px Arial, sans-serif";
-    x.textAlign = "center";
-    x.textBaseline = "middle";
-    x.fillText("F10", 64, 36);
-    return new THREE.CanvasTexture(c);
+    const paint = () => {
+      x.clearRect(0, 0, 128, 64);
+      x.fillStyle = "#e8b430";
+      x.font = `48px ${F10_MARK_FONT}, Arial, sans-serif`;
+      x.textAlign = "center";
+      x.textBaseline = "middle";
+      x.fillText("F10", 64, 34, 116);
+    };
+    paint();
+    const tex = new THREE.CanvasTexture(c);
+    repaintWhenFontReady(paint, () => tex);
+    return tex;
   }
   // glowColor (optional hex) turns the blade into the knight's glowing sword.
   function makeSword(glowColor) {
@@ -1236,17 +1258,21 @@ export function createArenaGame(options) {
     const clothCanvas = document.createElement("canvas");
     clothCanvas.width = 128; clothCanvas.height = 128;
     const cCtx = clothCanvas.getContext("2d");
-    cCtx.fillStyle = "#c8940a";
-    cCtx.fillRect(0, 0, 128, 128);
-    cCtx.strokeStyle = "#7a5800";
-    cCtx.lineWidth = 5;
-    cCtx.strokeRect(4, 4, 120, 120);
-    cCtx.fillStyle = "#0a0800";
-    cCtx.font = "bold 52px monospace";
-    cCtx.textAlign = "center";
-    cCtx.textBaseline = "middle";
-    cCtx.fillText("F10", 64, 64);
+    const paintCloth = () => {
+      cCtx.fillStyle = "#c8940a";
+      cCtx.fillRect(0, 0, 128, 128);
+      cCtx.strokeStyle = "#7a5800";
+      cCtx.lineWidth = 5;
+      cCtx.strokeRect(4, 4, 120, 120);
+      cCtx.fillStyle = "#0a0800";
+      cCtx.font = `46px ${F10_MARK_FONT}, monospace`;
+      cCtx.textAlign = "center";
+      cCtx.textBaseline = "middle";
+      cCtx.fillText("F10", 64, 66, 112);
+    };
+    paintCloth();
     const clothTex = new THREE.CanvasTexture(clothCanvas);
+    repaintWhenFontReady(paintCloth, () => clothTex);
     const cloth = new THREE.Mesh(
       new THREE.PlaneGeometry(4.4, 4.4),
       new THREE.MeshBasicMaterial({ map: clothTex }),
@@ -2323,7 +2349,9 @@ export function createArenaGame(options) {
   const _wasdF = new THREE.Vector3();
   const wasd = { w: false, a: false, s: false, d: false };
   function updateBar(f) {
-    if (!viewIsGame || !f.connected || f.dead || settings.hideHud) { f.bar.el.style.display = "none"; return; }
+    // Bars show in a real match and in the landing "experience the fight"
+    // free-play; the idle showcase behind the hero stays clean.
+    if (!(viewIsGame || homePlay) || !f.connected || f.dead || settings.hideHud) { f.bar.el.style.display = "none"; return; }
     const rect = mount.getBoundingClientRect();
     _bv.set(f.group.position.x, 3.05 * CHAR_SCALE, f.group.position.z).project(camera);
     if (_bv.z > 1) { f.bar.el.style.display = "none"; return; }
