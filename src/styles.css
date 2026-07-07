@@ -4345,13 +4345,25 @@ body.in-game .log-feed { left: 70px; }
   pointer-events: none;
 }
 
+/* Once scrolled, the cue becomes a "back to top" control: the chevron flips
+   up and bobs upward instead of down. */
+.scroll-cue.scroll-cue-up svg {
+  animation-name: scroll-cue-bob-up;
+}
+
 @keyframes scroll-cue-bob {
   0%, 100% { transform: translateY(-2px); opacity: 0.55; }
   50%      { transform: translateY(3px);  opacity: 1; }
 }
 
+@keyframes scroll-cue-bob-up {
+  0%, 100% { transform: translateY(2px) rotate(180deg);  opacity: 0.55; }
+  50%      { transform: translateY(-3px) rotate(180deg); opacity: 1; }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .scroll-cue svg { animation: none; }
+  .scroll-cue.scroll-cue-up svg { transform: rotate(180deg); }
 }
 
 /* Landing sections — narrow layouts. The hero joins the page flow below
@@ -4366,4 +4378,207 @@ body.in-game .log-feed { left: 70px; }
 
 @media (max-width: 480px) {
   .hs-grid-4 { grid-template-columns: 1fr; }
+}
+
+/* ===========================================================================
+   Internal ops / admin dashboard (src/admin.js). Full-screen overlay, themed
+   to the game's dark-gold palette. Kept dense and utilitarian — it is a tool.
+   =========================================================================== */
+.admin-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 200;
+  display: flex;
+  align-items: stretch;
+  justify-content: center;
+  padding: clamp(8px, 2vh, 28px);
+  background: rgba(4, 3, 2, 0.82);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+}
+.admin-overlay.hidden { display: none; }
+
+.admin-panel {
+  display: flex;
+  flex-direction: column;
+  width: min(1180px, 100%);
+  max-height: 100%;
+  border: 1px solid rgba(212, 160, 23, 0.4);
+  border-radius: 8px;
+  background: linear-gradient(160deg, rgba(22, 17, 8, 0.98) 0%, rgba(9, 8, 4, 0.99) 60%);
+  box-shadow: 0 24px 80px rgba(0, 0, 0, 0.7);
+  overflow: hidden;
+}
+
+.admin-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 16px;
+  border-bottom: 1px solid rgba(212, 160, 23, 0.22);
+}
+.admin-title {
+  font-family: var(--font-display);
+  letter-spacing: 0.14em;
+  font-size: 1rem;
+  color: var(--gold-hi);
+}
+.admin-title span { color: rgba(233, 224, 200, 0.55); margin-left: 0.4em; }
+.admin-head-actions { display: flex; gap: 8px; }
+
+.admin-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  padding: 10px 12px;
+  border-bottom: 1px solid rgba(212, 160, 23, 0.16);
+}
+.admin-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 6px 11px;
+  border: 1px solid rgba(212, 160, 23, 0.22);
+  border-radius: 999px;
+  background: rgba(12, 10, 6, 0.6);
+  color: rgba(233, 224, 200, 0.75);
+  font-family: var(--font-body);
+  font-size: 0.66rem;
+  letter-spacing: 0.03em;
+  cursor: pointer;
+  transition: border-color 0.15s ease, color 0.15s ease;
+}
+.admin-tab:hover { border-color: rgba(212, 160, 23, 0.55); color: #f0e8d2; }
+.admin-tab.is-active {
+  border-color: var(--gold);
+  color: var(--gold-hi);
+  background: rgba(40, 30, 10, 0.7);
+}
+.admin-count {
+  min-width: 18px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.08);
+  color: rgba(233, 224, 200, 0.7);
+  font-size: 0.6rem;
+  text-align: center;
+}
+.admin-count.attn { background: rgba(198, 64, 42, 0.85); color: #fff; }
+
+.admin-body {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 14px 16px 22px;
+}
+
+.admin-msg { padding: 40px 12px; text-align: center; color: rgba(233, 224, 200, 0.6); font-family: var(--font-body); }
+.admin-err { color: #e88; }
+.admin-note {
+  margin: 0 0 12px;
+  color: rgba(233, 224, 200, 0.55);
+  font-family: var(--font-body);
+  font-size: 0.66rem;
+}
+
+/* Cards (disputed / payout / waiting) */
+.admin-card {
+  margin-bottom: 10px;
+  padding: 12px 14px;
+  border: 1px solid rgba(212, 160, 23, 0.2);
+  border-left: 3px solid rgba(212, 160, 23, 0.5);
+  border-radius: 5px;
+  background: rgba(16, 12, 6, 0.6);
+  font-family: var(--font-body);
+  font-size: 0.7rem;
+}
+.admin-card-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+.admin-card-head b { color: #f4ecd6; }
+.admin-dim { color: rgba(233, 224, 200, 0.5); font-size: 0.64rem; }
+.admin-right { margin-left: auto; }
+
+.admin-players { display: flex; flex-direction: column; gap: 5px; margin-bottom: 10px; }
+.admin-prow {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 5px 8px;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.03);
+}
+.admin-seat { color: var(--gold); font-family: var(--font-display); font-size: 0.7rem; }
+.admin-pname { color: #f0e8d2; flex: 1; }
+.admin-phP { color: rgba(233, 224, 200, 0.6); font-size: 0.62rem; }
+
+.admin-card-actions { display: flex; flex-wrap: wrap; gap: 7px; }
+
+/* Tables (integrity / consumed / banned / notes) */
+.admin-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-family: var(--font-body);
+  font-size: 0.66rem;
+}
+.admin-table th {
+  text-align: left;
+  padding: 6px 8px;
+  border-bottom: 1px solid rgba(212, 160, 23, 0.28);
+  color: var(--gold);
+  font-weight: 400;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  font-size: 0.56rem;
+}
+.admin-table td {
+  padding: 7px 8px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  color: rgba(233, 224, 200, 0.82);
+  vertical-align: top;
+}
+.admin-nowrap { white-space: nowrap; }
+.admin-mono, .admin-detail { font-family: ui-monospace, monospace; font-size: 0.6rem; }
+.admin-detail { color: rgba(233, 224, 200, 0.55); word-break: break-word; max-width: 340px; }
+
+.admin-flag {
+  display: inline-block;
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: rgba(212, 160, 23, 0.16);
+  border: 1px solid rgba(212, 160, 23, 0.4);
+  color: var(--gold-hi);
+  font-size: 0.58rem;
+  letter-spacing: 0.03em;
+}
+.admin-flag-red { background: rgba(198, 64, 42, 0.22); border-color: rgba(198, 64, 42, 0.7); color: #f2b8ac; }
+
+/* Buttons */
+.admin-btn {
+  padding: 6px 12px;
+  border: 1px solid rgba(212, 160, 23, 0.4);
+  border-radius: 5px;
+  background: rgba(30, 22, 8, 0.7);
+  color: var(--gold-hi);
+  font-family: var(--font-body);
+  font-size: 0.64rem;
+  letter-spacing: 0.03em;
+  cursor: pointer;
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+.admin-btn:hover { border-color: var(--gold); background: rgba(48, 35, 12, 0.85); }
+.admin-btn-sm { padding: 4px 9px; font-size: 0.6rem; }
+.admin-btn-xs { padding: 2px 7px; font-size: 0.56rem; margin-left: 6px; }
+.admin-x { color: rgba(233, 224, 200, 0.7); border-color: rgba(255, 255, 255, 0.15); background: transparent; }
+.admin-danger { border-color: rgba(198, 64, 42, 0.55); color: #f2b8ac; }
+.admin-danger:hover { border-color: rgba(198, 64, 42, 0.9); background: rgba(60, 20, 14, 0.7); }
+
+@media (max-width: 640px) {
+  .admin-detail { max-width: 160px; }
+  .admin-card-head { gap: 6px; }
+  .admin-right { margin-left: 0; }
 }

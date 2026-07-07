@@ -37,6 +37,7 @@ drop function if exists public.ban_forfeited() cascade;
 drop function if exists public.validate_match_damage() cascade;
 drop function if exists public.validate_match_kills() cascade;
 
+drop table if exists public.review_notes     cascade;
 drop table if exists public.banned_users    cascade;
 drop table if exists public.consumed_deposits cascade;
 drop table if exists public.payouts          cascade;
@@ -218,6 +219,25 @@ create table public.banned_users (
   reason     text,
   created_at timestamptz not null default now()
 );
+
+-- Admin review notes — free-text operator notes on a match / user / payout,
+-- recording how a dispute, ban or stuck payout was resolved. Written/read only
+-- by the f10admin edge function (service role); RLS on with no policies blocks
+-- all direct client access. See migrations/20260712_admin_review_notes.sql.
+create table public.review_notes (
+  id           bigint generated always as identity primary key,
+  subject_type text not null
+    check (subject_type in ('match', 'user', 'payout', 'deposit', 'waiting', 'general')),
+  subject_id   text,
+  note         text not null check (char_length(note) between 1 and 2000),
+  action       text,
+  author_id    uuid references auth.users(id) on delete set null,
+  created_at   timestamptz not null default now()
+);
+create index if not exists idx_review_notes_subject
+  on public.review_notes (subject_type, subject_id, created_at desc);
+create index if not exists idx_review_notes_created
+  on public.review_notes (created_at desc);
 
 create unique index if not exists idx_matches_match_no on public.matches(match_no);
 create index if not exists idx_matches_waiting    on public.matches(status, created_at);
@@ -1273,6 +1293,9 @@ alter table public.banned_users      enable row level security;
 -- consumed_deposits is written/read only inside join_pvp_match (security
 -- definer); RLS on with no policies blocks all direct client access.
 alter table public.consumed_deposits enable row level security;
+-- review_notes is written/read only by the f10admin edge function (service
+-- role); RLS on with no policies blocks all direct client access.
+alter table public.review_notes enable row level security;
 
 -- Payouts: a player can read their own; inserts come only from the service role.
 create policy "payouts_select_own"
