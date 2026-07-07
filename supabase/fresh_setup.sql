@@ -26,6 +26,8 @@ drop function if exists public.pvp_capacity();
 drop function if exists public.leave_my_matches();
 drop function if exists public.level_for_points(integer);
 drop function if exists public.get_leaderboard(integer);
+drop function if exists public.get_leaderboard(integer, text);
+drop function if exists public.get_holdings_wallets(integer);
 drop function if exists public.sync_my_profile(text);
 drop function if exists public.is_match_member(uuid) cascade;
 drop function if exists public.handle_new_user();
@@ -723,20 +725,26 @@ as $$
 $$;
 
 -- ---------------------------------------------------------------------------
--- 6a. get_leaderboard — public points leaderboard.
+-- 6a. get_leaderboard — public leaderboard (points and wins tabs).
 --     profiles RLS only exposes a player's own row, so the leaderboard is
 --     served by this security definer RPC. It returns only display data
---     (name, level, points, wins) — never user_id or wallet_address — plus an
---     is_me flag computed server-side so the client can highlight the
+--     (name, level, points, wins, losses) — never user_id or wallet_address —
+--     plus an is_me flag computed server-side so the client can highlight the
 --     caller's row without the RPC leaking anyone's identity.
+--     p_sort: 'points' (default) ranks by points; 'wins' ranks by wins with
+--     win% as the tiebreaker.
 -- ---------------------------------------------------------------------------
-create or replace function public.get_leaderboard(p_limit integer default 20)
+create or replace function public.get_leaderboard(
+  p_limit integer default 20,
+  p_sort  text    default 'points'
+)
 returns table (
   rank         bigint,
   display_name text,
   level        integer,
   points       integer,
   wins         integer,
+  losses       integer,
   is_me        boolean
 )
 language sql
@@ -744,15 +752,62 @@ security definer
 set search_path = public
 stable
 as $$
-  select row_number() over (order by p.points desc, p.wins desc, p.created_at asc) as rank,
-         p.display_name,
+  with ranked as (
+    select p.display_name,
+           p.level,
+           p.points,
+           p.wins,
+           p.losses,
+           coalesce(p.user_id = auth.uid(), false) as is_me,
+           p.created_at,
+           p.wins::numeric / nullif(p.wins + p.losses, 0) as win_pct
+    from public.profiles p
+  )
+  select row_number() over (
+           order by
+             case when p_sort = 'wins' then r.wins else r.points end desc,
+             case when p_sort = 'wins' then r.win_pct end desc nulls last,
+             case when p_sort = 'wins' then r.points else r.wins end desc,
+             r.created_at asc
+         ) as rank,
+         r.display_name, r.level, r.points, r.wins, r.losses, r.is_me
+  from ranked r
+  order by
+    case when p_sort = 'wins' then r.wins else r.points end desc,
+    case when p_sort = 'wins' then r.win_pct end desc nulls last,
+    case when p_sort = 'wins' then r.points else r.wins end desc,
+    r.created_at asc
+  limit least(greatest(coalesce(p_limit, 20), 1), 100);
+$$;
+
+-- ---------------------------------------------------------------------------
+-- 6a-bis. get_holdings_wallets — backs the leaderboard's $FIGHT10 tab.
+--     Balances live on-chain, so the client ranks wallets by balance itself;
+--     this RPC hands it the wallet addresses to look up. Exposing
+--     wallet_address here is deliberate: a holdings leaderboard only works by
+--     linking fighters to their (already public) on-chain wallets. It still
+--     never exposes user_id.
+-- ---------------------------------------------------------------------------
+create or replace function public.get_holdings_wallets(p_limit integer default 100)
+returns table (
+  display_name   text,
+  level          integer,
+  wallet_address text,
+  is_me          boolean
+)
+language sql
+security definer
+set search_path = public
+stable
+as $$
+  select p.display_name,
          p.level,
-         p.points,
-         p.wins,
+         p.wallet_address,
          coalesce(p.user_id = auth.uid(), false) as is_me
   from public.profiles p
-  order by p.points desc, p.wins desc, p.created_at asc
-  limit least(greatest(coalesce(p_limit, 20), 1), 100);
+  where p.wallet_address is not null
+  order by p.points desc, p.created_at asc
+  limit least(greatest(coalesce(p_limit, 100), 1), 100);
 $$;
 
 -- ---------------------------------------------------------------------------
@@ -1388,7 +1443,8 @@ grant execute on function public.heartbeat(uuid)                       to authen
 grant execute on function public.try_finalize(uuid)                    to authenticated;
 grant execute on function public.claim_payout_slot(uuid)               to authenticated;
 grant execute on function public.level_for_points(integer)             to authenticated;
-grant execute on function public.get_leaderboard(integer)              to authenticated, anon;
+grant execute on function public.get_leaderboard(integer, text)        to authenticated, anon;
+grant execute on function public.get_holdings_wallets(integer)         to authenticated, anon;
 grant execute on function public.match_duration_seconds(smallint)      to authenticated, service_role, anon;
 grant execute on function public.pvp_capacity()                        to authenticated, anon;
 grant execute on function public.pvp_capacity_cap()                    to authenticated, anon;
