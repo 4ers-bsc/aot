@@ -584,7 +584,7 @@ Deno.serve(async (req: Request) => {
 
     const [
       disputedRes, integrityRes, payoutPendingRes, payoutFailedRes,
-      consumedRes, waitingRes, bannedRes, notesRes,
+      consumedRes, waitingRes, bannedRes, notesRes, payoutsRes,
     ] = await Promise.all([
       admin.from("matches")
         .select("id, match_no, max_players, created_at, started_at, ended_at, pot_tokens, shadow_meta, forfeited_user_ids")
@@ -614,11 +614,14 @@ Deno.serve(async (req: Request) => {
       admin.from("review_notes")
         .select("id, subject_type, subject_id, note, action, author_id, created_at")
         .order("created_at", { ascending: false }).limit(LIST_LIMIT),
+      admin.from("payouts")
+        .select("match_id, winner_user_id, payout_tx, amount_raw, decimals, num_players, created_at")
+        .order("created_at", { ascending: false }).limit(LIST_LIMIT),
     ]);
 
     const firstErr = [
       disputedRes, integrityRes, payoutPendingRes, payoutFailedRes,
-      consumedRes, waitingRes, bannedRes, notesRes,
+      consumedRes, waitingRes, bannedRes, notesRes, payoutsRes,
     ].find((r) => r.error)?.error;
     if (firstErr) {
       console.error("f10admin overview query failed:", firstErr);
@@ -633,18 +636,26 @@ Deno.serve(async (req: Request) => {
     const waiting = waitingRes.data ?? [];
     const banned = bannedRes.data ?? [];
     const notes = notesRes.data ?? [];
+    const payouts = payoutsRes.data ?? [];
 
-    // Seats for disputed + stale-waiting matches, in two batched queries.
+    // Seats for disputed + stale-waiting matches + match numbers for payouts,
+    // in batched lookups.
     const disputedIds = disputed.map((m: any) => m.id);
     const waitingIds = waiting.map((m: any) => m.id);
-    const [seatRes, waitSeatRes] = await Promise.all([
+    const payoutMatchIds = payouts.map((p: any) => p.match_id);
+    const [seatRes, waitSeatRes, payoutMatchRes] = await Promise.all([
       disputedIds.length
         ? admin.from("match_players").select("match_id, user_id, seat, display_name, final_hp, last_seen").in("match_id", disputedIds)
         : Promise.resolve({ data: [] as any[] }),
       waitingIds.length
         ? admin.from("match_players").select("match_id, user_id, seat, display_name").in("match_id", waitingIds)
         : Promise.resolve({ data: [] as any[] }),
+      payoutMatchIds.length
+        ? admin.from("matches").select("id, match_no, max_players").in("id", payoutMatchIds)
+        : Promise.resolve({ data: [] as any[] }),
     ]);
+    const matchNoById = new Map<string, any>();
+    for (const m of (payoutMatchRes.data ?? [])) matchNoById.set(m.id, m);
     const groupByMatch = (rows: any[]) => {
       const map = new Map<string, any[]>();
       for (const s of rows) {
@@ -665,6 +676,7 @@ Deno.serve(async (req: Request) => {
       ...consumed.map((r: any) => r.user_id),
       ...waiting.map((r: any) => r.created_by),
       ...notes.map((r: any) => r.author_id),
+      ...payouts.map((r: any) => r.winner_user_id),
     ]);
     const nameOf = (id?: string | null) => (id ? nameMap.get(id)?.name ?? null : null);
 
@@ -689,6 +701,7 @@ Deno.serve(async (req: Request) => {
         stale_waiting: waiting.length,
         banned: banned.length,
         notes: notes.length,
+        payouts: payouts.length,
       },
       disputed: disputed.map((m: any) => ({
         ...m,
@@ -707,6 +720,14 @@ Deno.serve(async (req: Request) => {
       })),
       banned,
       notes: notes.map((r: any) => ({ ...r, author_name: nameOf(r.author_id) })),
+      payouts: payouts.map((r: any) => ({
+        ...r,
+        winner_name: nameOf(r.winner_user_id),
+        match_no: matchNoById.get(r.match_id)?.match_no ?? null,
+        max_players: matchNoById.get(r.match_id)?.max_players ?? null,
+        amount: r.amount_raw != null && r.decimals != null
+          ? Number(r.amount_raw) / 10 ** r.decimals : null,
+      })),
     });
   } catch (err) {
     console.error("f10admin error:", err);

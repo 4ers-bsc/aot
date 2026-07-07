@@ -23,11 +23,14 @@ const TABS = [
   ["integrity",         "Integrity flags"],
   ["payout_pending",    "Payout pending"],
   ["payout_failed",     "Payout failed"],
+  ["payouts",           "All payouts"],
   ["consumed_deposits", "Consumed deposits"],
   ["stale_waiting",     "Stale rooms"],
   ["banned",            "Banned users"],
   ["notes",             "Review notes"],
 ];
+// Tabs whose badge count is informational (not an action queue) — no red badge.
+const INFO_TABS = new Set(["payouts", "consumed_deposits", "notes"]);
 
 const fmtTokens = (raw) => {
   const n = Number(raw || 0) / 1e6; // 6-decimal mint
@@ -65,6 +68,7 @@ export function initAdmin(supabase) {
   let activeTab = "disputed";
   let loading = false;
   let errorMsg = "";
+  let query = ""; // per-tab free-text filter (searches every column)
 
   // ---- DOM shell (built once, on first open) --------------------------------
   function ensureRoot() {
@@ -82,6 +86,10 @@ export function initAdmin(supabase) {
           </div>
         </header>
         <nav class="admin-tabs" id="adminTabs"></nav>
+        <div class="admin-searchbar">
+          <input id="adminSearch" class="admin-search-input" type="search" placeholder="Search this tab — any column…" autocomplete="off" />
+          <span class="admin-search-count" id="adminSearchCount"></span>
+        </div>
         <div class="admin-body" id="adminBody"></div>
       </div>
       <div class="admin-modal-host" id="adminModalHost"></div>`;
@@ -94,7 +102,18 @@ export function initAdmin(supabase) {
     root.querySelector('[data-admin="refresh"]').addEventListener("click", () => load());
     root.querySelector("#adminTabs").addEventListener("click", (e) => {
       const t = e.target.closest("[data-tab]");
-      if (t) { activeTab = t.dataset.tab; render(); }
+      if (t && t.dataset.tab !== activeTab) {
+        activeTab = t.dataset.tab;
+        query = "";
+        const s = root.querySelector("#adminSearch");
+        if (s) s.value = "";
+        render();
+      }
+    });
+    // Live free-text filter — re-renders only the body so the input keeps focus.
+    root.querySelector("#adminSearch").addEventListener("input", (e) => {
+      query = e.target.value.trim().toLowerCase();
+      renderBody();
     });
     root.querySelector("#adminBody").addEventListener("click", onAction);
     return root;
@@ -288,51 +307,88 @@ export function initAdmin(supabase) {
   // ---- Render ---------------------------------------------------------------
   function render() {
     if (!root) return;
-    const tabsEl = root.querySelector("#adminTabs");
-    const bodyEl = root.querySelector("#adminBody");
-    const counts = data?.counts || {};
+    renderTabs();
+    renderBody();
+  }
 
-    tabsEl.innerHTML = TABS.map(([key, label]) => {
+  function renderTabs() {
+    const counts = data?.counts || {};
+    root.querySelector("#adminTabs").innerHTML = TABS.map(([key, label]) => {
       const c = counts[key] ?? 0;
-      const attn = c > 0 && key !== "consumed_deposits" && key !== "notes";
+      const attn = c > 0 && !INFO_TABS.has(key);
       return `<button class="admin-tab${key === activeTab ? " is-active" : ""}" data-tab="${key}">
         ${escapeHtml(label)}<span class="admin-count${attn ? " attn" : ""}">${c}</span>
       </button>`;
     }).join("");
+  }
 
+  // A row matches when the query appears anywhere in its serialized data — so
+  // every column (ids, names, tx signatures, amounts, reasons…) is searchable.
+  function rowMatches(row) {
+    if (!query) return true;
+    try { return JSON.stringify(row).toLowerCase().includes(query); }
+    catch { return true; }
+  }
+
+  function renderBody() {
+    const bodyEl = root.querySelector("#adminBody");
+    const countEl = root.querySelector("#adminSearchCount");
+    if (!bodyEl) return;
+    if (countEl) countEl.textContent = "";
     if (loading && !data) { bodyEl.innerHTML = `<div class="admin-msg">Loading…</div>`; return; }
     if (errorMsg)         { bodyEl.innerHTML = `<div class="admin-msg admin-err">${escapeHtml(errorMsg)}</div>`; return; }
     if (!data)            { bodyEl.innerHTML = `<div class="admin-msg">No data.</div>`; return; }
-
+    if (countEl) {
+      const total = (data[activeTab] || []).length;
+      const shown = (data[activeTab] || []).filter(rowMatches).length;
+      countEl.textContent = query ? `${shown} of ${total}` : `${total} row${total === 1 ? "" : "s"}`;
+    }
     bodyEl.innerHTML = renderTab(activeTab);
   }
 
   function renderTab(tab) {
-    const rows = data[tab] || [];
+    const rows = (data[tab] || []).filter(rowMatches);
     const meta = data.thresholds || {};
+    const emptyMsg = query
+      ? `<div class="admin-msg">No rows match “${escapeHtml(query)}”.</div>`
+      : `<div class="admin-msg">Nothing here — queue is clear. ✓</div>`;
     // Notes tab keeps its toolbar (add / bulk-clear) even when empty.
     if (tab === "notes") {
-      const noiseCount = rows.filter((n) => n.action === "release_payout").length;
+      const noiseCount = (data.notes || []).filter((n) => n.action === "release_payout").length;
       const bar = `<div class="admin-notebar">
         <button class="admin-btn admin-btn-sm admin-primary" data-act="note" data-subject-type="general">＋ Add note</button>
         ${noiseCount ? `<button class="admin-btn admin-btn-sm admin-danger" data-act="clear_release_notes">Clear ${noiseCount} release-slot note${noiseCount > 1 ? "s" : ""}</button>` : ""}
       </div>`;
       const table = rows.length
         ? `<table class="admin-table">${thead(["When", "Subject", "Note", "By", ""])}${rows.map(noteRow).join("")}</tbody></table>`
-        : `<div class="admin-msg">No notes yet.</div>`;
+        : `<div class="admin-msg">${query ? `No notes match “${escapeHtml(query)}”.` : "No notes yet."}</div>`;
       return bar + table;
     }
-    if (rows.length === 0) return `<div class="admin-msg">Nothing here — queue is clear. ✓</div>`;
+    if (rows.length === 0) return emptyMsg;
     switch (tab) {
       case "disputed":          return rows.map(disputedCard).join("");
       case "integrity":         return `<table class="admin-table">${thead(["When", "Player", "Kind", "Detail", "Match"])}${rows.map(integrityRow).join("")}</tbody></table>`;
       case "payout_pending":    return `<p class="admin-note">Finished matches with a winner that have not paid out yet.</p>` + rows.map((r) => payoutCard(r, false)).join("");
       case "payout_failed":     return `<p class="admin-note">Payout reservations stuck as 'pending' for over ${meta.payout_stuck_minutes ?? 15} min — likely a payout that half-completed. Verify on-chain before acting.</p>` + rows.map((r) => payoutCard(r, true)).join("");
+      case "payouts":           return `<p class="admin-note">Completed payouts (from the payouts ledger). Every column is searchable above.</p><table class="admin-table">${thead(["When", "Match", "Winner", "Amount", "Players", "Tx"])}${rows.map(payoutRow).join("")}</tbody></table>`;
       case "consumed_deposits": return `<table class="admin-table">${thead(["When", "Player", "Deposit tx", "Match"])}${rows.map(consumedRow).join("")}</tbody></table>`;
       case "stale_waiting":     return rows.map(waitingCard).join("");
       case "banned":            return `<table class="admin-table">${thead(["When", "Wallet", "Reason", "Action"])}${rows.map(bannedRow).join("")}</tbody></table>`;
       default:                  return "";
     }
+  }
+
+  function payoutRow(r) {
+    const amt = r.amount != null
+      ? `${r.amount.toLocaleString(undefined, { maximumFractionDigits: 0 })} $FIGHT10` : "—";
+    return `<tr>
+      <td class="admin-nowrap" title="${fmtTime(r.created_at)}">${ago(r.created_at)}</td>
+      <td class="admin-nowrap">#${r.match_no ?? shortId(r.match_id)}</td>
+      <td>${escapeHtml(r.winner_name || shortId(r.winner_user_id))}</td>
+      <td class="admin-nowrap">${amt}</td>
+      <td class="admin-nowrap">${r.num_players ?? "—"}</td>
+      <td class="admin-mono">${txLink(r.payout_tx)}</td>
+    </tr>`;
   }
 
   const thead = (cols) => `<thead><tr>${cols.map((c) => `<th>${escapeHtml(c)}</th>`).join("")}</tr></thead><tbody>`;
