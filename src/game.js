@@ -120,6 +120,16 @@ export function createArenaGame(options) {
   // Zoom bounds (orthographic: lower zoom = more zoomed out). Declared here so the
   // camera can start at the fully zoomed-out limit on the home page and at match start.
   const ZOOM_MIN = 0.4, ZOOM_MAX = 3.2;
+
+  // Uniform visual upscale of everything that lives on the battlefield.
+  // CHAR_SCALE grows the fighters (player, AI raiders, PvP opponents) and the
+  // heights that track them (health-bar anchor, bullet line). PROP_SCALE grows
+  // the arena dressing — towers, trees, mountains, boulders, logs, pebbles,
+  // grass, reeds, lily pads, fish, flame lamps, ground decals — and the
+  // collision radii of the solid props so blocking still matches the visuals.
+  // Both are cosmetic: map bounds, speeds, ranges and damage are untouched.
+  const CHAR_SCALE = 1.25;
+  const PROP_SCALE = 1.25;
   let dim = size();
   let aspect = dim.w / dim.h;
   const camera = new THREE.OrthographicCamera(-FRUSTUM * aspect, FRUSTUM * aspect, FRUSTUM, -FRUSTUM, 0.1, 1000);
@@ -341,6 +351,7 @@ export function createArenaGame(options) {
     const bannerGeo = new THREE.PlaneGeometry(BANNER_W, BANNER_H, 12, 10);
     bannerGeo.translate(0, -BANNER_H / 2, 0); // pin the top edge at the rim
     const banner = new THREE.Mesh(bannerGeo, bannerMat);
+    banner.scale.setScalar(PROP_SCALE); // top edge is pinned at y=0, so it just drapes wider/deeper
     // Hangs off the OUTER edge of the black ledge ring (which extends LEDGE_W
     // beyond the map rim — pinning it at the rim would bury the F10 mark
     // behind the ledge). Nudged outward so the waving fabric never clips in.
@@ -348,7 +359,7 @@ export function createArenaGame(options) {
     banner.renderOrder = 3; // after the outer dot plane so it shows against the void
     addObj(banner);
     // Fold of cloth lying on the ledge top where the fabric crosses its edge
-    const fold = box(BANNER_W, 0.1, 0.7, 0xc8940a);
+    const fold = box(BANNER_W * PROP_SCALE, 0.1, 0.7, 0xc8940a);
     fold.position.set(0, LEDGE_TOP + 0.05, MAP_HALF + LEDGE_W - 0.35);
     addObj(fold);
     clothBanners.push({ mesh: banner, geo: bannerGeo, h: BANNER_H, phase: 0, born: performance.now() * 0.001 });
@@ -451,19 +462,21 @@ export function createArenaGame(options) {
     lampSpots.forEach(([x, z]) => {
       // Small polished base…
       const base = new THREE.Mesh(baseGeo, ledgeMat);
-      base.position.set(x, LEDGE_TOP + 0.25, z);
+      base.scale.setScalar(PROP_SCALE);
+      base.position.set(x, LEDGE_TOP + 0.25 * PROP_SCALE, z);
       scene.add(base);
       // …its flame…
       const sprite = new THREE.Sprite(new THREE.SpriteMaterial({
         map: flameTex, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false,
       }));
-      sprite.position.set(x, LEDGE_TOP + 0.5 + 0.72, z);
-      sprite.scale.set(1.15, 1.7, 1);
+      sprite.position.set(x, LEDGE_TOP + (0.5 + 0.72) * PROP_SCALE, z);
+      sprite.scale.set(1.15 * PROP_SCALE, 1.7 * PROP_SCALE, 1);
       scene.add(sprite);
       // …and the warm pool it throws on the shiny ledge.
       const glow = new THREE.Mesh(glowGeo, new THREE.MeshBasicMaterial({
         map: glowTex, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false,
       }));
+      glow.scale.setScalar(PROP_SCALE);
       glow.rotation.x = -Math.PI / 2;
       glow.position.set(x, LEDGE_TOP + 0.015, z);
       scene.add(glow);
@@ -494,7 +507,7 @@ export function createArenaGame(options) {
     tex.magFilter = THREE.NearestFilter;
     tex.minFilter = THREE.NearestFilter;
     const mesh = new THREE.Mesh(
-      new THREE.PlaneGeometry(40, 7.2),
+      new THREE.PlaneGeometry(40 * PROP_SCALE, 7.2 * PROP_SCALE),
       new THREE.MeshBasicMaterial({ map: tex, transparent: true, depthWrite: false, opacity: 0.22 })
     );
     mesh.rotation.x = -Math.PI / 2;
@@ -748,11 +761,6 @@ export function createArenaGame(options) {
     document.body.appendChild(el);
     return { el, name, level, fill, color: barColor };
   }
-  // Uniform visual scale for every fighter (player, AI raiders, PvP
-  // opponents). Purely cosmetic: gameplay positions, speeds, ranges and
-  // collision radii are untouched; the health-bar anchor and bullet heights
-  // multiply by this so they track the bigger bodies.
-  const CHAR_SCALE = 1.25;
   // Body builders. Both return the same contract — the animated limb pivots,
   // the nodes to hang off the fighter group, and the material map recolored by
   // recolorFighter — so a fighter can swap styles in place via applyBody().
@@ -1278,9 +1286,10 @@ export function createArenaGame(options) {
     }
     g.add(wins);
     g.add(base, body, par, psnow);
+    g.scale.setScalar(PROP_SCALE);
     g.position.set(x, 0, z);
     mapGroup.add(g);
-    solids.push({ x, z, r: 2.2 });
+    solids.push({ x, z, r: 2.2 * PROP_SCALE });
   }
   // Ground-scatter decoration bits. Grass blades, snowy tufts, flower stems
   // and blooms are all tinted boxes, so instead of one Mesh each (which used
@@ -1304,7 +1313,9 @@ export function createArenaGame(options) {
     const col = new THREE.Color();
     decoBits.forEach((b, i) => {
       q.setFromEuler(e.set(0, b.ry, 0));
-      m4.compose(p.set(b.x, b.y, b.z), q, s.set(b.sx, b.sy, b.sz));
+      // y is the box centre (half its height), so scaling it keeps the
+      // upscaled blades and blooms rooted at ground level.
+      m4.compose(p.set(b.x, b.y * PROP_SCALE, b.z), q, s.set(b.sx * PROP_SCALE, b.sy * PROP_SCALE, b.sz * PROP_SCALE));
       mesh.setMatrixAt(i, m4);
       mesh.setColorAt(i, col.setHex(b.color));
     });
@@ -1315,7 +1326,7 @@ export function createArenaGame(options) {
     const count = 6 + Math.floor(rng() * 5);
     for (let i = 0; i < count; i++) {
       const angle = rng() * Math.PI * 2;
-      const dist  = 3.2 + rng() * 3.8;
+      const dist  = (3.2 + rng() * 3.8) * PROP_SCALE; // ring tracks the wider tower base
       const px = cx + Math.cos(angle) * dist;
       const pz = cz + Math.sin(angle) * dist;
       if (Math.abs(px) > MAP_HALF - 1 || Math.abs(pz) > MAP_HALF - 1) continue;
@@ -1365,7 +1376,7 @@ export function createArenaGame(options) {
       const x = (rng() * 2 - 1) * (MAP_HALF - 2);
       const z = (rng() * 2 - 1) * (MAP_HALF - 2);
       if (inRiver(x, z)) continue; // stones would float on the water plane
-      const sc = 0.5 + rng() * 1.1;
+      const sc = (0.5 + rng() * 1.1) * PROP_SCALE;
       q.setFromEuler(e.set(rng() * Math.PI, rng() * Math.PI, rng() * Math.PI));
       // Squashed and half-sunk so they read as ground stones, not droppings
       m4.compose(p.set(x, 0.05 * sc, z), q, s.set(sc, sc * 0.55, sc));
@@ -1392,10 +1403,10 @@ export function createArenaGame(options) {
     const s1 = box(2.06, 0.16, 2.06, 0xe6eef6); s1.position.y = 2.76; s1.castShadow = false;
     const s2 = box(1.36, 0.14, 1.36, 0xf1f6fb); s2.position.y = 3.65; s2.castShadow = false;
     g.add(trunk, f1, f2, s1, s2);
-    g.scale.setScalar(sc);
+    g.scale.setScalar(sc * PROP_SCALE);
     g.position.set(x, 0, z);
     mapGroup.add(g);
-    solids.push({ x, z, r: 1.1 * sc });
+    solids.push({ x, z, r: 1.1 * sc * PROP_SCALE });
   }
   function addMountain(x, z, rng, tier = 1) {
     // tier 0 = small hillock, 1 = medium (original), 2 = large peak
@@ -1414,15 +1425,17 @@ export function createArenaGame(options) {
     );
     snow.position.y = 2.6; snow.castShadow = true;
     g.add(rock, snow);
-    g.scale.setScalar(sc);
+    g.scale.setScalar(sc * PROP_SCALE);
     g.rotation.y = rng() * Math.PI;
     g.position.set(x, 0, z);
     mapGroup.add(g);
-    solids.push({ x, z, r: 1.9 * sc });
+    solids.push({ x, z, r: 1.9 * sc * PROP_SCALE });
   }
   function addRiverBoulder(x, z, rng) {
     const g = new THREE.Group();
-    const sz = 1.1 + rng() * 0.8;
+    // sz feeds the geometry, snow cap and solid radius, so scaling it here
+    // upsizes the whole boulder consistently.
+    const sz = (1.1 + rng() * 0.8) * PROP_SCALE;
     const rock = new THREE.Mesh(
       new THREE.SphereGeometry(sz, 6, 5),
       new THREE.MeshStandardMaterial({ color: 0x7a7875, roughness: 1, flatShading: true }),
@@ -1438,8 +1451,10 @@ export function createArenaGame(options) {
     solids.push({ x, z, r: sz * 1.05 });
   }
   function addFallenLog(x, z, rng) {
-    const len   = 2.6 + rng() * 2.6;
-    const thick = 0.20 + rng() * 0.12;
+    // Length and girth feed both the mesh and the solid chain below, so the
+    // scaled trunk keeps a matching collision footprint.
+    const len   = (2.6 + rng() * 2.6) * PROP_SCALE;
+    const thick = (0.20 + rng() * 0.12) * PROP_SCALE;
     const g = new THREE.Group();
     // Cylinder lying on its side: rotate so axis runs along local X, then spin in Y.
     const logMesh = new THREE.Mesh(
@@ -1458,7 +1473,7 @@ export function createArenaGame(options) {
     // solids along its axis. They're ankle-high, so `low` keeps attacks
     // flying over them (losBlocked / rayBlockHit skip low solids).
     const dirX = Math.cos(ry), dirZ = -Math.sin(ry); // local X axis after Y-rotation
-    const solidR = 0.42;
+    const solidR = 0.42 * PROP_SCALE;
     const span = len / 2 - solidR * 0.5;
     const count = Math.max(2, Math.ceil(len / solidR));
     for (let i = 0; i < count; i++) {
@@ -1599,7 +1614,7 @@ export function createArenaGame(options) {
       const off = (rng() * 2 - 1) * hw * 0.55;
       const bx = cx + perpX * off, bz = cz + perpZ * off;
       if (!inRiver(bx, bz)) continue;
-      if (collidesSolid(bx, bz, 2.2)) continue;
+      if (collidesSolid(bx, bz, 2.2 * PROP_SCALE)) continue; // spacing margin tracks the bigger boulders
       addRiverBoulder(bx, bz, rng);
       count++;
     }
@@ -1640,6 +1655,7 @@ export function createArenaGame(options) {
       tail.scale.y = 0.5;
       tail.position.set(-0.85, 0, 0);
       fishG.add(body, tail);
+      fishG.scale.setScalar(PROP_SCALE);
       fishG.position.y = 0.09; // just above the water plane (y = 0.05)
       mapGroup.add(fishG);
       riverFish.push({
@@ -1680,7 +1696,7 @@ export function createArenaGame(options) {
         if (Math.abs(rx) > MAP_HALF - 1 || Math.abs(rz) > MAP_HALF - 1) continue;
         if (inRiver(rx, rz) || collidesSolid(rx, rz, 0.3)) continue;
         q.setFromEuler(e.set((rng() * 2 - 1) * 0.14, rng() * Math.PI, (rng() * 2 - 1) * 0.14));
-        m4.compose(p.set(rx, 0, rz), q, s.set(1, 0.7 + rng() * 0.9, 1));
+        m4.compose(p.set(rx, 0, rz), q, s.set(PROP_SCALE, (0.7 + rng() * 0.9) * PROP_SCALE, PROP_SCALE));
         reeds.setMatrixAt(placed, m4);
         reeds.setColorAt(placed, col.setHex(rng() < 0.4 ? 0x7d8a44 : 0x5d7036));
         placed++;
@@ -1704,7 +1720,7 @@ export function createArenaGame(options) {
         if (!inRiver(px, pz)) continue;
         if (Math.abs(px) > MAP_HALF - 1 || Math.abs(pz) > MAP_HALF - 1) continue;
         q.setFromEuler(e.set(-Math.PI / 2, 0, rng() * Math.PI * 2));
-        const sc = 0.7 + rng() * 0.6;
+        const sc = (0.7 + rng() * 0.6) * PROP_SCALE;
         // Sits above the water plane (0.05) and below the fish (0.09)
         m4.compose(p.set(px, 0.07, pz), q, s.set(sc, sc, 1));
         pads.setMatrixAt(padCount, m4);
@@ -1813,12 +1829,14 @@ export function createArenaGame(options) {
         adder(x, z); made++;
       }
     };
-    scatter(18, (x, z) => addTree(x, z, rng), 2.4);
-    scatter(3, (x, z) => addMountain(x, z, rng, 0), 2.2);  // small hillocks
-    scatter(4, (x, z) => addMountain(x, z, rng, 1), 3.4);  // medium peaks
-    scatter(2, (x, z) => addMountain(x, z, rng, 2), 4.8);  // large peaks
-    scatter(10, (x, z) => addFallenLog(x, z, rng), 1.4);
-    scatter(45, (x, z) => addGrass(x, z, rng), 0.6);
+    // Spacing gaps scale with the props so the bigger pieces keep the same
+    // proportional breathing room instead of crowding each other.
+    scatter(18, (x, z) => addTree(x, z, rng), 2.4 * PROP_SCALE);
+    scatter(3, (x, z) => addMountain(x, z, rng, 0), 2.2 * PROP_SCALE);  // small hillocks
+    scatter(4, (x, z) => addMountain(x, z, rng, 1), 3.4 * PROP_SCALE);  // medium peaks
+    scatter(2, (x, z) => addMountain(x, z, rng, 2), 4.8 * PROP_SCALE);  // large peaks
+    scatter(10, (x, z) => addFallenLog(x, z, rng), 1.4 * PROP_SCALE);
+    scatter(45, (x, z) => addGrass(x, z, rng), 0.6 * PROP_SCALE);
     addPebbleField(rng);
     flushDecoBits(); // all queued grass/tuft/flower boxes → one InstancedMesh
     buildBiomeOverlay(rng);
@@ -3013,7 +3031,7 @@ export function createArenaGame(options) {
     for (const L of edgeLamps) {
       const f = 0.82 + 0.18 * (0.6 * Math.sin(t * 8 + L.phase) + 0.4 * Math.sin(t * 21 + L.phase * 2.3));
       L.sprite.material.opacity = f;
-      L.sprite.scale.set(1.0 + 0.25 * f, 1.45 + 0.45 * f, 1);
+      L.sprite.scale.set((1.0 + 0.25 * f) * PROP_SCALE, (1.45 + 0.45 * f) * PROP_SCALE, 1);
       L.glow.material.opacity = 0.6 * f;
     }
 
