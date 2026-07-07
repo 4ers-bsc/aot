@@ -24,6 +24,7 @@ const TABS = [
   ["payout_pending",    "Payout pending"],
   ["payout_failed",     "Payout failed"],
   ["payouts",           "All payouts"],
+  ["cashflow",          "Cash flow"],
   ["consumed_deposits", "Consumed deposits"],
   ["stale_waiting",     "Stale rooms"],
   ["banned",            "Banned users"],
@@ -31,6 +32,9 @@ const TABS = [
 ];
 // Tabs whose badge count is informational (not an action queue) — no red badge.
 const INFO_TABS = new Set(["payouts", "consumed_deposits", "notes"]);
+// Tabs that render their own body (own filters / layout) instead of the shared
+// free-text search + row table.
+const CUSTOM_TABS = new Set(["cashflow"]);
 
 const fmtTokens = (raw) => {
   const n = Number(raw || 0) / 1e6; // 6-decimal mint
@@ -70,6 +74,13 @@ export function initAdmin(supabase) {
   let errorMsg = "";
   let query = ""; // per-tab free-text filter (searches every column)
 
+  // Cash-flow tab keeps its own state: filters are applied server-side (so the
+  // totals span every row, not just the first page), fetched on demand.
+  let cashflow = null;
+  let cashflowLoading = false;
+  let cashflowError = "";
+  let cashflowFilters = { from: "", to: "", wallet: "" };
+
   // ---- DOM shell (built once, on first open) --------------------------------
   function ensureRoot() {
     if (root) return root;
@@ -99,7 +110,9 @@ export function initAdmin(supabase) {
       if (e.target === root) close();
     });
     root.querySelector('[data-admin="close"]').addEventListener("click", close);
-    root.querySelector('[data-admin="refresh"]').addEventListener("click", () => load());
+    root.querySelector('[data-admin="refresh"]').addEventListener("click", () => {
+      activeTab === "cashflow" ? loadCashflow() : load();
+    });
     root.querySelector("#adminTabs").addEventListener("click", (e) => {
       const t = e.target.closest("[data-tab]");
       if (t && t.dataset.tab !== activeTab) {
@@ -107,7 +120,13 @@ export function initAdmin(supabase) {
         query = "";
         const s = root.querySelector("#adminSearch");
         if (s) s.value = "";
-        render();
+        // Cash flow loads lazily the first time it's opened.
+        if (activeTab === "cashflow" && !cashflow && !cashflowLoading) {
+          renderTabs();
+          loadCashflow();
+        } else {
+          render();
+        }
       }
     });
     // Live free-text filter — re-renders only the body so the input keeps focus.
@@ -116,6 +135,13 @@ export function initAdmin(supabase) {
       renderBody();
     });
     root.querySelector("#adminBody").addEventListener("click", onAction);
+    // Enter inside a cash-flow filter field applies the filters.
+    root.querySelector("#adminBody").addEventListener("keydown", (e) => {
+      if (e.key === "Enter" && e.target.closest("#cfFilters")) {
+        e.preventDefault();
+        root.querySelector('[data-act="cf_apply"]')?.click();
+      }
+    });
     return root;
   }
 
@@ -153,6 +179,27 @@ export function initAdmin(supabase) {
     } finally {
       loading = false;
       render();
+    }
+  }
+
+  // Cash-flow tab: fetch totals + rows for the current filters (server-side, so
+  // the totals cover every matching row rather than just the first page).
+  async function loadCashflow() {
+    cashflowLoading = true; cashflowError = "";
+    if (activeTab === "cashflow") renderBody();
+    try {
+      const { data: resp, error } = await supabase.functions.invoke("f10admin", {
+        body: { action: "cashflow", ...cashflowFilters },
+      });
+      if (error) throw new Error(error.message || "request failed");
+      if (!resp?.ok) throw new Error(resp?.error || "request failed");
+      cashflow = resp;
+    } catch (err) {
+      cashflowError = String(err?.message || err);
+      cashflow = null;
+    } finally {
+      cashflowLoading = false;
+      if (activeTab === "cashflow") renderBody();
     }
   }
 
@@ -230,6 +277,20 @@ export function initAdmin(supabase) {
     if (!btn) return;
     const { act: a, match, user } = btn.dataset;
 
+    if (a === "cf_apply") {
+      cashflowFilters = {
+        from:   root.querySelector("#cfFrom")?.value.trim() || "",
+        to:     root.querySelector("#cfTo")?.value.trim() || "",
+        wallet: root.querySelector("#cfWallet")?.value.trim() || "",
+      };
+      loadCashflow();
+      return;
+    }
+    if (a === "cf_clear") {
+      cashflowFilters = { from: "", to: "", wallet: "" };
+      loadCashflow();
+      return;
+    }
     if (a === "note") {
       const note = await askText("Review note", "", { placeholder: "What did you check / decide?" });
       if (note) {
@@ -314,6 +375,10 @@ export function initAdmin(supabase) {
   function renderTabs() {
     const counts = data?.counts || {};
     root.querySelector("#adminTabs").innerHTML = TABS.map(([key, label]) => {
+      // Custom tabs (e.g. cash flow) have no queue count — render without a badge.
+      if (CUSTOM_TABS.has(key)) {
+        return `<button class="admin-tab${key === activeTab ? " is-active" : ""}" data-tab="${key}">${escapeHtml(label)}</button>`;
+      }
       const c = counts[key] ?? 0;
       const attn = c > 0 && !INFO_TABS.has(key);
       return `<button class="admin-tab${key === activeTab ? " is-active" : ""}" data-tab="${key}">
@@ -334,6 +399,10 @@ export function initAdmin(supabase) {
     const bodyEl = root.querySelector("#adminBody");
     const countEl = root.querySelector("#adminSearchCount");
     if (!bodyEl) return;
+    // Custom tabs own their body and hide the shared free-text search bar.
+    const searchbar = root.querySelector(".admin-searchbar");
+    if (searchbar) searchbar.style.display = CUSTOM_TABS.has(activeTab) ? "none" : "";
+    if (activeTab === "cashflow") { bodyEl.innerHTML = renderCashflow(); return; }
     if (countEl) countEl.textContent = "";
     if (loading && !data) { bodyEl.innerHTML = `<div class="admin-msg">Loading…</div>`; return; }
     if (errorMsg)         { bodyEl.innerHTML = `<div class="admin-msg admin-err">${escapeHtml(errorMsg)}</div>`; return; }
@@ -392,6 +461,100 @@ export function initAdmin(supabase) {
   }
 
   const thead = (cols) => `<thead><tr>${cols.map((c) => `<th>${escapeHtml(c)}</th>`).join("")}</tr></thead><tbody>`;
+
+  // ---- Cash flow (total incoming vs outgoing) -------------------------------
+  function renderCashflow() {
+    const f = cashflowFilters;
+    const bar = `
+      <div class="cf-filters" id="cfFilters">
+        <label class="cf-field">From
+          <input id="cfFrom" class="cf-input" type="date" value="${escapeHtml(f.from)}" />
+        </label>
+        <label class="cf-field">To
+          <input id="cfTo" class="cf-input" type="date" value="${escapeHtml(f.to)}" />
+        </label>
+        <label class="cf-field cf-field-grow">Wallet
+          <input id="cfWallet" class="cf-input" type="text" placeholder="wallet address (any part)…" value="${escapeHtml(f.wallet)}" autocomplete="off" />
+        </label>
+        <button class="admin-btn admin-btn-sm admin-primary" data-act="cf_apply">Apply</button>
+        <button class="admin-btn admin-btn-sm" data-act="cf_clear">Clear</button>
+      </div>`;
+
+    let content;
+    if (cashflowLoading && !cashflow) content = `<div class="admin-msg">Loading…</div>`;
+    else if (cashflowError)           content = `<div class="admin-msg admin-err">${escapeHtml(cashflowError)}</div>`;
+    else if (!cashflow)               content = `<div class="admin-msg">No data.</div>`;
+    else                              content = renderCashflowData();
+    return bar + content;
+  }
+
+  function renderCashflowData() {
+    const cf = cashflow;
+    const inc = cf.incoming, out = cf.outgoing;
+    const netNeg = Number(cf.net_raw) < 0;
+    const plural = (n, s) => `${Number(n).toLocaleString()} ${s}${Number(n) === 1 ? "" : "s"}`;
+
+    const scope = (cf.filters.from || cf.filters.to || cf.filters.wallet)
+      ? [
+          cf.filters.from ? `from ${escapeHtml(cf.filters.from)}` : "",
+          cf.filters.to ? `to ${escapeHtml(cf.filters.to)}` : "",
+          cf.filters.wallet ? `wallet ~ <span class="admin-mono">${escapeHtml(cf.filters.wallet)}</span>` : "",
+        ].filter(Boolean).join(" · ")
+      : "All time, all wallets";
+
+    const cards = `
+      <div class="cf-summary">
+        <div class="cf-card cf-in">
+          <div class="cf-card-label">Total incoming</div>
+          <div class="cf-card-amt">${fmtTokens(inc.total_raw)}</div>
+          <div class="cf-card-sub">${plural(inc.count, "deposit")}</div>
+        </div>
+        <div class="cf-card cf-out">
+          <div class="cf-card-label">Total outgoing</div>
+          <div class="cf-card-amt">${fmtTokens(out.total_raw)}</div>
+          <div class="cf-card-sub">${plural(out.count, "payout")}${out.truncated ? " · sum capped" : ""}</div>
+        </div>
+        <div class="cf-card cf-net">
+          <div class="cf-card-label">Net retained</div>
+          <div class="cf-card-amt${netNeg ? " cf-neg" : ""}">${fmtTokens(cf.net_raw)}</div>
+          <div class="cf-card-sub">incoming − outgoing</div>
+        </div>
+      </div>
+      <p class="admin-note">${scope}. Incoming = player entry-fee deposits recorded on seats; outgoing = winner payouts.${out.truncated ? " ⚠ Outgoing total is summed over the most recent payouts only — narrow the date range for an exact figure." : ""}</p>`;
+
+    const inTable = inc.rows.length
+      ? `<h3 class="cf-h">Incoming deposits <span class="admin-dim">showing ${inc.rows.length} of ${Number(inc.count).toLocaleString()}</span></h3>
+         <table class="admin-table">${thead(["When", "Player", "Wallet", "Amount", "Deposit tx"])}${inc.rows.map(cfInRow).join("")}</tbody></table>`
+      : `<h3 class="cf-h">Incoming deposits</h3><div class="admin-msg">No deposits match these filters.</div>`;
+
+    const outTable = out.rows.length
+      ? `<h3 class="cf-h">Outgoing payouts <span class="admin-dim">showing ${out.rows.length} of ${Number(out.count).toLocaleString()}</span></h3>
+         <table class="admin-table">${thead(["When", "Winner", "Wallet", "Players", "Amount", "Payout tx"])}${out.rows.map(cfOutRow).join("")}</tbody></table>`
+      : `<h3 class="cf-h">Outgoing payouts</h3><div class="admin-msg">No payouts match these filters.</div>`;
+
+    return cards + inTable + outTable;
+  }
+
+  function cfInRow(r) {
+    return `<tr>
+      <td class="admin-nowrap" title="${fmtTime(r.joined_at)}">${ago(r.joined_at)}</td>
+      <td>${escapeHtml(r.display_name || shortId(r.user_id))}</td>
+      <td class="admin-mono">${r.deposit_wallet ? addrLink(r.deposit_wallet) : "—"}</td>
+      <td class="admin-nowrap">${fmtTokens(r.amount_raw)}</td>
+      <td class="admin-mono">${txLink(r.deposit_tx)}</td>
+    </tr>`;
+  }
+
+  function cfOutRow(r) {
+    return `<tr>
+      <td class="admin-nowrap" title="${fmtTime(r.created_at)}">${ago(r.created_at)}</td>
+      <td>${escapeHtml(r.winner_name || shortId(r.winner_user_id))}</td>
+      <td class="admin-mono">${r.winner_wallet ? addrLink(r.winner_wallet) : "—"}</td>
+      <td class="admin-nowrap">${r.num_players ?? "—"}</td>
+      <td class="admin-nowrap">${fmtTokens(r.amount_raw)}</td>
+      <td class="admin-mono">${txLink(r.payout_tx)}</td>
+    </tr>`;
+  }
 
   // Notes attached to a given subject (match / payout / user id). The overview
   // already returns the recent notes, so we just group them client-side and show
