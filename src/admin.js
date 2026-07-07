@@ -436,11 +436,11 @@ export function initAdmin(supabase) {
     if (rows.length === 0) return emptyMsg;
     switch (tab) {
       case "disputed":          return rows.map(disputedCard).join("");
-      case "integrity":         return `<table class="admin-table">${thead(["When", "Player", "Kind", "Detail", "Match"])}${rows.map(integrityRow).join("")}</tbody></table>`;
+      case "integrity":         return `<table class="admin-table">${thead(["When", "Player", "Wallet", "Kind", "Detail", "Match"])}${rows.map(integrityRow).join("")}</tbody></table>`;
       case "payout_pending":    return `<p class="admin-note">Finished matches with a winner that have not paid out yet.</p>` + rows.map((r) => payoutCard(r, false)).join("");
       case "payout_failed":     return `<p class="admin-note">Payout reservations stuck as 'pending' for over ${meta.payout_stuck_minutes ?? 15} min — likely a payout that half-completed. Verify on-chain before acting.</p>` + rows.map((r) => payoutCard(r, true)).join("");
-      case "payouts":           return `<p class="admin-note">Completed payouts (from the payouts ledger). Every column is searchable above.</p><table class="admin-table">${thead(["When", "Match", "Winner", "Amount", "Players", "Tx"])}${rows.map(payoutRow).join("")}</tbody></table>`;
-      case "consumed_deposits": return `<table class="admin-table">${thead(["When", "Player", "Deposit tx", "Match"])}${rows.map(consumedRow).join("")}</tbody></table>`;
+      case "payouts":           return `<p class="admin-note">Completed payouts (from the payouts ledger). Every column is searchable above.</p><table class="admin-table">${thead(["When", "Match", "Winner", "Wallet", "Amount", "Players", "Tx"])}${rows.map(payoutRow).join("")}</tbody></table>`;
+      case "consumed_deposits": return `<table class="admin-table">${thead(["When", "Player", "Wallet", "Deposit tx", "Match"])}${rows.map(consumedRow).join("")}</tbody></table>`;
       case "stale_waiting":     return rows.map(waitingCard).join("");
       case "banned":            return `<table class="admin-table">${thead(["When", "Wallet", "Reason", "Action"])}${rows.map(bannedRow).join("")}</tbody></table>`;
       default:                  return "";
@@ -454,6 +454,7 @@ export function initAdmin(supabase) {
       <td class="admin-nowrap" title="${fmtTime(r.created_at)}">${ago(r.created_at)}</td>
       <td class="admin-nowrap">#${r.match_no ?? shortId(r.match_id)}</td>
       <td>${escapeHtml(r.winner_name || shortId(r.winner_user_id))}</td>
+      <td class="admin-mono">${r.winner_wallet ? addrLink(r.winner_wallet) : "—"}</td>
       <td class="admin-nowrap">${amt}</td>
       <td class="admin-nowrap">${r.num_players ?? "—"}</td>
       <td class="admin-mono">${txLink(r.payout_tx)}</td>
@@ -584,6 +585,7 @@ export function initAdmin(supabase) {
       return `<div class="admin-prow">
         <span class="admin-seat">#${p.seat}</span>
         <span class="admin-pname">${player(p)}</span>
+        <span class="admin-mono">${p.deposit_wallet ? addrLink(p.deposit_wallet) : "—"}</span>
         <span class="admin-phP">HP ${p.final_hp ?? "—"}</span>
         ${flags.join("")}
         ${award}
@@ -612,7 +614,7 @@ export function initAdmin(supabase) {
     return `<div class="admin-card">
       <div class="admin-card-head">
         <b>Match #${m.match_no ?? shortId(m.id)}</b>
-        <span class="admin-dim">winner ${escapeHtml(m.winner_name || shortId(m.winner_user_id))} · pot ${fmtTokens(m.pot_tokens)}</span>
+        <span class="admin-dim">winner ${escapeHtml(m.winner_name || shortId(m.winner_user_id))}${m.winner_wallet ? ` · <span class="admin-mono">${addrLink(m.winner_wallet)}</span>` : ""} · pot ${fmtTokens(m.pot_tokens)}</span>
         ${status}
         <span class="admin-dim admin-right">${fmtTime(m.ended_at)} (${ago(m.ended_at)})</span>
       </div>
@@ -627,7 +629,8 @@ export function initAdmin(supabase) {
   }
 
   function waitingCard(m) {
-    const players = (m.players || []).map((p) => `#${p.seat} ${player(p)}`).join(", ");
+    const players = (m.players || []).map((p) =>
+      `#${p.seat} ${player(p)}${p.deposit_wallet ? ` <span class="admin-mono">${addrLink(p.deposit_wallet)}</span>` : ""}`).join(", ");
     return `<div class="admin-card">
       <div class="admin-card-head">
         <b>Match #${m.match_no ?? shortId(m.id)}</b>
@@ -647,6 +650,7 @@ export function initAdmin(supabase) {
     return `<tr>
       <td class="admin-nowrap" title="${fmtTime(r.created_at)}">${ago(r.created_at)}</td>
       <td>${escapeHtml(r.user_name || shortId(r.user_id))}</td>
+      <td class="admin-mono">${r.user_wallet ? addrLink(r.user_wallet) : "—"}</td>
       <td><span class="admin-flag">${escapeHtml(r.kind || "—")}</span></td>
       <td class="admin-detail">${escapeHtml(r.detail ? JSON.stringify(r.detail) : "—")}</td>
       <td class="admin-nowrap">
@@ -660,6 +664,7 @@ export function initAdmin(supabase) {
     return `<tr>
       <td class="admin-nowrap" title="${fmtTime(r.consumed_at)}">${ago(r.consumed_at)}</td>
       <td>${escapeHtml(r.user_name || shortId(r.user_id))}</td>
+      <td class="admin-mono">${r.user_wallet ? addrLink(r.user_wallet) : "—"}</td>
       <td class="admin-mono">${txLink(r.deposit_tx)}</td>
       <td class="admin-nowrap">${shortId(r.match_id)}</td>
     </tr>`;
@@ -682,7 +687,7 @@ export function initAdmin(supabase) {
       <td class="admin-nowrap" title="${fmtTime(r.created_at)}">${ago(r.created_at)}</td>
       <td class="admin-nowrap">${escapeHtml(r.subject_type)} ${r.subject_id ? shortId(r.subject_id) : ""}${r.action ? ` <span class="admin-dim">(${escapeHtml(r.action)})</span>` : ""}</td>
       <td>${escapeHtml(r.note)}</td>
-      <td>${escapeHtml(r.author_name || shortId(r.author_id))}</td>
+      <td class="admin-nowrap">${escapeHtml(r.author_name || shortId(r.author_id))}${r.author_wallet ? ` <span class="admin-mono">${addrLink(r.author_wallet)}</span>` : ""}</td>
       <td class="admin-nowrap"><button class="admin-btn admin-btn-xs" data-act="del_note" data-id="${r.id}">Delete</button></td>
     </tr>`;
   }
