@@ -2213,7 +2213,7 @@ function openProfile(tab = "stats") {
   if (!state.user) { signIn(); return; }
   renderProfileStats();
   els.profileNameInput.value = state.profile?.display_name || "";
-  els.profileHint.textContent = "Saved to your wallet profile.";
+  els.profileHint.textContent = "Saved to your wallet profile. Usernames are unique.";
   els.profileHint.classList.remove("error");
   selectProfileTab(tab);
   els.profileOverlay.classList.add("show");
@@ -2346,7 +2346,12 @@ async function saveProfile() {
     setStatus(recordSuffix(`Username set to ${state.profile.display_name}.`));
   } catch (error) {
     console.error(error);
-    els.profileHint.textContent = error.message || "Could not save username.";
+    // Uniqueness is enforced server-side: sync_my_profile raises
+    // 'username_taken' (or the unique index raises a duplicate-key error).
+    const taken = /username_taken|duplicate key/i.test(error?.message || "");
+    els.profileHint.textContent = taken
+      ? "That username is already taken — try another."
+      : error.message || "Could not save username.";
     els.profileHint.classList.add("error");
   } finally {
     els.profileSaveBtn.disabled = false;

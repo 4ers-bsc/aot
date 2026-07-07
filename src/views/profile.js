@@ -12,7 +12,7 @@ export const html = `
 
       <div class="tab-body" data-pbody="stats">
         <label class="profile-label" for="profileNameInput">Username</label>
-        <input id="profileNameInput" type="text" maxlength="24" autocomplete="off" spellcheck="false" placeholder="3–24 characters" />
+        <input id="profileNameInput" type="text" maxlength="24" autocomplete="off" spellcheck="false" placeholder="3–24 characters, unique" />
         <div class="profile-hint" id="profileHint">Saved to your wallet profile.</div>
 
         <div class="level-block">

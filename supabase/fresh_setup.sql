@@ -52,6 +52,9 @@ drop table if exists public.match_players cascade;
 drop table if exists public.matches        cascade;
 drop table if exists public.profiles       cascade;
 
+-- Dropped after profiles: the display_name column default depends on it.
+drop function if exists public.generate_unique_username();
+
 create extension if not exists pgcrypto;
 
 -- ---------------------------------------------------------------------------
@@ -59,7 +62,9 @@ create extension if not exists pgcrypto;
 -- ---------------------------------------------------------------------------
 create table public.profiles (
   user_id      uuid primary key references auth.users(id) on delete cascade,
-  display_name text not null default 'Trench Rookie'
+  -- Unique per player, case-insensitively (see idx_profiles_display_name_ci).
+  -- The default is set to generate_unique_username() in §2, once it exists.
+  display_name text not null
     check (char_length(display_name) between 3 and 24),
   wallet_address text,
   wins         integer not null default 0,
@@ -242,6 +247,12 @@ create index if not exists idx_review_notes_created
   on public.review_notes (created_at desc);
 
 create unique index if not exists idx_matches_match_no on public.matches(match_no);
+-- No two profiles may hold the same username in any letter case, whatever
+-- code path wrote it. All name writers pre-check against this and fall back
+-- (or raise 'username_taken') instead of surfacing a raw unique violation.
+create unique index if not exists idx_profiles_display_name_ci
+  on public.profiles (lower(display_name));
+
 create index if not exists idx_matches_waiting    on public.matches(status, created_at);
 create index if not exists idx_match_players_user on public.match_players(user_id, joined_at desc);
 create index if not exists idx_match_players_match on public.match_players(match_id);
@@ -249,18 +260,73 @@ create index if not exists idx_match_damage_match  on public.match_damage(match_
 create index if not exists idx_match_kills_match   on public.match_kills(match_id);
 
 -- ---------------------------------------------------------------------------
--- 2. Auto-create profile on sign-up
+-- 2. Auto-create profile on sign-up (with a unique generated username)
 -- ---------------------------------------------------------------------------
+-- Random unique handle, e.g. "IronRaider-4821". Longest combination is
+-- 7+7+5 = 19 chars, inside the 3–24 display_name check. security definer so
+-- the existence check sees every profile regardless of RLS.
+create or replace function public.generate_unique_username()
+returns text
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_adjectives constant text[] := array[
+    'Iron','Grim','Swift','Feral','Stone','Blood','Night','Storm',
+    'Rusty','Silent','Savage','Crimson','Shadow','Vicious','Rogue','Bold'];
+  v_nouns constant text[] := array[
+    'Rookie','Raider','Brawler','Slayer','Titan','Reaper','Fang','Blade',
+    'Hound','Viper','Golem','Jackal','Wraith','Bruiser','Nomad','Duke'];
+  v_name text;
+begin
+  for i in 1..25 loop
+    v_name := v_adjectives[1 + floor(random() * array_length(v_adjectives, 1))::int]
+           || v_nouns[1 + floor(random() * array_length(v_nouns, 1))::int]
+           || '-' || lpad(floor(random() * 10000)::int::text, 4, '0');
+    if not exists (
+      select 1 from public.profiles where lower(display_name) = lower(v_name)
+    ) then
+      return v_name;
+    end if;
+  end loop;
+  -- 2.56M combinations; if 25 straight draws collide, fall back to an
+  -- id-derived name that cannot.
+  return 'Player-' || replace(substr(gen_random_uuid()::text, 1, 13), '-', '');
+end;
+$$;
+
+-- A bare insert gets a generated unique name, never a shared literal default.
+alter table public.profiles
+  alter column display_name set default public.generate_unique_username();
+
+-- A requested metadata name that is already taken (or no name at all) falls
+-- back to a generated unique one.
 create or replace function public.handle_new_user()
 returns trigger
 language plpgsql
 security definer
 set search_path = public
 as $$
+declare
+  v_requested text := nullif(trim(new.raw_user_meta_data ->> 'display_name'), '');
 begin
-  insert into public.profiles (user_id, display_name)
-  values (new.id, coalesce(new.raw_user_meta_data ->> 'display_name', 'Trench Rookie'))
-  on conflict (user_id) do nothing;
+  if v_requested is not null and exists (
+    select 1 from public.profiles where lower(display_name) = lower(v_requested)
+  ) then
+    v_requested := null;
+  end if;
+
+  begin
+    insert into public.profiles (user_id, display_name)
+    values (new.id, coalesce(v_requested, public.generate_unique_username()))
+    on conflict (user_id) do nothing;
+  exception when unique_violation then
+    -- Lost a race for the requested name; sign-up must still succeed.
+    insert into public.profiles (user_id, display_name)
+    values (new.id, public.generate_unique_username())
+    on conflict (user_id) do nothing;
+  end;
   return new;
 end;
 $$;
@@ -285,6 +351,8 @@ as $$
   );
 $$;
 
+-- The player-facing save path. A name held by another wallet is rejected with
+-- 'username_taken' so the profile dialog can say so.
 create or replace function public.sync_my_profile(p_display_name text default null)
 returns public.profiles
 language plpgsql
@@ -292,12 +360,20 @@ security definer
 set search_path = public, auth
 as $$
 declare
-  v_uid     uuid := auth.uid();
-  v_wallet  text;
-  v_profile public.profiles%rowtype;
+  v_uid       uuid := auth.uid();
+  v_wallet    text;
+  v_requested text := nullif(trim(p_display_name), '');
+  v_profile   public.profiles%rowtype;
 begin
   if v_uid is null then
     raise exception 'not_authenticated';
+  end if;
+
+  if v_requested is not null and exists (
+    select 1 from public.profiles
+    where lower(display_name) = lower(v_requested) and user_id <> v_uid
+  ) then
+    raise exception 'username_taken: that username is already in use';
   end if;
 
   select provider_id into v_wallet
@@ -306,13 +382,18 @@ begin
   order by coalesce(last_sign_in_at, created_at) desc
   limit 1;
 
-  insert into public.profiles as p (user_id, display_name, wallet_address)
-  values (v_uid, coalesce(nullif(trim(p_display_name), ''), 'Trench Rookie'), v_wallet)
-  on conflict (user_id) do update
-  set display_name   = coalesce(nullif(trim(p_display_name), ''), p.display_name),
-      wallet_address = coalesce(excluded.wallet_address, p.wallet_address)
-  where p.user_id = v_uid
-  returning * into v_profile;
+  begin
+    insert into public.profiles as p (user_id, display_name, wallet_address)
+    values (v_uid, coalesce(v_requested, public.generate_unique_username()), v_wallet)
+    on conflict (user_id) do update
+    set display_name   = coalesce(v_requested, p.display_name),
+        wallet_address = coalesce(excluded.wallet_address, p.wallet_address)
+    where p.user_id = v_uid
+    returning * into v_profile;
+  exception when unique_violation then
+    -- Two saves raced for the same name; the pre-check above missed it.
+    raise exception 'username_taken: that username is already in use';
+  end;
 
   return v_profile;
 end;
@@ -430,6 +511,7 @@ as $$
 declare
   v_uid          uuid     := p_user_id;
   v_name         text;
+  v_requested    text;
   v_login_wallet text;
   v_size         smallint := coalesce(p_max_players, 2);
   v_match_id     uuid;
@@ -465,20 +547,47 @@ begin
   -- Refresh the profile (display name + login wallet) for this user. We can't use
   -- sync_my_profile() here because it relies on auth.uid(); this function runs as
   -- the service role from the edge function, so we upsert against p_user_id.
-  insert into public.profiles as p (user_id, display_name, wallet_address)
-  values (
-    v_uid,
-    coalesce(nullif(trim(p_display_name), ''), 'Trench Rookie'),
-    (select provider_id from auth.identities
-       where user_id = v_uid
-       order by coalesce(last_sign_in_at, created_at) desc
-       limit 1)
-  )
-  on conflict (user_id) do update
-  set display_name   = coalesce(nullif(trim(p_display_name), ''), p.display_name),
-      wallet_address = coalesce(excluded.wallet_address, p.wallet_address)
-  where p.user_id = v_uid
-  returning display_name, wallet_address into v_name, v_login_wallet;
+  -- A requested name already held by another wallet is ignored — joining must
+  -- never fail over a username.
+  v_requested := nullif(trim(p_display_name), '');
+  if v_requested is not null and exists (
+       select 1 from public.profiles
+       where lower(display_name) = lower(v_requested) and user_id <> v_uid
+     ) then
+    v_requested := null;
+  end if;
+
+  begin
+    insert into public.profiles as p (user_id, display_name, wallet_address)
+    values (
+      v_uid,
+      coalesce(v_requested, public.generate_unique_username()),
+      (select provider_id from auth.identities
+         where user_id = v_uid
+         order by coalesce(last_sign_in_at, created_at) desc
+         limit 1)
+    )
+    on conflict (user_id) do update
+    set display_name   = coalesce(v_requested, p.display_name),
+        wallet_address = coalesce(excluded.wallet_address, p.wallet_address)
+    where p.user_id = v_uid
+    returning display_name, wallet_address into v_name, v_login_wallet;
+  exception when unique_violation then
+    -- Lost a race for the requested name; keep the current name instead.
+    insert into public.profiles as p (user_id, display_name, wallet_address)
+    values (
+      v_uid,
+      public.generate_unique_username(),
+      (select provider_id from auth.identities
+         where user_id = v_uid
+         order by coalesce(last_sign_in_at, created_at) desc
+         limit 1)
+    )
+    on conflict (user_id) do update
+    set wallet_address = coalesce(excluded.wallet_address, p.wallet_address)
+    where p.user_id = v_uid
+    returning display_name, wallet_address into v_name, v_login_wallet;
+  end;
 
   -- One wallet per player: the wallet that signs the deposit MUST be the same
   -- wallet the player signed in with. Both values may carry a "chain:" prefix
@@ -1428,6 +1537,10 @@ grant select on public.payouts      to authenticated;
 grant select on public.banned_users to authenticated;
 
 grant execute on function public.sync_my_profile(text)                 to authenticated;
+-- Name generation is server-side only (trigger, sync_my_profile, join RPC and
+-- the column default all run as the function/table owner).
+revoke all on function public.generate_unique_username() from public, anon, authenticated;
+grant execute on function public.generate_unique_username() to service_role;
 grant execute on function public.enforce_rate_limit(text, int, interval) to authenticated, service_role;
 grant execute on function public.report_integrity_signal(uuid, text, jsonb) to authenticated;
 grant execute on function public.is_banned(uuid)              to authenticated, service_role;
