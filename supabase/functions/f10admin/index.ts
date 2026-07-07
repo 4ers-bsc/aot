@@ -316,12 +316,13 @@ async function payoutWinner(admin: any, matchId: string) {
       throw new Error(`Payout sent on-chain (${payoutSig}) but internal record failed. Set payout_tx manually.`);
     }
 
-    try {
-      await admin.from("payouts").upsert({
-        match_id: matchId, winner_user_id: winnerId, payout_tx: payoutSig,
-        amount_raw: winnerAmountRaw.toString(), decimals, num_players: players.length,
-      }, { onConflict: "match_id" });
-    } catch (e) { console.error("[f10admin payout] payouts insert failed (non-fatal):", e); }
+    // supabase-js reports failures via the returned error, not by throwing —
+    // check it explicitly or a failed ledger write vanishes without a trace.
+    const { error: ledgerErr } = await admin.from("payouts").upsert({
+      match_id: matchId, winner_user_id: winnerId, payout_tx: payoutSig,
+      amount_raw: winnerAmountRaw.toString(), decimals, num_players: players.length,
+    }, { onConflict: "match_id" });
+    if (ledgerErr) console.error("[f10admin payout] payouts insert failed (non-fatal):", ledgerErr);
 
     console.log(`[f10admin payout] paid match=${matchId} tx=${payoutSig} amount=${winnerAmountRaw.toString()} players=${players.length}`);
     return { payout_tx: payoutSig, winner_amount: winnerAmountRaw.toString(), num_players: players.length, decimals };
@@ -614,9 +615,15 @@ Deno.serve(async (req: Request) => {
       admin.from("review_notes")
         .select("id, subject_type, subject_id, note, action, author_id, created_at")
         .order("created_at", { ascending: false }).limit(LIST_LIMIT),
-      admin.from("payouts")
-        .select("match_id, winner_user_id, payout_tx, amount_raw, decimals, num_players, created_at")
-        .order("created_at", { ascending: false }).limit(LIST_LIMIT),
+      // "All payouts" is driven by matches (the source of truth for a landed
+      // payout), not by the payouts ledger: ledger writes are best-effort, so
+      // a paid match must still show here even when its ledger row is missing
+      // (insert failed, or the match was paid before the ledger existed).
+      admin.from("matches")
+        .select("id, match_no, max_players, winner_user_id, ended_at, pot_tokens, payout_tx, payout_claimed_at")
+        .eq("status", "finished").not("winner_user_id", "is", null)
+        .not("payout_tx", "is", null).neq("payout_tx", "pending")
+        .order("ended_at", { ascending: false, nullsFirst: false }).limit(LIST_LIMIT),
     ]);
 
     const firstErr = [
@@ -636,26 +643,26 @@ Deno.serve(async (req: Request) => {
     const waiting = waitingRes.data ?? [];
     const banned = bannedRes.data ?? [];
     const notes = notesRes.data ?? [];
-    const payouts = payoutsRes.data ?? [];
+    const paidMatches = payoutsRes.data ?? [];
 
-    // Seats for disputed + stale-waiting matches + match numbers for payouts,
-    // in batched lookups.
+    // Seats for disputed + stale-waiting matches + ledger rows for the paid
+    // matches (exact amounts where available), in batched lookups.
     const disputedIds = disputed.map((m: any) => m.id);
     const waitingIds = waiting.map((m: any) => m.id);
-    const payoutMatchIds = payouts.map((p: any) => p.match_id);
-    const [seatRes, waitSeatRes, payoutMatchRes] = await Promise.all([
+    const paidIds = paidMatches.map((m: any) => m.id);
+    const [seatRes, waitSeatRes, ledgerRes] = await Promise.all([
       disputedIds.length
         ? admin.from("match_players").select("match_id, user_id, seat, display_name, final_hp, last_seen").in("match_id", disputedIds)
         : Promise.resolve({ data: [] as any[] }),
       waitingIds.length
         ? admin.from("match_players").select("match_id, user_id, seat, display_name").in("match_id", waitingIds)
         : Promise.resolve({ data: [] as any[] }),
-      payoutMatchIds.length
-        ? admin.from("matches").select("id, match_no, max_players").in("id", payoutMatchIds)
+      paidIds.length
+        ? admin.from("payouts").select("match_id, winner_user_id, payout_tx, amount_raw, decimals, num_players, created_at").in("match_id", paidIds)
         : Promise.resolve({ data: [] as any[] }),
     ]);
-    const matchNoById = new Map<string, any>();
-    for (const m of (payoutMatchRes.data ?? [])) matchNoById.set(m.id, m);
+    const ledgerByMatch = new Map<string, any>();
+    for (const p of (ledgerRes.data ?? [])) ledgerByMatch.set(p.match_id, p);
     const groupByMatch = (rows: any[]) => {
       const map = new Map<string, any[]>();
       for (const s of rows) {
@@ -676,7 +683,7 @@ Deno.serve(async (req: Request) => {
       ...consumed.map((r: any) => r.user_id),
       ...waiting.map((r: any) => r.created_by),
       ...notes.map((r: any) => r.author_id),
-      ...payouts.map((r: any) => r.winner_user_id),
+      ...paidMatches.map((r: any) => r.winner_user_id),
     ]);
     const nameOf = (id?: string | null) => (id ? nameMap.get(id)?.name ?? null : null);
 
@@ -701,7 +708,7 @@ Deno.serve(async (req: Request) => {
         stale_waiting: waiting.length,
         banned: banned.length,
         notes: notes.length,
-        payouts: payouts.length,
+        payouts: paidMatches.length,
       },
       disputed: disputed.map((m: any) => ({
         ...m,
@@ -720,14 +727,26 @@ Deno.serve(async (req: Request) => {
       })),
       banned,
       notes: notes.map((r: any) => ({ ...r, author_name: nameOf(r.author_id) })),
-      payouts: payouts.map((r: any) => ({
-        ...r,
-        winner_name: nameOf(r.winner_user_id),
-        match_no: matchNoById.get(r.match_id)?.match_no ?? null,
-        max_players: matchNoById.get(r.match_id)?.max_players ?? null,
-        amount: r.amount_raw != null && r.decimals != null
-          ? Number(r.amount_raw) / 10 ** r.decimals : null,
-      })),
+      payouts: paidMatches.map((m: any) => {
+        // Prefer the ledger row (exact paid amount); fall back to 90% of the
+        // pot at 6 decimals for matches whose ledger insert never landed.
+        const p = ledgerByMatch.get(m.id);
+        const amount_raw = p?.amount_raw ?? Math.floor(Number(m.pot_tokens ?? 0) * 0.9);
+        const decimals = p?.decimals ?? 6;
+        return {
+          match_id: m.id,
+          match_no: m.match_no,
+          max_players: m.max_players,
+          winner_user_id: m.winner_user_id,
+          winner_name: nameOf(m.winner_user_id),
+          payout_tx: m.payout_tx,
+          amount_raw,
+          decimals,
+          num_players: p?.num_players ?? m.max_players,
+          created_at: p?.created_at ?? m.payout_claimed_at ?? m.ended_at,
+          amount: amount_raw != null ? Number(amount_raw) / 10 ** decimals : null,
+        };
+      }),
     });
   } catch (err) {
     console.error("f10admin error:", err);
