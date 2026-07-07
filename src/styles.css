@@ -3467,6 +3467,46 @@ body.in-game .log-feed { left: 70px; }
 }
 
 /* ===== Leaderboard overlay ===== */
+.lb-filter {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 14px;
+}
+
+.lb-filter input {
+  flex: 1;
+  min-width: 0;
+  padding: 9px 12px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 6px;
+  color: var(--text);
+  font-size: 13px;
+  letter-spacing: 0.02em;
+}
+
+.lb-filter input::placeholder { color: rgba(255, 255, 255, 0.3); }
+.lb-filter input:focus { outline: none; border-color: rgba(217, 168, 33, 0.5); }
+
+.lb-me-btn {
+  font-family: var(--font-head);
+  font-size: 9px;
+  letter-spacing: 0.12em;
+  padding: 0 14px;
+  border-radius: 6px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.04);
+  color: rgba(255, 255, 255, 0.65);
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.lb-me-btn.active {
+  border-color: rgba(217, 168, 33, 0.6);
+  background: rgba(217, 168, 33, 0.12);
+  color: #d9c66e;
+}
+
 .lb-row {
   display: grid;
   grid-template-columns: 44px 1fr auto auto;
@@ -4284,6 +4324,17 @@ body.in-game .log-feed { left: 70px; }
   letter-spacing: 0.06em;
   line-height: 1.8;
   color: rgba(233, 224, 200, 0.42);
+  text-align: center;
+}
+
+/* Entertainment disclaimer — full-width line above the footer text. */
+.hs-footer-disclaimer {
+  flex-basis: 100%;
+  font-family: var(--font-head);
+  font-size: 0.5rem;
+  letter-spacing: 0.1em;
+  line-height: 1.9;
+  color: rgba(233, 224, 200, 0.55);
   text-align: center;
 }
 

@@ -589,6 +589,7 @@ function bindUi() {
   els.howToPlayBtn.addEventListener("click", () => els.howToOverlay.classList.add("show"));
   els.howToClose.addEventListener("click", () => els.howToOverlay.classList.remove("show"));
   els.whitepaperBtn?.addEventListener("click", () => els.whitepaperOverlay.classList.add("show"));
+  document.getElementById("homeLeaderboardBtn")?.addEventListener("click", () => { openLeaderboard().catch((e) => console.error(e)); });
   // Landing-section CTAs (below the fold) — same actions as the hero buttons.
   document.getElementById("secPlayBtn")?.addEventListener("click", startPvp);
   document.getElementById("secHowToBtn")?.addEventListener("click", () => els.howToOverlay.classList.add("show"));
@@ -689,6 +690,16 @@ function bindUi() {
   document.querySelectorAll("[data-lbtab]").forEach((btn) =>
     btn.addEventListener("click", () => { selectLeaderboardTab(btn.dataset.lbtab).catch((e) => console.error(e)); })
   );
+  // Leaderboard filters: free-text name/wallet filter + "YOUR WALLET" toggle.
+  document.getElementById("leaderboardFilter")?.addEventListener("input", (e) => {
+    lbFilterQuery = e.target.value;
+    renderLeaderboardList();
+  });
+  document.getElementById("leaderboardMeBtn")?.addEventListener("click", (e) => {
+    lbMineOnly = !lbMineOnly;
+    e.currentTarget.classList.toggle("active", lbMineOnly);
+    renderLeaderboardList();
+  });
   // Leaderboard + Buy-$FIGHT10 overlays: close button and backdrop click.
   [["leaderboardOverlay", "leaderboardClose"], ["buyFight10Overlay", "buyFight10Close"]].forEach(([ovId, closeId]) => {
     const ov = document.getElementById(ovId);
@@ -1176,6 +1187,9 @@ const LB_TITLES = {
   holdings: "TOP HOLDERS · $FIGHT10",
 };
 let lbTab = "points";
+let lbRows = [];        // last loaded rows for the active tab
+let lbFilterQuery = ""; // free-text filter (name or wallet)
+let lbMineOnly = false; // "YOUR WALLET" quick filter
 
 async function openLeaderboard(tab = "points") {
   document.getElementById("leaderboardOverlay")?.classList.add("show");
@@ -1184,6 +1198,7 @@ async function openLeaderboard(tab = "points") {
 
 async function selectLeaderboardTab(tab) {
   lbTab = tab;
+  lbRows = [];
   document.querySelectorAll("[data-lbtab]").forEach((b) => b.classList.toggle("active", b.dataset.lbtab === tab));
   const title = document.getElementById("leaderboardTitle");
   if (title) title.textContent = LB_TITLES[tab] ?? LB_TITLES.points;
@@ -1191,13 +1206,33 @@ async function selectLeaderboardTab(tab) {
   if (!list) return;
   list.innerHTML = '<div class="lb-empty">Loading…</div>';
   try {
-    const body = tab === "holdings" ? await loadHoldingsBoard() : await loadStatsBoard(tab);
+    const board = tab === "holdings" ? await loadHoldingsBoard() : await loadStatsBoard(tab);
     if (lbTab !== tab) return; // user switched tabs while this one loaded
-    list.innerHTML = body;
+    if (board.empty) { list.innerHTML = board.empty; return; }
+    lbRows = board.rows;
+    renderLeaderboardList();
   } catch (err) {
     console.error("[leaderboard]", err);
     if (lbTab === tab) list.innerHTML = '<div class="lb-empty">Could not load the leaderboard — try again.</div>';
   }
+}
+
+// Applies the wallet/name filter and the "YOUR WALLET" toggle to the loaded
+// rows. Purely client-side: switching filters never refetches.
+function renderLeaderboardList() {
+  const list = document.getElementById("leaderboardList");
+  if (!list) return;
+  let rows = lbRows;
+  if (lbMineOnly) rows = rows.filter((x) => x.r.is_me);
+  const q = lbFilterQuery.trim().toLowerCase();
+  if (q) rows = rows.filter((x) => x.search.includes(q));
+  if (!rows.length && lbRows.length) {
+    list.innerHTML = lbMineOnly && !lbRows.some((x) => x.r.is_me)
+      ? '<div class="lb-empty">Your wallet isn\'t on this board yet.</div>'
+      : '<div class="lb-empty">No fighters match that filter.</div>';
+    return;
+  }
+  list.innerHTML = rows.map((x) => lbRowHtml(x.rank, x.r, x.mid, x.value)).join("");
 }
 
 function lbRowHtml(rank, r, mid, value) {
@@ -1213,20 +1248,20 @@ function lbRowHtml(rank, r, mid, value) {
 async function loadStatsBoard(tab) {
   const { data, error } = await supabase.rpc("get_leaderboard", { p_limit: 20, p_sort: tab });
   if (error || !Array.isArray(data)) throw error ?? new Error("bad get_leaderboard response");
-  if (!data.length) return '<div class="lb-empty">No fighters ranked yet — win matches to get on the board.</div>';
-  return data.map((r) => {
+  if (!data.length) return { empty: '<div class="lb-empty">No fighters ranked yet — win matches to get on the board.</div>' };
+  return { rows: data.map((r) => {
     const games = (r.wins ?? 0) + (r.losses ?? 0);
     const value = tab === "wins"
       ? `${r.wins} W · ${games ? Math.round((r.wins / games) * 100) : 0}%`
       : `${Number(r.points).toLocaleString()} PTS`;
-    return lbRowHtml(r.rank, r, `LVL ${r.level}`, value);
-  }).join("");
+    return { rank: r.rank, r, mid: `LVL ${r.level}`, value, search: (r.display_name ?? "").toLowerCase() };
+  }) };
 }
 
 // Holdings tab — balances live on-chain, so rank client-side: derive each
 // wallet's $FIGHT10 ATA and read them all in one getMultipleAccountsInfo call.
 async function loadHoldingsBoard() {
-  if (FIGHT10_MINT.startsWith("<")) return '<div class="lb-empty">Holder rankings go live at token launch.</div>';
+  if (FIGHT10_MINT.startsWith("<")) return { empty: '<div class="lb-empty">Holder rankings go live at token launch.</div>' };
   const { data, error } = await supabase.rpc("get_holdings_wallets", { p_limit: 100 });
   if (error || !Array.isArray(data)) throw error ?? new Error("bad get_holdings_wallets response");
   // wallet_address may carry a "chain:" prefix (e.g. "solana:<pubkey>") —
@@ -1234,20 +1269,20 @@ async function loadHoldingsBoard() {
   const holders = data
     .map((r) => ({ ...r, addr: (r.wallet_address ?? "").trim().split(":").pop() }))
     .filter((r) => r.addr);
-  if (!holders.length) return '<div class="lb-empty">No holders ranked yet — connect a wallet and grab some $FIGHT10.</div>';
+  if (!holders.length) return { empty: '<div class="lb-empty">No holders ranked yet — connect a wallet and grab some $FIGHT10.</div>' };
   const { PublicKey, getAssociatedTokenAddress, ASSOCIATED_TOKEN_PROGRAM_ID } = await loadSolanaLibs();
   const conn = await getSolanaConn();
   const mintPubkey = new PublicKey(FIGHT10_MINT);
   // The mint's owning program (classic SPL Token vs Token-2022) decides which
   // ATA to derive; a missing mint account means the token isn't live yet.
   const mintAcc = await conn.getAccountInfo(mintPubkey);
-  if (!mintAcc) return '<div class="lb-empty">Holder rankings go live at token launch.</div>';
+  if (!mintAcc) return { empty: '<div class="lb-empty">Holder rankings go live at token launch.</div>' };
   const entries = (await Promise.all(holders.map(async (r) => {
     try {
       return { r, ata: await getAssociatedTokenAddress(mintPubkey, new PublicKey(r.addr), false, mintAcc.owner, ASSOCIATED_TOKEN_PROGRAM_ID) };
     } catch { return null; } // skip malformed or off-curve addresses
   }))).filter(Boolean);
-  if (!entries.length) return '<div class="lb-empty">No holders ranked yet — connect a wallet and grab some $FIGHT10.</div>';
+  if (!entries.length) return { empty: '<div class="lb-empty">No holders ranked yet — connect a wallet and grab some $FIGHT10.</div>' };
   const infos = await conn.getMultipleAccountsInfo(entries.map((e) => e.ata));
   entries.forEach((e, i) => {
     const d = infos[i]?.data;
@@ -1259,12 +1294,18 @@ async function loadHoldingsBoard() {
   const ranked = entries.filter((e) => e.balance > 0n)
     .sort((a, b) => (b.balance > a.balance ? 1 : b.balance < a.balance ? -1 : 0))
     .slice(0, 20);
-  if (!ranked.length) return '<div class="lb-empty">No holders ranked yet — grab some $FIGHT10 to top this board.</div>';
-  return ranked.map((e, i) => {
+  if (!ranked.length) return { empty: '<div class="lb-empty">No holders ranked yet — grab some $FIGHT10 to top this board.</div>' };
+  return { rows: ranked.map((e, i) => {
     const amt = (Number(e.balance) / 10 ** FIGHT10_DECIMALS).toLocaleString(undefined, { maximumFractionDigits: 0 });
     const w = e.r.addr;
-    return lbRowHtml(i + 1, e.r, `${w.slice(0, 4)}…${w.slice(-4)}`, `${amt} F10`);
-  }).join("");
+    return {
+      rank: i + 1,
+      r: e.r,
+      mid: `${w.slice(0, 4)}…${w.slice(-4)}`,
+      value: `${amt} F10`,
+      search: `${(e.r.display_name ?? "").toLowerCase()} ${w.toLowerCase()}`,
+    };
+  }) };
 }
 
 async function fetchLobbyCounts() {
