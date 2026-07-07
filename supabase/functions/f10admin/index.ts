@@ -58,6 +58,13 @@ const STALE_WAITING_MINUTES = 15;   // a lobby open this long with empty seats
 const PAYOUT_STUCK_MINUTES   = 15;   // a 'pending' payout reservation this old
 const LIST_LIMIT = 100;
 
+// Cash-flow tab limits. Incoming amount is a fixed entry fee per deposit, so its
+// total is exact from the count alone; outgoing amounts vary, so we sum matching
+// payout rows in JS up to a cap (and flag when a narrower range is needed).
+const CASHFLOW_ROWS    = 200;   // rows returned per side for the on-screen table
+const CASHFLOW_SUM_CAP = 5000;  // max payout rows summed for the outgoing total
+const ENTRY_FEE_RAW    = 2500n * 1_000_000n; // 2500 × 10^6, matches join_pvp_match
+
 const norm = (w?: string | null) => ((w ?? "").split(":").pop() ?? "").trim().toLowerCase();
 const csv = (v?: string | null) =>
   (v ?? "").split(",").map((s) => s.trim()).filter(Boolean);
@@ -402,6 +409,122 @@ Deno.serve(async (req: Request) => {
     // ── Mutating actions ─────────────────────────────────────────────────────
     if (action !== "overview") {
       switch (action) {
+        case "cashflow": {
+          // Money in vs money out, with optional date-range + wallet filters.
+          // Incoming = player entry-fee deposits recorded on seats (fixed fee
+          // each — total is exact from the count). Outgoing = winner payouts
+          // from the payouts ledger (variable amount, summed over matching rows).
+          const fromRaw = String(body?.from ?? "").trim();
+          const toRaw   = String(body?.to ?? "").trim();
+          const walletTail = (String(body?.wallet ?? "").split(":").pop() ?? "").trim();
+
+          // Accept a date (YYYY-MM-DD → inclusive UTC day bounds) or a full ISO
+          // string. Returns null when absent, undefined when unparseable.
+          const dayIso = (raw: string, endOfDay: boolean): string | null | undefined => {
+            if (!raw) return null;
+            const s = raw.length <= 10
+              ? `${raw}T${endOfDay ? "23:59:59.999" : "00:00:00.000"}Z`
+              : raw;
+            const d = new Date(s);
+            return Number.isNaN(d.getTime()) ? undefined : d.toISOString();
+          };
+          const fromIso = dayIso(fromRaw, false);
+          const toIso   = dayIso(toRaw, true);
+          if (fromIso === undefined) return fail("Invalid 'from' date");
+          if (toIso === undefined)   return fail("Invalid 'to' date");
+
+          // The payouts ledger has no wallet column, so a wallet filter for
+          // outgoing maps to the set of winner user ids whose profile wallet
+          // matches. No matching profile ⇒ no payouts.
+          let winnerIds: string[] | null = null;
+          if (walletTail) {
+            const { data: profs, error: profErr } = await admin
+              .from("profiles").select("user_id").ilike("wallet_address", `%${walletTail}%`);
+            if (profErr) return fail(profErr.message);
+            winnerIds = (profs ?? []).map((p: any) => p.user_id);
+          }
+          const emptyGuard = ["00000000-0000-0000-0000-000000000000"];
+          const applyRange = (q: any, col: string) => {
+            if (fromIso) q = q.gte(col, fromIso);
+            if (toIso)   q = q.lte(col, toIso);
+            return q;
+          };
+
+          // Incoming: exact count (× fixed fee) + latest rows for the table.
+          let inCountQ = admin.from("match_players")
+            .select("match_id", { count: "exact", head: true }).not("deposit_tx", "is", null);
+          inCountQ = applyRange(inCountQ, "joined_at");
+          if (walletTail) inCountQ = inCountQ.ilike("deposit_wallet", `%${walletTail}%`);
+
+          let inRowsQ = admin.from("match_players")
+            .select("match_id, user_id, display_name, joined_at, deposit_tx, deposit_wallet")
+            .not("deposit_tx", "is", null)
+            .order("joined_at", { ascending: false }).limit(CASHFLOW_ROWS);
+          inRowsQ = applyRange(inRowsQ, "joined_at");
+          if (walletTail) inRowsQ = inRowsQ.ilike("deposit_wallet", `%${walletTail}%`);
+
+          // Outgoing: exact count + rows up to the sum cap (summed in JS).
+          let outCountQ = admin.from("payouts").select("match_id", { count: "exact", head: true });
+          outCountQ = applyRange(outCountQ, "created_at");
+          if (winnerIds) outCountQ = outCountQ.in("winner_user_id", winnerIds.length ? winnerIds : emptyGuard);
+
+          let outRowsQ = admin.from("payouts")
+            .select("match_id, winner_user_id, payout_tx, amount_raw, decimals, num_players, created_at")
+            .order("created_at", { ascending: false }).limit(CASHFLOW_SUM_CAP);
+          outRowsQ = applyRange(outRowsQ, "created_at");
+          if (winnerIds) outRowsQ = outRowsQ.in("winner_user_id", winnerIds.length ? winnerIds : emptyGuard);
+
+          const [inCountRes, inRowsRes, outCountRes, outRowsRes] = await Promise.all([
+            inCountQ, inRowsQ, outCountQ, outRowsQ,
+          ]);
+          const cfErr = [inCountRes, inRowsRes, outCountRes, outRowsRes].find((r: any) => r.error)?.error;
+          if (cfErr) return fail(`Query failed: ${cfErr.message}`, 500);
+
+          const inCount    = inCountRes.count ?? 0;
+          const outRows    = outRowsRes.data ?? [];
+          const outCount   = outCountRes.count ?? outRows.length;
+          const inTotalRaw  = BigInt(inCount) * ENTRY_FEE_RAW;
+          const outTotalRaw = outRows.reduce((acc: bigint, r: any) => acc + BigInt(r.amount_raw ?? 0), 0n);
+
+          const outNames = await resolveNames(outRows.map((r: any) => r.winner_user_id));
+
+          return json({
+            ok: true,
+            filters: { from: fromRaw, to: toRaw, wallet: walletTail },
+            decimals: 6,
+            incoming: {
+              count: inCount,
+              total_raw: inTotalRaw.toString(),
+              rows: (inRowsRes.data ?? []).map((r: any) => ({
+                joined_at: r.joined_at,
+                display_name: r.display_name,
+                user_id: r.user_id,
+                deposit_wallet: r.deposit_wallet,
+                deposit_tx: r.deposit_tx,
+                match_id: r.match_id,
+                amount_raw: ENTRY_FEE_RAW.toString(),
+              })),
+            },
+            outgoing: {
+              count: outCount,
+              total_raw: outTotalRaw.toString(),
+              truncated: outCount > outRows.length,
+              rows: outRows.slice(0, CASHFLOW_ROWS).map((r: any) => ({
+                created_at: r.created_at,
+                winner_user_id: r.winner_user_id,
+                winner_name: outNames.get(r.winner_user_id)?.name ?? null,
+                winner_wallet: outNames.get(r.winner_user_id)?.wallet ?? null,
+                num_players: r.num_players,
+                amount_raw: String(r.amount_raw ?? "0"),
+                decimals: r.decimals ?? 6,
+                payout_tx: r.payout_tx,
+                match_id: r.match_id,
+              })),
+            },
+            net_raw: (inTotalRaw - outTotalRaw).toString(),
+          });
+        }
+
         case "add_note": {
           const subject_type = String(body?.subject_type ?? "general");
           const subject_id = body?.subject_id != null ? String(body.subject_id) : null;
