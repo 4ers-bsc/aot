@@ -1564,13 +1564,9 @@ export function createArenaGame(options) {
     rctx.lineWidth = lw + 4; rctx.lineCap = "round"; rctx.lineJoin = "round";
     drawPath(); rctx.stroke(); rctx.restore();
 
-    rctx.save(); rctx.strokeStyle = "rgba(55,120,175,0.88)";
+    // Whole river painted in the deep-water shade, bank to bank
+    rctx.save(); rctx.strokeStyle = "rgba(28,78,128,0.88)";
     rctx.lineWidth = lw; rctx.lineCap = "round"; rctx.lineJoin = "round";
-    drawPath(); rctx.stroke(); rctx.restore();
-
-    // Darker deep-water channel down the centre line
-    rctx.save(); rctx.strokeStyle = "rgba(28,78,128,0.5)";
-    rctx.lineWidth = lw * 0.42; rctx.lineCap = "round"; rctx.lineJoin = "round";
     drawPath(); rctx.stroke(); rctx.restore();
 
     // Static sun glints on the surface — baked into the texture, zero runtime cost
