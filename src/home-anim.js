@@ -51,12 +51,26 @@ export function initHomeAnimations() {
   // clicking it jumps to the landing sections, and it fades away once the
   // page has actually been scrolled (the hint has served its purpose).
   const scrollCue = document.getElementById("scrollCue");
+  const cueText = scrollCue?.querySelector(".scroll-cue-text");
   const sections = document.getElementById("homeSections");
   scrollCue?.addEventListener("click", () => {
-    sections?.scrollIntoView({ behavior: reduced ? "auto" : "smooth", block: "start" });
+    const behavior = reduced ? "auto" : "smooth";
+    // Once the page has been scrolled the cue becomes a "back to top" control;
+    // near the top it still jumps down to the landing sections as before.
+    if ((window.scrollY || 0) > 60) {
+      window.scrollTo({ top: 0, behavior });
+    } else {
+      sections?.scrollIntoView({ behavior, block: "start" });
+    }
   });
   const updateCue = () => {
-    scrollCue?.classList.toggle("scroll-cue-hidden", (window.scrollY || 0) > 60);
+    const scrolled = (window.scrollY || 0) > 60;
+    scrollCue?.classList.toggle("scroll-cue-up", scrolled);
+    if (cueText) cueText.textContent = scrolled ? "TOP" : "SCROLL";
+    scrollCue?.setAttribute(
+      "aria-label",
+      scrolled ? "Back to top" : "Scroll down for details",
+    );
   };
   window.addEventListener("scroll", updateCue, { passive: true });
   updateCue();

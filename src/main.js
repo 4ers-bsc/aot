@@ -8,6 +8,7 @@ import { createArenaGame } from "./game.js";
 import { escapeHtml } from "./utils.js";
 import { mountViews } from "./views/index.js";
 import { initHomeAnimations } from "./home-anim.js";
+import { initAdmin } from "./admin.js";
 import { APPEARANCE_PRESETS } from "./appearance.js";
 
 mountViews();
@@ -140,6 +141,10 @@ const els = {
 const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY || "anon-key-not-configured", {
   auth: { persistSession: true, autoRefreshToken: true }
 });
+
+// Internal ops dashboard (#admin or Ctrl/Cmd+Shift+A). Access is gated by the
+// f10admin edge function's admin allowlist — non-admins just see "Not authorized".
+initAdmin(supabase);
 
 const state = {
   user: null,

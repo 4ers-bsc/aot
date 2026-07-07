@@ -1,0 +1,398 @@
+// ============================================================================
+// f10admin — internal operations dashboard gateway.
+//
+// One authenticated, admin-gated endpoint the operator UI (src/admin.js) calls
+// to (a) READ every operational queue that can leave a real user stuck, and
+// (b) RESOLVE them — so nobody has to open the Supabase table editor by hand.
+//
+// Queues surfaced:
+//   • disputed matches            (matches.status = 'disputed')
+//   • integrity flags             (integrity_signals)
+//   • payout pending              (finished + winner, payout_tx null / 'pending')
+//   • payout failed / stuck       (payout_tx = 'pending' older than the retry window)
+//   • consumed deposits           (consumed_deposits ledger)
+//   • stale waiting rooms         (status = 'waiting', open past a grace window)
+//   • banned users                (banned_users)
+//   • manual review notes         (review_notes)
+//
+// Auth model: mirrors f10join / f10treasurer. The caller's JWT is verified
+// (userClient.auth.getUser()); the user id is then checked against the
+// ADMIN_USER_IDS allowlist (and optionally ADMIN_WALLETS). Everything the
+// endpoint reads/writes runs through the service-role client, so admin identity
+// lives entirely in the function's env — no admin flag in the database, nothing
+// for a browser to escalate. Non-admins get 403.
+//
+// Required Supabase secrets:
+//   SUPABASE_URL, SUPABASE_ANON_KEY, SUPABASE_SERVICE_ROLE_KEY (auto-provided)
+//   ADMIN_USER_IDS   comma-separated auth user UUIDs allowed to use this tool
+//   ADMIN_WALLETS    (optional) comma-separated wallet addresses, also allowed
+//   APP_ORIGIN       (recommended) locks CORS to the game origin
+// ============================================================================
+
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+
+const appOrigin = Deno.env.get("APP_ORIGIN");
+if (!appOrigin) {
+  console.error("WARNING: APP_ORIGIN not set — CORS is open to all origins. Set it in Supabase secrets for production.");
+}
+const corsHeaders = {
+  "Access-Control-Allow-Origin": appOrigin || "*",
+  "Access-Control-Allow-Methods": "POST, OPTIONS",
+  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+};
+
+function json(body: unknown, status = 200): Response {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: { "Content-Type": "application/json", ...corsHeaders },
+  });
+}
+const fail = (error: string, status = 200) => json({ ok: false, error }, status);
+
+// Windows that define "stale" / "stuck". Kept here so the dashboard and any
+// future sweeper agree on the same thresholds.
+const STALE_WAITING_MINUTES = 15;   // a lobby open this long with empty seats
+const PAYOUT_STUCK_MINUTES   = 15;   // a 'pending' payout reservation this old
+const LIST_LIMIT = 100;
+
+const norm = (w?: string | null) => ((w ?? "").split(":").pop() ?? "").trim().toLowerCase();
+const csv = (v?: string | null) =>
+  (v ?? "").split(",").map((s) => s.trim()).filter(Boolean);
+
+Deno.serve(async (req: Request) => {
+  if (req.method === "OPTIONS") {
+    return new Response(null, { status: 204, headers: corsHeaders });
+  }
+
+  const supabaseUrl        = Deno.env.get("SUPABASE_URL")!;
+  const supabaseAnonKey    = Deno.env.get("SUPABASE_ANON_KEY")!;
+  const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+
+  try {
+    // ── Authenticate the caller ──────────────────────────────────────────────
+    const authHeader = req.headers.get("Authorization");
+    if (!authHeader) return fail("Missing Authorization header", 401);
+
+    const userClient = createClient(supabaseUrl, supabaseAnonKey, {
+      global: { headers: { Authorization: authHeader } },
+    });
+    const { data: { user }, error: authError } = await userClient.auth.getUser();
+    if (authError || !user) return fail("Unauthorized", 401);
+
+    const admin = createClient(supabaseUrl, supabaseServiceKey);
+
+    // ── Authorize: allowlisted admin only ────────────────────────────────────
+    const adminIds = new Set(csv(Deno.env.get("ADMIN_USER_IDS")));
+    const adminWallets = new Set(csv(Deno.env.get("ADMIN_WALLETS")).map(norm));
+    if (adminIds.size === 0 && adminWallets.size === 0) {
+      console.error("f10admin: no ADMIN_USER_IDS / ADMIN_WALLETS configured — refusing all access.");
+      return fail("Admin dashboard is not configured.", 403);
+    }
+    let isAdmin = adminIds.has(user.id);
+    if (!isAdmin && adminWallets.size > 0) {
+      const { data: prof } = await admin
+        .from("profiles").select("wallet_address").eq("user_id", user.id).maybeSingle();
+      if (prof?.wallet_address && adminWallets.has(norm(prof.wallet_address))) isAdmin = true;
+    }
+    if (!isAdmin) {
+      console.error("f10admin: rejected non-admin", { user: user.id });
+      return fail("Not authorized.", 403);
+    }
+
+    const body = await req.json().catch(() => ({}));
+    const action = String(body?.action ?? "overview");
+
+    // Small helper: attach display names to a set of rows keyed by user id.
+    const resolveNames = async (ids: (string | null | undefined)[]) => {
+      const uniq = [...new Set(ids.filter((x): x is string => !!x))];
+      const map = new Map<string, { name: string; wallet: string | null }>();
+      if (uniq.length === 0) return map;
+      const { data } = await admin
+        .from("profiles").select("user_id, display_name, wallet_address").in("user_id", uniq);
+      for (const p of data ?? []) {
+        map.set(p.user_id, { name: p.display_name, wallet: p.wallet_address ?? null });
+      }
+      return map;
+    };
+
+    // Record an audit note for any mutating action.
+    const logNote = (subject_type: string, subject_id: string | null, note: string, act: string) =>
+      admin.from("review_notes").insert({
+        subject_type, subject_id, note, action: act, author_id: user.id,
+      });
+
+    // ── Mutating actions ─────────────────────────────────────────────────────
+    if (action !== "overview") {
+      switch (action) {
+        case "add_note": {
+          const subject_type = String(body?.subject_type ?? "general");
+          const subject_id = body?.subject_id != null ? String(body.subject_id) : null;
+          const note = String(body?.note ?? "").trim();
+          if (!note) return fail("note is required");
+          const { error } = await logNote(subject_type, subject_id, note, "note");
+          if (error) return fail(error.message);
+          return json({ ok: true });
+        }
+
+        case "resolve_dispute": {
+          // Award a disputed match to a chosen participant, apply their stats,
+          // and flip it to 'finished' so the winner can claim their payout
+          // through f10treasurer (which still verifies the deposits on-chain).
+          const matchId = String(body?.match_id ?? "");
+          const winnerId = String(body?.winner_user_id ?? "");
+          const note = String(body?.note ?? "").trim();
+          if (!matchId || !winnerId) return fail("match_id and winner_user_id are required");
+
+          const { data: m } = await admin
+            .from("matches").select("id, status").eq("id", matchId).maybeSingle();
+          if (!m) return fail("Match not found");
+          if (m.status !== "disputed") return fail(`Match is '${m.status}', not disputed`);
+
+          const { data: seat } = await admin
+            .from("match_players").select("user_id")
+            .eq("match_id", matchId).eq("user_id", winnerId).maybeSingle();
+          if (!seat) return fail("Chosen winner is not a participant in this match");
+
+          const { error: upErr } = await admin.from("matches").update({
+            status: "finished",
+            winner_user_id: winnerId,
+            shadow_winner: winnerId,
+            ended_at: new Date().toISOString(),
+          }).eq("id", matchId).eq("status", "disputed");
+          if (upErr) return fail(upErr.message);
+
+          // Award win/loss stats (idempotent via matches.stats_applied).
+          const { error: statErr } = await admin.rpc("apply_match_result", {
+            p_match_id: matchId, p_winner_id: winnerId,
+          });
+          if (statErr) console.error("apply_match_result failed:", statErr);
+
+          await logNote("match", matchId,
+            note || `Dispute resolved: awarded to ${winnerId}.`, "resolve_dispute");
+          return json({ ok: true });
+        }
+
+        case "void_match": {
+          // Close a disputed match with no winner (no payout). Use when no clean
+          // winner can be determined — the pot stays in escrow for manual handling.
+          const matchId = String(body?.match_id ?? "");
+          const note = String(body?.note ?? "").trim();
+          if (!matchId) return fail("match_id is required");
+          const { error } = await admin.from("matches").update({
+            status: "finished", winner_user_id: null, ended_at: new Date().toISOString(),
+          }).eq("id", matchId).eq("status", "disputed");
+          if (error) return fail(error.message);
+          await logNote("match", matchId, note || "Match voided (no winner).", "void_match");
+          return json({ ok: true });
+        }
+
+        case "close_waiting_room": {
+          // Close a stale waiting lobby so it stops showing as open.
+          const matchId = String(body?.match_id ?? "");
+          const note = String(body?.note ?? "").trim();
+          if (!matchId) return fail("match_id is required");
+          const { error } = await admin.from("matches").update({
+            status: "finished", ended_at: new Date().toISOString(),
+          }).eq("id", matchId).eq("status", "waiting");
+          if (error) return fail(error.message);
+          await logNote("waiting", matchId, note || "Stale waiting room closed.", "close_waiting_room");
+          return json({ ok: true });
+        }
+
+        case "release_payout": {
+          // Clear a stuck 'pending' reservation so the winner can retry claiming.
+          // Only clears while it is still 'pending' — never touches a real tx sig.
+          const matchId = String(body?.match_id ?? "");
+          const note = String(body?.note ?? "").trim();
+          if (!matchId) return fail("match_id is required");
+          const { error } = await admin.from("matches").update({
+            payout_tx: null, payout_claimed_at: null,
+          }).eq("id", matchId).eq("payout_tx", "pending");
+          if (error) return fail(error.message);
+          await logNote("payout", matchId, note || "Stuck payout slot released for retry.", "release_payout");
+          return json({ ok: true });
+        }
+
+        case "mark_payout_resolved": {
+          // Record a real, out-of-band payout signature (e.g. the operator sent
+          // the transfer manually) so the match reads as paid and can't be
+          // re-claimed. Only overwrites an unpaid ('pending' / null) match.
+          const matchId = String(body?.match_id ?? "");
+          const tx = String(body?.payout_tx ?? "").trim();
+          const note = String(body?.note ?? "").trim();
+          if (!matchId || !tx) return fail("match_id and payout_tx are required");
+          const { data: m } = await admin
+            .from("matches").select("payout_tx").eq("id", matchId).maybeSingle();
+          if (!m) return fail("Match not found");
+          if (m.payout_tx && m.payout_tx !== "pending") {
+            return fail(`Match already has payout_tx ${m.payout_tx}`);
+          }
+          const { error } = await admin.from("matches").update({
+            payout_tx: tx, payout_claimed_at: new Date().toISOString(),
+          }).eq("id", matchId);
+          if (error) return fail(error.message);
+          await logNote("payout", matchId, note || `Payout marked resolved: ${tx}`, "mark_payout_resolved");
+          return json({ ok: true });
+        }
+
+        case "ban_user": {
+          const uid = String(body?.user_id ?? "");
+          const reason = String(body?.reason ?? "manual_admin_ban").trim();
+          if (!uid) return fail("user_id is required");
+          const { error } = await admin.rpc("ban_user", { p_user_id: uid, p_reason: reason });
+          if (error) return fail(error.message);
+          await logNote("user", uid, `Banned: ${reason}`, "ban_user");
+          return json({ ok: true });
+        }
+
+        case "unban_user": {
+          const uid = String(body?.user_id ?? "");
+          const note = String(body?.note ?? "").trim();
+          if (!uid) return fail("user_id is required");
+          const { error } = await admin.from("banned_users").delete().eq("user_id", uid);
+          if (error) return fail(error.message);
+          await logNote("user", uid, note || "Unbanned.", "unban_user");
+          return json({ ok: true });
+        }
+
+        default:
+          return fail(`Unknown action '${action}'`);
+      }
+    }
+
+    // ── Overview (default): read every queue in parallel ─────────────────────
+    const now = Date.now();
+    const staleWaitingCutoff = new Date(now - STALE_WAITING_MINUTES * 60_000).toISOString();
+    const payoutStuckCutoff  = new Date(now - PAYOUT_STUCK_MINUTES * 60_000).toISOString();
+
+    const [
+      disputedRes, integrityRes, payoutPendingRes, payoutFailedRes,
+      consumedRes, waitingRes, bannedRes, notesRes,
+    ] = await Promise.all([
+      admin.from("matches")
+        .select("id, match_no, max_players, created_at, started_at, ended_at, pot_tokens, shadow_meta, forfeited_user_ids")
+        .eq("status", "disputed").order("ended_at", { ascending: false, nullsFirst: false }).limit(LIST_LIMIT),
+      admin.from("integrity_signals")
+        .select("id, user_id, match_id, kind, detail, created_at")
+        .order("created_at", { ascending: false }).limit(LIST_LIMIT),
+      admin.from("matches")
+        .select("id, match_no, max_players, winner_user_id, ended_at, pot_tokens, payout_tx, payout_claimed_at")
+        .eq("status", "finished").not("winner_user_id", "is", null)
+        .or("payout_tx.is.null,payout_tx.eq.pending")
+        .order("ended_at", { ascending: false, nullsFirst: false }).limit(LIST_LIMIT),
+      admin.from("matches")
+        .select("id, match_no, max_players, winner_user_id, ended_at, pot_tokens, payout_tx, payout_claimed_at")
+        .eq("payout_tx", "pending").lt("payout_claimed_at", payoutStuckCutoff)
+        .order("payout_claimed_at", { ascending: true }).limit(LIST_LIMIT),
+      admin.from("consumed_deposits")
+        .select("deposit_tx, user_id, match_id, consumed_at")
+        .order("consumed_at", { ascending: false }).limit(LIST_LIMIT),
+      admin.from("matches")
+        .select("id, match_no, max_players, created_by, created_at, pot_tokens")
+        .eq("status", "waiting").lt("created_at", staleWaitingCutoff)
+        .order("created_at", { ascending: true }).limit(LIST_LIMIT),
+      admin.from("banned_users")
+        .select("user_id, wallet, reason, created_at")
+        .order("created_at", { ascending: false }).limit(LIST_LIMIT),
+      admin.from("review_notes")
+        .select("id, subject_type, subject_id, note, action, author_id, created_at")
+        .order("created_at", { ascending: false }).limit(LIST_LIMIT),
+    ]);
+
+    const firstErr = [
+      disputedRes, integrityRes, payoutPendingRes, payoutFailedRes,
+      consumedRes, waitingRes, bannedRes, notesRes,
+    ].find((r) => r.error)?.error;
+    if (firstErr) {
+      console.error("f10admin overview query failed:", firstErr);
+      return fail(`Query failed: ${firstErr.message}`, 500);
+    }
+
+    const disputed = disputedRes.data ?? [];
+    const integrity = integrityRes.data ?? [];
+    const payoutPending = payoutPendingRes.data ?? [];
+    const payoutFailed = payoutFailedRes.data ?? [];
+    const consumed = consumedRes.data ?? [];
+    const waiting = waitingRes.data ?? [];
+    const banned = bannedRes.data ?? [];
+    const notes = notesRes.data ?? [];
+
+    // Seats for disputed + stale-waiting matches, in two batched queries.
+    const disputedIds = disputed.map((m: any) => m.id);
+    const waitingIds = waiting.map((m: any) => m.id);
+    const [seatRes, waitSeatRes] = await Promise.all([
+      disputedIds.length
+        ? admin.from("match_players").select("match_id, user_id, seat, display_name, final_hp, last_seen").in("match_id", disputedIds)
+        : Promise.resolve({ data: [] as any[] }),
+      waitingIds.length
+        ? admin.from("match_players").select("match_id, user_id, seat, display_name").in("match_id", waitingIds)
+        : Promise.resolve({ data: [] as any[] }),
+    ]);
+    const groupByMatch = (rows: any[]) => {
+      const map = new Map<string, any[]>();
+      for (const s of rows) {
+        const list = map.get(s.match_id);
+        if (list) list.push(s);
+        else map.set(s.match_id, [s]);
+      }
+      return map;
+    };
+    const seatsByMatch = groupByMatch(seatRes.data ?? []);
+    const waitSeatsByMatch = groupByMatch(waitSeatRes.data ?? []);
+
+    // Resolve display names for every user id we're about to return.
+    const nameMap = await resolveNames([
+      ...integrity.map((r: any) => r.user_id),
+      ...payoutPending.map((r: any) => r.winner_user_id),
+      ...payoutFailed.map((r: any) => r.winner_user_id),
+      ...consumed.map((r: any) => r.user_id),
+      ...waiting.map((r: any) => r.created_by),
+      ...notes.map((r: any) => r.author_id),
+    ]);
+    const nameOf = (id?: string | null) => (id ? nameMap.get(id)?.name ?? null : null);
+
+    const payoutView = (m: any) => ({
+      ...m,
+      winner_name: nameOf(m.winner_user_id),
+      stuck_minutes: m.payout_claimed_at
+        ? Math.floor((now - new Date(m.payout_claimed_at).getTime()) / 60_000)
+        : null,
+    });
+
+    return json({
+      ok: true,
+      generated_at: new Date().toISOString(),
+      thresholds: { stale_waiting_minutes: STALE_WAITING_MINUTES, payout_stuck_minutes: PAYOUT_STUCK_MINUTES },
+      counts: {
+        disputed: disputed.length,
+        integrity: integrity.length,
+        payout_pending: payoutPending.length,
+        payout_failed: payoutFailed.length,
+        consumed_deposits: consumed.length,
+        stale_waiting: waiting.length,
+        banned: banned.length,
+        notes: notes.length,
+      },
+      disputed: disputed.map((m: any) => ({
+        ...m,
+        players: (seatsByMatch.get(m.id) ?? []).sort((a, b) => a.seat - b.seat),
+      })),
+      integrity: integrity.map((r: any) => ({ ...r, user_name: nameOf(r.user_id) })),
+      payout_pending: payoutPending.map(payoutView),
+      payout_failed: payoutFailed.map(payoutView),
+      consumed_deposits: consumed.map((r: any) => ({ ...r, user_name: nameOf(r.user_id) })),
+      stale_waiting: waiting.map((m: any) => ({
+        ...m,
+        creator_name: nameOf(m.created_by),
+        players: (waitSeatsByMatch.get(m.id) ?? []).sort((a, b) => a.seat - b.seat),
+        seats_filled: (waitSeatsByMatch.get(m.id) ?? []).length,
+        open_minutes: Math.floor((now - new Date(m.created_at).getTime()) / 60_000),
+      })),
+      banned,
+      notes: notes.map((r: any) => ({ ...r, author_name: nameOf(r.author_id) })),
+    });
+  } catch (err) {
+    console.error("f10admin error:", err);
+    return fail(String(err), 500);
+  }
+});

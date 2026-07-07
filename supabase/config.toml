@@ -11,3 +11,6 @@ verify_jwt = false
 
 [functions.f10treasurer]
 verify_jwt = false
+
+[functions.f10admin]
+verify_jwt = false
