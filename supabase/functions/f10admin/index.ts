@@ -411,6 +411,17 @@ Deno.serve(async (req: Request) => {
           return json({ ok: true });
         }
 
+        case "delete_note": {
+          // Remove a review note (e.g. clean up the duplicate no-op notes the old
+          // release_payout produced). Accepts one id or an array of ids.
+          const raw = body?.id ?? body?.ids;
+          const ids = (Array.isArray(raw) ? raw : [raw]).map(Number).filter((n) => Number.isFinite(n));
+          if (ids.length === 0) return fail("id (or ids[]) is required");
+          const { data: rows, error } = await admin.from("review_notes").delete().in("id", ids).select("id");
+          if (error) return fail(error.message);
+          return json({ ok: true, deleted: rows?.length ?? 0 });
+        }
+
         case "resolve_dispute": {
           // Award a disputed match to a chosen participant, apply their stats,
           // and flip it to 'finished' so the winner can claim their payout
@@ -455,10 +466,11 @@ Deno.serve(async (req: Request) => {
           const matchId = String(body?.match_id ?? "");
           const note = String(body?.note ?? "").trim();
           if (!matchId) return fail("match_id is required");
-          const { error } = await admin.from("matches").update({
+          const { data: rows, error } = await admin.from("matches").update({
             status: "finished", winner_user_id: null, ended_at: new Date().toISOString(),
-          }).eq("id", matchId).eq("status", "disputed");
+          }).eq("id", matchId).eq("status", "disputed").select("id");
           if (error) return fail(error.message);
+          if (!rows || rows.length === 0) return fail("Match is no longer disputed — nothing to void.");
           await logNote("match", matchId, note || "Match voided (no winner).", "void_match");
           return json({ ok: true });
         }
@@ -468,10 +480,11 @@ Deno.serve(async (req: Request) => {
           const matchId = String(body?.match_id ?? "");
           const note = String(body?.note ?? "").trim();
           if (!matchId) return fail("match_id is required");
-          const { error } = await admin.from("matches").update({
+          const { data: rows, error } = await admin.from("matches").update({
             status: "finished", ended_at: new Date().toISOString(),
-          }).eq("id", matchId).eq("status", "waiting");
+          }).eq("id", matchId).eq("status", "waiting").select("id");
           if (error) return fail(error.message);
+          if (!rows || rows.length === 0) return fail("This match is no longer waiting — nothing to close.");
           await logNote("waiting", matchId, note || "Stale waiting room closed.", "close_waiting_room");
           return json({ ok: true });
         }
@@ -502,10 +515,16 @@ Deno.serve(async (req: Request) => {
           const matchId = String(body?.match_id ?? "");
           const note = String(body?.note ?? "").trim();
           if (!matchId) return fail("match_id is required");
-          const { error } = await admin.from("matches").update({
+          const { data: rows, error } = await admin.from("matches").update({
             payout_tx: null, payout_claimed_at: null,
-          }).eq("id", matchId).eq("payout_tx", "pending");
+          }).eq("id", matchId).eq("payout_tx", "pending").select("id");
           if (error) return fail(error.message);
+          // No-op guard: a null (never-claimed) payout has nothing to release.
+          // Report it honestly and DON'T log a note (this was producing piles of
+          // meaningless "released" notes on unclaimed matches).
+          if (!rows || rows.length === 0) {
+            return fail("Nothing to release — this payout isn't stuck on 'pending' (it was never claimed). Use \"Pay winner now\", or have the winner claim in-app.");
+          }
           await logNote("payout", matchId, note || "Stuck payout slot released for retry.", "release_payout");
           return json({ ok: true });
         }
@@ -546,8 +565,9 @@ Deno.serve(async (req: Request) => {
           const uid = String(body?.user_id ?? "");
           const note = String(body?.note ?? "").trim();
           if (!uid) return fail("user_id is required");
-          const { error } = await admin.from("banned_users").delete().eq("user_id", uid);
+          const { data: rows, error } = await admin.from("banned_users").delete().eq("user_id", uid).select("user_id");
           if (error) return fail(error.message);
+          if (!rows || rows.length === 0) return fail("User was not banned — nothing to undo.");
           await logNote("user", uid, note || "Unbanned.", "unban_user");
           return json({ ok: true });
         }
@@ -564,7 +584,7 @@ Deno.serve(async (req: Request) => {
 
     const [
       disputedRes, integrityRes, payoutPendingRes, payoutFailedRes,
-      consumedRes, waitingRes, bannedRes, notesRes,
+      consumedRes, waitingRes, bannedRes, notesRes, payoutsRes,
     ] = await Promise.all([
       admin.from("matches")
         .select("id, match_no, max_players, created_at, started_at, ended_at, pot_tokens, shadow_meta, forfeited_user_ids")
@@ -594,11 +614,14 @@ Deno.serve(async (req: Request) => {
       admin.from("review_notes")
         .select("id, subject_type, subject_id, note, action, author_id, created_at")
         .order("created_at", { ascending: false }).limit(LIST_LIMIT),
+      admin.from("payouts")
+        .select("match_id, winner_user_id, payout_tx, amount_raw, decimals, num_players, created_at")
+        .order("created_at", { ascending: false }).limit(LIST_LIMIT),
     ]);
 
     const firstErr = [
       disputedRes, integrityRes, payoutPendingRes, payoutFailedRes,
-      consumedRes, waitingRes, bannedRes, notesRes,
+      consumedRes, waitingRes, bannedRes, notesRes, payoutsRes,
     ].find((r) => r.error)?.error;
     if (firstErr) {
       console.error("f10admin overview query failed:", firstErr);
@@ -613,18 +636,26 @@ Deno.serve(async (req: Request) => {
     const waiting = waitingRes.data ?? [];
     const banned = bannedRes.data ?? [];
     const notes = notesRes.data ?? [];
+    const payouts = payoutsRes.data ?? [];
 
-    // Seats for disputed + stale-waiting matches, in two batched queries.
+    // Seats for disputed + stale-waiting matches + match numbers for payouts,
+    // in batched lookups.
     const disputedIds = disputed.map((m: any) => m.id);
     const waitingIds = waiting.map((m: any) => m.id);
-    const [seatRes, waitSeatRes] = await Promise.all([
+    const payoutMatchIds = payouts.map((p: any) => p.match_id);
+    const [seatRes, waitSeatRes, payoutMatchRes] = await Promise.all([
       disputedIds.length
         ? admin.from("match_players").select("match_id, user_id, seat, display_name, final_hp, last_seen").in("match_id", disputedIds)
         : Promise.resolve({ data: [] as any[] }),
       waitingIds.length
         ? admin.from("match_players").select("match_id, user_id, seat, display_name").in("match_id", waitingIds)
         : Promise.resolve({ data: [] as any[] }),
+      payoutMatchIds.length
+        ? admin.from("matches").select("id, match_no, max_players").in("id", payoutMatchIds)
+        : Promise.resolve({ data: [] as any[] }),
     ]);
+    const matchNoById = new Map<string, any>();
+    for (const m of (payoutMatchRes.data ?? [])) matchNoById.set(m.id, m);
     const groupByMatch = (rows: any[]) => {
       const map = new Map<string, any[]>();
       for (const s of rows) {
@@ -645,6 +676,7 @@ Deno.serve(async (req: Request) => {
       ...consumed.map((r: any) => r.user_id),
       ...waiting.map((r: any) => r.created_by),
       ...notes.map((r: any) => r.author_id),
+      ...payouts.map((r: any) => r.winner_user_id),
     ]);
     const nameOf = (id?: string | null) => (id ? nameMap.get(id)?.name ?? null : null);
 
@@ -669,6 +701,7 @@ Deno.serve(async (req: Request) => {
         stale_waiting: waiting.length,
         banned: banned.length,
         notes: notes.length,
+        payouts: payouts.length,
       },
       disputed: disputed.map((m: any) => ({
         ...m,
@@ -687,6 +720,14 @@ Deno.serve(async (req: Request) => {
       })),
       banned,
       notes: notes.map((r: any) => ({ ...r, author_name: nameOf(r.author_id) })),
+      payouts: payouts.map((r: any) => ({
+        ...r,
+        winner_name: nameOf(r.winner_user_id),
+        match_no: matchNoById.get(r.match_id)?.match_no ?? null,
+        max_players: matchNoById.get(r.match_id)?.max_players ?? null,
+        amount: r.amount_raw != null && r.decimals != null
+          ? Number(r.amount_raw) / 10 ** r.decimals : null,
+      })),
     });
   } catch (err) {
     console.error("f10admin error:", err);
