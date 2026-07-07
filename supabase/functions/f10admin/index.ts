@@ -488,6 +488,22 @@ Deno.serve(async (req: Request) => {
 
           const outNames = await resolveNames(outRows.map((r: any) => r.winner_user_id));
 
+          // Winners whose profile has no wallet_address recorded: fall back to
+          // the wallet that signed their deposit for that match (the seat row).
+          const outSeatWallets = new Map<string, string>();
+          {
+            const missingIds = [...new Set(outRows
+              .filter((r: any) => !outNames.get(r.winner_user_id)?.wallet)
+              .map((r: any) => r.match_id))];
+            if (missingIds.length) {
+              const { data: seats } = await admin
+                .from("match_players").select("match_id, user_id, deposit_wallet").in("match_id", missingIds);
+              for (const s of seats ?? []) {
+                if (s.deposit_wallet) outSeatWallets.set(`${s.match_id}:${s.user_id}`, s.deposit_wallet);
+              }
+            }
+          }
+
           return json({
             ok: true,
             filters: { from: fromRaw, to: toRaw, wallet: walletTail },
@@ -513,7 +529,8 @@ Deno.serve(async (req: Request) => {
                 created_at: r.created_at,
                 winner_user_id: r.winner_user_id,
                 winner_name: outNames.get(r.winner_user_id)?.name ?? null,
-                winner_wallet: outNames.get(r.winner_user_id)?.wallet ?? null,
+                winner_wallet: outNames.get(r.winner_user_id)?.wallet
+                  ?? outSeatWallets.get(`${r.match_id}:${r.winner_user_id}`) ?? null,
                 num_players: r.num_players,
                 amount_raw: String(r.amount_raw ?? "0"),
                 decimals: r.decimals ?? 6,
@@ -769,11 +786,18 @@ Deno.serve(async (req: Request) => {
     const paidMatches = payoutsRes.data ?? [];
 
     // Seats for disputed + stale-waiting matches + ledger rows for the paid
-    // matches (exact amounts where available), in batched lookups.
+    // matches (exact amounts where available), in batched lookups. Seat rows
+    // for the remaining tabs are also fetched so a player's deposit_wallet can
+    // stand in when their profile has no wallet_address recorded (accounts
+    // that predate wallet syncing would otherwise show "—").
     const disputedIds = disputed.map((m: any) => m.id);
     const waitingIds = waiting.map((m: any) => m.id);
     const paidIds = paidMatches.map((m: any) => m.id);
-    const [seatRes, waitSeatRes, ledgerRes] = await Promise.all([
+    const seatWalletIds = [...new Set(
+      [...consumed, ...integrity, ...payoutPending, ...payoutFailed, ...paidMatches]
+        .map((r: any) => r.match_id ?? r.id).filter(Boolean),
+    )];
+    const [seatRes, waitSeatRes, ledgerRes, seatWalletRes] = await Promise.all([
       disputedIds.length
         ? admin.from("match_players").select("match_id, user_id, seat, display_name, deposit_wallet, final_hp, last_seen").in("match_id", disputedIds)
         : Promise.resolve({ data: [] as any[] }),
@@ -783,7 +807,17 @@ Deno.serve(async (req: Request) => {
       paidIds.length
         ? admin.from("payouts").select("match_id, winner_user_id, payout_tx, amount_raw, decimals, num_players, created_at").in("match_id", paidIds)
         : Promise.resolve({ data: [] as any[] }),
+      seatWalletIds.length
+        ? admin.from("match_players").select("match_id, user_id, deposit_wallet").in("match_id", seatWalletIds)
+        : Promise.resolve({ data: [] as any[] }),
     ]);
+    // (match_id, user_id) → the wallet that signed that seat's deposit.
+    const seatWallets = new Map<string, string>();
+    for (const s of (seatWalletRes.data ?? [])) {
+      if (s.deposit_wallet) seatWallets.set(`${s.match_id}:${s.user_id}`, s.deposit_wallet);
+    }
+    const seatWalletOf = (matchId?: string | null, userId?: string | null) =>
+      (matchId && userId ? seatWallets.get(`${matchId}:${userId}`) ?? null : null);
     const ledgerByMatch = new Map<string, any>();
     for (const p of (ledgerRes.data ?? [])) ledgerByMatch.set(p.match_id, p);
     const groupByMatch = (rows: any[]) => {
@@ -814,7 +848,7 @@ Deno.serve(async (req: Request) => {
     const payoutView = (m: any) => ({
       ...m,
       winner_name: nameOf(m.winner_user_id),
-      winner_wallet: walletOf(m.winner_user_id),
+      winner_wallet: walletOf(m.winner_user_id) ?? seatWalletOf(m.id, m.winner_user_id),
       stuck_minutes: m.payout_claimed_at
         ? Math.floor((now - new Date(m.payout_claimed_at).getTime()) / 60_000)
         : null,
@@ -839,10 +873,20 @@ Deno.serve(async (req: Request) => {
         ...m,
         players: (seatsByMatch.get(m.id) ?? []).sort((a, b) => a.seat - b.seat),
       })),
-      integrity: integrity.map((r: any) => ({ ...r, user_name: nameOf(r.user_id), user_wallet: walletOf(r.user_id) })),
+      integrity: integrity.map((r: any) => ({
+        ...r,
+        user_name: nameOf(r.user_id),
+        user_wallet: walletOf(r.user_id) ?? seatWalletOf(r.match_id, r.user_id),
+      })),
       payout_pending: payoutPending.map(payoutView),
       payout_failed: payoutFailed.map(payoutView),
-      consumed_deposits: consumed.map((r: any) => ({ ...r, user_name: nameOf(r.user_id), user_wallet: walletOf(r.user_id) })),
+      // Deposit-centric: prefer the wallet that actually signed this deposit
+      // (the seat row), falling back to the player's profile login wallet.
+      consumed_deposits: consumed.map((r: any) => ({
+        ...r,
+        user_name: nameOf(r.user_id),
+        user_wallet: seatWalletOf(r.match_id, r.user_id) ?? walletOf(r.user_id),
+      })),
       stale_waiting: waiting.map((m: any) => ({
         ...m,
         creator_name: nameOf(m.created_by),
@@ -865,7 +909,7 @@ Deno.serve(async (req: Request) => {
           max_players: m.max_players,
           winner_user_id: m.winner_user_id,
           winner_name: nameOf(m.winner_user_id),
-          winner_wallet: walletOf(m.winner_user_id),
+          winner_wallet: walletOf(m.winner_user_id) ?? seatWalletOf(m.id, m.winner_user_id),
           payout_tx: m.payout_tx,
           amount_raw,
           decimals,
