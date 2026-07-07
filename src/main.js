@@ -973,7 +973,7 @@ function setGameOverTxLink(sig) {
   }
 }
 
-function updateGameOverPrize(prizeAmount, payoutTx = null) {
+function updateGameOverPrize(prizeAmount, payoutTx = null, failReason = null) {
   const prizeEl   = document.getElementById("gameOverPrize");
   const prizeAmt  = document.getElementById("gameOverPrizeAmount");
   const retryBtn  = document.getElementById("gameOverRetryBtn");
@@ -983,11 +983,30 @@ function updateGameOverPrize(prizeAmount, payoutTx = null) {
     retryBtn?.classList.add("hidden");
     setGameOverTxLink(payoutTx);
   } else {
-    prizeAmt.textContent = "Payout failed — tap Retry or contact support";
+    // Name the actual reason (from the treasurer) so a stuck payout is
+    // self-diagnosing instead of a blank "failed".
+    prizeAmt.textContent = failReason
+      ? `Payout failed: ${failReason} — tap Retry or contact support`
+      : "Payout failed — tap Retry or contact support";
     retryBtn?.classList.remove("hidden");
     setGameOverTxLink(null);
   }
   els.gameOverMenuBtn.classList.remove("hidden");
+}
+
+// f10treasurer returns business failures as a non-2xx status, so supabase-js
+// surfaces them as `error` (a FunctionsHttpError) with `data` == null and the
+// real reason only inside the Response body. Without reading that body every
+// failure looks like a generic "non-2xx status code", which is why a stuck
+// payout is impossible to diagnose from the logs. This pulls out the actual
+// message so both the console and the on-screen text name the true cause.
+async function describePayoutFailure(payoutErr, payoutData) {
+  if (payoutData && payoutData.ok === false && payoutData.error) return String(payoutData.error);
+  try {
+    const body = await payoutErr?.context?.json?.();
+    if (body?.error) return String(body.error);
+  } catch (_) { /* body not JSON / already consumed */ }
+  return payoutErr?.message ? String(payoutErr.message) : "unknown error";
 }
 
 // Fix 10: allow winner to retry a failed payout without reloading the page.
@@ -1000,6 +1019,7 @@ async function retryPayout() {
   els.gameOverMenuBtn.classList.add("hidden");
   let prizeAmount = null;
   let payoutTx = null;
+  let failReason = null;
   try {
     const { data: payoutData, error: payoutErr } = await supabase.functions.invoke("f10treasurer", {
       body: { match_id: state.match.id },
@@ -1007,12 +1027,15 @@ async function retryPayout() {
     if (!payoutErr && payoutData?.winner_amount && payoutData?.decimals != null) {
       prizeAmount = Number(payoutData.winner_amount) / 10 ** payoutData.decimals;
       payoutTx = payoutData.payout_tx ?? null;
+    } else {
+      failReason = await describePayoutFailure(payoutErr, payoutData);
+      console.error(`Retry payout failed (match ${state.match.id}):`, failReason);
     }
-    if (payoutErr) console.error("Retry payout error:", payoutErr);
   } catch (err) {
+    failReason = String(err?.message || err);
     console.error("Retry payout error:", err);
   }
-  updateGameOverPrize(prizeAmount, payoutTx);
+  updateGameOverPrize(prizeAmount, payoutTx, failReason);
 }
 
 // Polls until the match row is marked 'finished', guarding against read-after-write lag.
@@ -1971,24 +1994,27 @@ async function reportResult(resultHint, { standings = [] } = {}) {
   showGameOver("win", winReason, finalStandings, "pending", serverKills ?? matchKills, finalTimeMs);
   let prizeAmount = null;
   let payoutTx = null;
+  let failReason = null;
   try {
     setStatus("Claiming prize…");
     try { refreshGameOverStats(); } catch (e) { console.error(e); }
     const { data: payoutData, error: payoutErr } = await supabase.functions.invoke("f10treasurer", {
       body: { match_id: matchId },
     });
-    if (payoutErr) {
-      console.error("Payout invoke error:", payoutErr);
-    } else if (payoutData?.winner_amount && payoutData?.decimals != null) {
+    if (!payoutErr && payoutData?.winner_amount && payoutData?.decimals != null) {
       prizeAmount = Number(payoutData.winner_amount) / 10 ** payoutData.decimals;
       payoutTx = payoutData.payout_tx ?? null;
+    } else {
+      failReason = await describePayoutFailure(payoutErr, payoutData);
+      console.error(`Payout failed (match ${matchId}):`, failReason);
     }
     await syncProfile();
     refreshGameOverStats();
   } catch (error) {
+    failReason = String(error?.message || error);
     console.error(error);
   }
-  updateGameOverPrize(prizeAmount, payoutTx);
+  updateGameOverPrize(prizeAmount, payoutTx, failReason);
 }
 
 async function leaveMatch({ silent = false, skipConfirm = false } = {}) {

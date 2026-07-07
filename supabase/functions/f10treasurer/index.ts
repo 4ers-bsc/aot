@@ -160,7 +160,11 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
-function errorResponse(message: string, status: number): Response {
+function errorResponse(message: string, status: number, matchId = ""): Response {
+  // Log every rejection with its reason (and match, when known) so a stuck /
+  // failing payout is diagnosable straight from the function logs instead of
+  // showing up client-side as a generic non-2xx.
+  console.error(`[f10treasurer] reject status=${status} match=${matchId || "?"} reason=${message}`);
   return new Response(JSON.stringify({ ok: false, error: message }), {
     status,
     headers: { "Content-Type": "application/json", ...corsHeaders },
@@ -194,6 +198,7 @@ Deno.serve(async (req: Request) => {
     const body = await req.json();
     matchId = body?.match_id;
     if (!matchId) return errorResponse("match_id is required", 400);
+    console.log(`[f10treasurer] claim start match=${matchId} user=${user.id}`);
 
     // ── Validate match state ─────────────────────────────────────────────────
     const { data: matchRow, error: matchErr } = await adminClient
@@ -456,6 +461,7 @@ Deno.serve(async (req: Request) => {
       console.error("payouts insert failed (non-fatal):", e);
     }
 
+    console.log(`[f10treasurer] paid match=${matchId} tx=${payoutSig} amount=${winnerAmountRaw.toString()} players=${players.length}`);
     return new Response(
       JSON.stringify({ ok: true, payout_tx: payoutSig, winner_amount: winnerAmountRaw.toString(), num_players: players.length, decimals }),
       { headers: { "Content-Type": "application/json", ...corsHeaders } },

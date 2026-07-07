@@ -30,6 +30,7 @@
 // ============================================================================
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { payoutWinner } from "../_shared/payout.ts";
 
 const appOrigin = Deno.env.get("APP_ORIGIN");
 if (!appOrigin) {
@@ -197,6 +198,26 @@ Deno.serve(async (req: Request) => {
           if (error) return fail(error.message);
           await logNote("waiting", matchId, note || "Stale waiting room closed.", "close_waiting_room");
           return json({ ok: true });
+        }
+
+        case "admin_pay_winner": {
+          // Pay the recorded winner of a finished match directly from escrow —
+          // for winners who never claimed (closed tab / walkover). Re-verifies
+          // every deposit on-chain, reserves the slot, transfers, and records
+          // the tx ONLY after on-chain confirmation (shared with f10treasurer).
+          const matchId = String(body?.match_id ?? "");
+          if (!matchId) return fail("match_id is required");
+          try {
+            const result = await payoutWinner(admin, matchId, (k) => Deno.env.get(k));
+            const winnerAmt = (Number(result.winner_amount) / 10 ** result.decimals)
+              .toLocaleString(undefined, { maximumFractionDigits: 0 });
+            await logNote("payout", matchId,
+              `Admin paid winner: ${winnerAmt} $FIGHT10 — tx ${result.payout_tx}`, "admin_pay_winner");
+            return json({ ok: true, ...result });
+          } catch (err) {
+            console.error(`[f10admin] admin_pay_winner failed match=${matchId}:`, err);
+            return fail(String(err?.message ?? err));
+          }
         }
 
         case "release_payout": {
