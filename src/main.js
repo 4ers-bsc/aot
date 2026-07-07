@@ -91,6 +91,10 @@ const els = {
   profileLevelFill: document.getElementById("profileLevelFill"),
   profileLevelNext: document.getElementById("profileLevelNext"),
   profileSaveBtn: document.getElementById("profileSaveBtn"),
+  usernameOverlay: document.getElementById("usernameOverlay"),
+  usernameInput: document.getElementById("usernameInput"),
+  usernameHint: document.getElementById("usernameHint"),
+  usernameSaveBtn: document.getElementById("usernameSaveBtn"),
   profileTabs: Array.from(document.querySelectorAll("[data-ptab]")),
   profileBodies: Array.from(document.querySelectorAll("[data-pbody]")),
   historyList: document.getElementById("historyList"),
@@ -612,6 +616,10 @@ function bindUi() {
   });
   els.profileSaveBtn.addEventListener("click", saveProfile);
   els.profileNameInput.addEventListener("keydown", (e) => { if (e.key === "Enter") saveProfile(); });
+  // Compulsory first-connect username prompt — save is the only way out (no
+  // close button, and backdrop clicks/Esc deliberately don't dismiss it).
+  els.usernameSaveBtn.addEventListener("click", () => saveRequiredUsername());
+  els.usernameInput.addEventListener("keydown", (e) => { if (e.key === "Enter") saveRequiredUsername(); });
   els.profileTabs.forEach((t) => t.addEventListener("click", () => selectProfileTab(t.dataset.ptab)));
   document.querySelectorAll("#skinCards .skin-card").forEach((c) => c.addEventListener("click", () => {
     const hint = document.getElementById("skinHint");
@@ -714,6 +722,7 @@ function bindUi() {
     if (e.key !== "Escape") return;
     if (navMenu?.classList.contains("open")) { closeNavMenu(); return; }
     const open = document.querySelector(".overlay.show");
+    if (open === els.usernameOverlay) return; // username prompt is compulsory — Esc can't skip it
     if (open) { open.classList.remove("show"); return; } // close topmost overlay
     if (game.isHomePlaying()) { game.stopHomePlay(); return; } // leave landing free-play
     if (state.match && !state.match.finished) els.pauseOverlay.classList.add("show");
@@ -807,6 +816,7 @@ async function handleSession(session) {
 
   if (!state.user) {
     state.profile = null;
+    els.usernameOverlay.classList.remove("show");
     await teardownMatch();
     game.clearAll();
     showLobby();
@@ -830,6 +840,9 @@ async function handleSession(session) {
     return;
   }
   showLobby();
+  // First connect: a wallet whose profile still has the DB default name must
+  // pick a username before anything else — the prompt blocks the whole lobby.
+  promptUsernameIfNeeded();
   // Restore a deposit that was confirmed on-chain but never spent on a seat
   // (e.g. the tab crashed between payment and queue entry).
   loadPendingDeposit();
@@ -2350,6 +2363,54 @@ async function saveProfile() {
     els.profileHint.classList.add("error");
   } finally {
     els.profileSaveBtn.disabled = false;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Compulsory username prompt — a profile still named with the DB default has
+// never been customized, so the wallet's first connect must set a real name
+// before the lobby is usable.
+// ---------------------------------------------------------------------------
+const DEFAULT_DISPLAY_NAME = "Trench Rookie";
+
+function needsUsername() {
+  const name = state.profile?.display_name;
+  return !!state.user && (!name || name === DEFAULT_DISPLAY_NAME);
+}
+
+function promptUsernameIfNeeded() {
+  if (!needsUsername()) return;
+  els.usernameInput.value = "";
+  els.usernameHint.textContent = "Pick the name your rivals will see. You can change it later in your profile.";
+  els.usernameHint.classList.remove("error");
+  els.usernameOverlay.classList.add("show");
+  els.usernameInput.focus();
+}
+
+async function saveRequiredUsername() {
+  const name = els.usernameInput.value.trim();
+  let problem = null;
+  if (name.length < 3 || name.length > 24) problem = "Username must be 3–24 characters.";
+  // The default name would just re-trigger this prompt on the next connect.
+  else if (name.toLowerCase() === DEFAULT_DISPLAY_NAME.toLowerCase()) problem = "Pick a name of your own.";
+  if (problem) {
+    els.usernameHint.textContent = problem;
+    els.usernameHint.classList.add("error");
+    return;
+  }
+  els.usernameSaveBtn.disabled = true;
+  try {
+    const { data, error } = await supabase.rpc("sync_my_profile", { p_display_name: name });
+    if (error) throw error;
+    state.profile = data;
+    els.usernameOverlay.classList.remove("show");
+    setStatus(recordSuffix(`Welcome, ${state.profile.display_name}! Choose Demo Match or Play PvP.`));
+  } catch (error) {
+    console.error(error);
+    els.usernameHint.textContent = error.message || "Could not save username.";
+    els.usernameHint.classList.add("error");
+  } finally {
+    els.usernameSaveBtn.disabled = false;
   }
 }
 

@@ -3,6 +3,7 @@ import { html as pvpSizeHtml }   from './pvpSize.js';
 import { html as lobbyHtml }     from './lobby.js';
 import { html as gameOverHtml }  from './gameOver.js';
 import { html as profileHtml }   from './profile.js';
+import { html as setUsernameHtml } from './setUsername.js';
 import { html as pauseHtml }     from './pause.js';
 import { html as howToHtml }     from './howToPlay.js';
 import { html as whitepaperHtml } from './whitepaper.js';
@@ -16,6 +17,7 @@ export function mountViews() {
     lobbyHtml,
     gameOverHtml,
     profileHtml,
+    setUsernameHtml,
     pauseHtml,
     howToHtml,
     whitepaperHtml,
