@@ -411,6 +411,17 @@ Deno.serve(async (req: Request) => {
           return json({ ok: true });
         }
 
+        case "delete_note": {
+          // Remove a review note (e.g. clean up the duplicate no-op notes the old
+          // release_payout produced). Accepts one id or an array of ids.
+          const raw = body?.id ?? body?.ids;
+          const ids = (Array.isArray(raw) ? raw : [raw]).map(Number).filter((n) => Number.isFinite(n));
+          if (ids.length === 0) return fail("id (or ids[]) is required");
+          const { data: rows, error } = await admin.from("review_notes").delete().in("id", ids).select("id");
+          if (error) return fail(error.message);
+          return json({ ok: true, deleted: rows?.length ?? 0 });
+        }
+
         case "resolve_dispute": {
           // Award a disputed match to a chosen participant, apply their stats,
           // and flip it to 'finished' so the winner can claim their payout
@@ -455,10 +466,11 @@ Deno.serve(async (req: Request) => {
           const matchId = String(body?.match_id ?? "");
           const note = String(body?.note ?? "").trim();
           if (!matchId) return fail("match_id is required");
-          const { error } = await admin.from("matches").update({
+          const { data: rows, error } = await admin.from("matches").update({
             status: "finished", winner_user_id: null, ended_at: new Date().toISOString(),
-          }).eq("id", matchId).eq("status", "disputed");
+          }).eq("id", matchId).eq("status", "disputed").select("id");
           if (error) return fail(error.message);
+          if (!rows || rows.length === 0) return fail("Match is no longer disputed — nothing to void.");
           await logNote("match", matchId, note || "Match voided (no winner).", "void_match");
           return json({ ok: true });
         }
@@ -468,10 +480,11 @@ Deno.serve(async (req: Request) => {
           const matchId = String(body?.match_id ?? "");
           const note = String(body?.note ?? "").trim();
           if (!matchId) return fail("match_id is required");
-          const { error } = await admin.from("matches").update({
+          const { data: rows, error } = await admin.from("matches").update({
             status: "finished", ended_at: new Date().toISOString(),
-          }).eq("id", matchId).eq("status", "waiting");
+          }).eq("id", matchId).eq("status", "waiting").select("id");
           if (error) return fail(error.message);
+          if (!rows || rows.length === 0) return fail("This match is no longer waiting — nothing to close.");
           await logNote("waiting", matchId, note || "Stale waiting room closed.", "close_waiting_room");
           return json({ ok: true });
         }
@@ -502,10 +515,16 @@ Deno.serve(async (req: Request) => {
           const matchId = String(body?.match_id ?? "");
           const note = String(body?.note ?? "").trim();
           if (!matchId) return fail("match_id is required");
-          const { error } = await admin.from("matches").update({
+          const { data: rows, error } = await admin.from("matches").update({
             payout_tx: null, payout_claimed_at: null,
-          }).eq("id", matchId).eq("payout_tx", "pending");
+          }).eq("id", matchId).eq("payout_tx", "pending").select("id");
           if (error) return fail(error.message);
+          // No-op guard: a null (never-claimed) payout has nothing to release.
+          // Report it honestly and DON'T log a note (this was producing piles of
+          // meaningless "released" notes on unclaimed matches).
+          if (!rows || rows.length === 0) {
+            return fail("Nothing to release — this payout isn't stuck on 'pending' (it was never claimed). Use \"Pay winner now\", or have the winner claim in-app.");
+          }
           await logNote("payout", matchId, note || "Stuck payout slot released for retry.", "release_payout");
           return json({ ok: true });
         }
@@ -546,8 +565,9 @@ Deno.serve(async (req: Request) => {
           const uid = String(body?.user_id ?? "");
           const note = String(body?.note ?? "").trim();
           if (!uid) return fail("user_id is required");
-          const { error } = await admin.from("banned_users").delete().eq("user_id", uid);
+          const { data: rows, error } = await admin.from("banned_users").delete().eq("user_id", uid).select("user_id");
           if (error) return fail(error.message);
+          if (!rows || rows.length === 0) return fail("User was not banned — nothing to undo.");
           await logNote("user", uid, note || "Unbanned.", "unban_user");
           return json({ ok: true });
         }

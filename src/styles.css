@@ -4666,3 +4666,19 @@ body.in-game .log-feed { left: 70px; }
   box-shadow: 0 8px 30px rgba(0, 0, 0, 0.6);
 }
 .admin-toast-err { border-color: rgba(198, 64, 42, 0.8); color: #f2b8ac; }
+
+/* Admin — note delete affordance + notes-tab toolbar. */
+.admin-notebar { display: flex; gap: 8px; margin-bottom: 12px; }
+.admin-cnote { display: flex; align-items: baseline; gap: 6px; }
+.admin-note-del {
+  margin-left: auto;
+  padding: 0 6px;
+  border: none;
+  background: transparent;
+  color: rgba(233, 224, 200, 0.4);
+  cursor: pointer;
+  font-size: 0.7rem;
+  line-height: 1;
+  flex-shrink: 0;
+}
+.admin-note-del:hover { color: #f2b8ac; }

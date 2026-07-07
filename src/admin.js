@@ -272,6 +272,17 @@ export function initAdmin(supabase) {
       if (await askConfirm("Unban this user?", "Unban")) act("unban_user", { user_id: user });
       return;
     }
+    if (a === "del_note") {
+      if (await askConfirm("Delete this review note?", "Delete")) act("delete_note", { id: Number(btn.dataset.id) });
+      return;
+    }
+    if (a === "clear_release_notes") {
+      const ids = (data?.notes || []).filter((n) => n.action === "release_payout").map((n) => n.id);
+      if (ids.length && await askConfirm(`Delete ${ids.length} "release-slot" note${ids.length > 1 ? "s" : ""}? These were the no-op notes from releasing already-unclaimed payouts.`, "Delete all")) {
+        act("delete_note", { ids });
+      }
+      return;
+    }
   }
 
   // ---- Render ---------------------------------------------------------------
@@ -298,8 +309,20 @@ export function initAdmin(supabase) {
 
   function renderTab(tab) {
     const rows = data[tab] || [];
-    if (rows.length === 0) return `<div class="admin-msg">Nothing here — queue is clear. ✓</div>`;
     const meta = data.thresholds || {};
+    // Notes tab keeps its toolbar (add / bulk-clear) even when empty.
+    if (tab === "notes") {
+      const noiseCount = rows.filter((n) => n.action === "release_payout").length;
+      const bar = `<div class="admin-notebar">
+        <button class="admin-btn admin-btn-sm admin-primary" data-act="note" data-subject-type="general">＋ Add note</button>
+        ${noiseCount ? `<button class="admin-btn admin-btn-sm admin-danger" data-act="clear_release_notes">Clear ${noiseCount} release-slot note${noiseCount > 1 ? "s" : ""}</button>` : ""}
+      </div>`;
+      const table = rows.length
+        ? `<table class="admin-table">${thead(["When", "Subject", "Note", "By", ""])}${rows.map(noteRow).join("")}</tbody></table>`
+        : `<div class="admin-msg">No notes yet.</div>`;
+      return bar + table;
+    }
+    if (rows.length === 0) return `<div class="admin-msg">Nothing here — queue is clear. ✓</div>`;
     switch (tab) {
       case "disputed":          return rows.map(disputedCard).join("");
       case "integrity":         return `<table class="admin-table">${thead(["When", "Player", "Kind", "Detail", "Match"])}${rows.map(integrityRow).join("")}</tbody></table>`;
@@ -308,7 +331,6 @@ export function initAdmin(supabase) {
       case "consumed_deposits": return `<table class="admin-table">${thead(["When", "Player", "Deposit tx", "Match"])}${rows.map(consumedRow).join("")}</tbody></table>`;
       case "stale_waiting":     return rows.map(waitingCard).join("");
       case "banned":            return `<table class="admin-table">${thead(["When", "Wallet", "Reason", "Action"])}${rows.map(bannedRow).join("")}</tbody></table>`;
-      case "notes":             return `<table class="admin-table">${thead(["When", "Subject", "Note", "By"])}${rows.map(noteRow).join("")}</tbody></table>`;
       default:                  return "";
     }
   }
@@ -327,7 +349,7 @@ export function initAdmin(supabase) {
     const ns = notesFor(subjectId);
     if (!ns.length) return "";
     return `<div class="admin-card-notes">` + ns.map((n) =>
-      `<div class="admin-cnote"><span class="admin-dim">${ago(n.created_at)} · ${escapeHtml(n.author_name || shortId(n.author_id))}${n.action && n.action !== "note" ? ` · ${escapeHtml(n.action)}` : ""}</span> ${escapeHtml(n.note)}</div>`
+      `<div class="admin-cnote"><span class="admin-dim">${ago(n.created_at)} · ${escapeHtml(n.author_name || shortId(n.author_id))}${n.action && n.action !== "note" ? ` · ${escapeHtml(n.action)}` : ""}</span> ${escapeHtml(n.note)}<button class="admin-note-del" data-act="del_note" data-id="${n.id}" title="Delete note">✕</button></div>`
     ).join("") + `</div>`;
   }
 
@@ -442,6 +464,7 @@ export function initAdmin(supabase) {
       <td class="admin-nowrap">${escapeHtml(r.subject_type)} ${r.subject_id ? shortId(r.subject_id) : ""}${r.action ? ` <span class="admin-dim">(${escapeHtml(r.action)})</span>` : ""}</td>
       <td>${escapeHtml(r.note)}</td>
       <td>${escapeHtml(r.author_name || shortId(r.author_id))}</td>
+      <td class="admin-nowrap"><button class="admin-btn admin-btn-xs" data-act="del_note" data-id="${r.id}">Delete</button></td>
     </tr>`;
   }
 
