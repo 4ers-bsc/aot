@@ -9,6 +9,14 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link href="https://fonts.googleapis.com/css2?family=Black+Ops+One&family=Oswald:wght@400;500;600;700&family=Rajdhani:wght@500;600;700&display=swap" rel="stylesheet" />
 <link rel="stylesheet" href="./src/styles.css" />
+<script>
+  // Always land at the top on load — never restore a mid-page scroll position
+  // from a previous visit. scrollRestoration covers normal reloads; the
+  // pageshow reset covers back/forward-cache restores, where the browser
+  // brings the page back exactly as it was left.
+  if ("scrollRestoration" in history) history.scrollRestoration = "manual";
+  window.addEventListener("pageshow", function () { window.scrollTo(0, 0); });
+</script>
 </head>
 <body>
   <div class="shell">
