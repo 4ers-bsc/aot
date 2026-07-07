@@ -4200,7 +4200,7 @@ body.in-game .log-feed { left: 70px; }
   color: rgba(233, 224, 200, 0.68);
 }
 
-/* Mode cards (Modes & Stakes) */
+/* Mode cards (Modes & Entries) */
 .hs-mode-name {
   font-family: var(--font-head);
   font-size: 0.72rem;

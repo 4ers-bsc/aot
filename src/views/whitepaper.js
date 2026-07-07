@@ -7,7 +7,7 @@ export const html = `
 
         <p class="wp-intro">
           FIGHT10 is a skill-based, last-one-standing arena where every fighter
-          spawns identical and each player stakes an equal entry. The winner takes
+          spawns identical and each player pays an equal entry. The winner takes
           90% of the pot; a 10% protocol fee funds operations. This paper describes
           how the system stays fair and custodial-safe.
           Implementation identifiers are intentionally masked.
@@ -15,15 +15,15 @@ export const html = `
 
         <div class="wp-section">01 · Economic model</div>
         <p class="wp-text">
-          Every player stakes a fixed entry of the in-game token. All entries for a
+          Every player pays a fixed entry of the in-game token. All entries for a
           match form a single pot. On a verified result the pot is paid to the sole
           survivor, less a 10% protocol fee. Entries are non-refundable once a
-          match is joined — leaving forfeits the stake to the pot.
+          match is joined — leaving forfeits the entry to the pot.
         </p>
 
         <div class="wp-section">02 · Custody &amp; escrow</div>
         <p class="wp-text">
-          Stakes are transferred on-chain into a program-controlled escrow account.
+          Entries are transferred on-chain into a program-controlled escrow account.
           The escrow signer is held only by a privileged server process; it is never
           exposed to the browser. Payouts are the only outflow, and they are gated by
           a verified, finished match with a single confirmed winner.
@@ -31,11 +31,11 @@ export const html = `
 
         <div class="wp-section">03 · Deposit-before-join (verified admission)</div>
         <p class="wp-text">
-          A seat can only be taken <em>after</em> the stake is verified on-chain — the
+          A seat can only be taken <em>after</em> the entry is verified on-chain — the
           browser cannot self-admit. The flow:
         </p>
         <div class="wp-flow">
-          <div class="wp-step"><span>1</span> Client signs the stake transfer to escrow.</div>
+          <div class="wp-step"><span>1</span> Client signs the entry transfer to escrow.</div>
           <div class="wp-step"><span>2</span> A verification service re-checks the transaction on-chain: confirmed status, exact amount, correct destination, and that the signer matches the player's own wallet.</div>
           <div class="wp-step"><span>3</span> Only then does a privileged admission routine grant the seat.</div>
         </div>
@@ -70,13 +70,13 @@ export const html = `
         <ul class="wp-list">
           <li><strong>Write-time validation.</strong> Impossible or out-of-context combat records (wrong match state, non-participants, bad timing, output above a hard ceiling) are rejected at the moment they are written.</li>
           <li><strong>Rate limiting.</strong> Authoritative actions and the admission service are throttled per player to blunt scripted abuse.</li>
-          <li><strong>Forfeit, not void.</strong> A player flagged for impossible output is excluded from winner selection; the best clean player still wins and the cheater forfeits their stake — honest opponents are never punished for someone else's cheating.</li>
+          <li><strong>Forfeit, not void.</strong> A player flagged for impossible output is excluded from winner selection; the best clean player still wins and the cheater forfeits their entry — honest opponents are never punished for someone else's cheating.</li>
           <li><strong>Soft telemetry.</strong> Client-side tamper signals are reported for review only. They never auto-penalize, to avoid false-positive bans on honest players.</li>
         </ul>
 
         <div class="wp-section">07 · Payout integrity</div>
         <p class="wp-text">
-          Before any transfer the payout process re-verifies every stake on-chain,
+          Before any transfer the payout process re-verifies every entry on-chain,
           confirms the caller is the recorded winner, and atomically reserves a
           single payout slot so concurrent or repeated claims cannot double-pay. The
           escrow transfer is broadcast and then polled to confirmation; the result is
