@@ -685,6 +685,10 @@ function bindUi() {
     const left = await leaveMatch({ skipConfirm: true });
     if (left) window.location.reload();
   });
+  // Leaderboard tab strip (points / wins / $FIGHT10 holdings).
+  document.querySelectorAll("[data-lbtab]").forEach((btn) =>
+    btn.addEventListener("click", () => { selectLeaderboardTab(btn.dataset.lbtab).catch((e) => console.error(e)); })
+  );
   // Leaderboard + Buy-$FIGHT10 overlays: close button and backdrop click.
   [["leaderboardOverlay", "leaderboardClose"], ["buyFight10Overlay", "buyFight10Close"]].forEach(([ovId, closeId]) => {
     const ov = document.getElementById(ovId);
@@ -1161,32 +1165,97 @@ function showBuyFight10(haveTokens = null) {
 }
 
 // ---------------------------------------------------------------------------
-// Leaderboard — top fighters by points, from the get_leaderboard RPC (the
-// profiles table itself is RLS'd to own-row reads).
+// Leaderboard — three boards: points, wins / win%, and $FIGHT10 held. The two
+// stat tabs come from the get_leaderboard RPC (the profiles table itself is
+// RLS'd to own-row reads); the holdings tab ranks the wallets returned by
+// get_holdings_wallets by their on-chain $FIGHT10 balance.
 // ---------------------------------------------------------------------------
-async function openLeaderboard() {
-  const list = document.getElementById("leaderboardList");
+const LB_TITLES = {
+  points:   "TOP FIGHTERS · POINTS",
+  wins:     "TOP FIGHTERS · WINS",
+  holdings: "TOP HOLDERS · $FIGHT10",
+};
+let lbTab = "points";
+
+async function openLeaderboard(tab = "points") {
   document.getElementById("leaderboardOverlay")?.classList.add("show");
+  await selectLeaderboardTab(tab);
+}
+
+async function selectLeaderboardTab(tab) {
+  lbTab = tab;
+  document.querySelectorAll("[data-lbtab]").forEach((b) => b.classList.toggle("active", b.dataset.lbtab === tab));
+  const title = document.getElementById("leaderboardTitle");
+  if (title) title.textContent = LB_TITLES[tab] ?? LB_TITLES.points;
+  const list = document.getElementById("leaderboardList");
   if (!list) return;
   list.innerHTML = '<div class="lb-empty">Loading…</div>';
-  const { data, error } = await supabase.rpc("get_leaderboard", { p_limit: 20 });
-  if (error || !Array.isArray(data)) {
-    console.error("[leaderboard]", error);
-    list.innerHTML = '<div class="lb-empty">Could not load the leaderboard — try again.</div>';
-    return;
+  try {
+    const body = tab === "holdings" ? await loadHoldingsBoard() : await loadStatsBoard(tab);
+    if (lbTab !== tab) return; // user switched tabs while this one loaded
+    list.innerHTML = body;
+  } catch (err) {
+    console.error("[leaderboard]", err);
+    if (lbTab === tab) list.innerHTML = '<div class="lb-empty">Could not load the leaderboard — try again.</div>';
   }
-  if (!data.length) {
-    list.innerHTML = '<div class="lb-empty">No fighters ranked yet — win matches to get on the board.</div>';
-    return;
-  }
-  list.innerHTML = data.map((r) =>
-    `<div class="lb-row${r.is_me ? " lb-me" : ""}">` +
-    `<span class="lb-rank">#${r.rank}</span>` +
+}
+
+function lbRowHtml(rank, r, mid, value) {
+  return `<div class="lb-row${r.is_me ? " lb-me" : ""}">` +
+    `<span class="lb-rank">#${rank}</span>` +
     `<span class="lb-name">${escapeHtml(r.display_name)}${r.is_me ? '<span class="lb-you-tag">YOU</span>' : ""}</span>` +
-    `<span class="lb-level">LVL ${r.level}</span>` +
-    `<span class="lb-points">${Number(r.points).toLocaleString()} PTS</span>` +
-    `</div>`
-  ).join("");
+    `<span class="lb-level">${mid}</span>` +
+    `<span class="lb-points">${value}</span>` +
+    `</div>`;
+}
+
+// Points and wins tabs — ranked server-side by the get_leaderboard RPC.
+async function loadStatsBoard(tab) {
+  const { data, error } = await supabase.rpc("get_leaderboard", { p_limit: 20, p_sort: tab });
+  if (error || !Array.isArray(data)) throw error ?? new Error("bad get_leaderboard response");
+  if (!data.length) return '<div class="lb-empty">No fighters ranked yet — win matches to get on the board.</div>';
+  return data.map((r) => {
+    const games = (r.wins ?? 0) + (r.losses ?? 0);
+    const value = tab === "wins"
+      ? `${r.wins} W · ${games ? Math.round((r.wins / games) * 100) : 0}%`
+      : `${Number(r.points).toLocaleString()} PTS`;
+    return lbRowHtml(r.rank, r, `LVL ${r.level}`, value);
+  }).join("");
+}
+
+// Holdings tab — balances live on-chain, so rank client-side: derive each
+// wallet's $FIGHT10 ATA and read them all in one getMultipleAccountsInfo call.
+async function loadHoldingsBoard() {
+  if (FIGHT10_MINT.startsWith("<")) return '<div class="lb-empty">Holder rankings go live at token launch.</div>';
+  const { data, error } = await supabase.rpc("get_holdings_wallets", { p_limit: 100 });
+  if (error || !Array.isArray(data)) throw error ?? new Error("bad get_holdings_wallets response");
+  const holders = data.filter((r) => r.wallet_address);
+  if (!holders.length) return '<div class="lb-empty">No holders ranked yet — connect a wallet and grab some $FIGHT10.</div>';
+  const { PublicKey, getAssociatedTokenAddress } = await loadSolanaLibs();
+  const conn = await getSolanaConn();
+  const mintPubkey = new PublicKey(FIGHT10_MINT);
+  const entries = (await Promise.all(holders.map(async (r) => {
+    try {
+      return { r, ata: await getAssociatedTokenAddress(mintPubkey, new PublicKey(r.wallet_address)) };
+    } catch { return null; } // skip malformed or off-curve addresses
+  }))).filter(Boolean);
+  const infos = await conn.getMultipleAccountsInfo(entries.map((e) => e.ata));
+  entries.forEach((e, i) => {
+    const d = infos[i]?.data;
+    // SPL token account layout: the u64 balance sits at byte offset 64.
+    e.balance = d && d.length >= 72
+      ? new DataView(d.buffer, d.byteOffset, d.byteLength).getBigUint64(64, true)
+      : 0n;
+  });
+  const ranked = entries.filter((e) => e.balance > 0n)
+    .sort((a, b) => (b.balance > a.balance ? 1 : b.balance < a.balance ? -1 : 0))
+    .slice(0, 20);
+  if (!ranked.length) return '<div class="lb-empty">No holders ranked yet — grab some $FIGHT10 to top this board.</div>';
+  return ranked.map((e, i) => {
+    const amt = (Number(e.balance) / 10 ** FIGHT10_DECIMALS).toLocaleString(undefined, { maximumFractionDigits: 0 });
+    const w = e.r.wallet_address;
+    return lbRowHtml(i + 1, e.r, `${w.slice(0, 4)}…${w.slice(-4)}`, `${amt} F10`);
+  }).join("");
 }
 
 async function fetchLobbyCounts() {
