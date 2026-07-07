@@ -1229,16 +1229,25 @@ async function loadHoldingsBoard() {
   if (FIGHT10_MINT.startsWith("<")) return '<div class="lb-empty">Holder rankings go live at token launch.</div>';
   const { data, error } = await supabase.rpc("get_holdings_wallets", { p_limit: 100 });
   if (error || !Array.isArray(data)) throw error ?? new Error("bad get_holdings_wallets response");
-  const holders = data.filter((r) => r.wallet_address);
+  // wallet_address may carry a "chain:" prefix (e.g. "solana:<pubkey>") —
+  // same normalization as the deposit flow: keep only the pubkey tail.
+  const holders = data
+    .map((r) => ({ ...r, addr: (r.wallet_address ?? "").trim().split(":").pop() }))
+    .filter((r) => r.addr);
   if (!holders.length) return '<div class="lb-empty">No holders ranked yet — connect a wallet and grab some $FIGHT10.</div>';
-  const { PublicKey, getAssociatedTokenAddress } = await loadSolanaLibs();
+  const { PublicKey, getAssociatedTokenAddress, ASSOCIATED_TOKEN_PROGRAM_ID } = await loadSolanaLibs();
   const conn = await getSolanaConn();
   const mintPubkey = new PublicKey(FIGHT10_MINT);
+  // The mint's owning program (classic SPL Token vs Token-2022) decides which
+  // ATA to derive; a missing mint account means the token isn't live yet.
+  const mintAcc = await conn.getAccountInfo(mintPubkey);
+  if (!mintAcc) return '<div class="lb-empty">Holder rankings go live at token launch.</div>';
   const entries = (await Promise.all(holders.map(async (r) => {
     try {
-      return { r, ata: await getAssociatedTokenAddress(mintPubkey, new PublicKey(r.wallet_address)) };
+      return { r, ata: await getAssociatedTokenAddress(mintPubkey, new PublicKey(r.addr), false, mintAcc.owner, ASSOCIATED_TOKEN_PROGRAM_ID) };
     } catch { return null; } // skip malformed or off-curve addresses
   }))).filter(Boolean);
+  if (!entries.length) return '<div class="lb-empty">No holders ranked yet — connect a wallet and grab some $FIGHT10.</div>';
   const infos = await conn.getMultipleAccountsInfo(entries.map((e) => e.ata));
   entries.forEach((e, i) => {
     const d = infos[i]?.data;
@@ -1253,7 +1262,7 @@ async function loadHoldingsBoard() {
   if (!ranked.length) return '<div class="lb-empty">No holders ranked yet — grab some $FIGHT10 to top this board.</div>';
   return ranked.map((e, i) => {
     const amt = (Number(e.balance) / 10 ** FIGHT10_DECIMALS).toLocaleString(undefined, { maximumFractionDigits: 0 });
-    const w = e.r.wallet_address;
+    const w = e.r.addr;
     return lbRowHtml(i + 1, e.r, `${w.slice(0, 4)}…${w.slice(-4)}`, `${amt} F10`);
   }).join("");
 }
