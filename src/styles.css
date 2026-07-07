@@ -2618,7 +2618,8 @@ body.in-game #homePlayPrompt { display: none !important; }
 .hud-hidden .hotbar,
 .hud-hidden .game-rivals,
 .hud-hidden .game-fps,
-.hud-hidden .game-ping {
+.hud-hidden .game-ping,
+.hud-hidden .theme-ctrl {
   display: none !important;
 }
 
@@ -2849,6 +2850,52 @@ body.in-game .log-feed { left: 70px; }
 
 .toggle.on { background: #2f8f4a; }
 .toggle.on::after { left: 30px; }
+
+/* Arena theme dropdowns — the floating in-arena picker and the settings row */
+.theme-select {
+  min-width: 150px;
+  max-width: 220px;
+  padding: 7px 10px;
+  border-radius: 8px;
+  cursor: pointer;
+  background: rgba(14, 16, 20, 0.9);
+  color: #f0e8d0;
+  border: 1px solid rgba(255, 200, 48, 0.35);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  appearance: auto;
+}
+.theme-select:hover { border-color: rgba(255, 200, 48, 0.7); }
+.theme-select:focus { outline: none; border-color: rgba(255, 200, 48, 0.9); }
+.theme-select option { background: #101318; color: #f0e8d0; }
+
+/* Docked beside the gear button in the top-left corner (weapon panel owns
+   the bottom-right, minimap the bottom-left, stats the top-right). */
+.theme-ctrl {
+  position: fixed;
+  top: 16px;
+  left: 64px;
+  z-index: 12;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 40px;
+  padding: 0 10px;
+  border-radius: 9px;
+  background: rgba(20, 28, 24, 0.6);
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+}
+.theme-ctrl-label {
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 10px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: rgba(240, 232, 208, 0.6);
+  user-select: none;
+}
 
 .keys-list .k,
 .cmd-list .k {
@@ -3924,6 +3971,10 @@ body.in-game .log-feed { left: 70px; }
     height: 34px;
     font-size: 15px;
   }
+
+  .theme-ctrl { top: 10px; left: 50px; height: 34px; padding: 0 7px; gap: 5px; }
+  .theme-ctrl-label { display: none; }
+  .theme-ctrl .theme-select { min-width: 110px; max-width: 150px; font-size: 11px; padding: 5px 6px; }
 
   .raider-count-ctrl {
     top: 58px;

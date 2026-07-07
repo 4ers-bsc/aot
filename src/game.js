@@ -37,24 +37,230 @@ const AI_WEAPON = WEAPONS.sniper;
 // tag matches the format shown for real players.
 function randomAiLevel() { return 1 + Math.floor(Math.random() * 15); }
 
+// Fighter palettes and gameplay-signal colors are shared by every theme:
+// green always means "me", red always means "threat", whatever the scenery.
+const THEME_BASE = {
+  player: { skin: 0xd69a55, gi: 0x17181c, trim: 0xd9a821, pants: 0x101114, hair: 0x0b0b0d },
+  enemy: { skin: 0xd0a884, gi: 0xa83a32, trim: 0x611c1c, pants: 0x2e1414, hair: 0x1a0e0e },
+  markerMove: [0x2f8a2f, 0x1f6f1f], markerAttack: [0xd23b3b, 0xa02020],
+  playerBar: "#33b14a", enemyBar: "#e0473c",
+};
+// Five arena themes, each rendered in its own art style. Every visual layer —
+// ground, grid, arena walls, cloth banner, ledge lamps, ambient particles,
+// river, map props, biome overlay, minimap, lights — reads from the active
+// entry, so switching redresses the entire arena. Gameplay is untouched:
+// prop colors are chosen with the exact same seeded-rng call pattern in every
+// theme, so regenerating a match seed under a new theme yields an identical
+// layout (identical solids/river) with new paint.
 const THEMES = {
-  game: {
+  // 1 · The original look — crisp voxel winter diorama.
+  frostfall: {
+    ...THEME_BASE,
+    label: "Frostfall Keep", styleName: "Voxel Winter",
     bg: 0x08090c,
     ground: ["#ffffff", "#ffffff", "#ffffff", "#f4f4f4", "#f4f4f4", "#e2e2e2", "#d9d9d9", "#d9d9d9", "#c4c4c4", "#a8a8a8", "#8f8f8f", "#6f6f6f"],
     grid: [0x8a7030, 0xb89040], gridOpacity: 0.38,
     border: 0xffc830,
-    player: { skin: 0xd69a55, gi: 0x17181c, trim: 0xd9a821, pants: 0x101114, hair: 0x0b0b0d },
-    enemy: { skin: 0xd0a884, gi: 0xa83a32, trim: 0x611c1c, pants: 0x2e1414, hair: 0x1a0e0e },
     bullet: 0xffe08a,
-    markerMove: [0x2f8a2f, 0x1f6f1f], markerAttack: [0xd23b3b, 0xa02020],
-    playerBar: "#33b14a", enemyBar: "#e0473c",
     cursor: "%23e0473c",
-    mm: { grid: "rgba(110,120,128,0.16)", border: "rgba(58,106,58,0.8)", cam: "rgba(47,138,47,0.5)", enemy: "#d23b3b", player: "#2f8a2f" }
+    light: { ambient: 0xffffff, ambientI: 0.85, sun: 0xffffff, sunI: 0.65 },
+    wallBack: 0x0a0804,
+    glassFill: "210,175,60", glassLine: "255,200,48",
+    banner: { top: "#d9a413", bottom: "#a87a08", edge: "#7a5800", weave: "122,88,0", text: "#0a0800", fold: 0xc8940a },
+    rim: [0xffc830, 0xffaa00],
+    ledge: { color: 0x0c0c0e, rough: 0.16, metal: 0.72, trim: 0xffaa00 },
+    flame: ["255,246,214", "255,208,116", "255,138,40", "255,90,10"],
+    lampGlow: ["255,180,80", "255,130,30", "255,90,10"],
+    dots: { bg: "#000000", dot: "#c8d0da" },
+    decal: { color: "#000000", opacity: 0.22 },
+    clouds: 0.1,
+    particles: { count: 1400, colors: ["#ffffff"], size: 0.34, opacity: 0.9, speed: [2, 5], sway: 0.4, swaySpeed: 1.4, rise: false },
+    river: { bed: "rgba(20,60,100,0.35)", foam: "rgba(224,242,250,0.6)", water: "rgba(55,120,175,0.88)", deep: "rgba(28,78,128,0.5)", glint: "rgba(235,248,255,0.5)", mm: "rgba(61,127,176,0.62)" },
+    overlay: { river: [62, 88, 118], peak: [22, 20, 16], mottleA: "238,243,250", mottleB: "88,74,52" },
+    props: {
+      towerBase: 0x6a6a6a, towerBody: 0x787878, towerPar: 0x848484, towerCapA: 0xdde9f5, towerCapB: 0xe4eef7, towerBt: 0x7a7a7a,
+      towerCloth: { bg: "#c8940a", edge: "#7a5800", text: "#0a0800" },
+      towerWin: { color: 0x1a1206, emissive: 0xffb23e },
+      towerGrass: [0xc8dce0, 0xa8c8b8],
+      treeTrunk: 0x5c3d1e, treeDark: [0x27522a, 0x1f451e], treeLight: [0x2d5e2a, 0x254f22], treeCaps: [0xe6eef6, 0xf1f6fb], treeCapsOn: true,
+      peakRock: 0x8b8f96, peakCap: 0xf4f8fb,
+      boulder: 0x7a7875, boulderCap: 0xdde9f5, boulderCapOn: true,
+      log: 0x4a2e12,
+      grass: [0x4a7a38, 0x5a8a42], flowerStem: 0x4a6a30, blooms: [0xe8d44f, 0xd9736b, 0xe8e6da],
+      pebble: { h: 0.08, s: 0.04, hiL: [0.82, 0.1], loL: [0.42, 0.25] },
+      reeds: [0x7d8a44, 0x5d7036], pads: [0x3f6e33, 0x4a7a3a],
+      fish: [0xe8963c, 0xd4a017, 0xf2ce5b],
+    },
+    mm: { grid: "rgba(110,120,128,0.16)", border: "rgba(58,106,58,0.8)", cam: "rgba(47,138,47,0.5)", enemy: "#d23b3b", player: "#2f8a2f", solid: "rgba(40,46,40,0.7)" }
+  },
+  // 2 · Sumi-e ink-wash scroll: rice-paper ground, ink grid, vermillion seals,
+  // cherry-blossom trees shedding petals, an indigo ink river with koi.
+  sumi: {
+    ...THEME_BASE,
+    label: "Inkbrush Shrine", styleName: "Sumi-e Scroll",
+    bg: 0x14100e,
+    ground: ["#f5efe0", "#f4eddc", "#f2ecdc", "#efe8d5", "#ece4cf", "#e7dfc8", "#e2d9c0", "#dcd2b6", "#d5caac", "#ccc0a0", "#c0b28f"],
+    grid: [0x3a332a, 0x554b3c], gridOpacity: 0.3,
+    border: 0xc03428,
+    bullet: 0xff8866,
+    cursor: "%23c03428",
+    light: { ambient: 0xfff2e0, ambientI: 0.9, sun: 0xffe8cc, sunI: 0.55 },
+    wallBack: 0x0d0a08,
+    glassFill: "180,60,40", glassLine: "220,84,52",
+    banner: { top: "#b8321f", bottom: "#7e1f12", edge: "#3a0e08", weave: "58,14,8", text: "#f5efe0", fold: 0xa02c1c },
+    rim: [0xc03428, 0x7e1f12],
+    ledge: { color: 0x1e1410, rough: 0.35, metal: 0.4, trim: 0xc03428 },
+    flame: ["255,238,200", "255,190,120", "240,110,60", "200,60,30"],
+    lampGlow: ["255,170,110", "230,90,50", "190,50,25"],
+    dots: { bg: "#0d0a08", dot: "#8a7f6c" },
+    decal: { color: "#1a1512", opacity: 0.28 },
+    clouds: 0.16,
+    particles: { count: 520, colors: ["#f6c9d4", "#f2b3c4", "#fbe3ea"], size: 0.42, opacity: 0.95, speed: [0.8, 1.9], sway: 1.5, swaySpeed: 0.9, rise: false },
+    river: { bed: "rgba(30,38,66,0.4)", foam: "rgba(240,234,214,0.55)", water: "rgba(52,64,110,0.85)", deep: "rgba(24,30,60,0.55)", glint: "rgba(235,230,210,0.5)", mm: "rgba(70,84,140,0.62)" },
+    overlay: { river: [46, 54, 92], peak: [40, 32, 26], mottleA: "250,244,228", mottleB: "40,34,28" },
+    props: {
+      towerBase: 0x2c211a, towerBody: 0x3a2c20, towerPar: 0xa8301e, towerCapA: 0xb83a24, towerCapB: 0xc84a30, towerBt: 0x2c211a,
+      towerCloth: { bg: "#1a1512", edge: "#c03428", text: "#f5efe0" },
+      towerWin: { color: 0x241812, emissive: 0xffb066 },
+      towerGrass: [0x9aa06a, 0x7a8452],
+      treeTrunk: 0x2e2018, treeDark: [0xd88ba3, 0xc47790], treeLight: [0xeaa7bb, 0xdd93aa], treeCaps: [0xf8dae3, 0xfceef2], treeCapsOn: true,
+      peakRock: 0x4c4a48, peakCap: 0xe8e2d2,
+      boulder: 0x55504a, boulderCap: 0xe8e2d2, boulderCapOn: true,
+      log: 0x3a2a1c,
+      grass: [0x6e7a3e, 0x8a9450], flowerStem: 0x5a6432, blooms: [0xc03428, 0xf5efe0, 0xe8b6c4],
+      pebble: { h: 0.09, s: 0.06, hiL: [0.78, 0.08], loL: [0.3, 0.18] },
+      reeds: [0x8a9450, 0x6e7a3e], pads: [0x556e33, 0x647a3c],
+      fish: [0xe85c30, 0xf2f0e8, 0xd42a1a],
+    },
+    mm: { grid: "rgba(90,80,60,0.22)", border: "rgba(192,52,40,0.8)", cam: "rgba(150,60,40,0.5)", enemy: "#d23b3b", player: "#2f8a2f", solid: "rgba(46,38,30,0.7)" }
+  },
+  // 3 · Synthwave vector grid: near-black indigo floor, glowing cyan/magenta
+  // wireframe, a luminous data-stream river, digital rain, neon-lit props.
+  neon: {
+    ...THEME_BASE,
+    label: "Neon Circuit", styleName: "Synthwave Grid",
+    bg: 0x040208,
+    ground: ["#0b0817", "#0d0a1c", "#0a0714", "#100c22", "#0d0a1c", "#080610", "#120e26", "#0b0817", "#0f0b20", "#070510"],
+    grid: [0x00e5ff, 0xff2bd6], gridOpacity: 0.5,
+    border: 0x00e5ff,
+    bullet: 0x7df9ff,
+    cursor: "%23ff3860",
+    light: { ambient: 0x8899ff, ambientI: 0.75, sun: 0xaaccff, sunI: 0.55 },
+    wallBack: 0x030110,
+    glassFill: "0,220,255", glassLine: "255,43,214",
+    banner: { top: "#ff2bd6", bottom: "#7a00b3", edge: "#00e5ff", weave: "0,229,255", text: "#04020a", fold: 0xd41fb0 },
+    rim: [0x00e5ff, 0xff2bd6],
+    ledge: { color: 0x0a0a16, rough: 0.12, metal: 0.8, trim: 0x00e5ff },
+    flame: ["220,255,255", "120,240,255", "0,180,255", "0,90,255"],
+    lampGlow: ["80,220,255", "0,160,255", "0,90,255"],
+    dots: { bg: "#020108", dot: "#3fd6ff" },
+    decal: { color: "#00e5ff", opacity: 0.3 },
+    clouds: 0.05,
+    particles: { count: 1200, colors: ["#00ffcc", "#00e5ff", "#66ffe8"], size: 0.22, opacity: 0.85, speed: [9, 15], sway: 0, swaySpeed: 0, rise: false },
+    river: { bed: "rgba(0,40,70,0.5)", foam: "rgba(0,229,255,0.35)", water: "rgba(0,120,200,0.75)", deep: "rgba(160,0,255,0.4)", glint: "rgba(150,255,255,0.85)", mm: "rgba(0,190,255,0.62)" },
+    overlay: { river: [0, 80, 140], peak: [40, 0, 70], mottleA: "0,229,255", mottleB: "120,0,180" },
+    props: {
+      towerBase: 0x101024, towerBody: 0x16162e, towerPar: 0x1c1c3a, towerCapA: 0x00e5ff, towerCapB: 0x33ecff, towerBt: 0x16162e,
+      towerCloth: { bg: "#0a0a18", edge: "#ff2bd6", text: "#00e5ff" },
+      towerWin: { color: 0x001018, emissive: 0x00e5ff },
+      towerGrass: [0x00b3cc, 0x8a2be2],
+      treeTrunk: 0x1a1a2e, treeDark: [0xff2bd6, 0xb31f96], treeLight: [0x00e5ff, 0x00a3b8], treeCaps: [0xffffff, 0xe0faff], treeCapsOn: false,
+      peakRock: 0x14142a, peakCap: 0xff2bd6,
+      boulder: 0x181830, boulderCap: 0x00e5ff, boulderCapOn: false,
+      log: 0x22224a,
+      grass: [0x00c8b0, 0x00a3b8], flowerStem: 0x008a99, blooms: [0xff2bd6, 0x00e5ff, 0xffe600],
+      pebble: { h: 0.72, s: 0.5, hiL: [0.6, 0.15], loL: [0.18, 0.12] },
+      reeds: [0x00b3a0, 0x007a8a], pads: [0x00808a, 0x006a9a],
+      fish: [0x00e5ff, 0xff2bd6, 0xffe600],
+    },
+    mm: { grid: "rgba(0,229,255,0.18)", border: "rgba(0,229,255,0.8)", cam: "rgba(255,43,214,0.5)", enemy: "#ff3860", player: "#00ff9c", solid: "rgba(90,220,255,0.45)" }
+  },
+  // 4 · Volcanic hellscape: basalt floor, a glowing lava river with a molten
+  // core, embers drifting UP, charred trees with smouldering canopies.
+  inferno: {
+    ...THEME_BASE,
+    label: "Hellforge Caldera", styleName: "Molten Doom",
+    bg: 0x0a0302,
+    ground: ["#2a2320", "#262019", "#221c17", "#1e1814", "#2e2620", "#1a1512", "#332a22", "#241e18", "#282019", "#161210"],
+    grid: [0xff5a1a, 0x992200], gridOpacity: 0.3,
+    border: 0xff6a00,
+    bullet: 0xffb066,
+    cursor: "%23ff5a1a",
+    light: { ambient: 0xffc2a0, ambientI: 0.55, sun: 0xff8855, sunI: 0.7 },
+    wallBack: 0x050100,
+    glassFill: "255,90,20", glassLine: "255,140,40",
+    banner: { top: "#2a1a12", bottom: "#140a06", edge: "#ff6a00", weave: "255,106,0", text: "#ff9a33", fold: 0x241610 },
+    rim: [0xff6a00, 0xcc3300],
+    ledge: { color: 0x0c0605, rough: 0.3, metal: 0.5, trim: 0xff6a00 },
+    flame: ["255,240,200", "255,180,80", "255,90,20", "200,30,0"],
+    lampGlow: ["255,150,60", "255,90,20", "200,30,0"],
+    dots: { bg: "#050100", dot: "#ff7733" },
+    decal: { color: "#ff5a1a", opacity: 0.18 },
+    clouds: 0.22,
+    particles: { count: 700, colors: ["#ffb066", "#ff7733", "#ffd9a0"], size: 0.26, opacity: 0.9, speed: [1.5, 3.5], sway: 0.8, swaySpeed: 2.2, rise: true },
+    river: { bed: "rgba(120,20,0,0.55)", foam: "rgba(255,150,40,0.7)", water: "rgba(255,90,10,0.9)", deep: "rgba(255,220,120,0.65)", glint: "rgba(255,240,180,0.9)", mm: "rgba(255,110,20,0.7)" },
+    overlay: { river: [255, 90, 10], peak: [10, 6, 4], mottleA: "255,120,30", mottleB: "0,0,0" },
+    props: {
+      towerBase: 0x241d18, towerBody: 0x2e241d, towerPar: 0x382a20, towerCapA: 0xff5a1a, towerCapB: 0xff7a2a, towerBt: 0x2e241d,
+      towerCloth: { bg: "#140a06", edge: "#ff6a00", text: "#ff9a33" },
+      towerWin: { color: 0x1a0500, emissive: 0xff3300 },
+      towerGrass: [0x553322, 0x704225],
+      treeTrunk: 0x140c08, treeDark: [0x351a10, 0x24100a], treeLight: [0x4a2412, 0x351808], treeCaps: [0xff6a22, 0xff8a33], treeCapsOn: true,
+      peakRock: 0x2a211c, peakCap: 0xff5a1a,
+      boulder: 0x241c18, boulderCap: 0xff6a22, boulderCapOn: true,
+      log: 0x1c120c,
+      grass: [0x59321c, 0x6b3a1e], flowerStem: 0x4a2a16, blooms: [0xff7a2a, 0xffb066, 0xd42a1a],
+      pebble: { h: 0.05, s: 0.08, hiL: [0.5, 0.12], loL: [0.12, 0.1] },
+      reeds: [0x6b3a1e, 0x4a2a16], pads: [0x38201a, 0x452818],
+      fish: [0xffd11a, 0xff7a1a, 0xff3300],
+    },
+    mm: { grid: "rgba(255,110,40,0.15)", border: "rgba(255,106,0,0.8)", cam: "rgba(255,140,60,0.5)", enemy: "#ff4040", player: "#4fd44f", solid: "rgba(60,40,30,0.8)" }
+  },
+  // 5 · Pastel toon toyland: sprinkle-noise floor, gingerbread towers with
+  // icing, gumdrop trees, ice-cream mountains, a strawberry-milk river,
+  // marshmallow boulders and falling confetti.
+  candy: {
+    ...THEME_BASE,
+    label: "Sugar Rush", styleName: "Toon Toyland",
+    bg: 0x241433,
+    ground: ["#fdf6ff", "#f8ecff", "#ffeef7", "#e8f9f1", "#dff4ea", "#ffe4f0", "#f2e3ff", "#e0f7ff", "#f9f0e1", "#ffd9ec"],
+    grid: [0xff7ab8, 0x8a5ce8], gridOpacity: 0.35,
+    border: 0xff4f9e,
+    bullet: 0xfff066,
+    cursor: "%23e03560",
+    light: { ambient: 0xfff0f6, ambientI: 1.0, sun: 0xffe8f0, sunI: 0.6 },
+    wallBack: 0x1c0f28,
+    glassFill: "255,122,184", glassLine: "255,79,158",
+    banner: { top: "#ff8ac2", bottom: "#e0559d", edge: "#8a2a5e", weave: "138,42,94", text: "#fff6fb", fold: 0xf070ae },
+    rim: [0xff4f9e, 0x8a5ce8],
+    ledge: { color: 0x452a18, rough: 0.5, metal: 0.15, trim: 0xff8ac2 },
+    flame: ["255,255,230", "255,230,150", "255,170,190", "255,120,170"],
+    lampGlow: ["255,200,220", "255,140,190", "255,100,160"],
+    dots: { bg: "#241433", dot: "#ffb3d9" },
+    decal: { color: "#ff4f9e", opacity: 0.25 },
+    clouds: 0.07,
+    particles: { count: 800, colors: ["#ff6f91", "#ffd166", "#06d6a0", "#4cc9f0", "#c77dff"], size: 0.3, opacity: 0.95, speed: [1.8, 3.2], sway: 1.6, swaySpeed: 1.8, rise: false },
+    river: { bed: "rgba(200,80,140,0.35)", foam: "rgba(255,255,255,0.85)", water: "rgba(255,140,190,0.9)", deep: "rgba(235,90,155,0.6)", glint: "rgba(255,255,255,0.8)", mm: "rgba(255,130,185,0.7)" },
+    overlay: { river: [255, 150, 195], peak: [150, 90, 50], mottleA: "255,255,255", mottleB: "255,190,120" },
+    props: {
+      towerBase: 0xd9a066, towerBody: 0xe8b478, towerPar: 0xf2c286, towerCapA: 0xfff6fb, towerCapB: 0xffeaf5, towerBt: 0xe8b478,
+      towerCloth: { bg: "#ff8ac2", edge: "#8a2a5e", text: "#fff6fb" },
+      towerWin: { color: 0x5a3a1a, emissive: 0xffe08a },
+      towerGrass: [0xff9ecb, 0x9ef0c8],
+      treeTrunk: 0xa86a3a, treeDark: [0xff6f91, 0xe0559d], treeLight: [0x62d9a2, 0x3fbf88], treeCaps: [0xfff6fb, 0xffffff], treeCapsOn: true,
+      peakRock: 0xd9a066, peakCap: 0xffeaf5,
+      boulder: 0xfff6fb, boulderCap: 0xff6f91, boulderCapOn: true,
+      log: 0x5a3520,
+      grass: [0x62d9a2, 0x3fbf88], flowerStem: 0x3fbf88, blooms: [0xff6f91, 0xffd166, 0x4cc9f0],
+      pebble: { h: 0.9, s: 0.35, hiL: [0.85, 0.08], loL: [0.6, 0.25] },
+      reeds: [0xff9ecb, 0x62d9a2], pads: [0x9ef0c8, 0x62d9a2],
+      fish: [0xff6f91, 0x4cc9f0, 0xffd166],
+    },
+    mm: { grid: "rgba(255,122,184,0.2)", border: "rgba(255,79,158,0.8)", cam: "rgba(138,92,232,0.5)", enemy: "#e03560", player: "#12b871", solid: "rgba(150,90,120,0.6)" }
   },
 };
-// The landing/lobby arena shows the exact same white-ground look as a real
-// match, so the home page previews precisely what a fight looks like.
-THEMES.lobby = THEMES.game;
+const THEME_ORDER = ["frostfall", "sumi", "neon", "inferno", "candy"];
+const THEME_LS_KEY = "fight10_arena_theme";
 const RD_FOG = { Near: [18, 38], Medium: [30, 65], Far: [52, 100] };
 const RD_ORDER = ["Near", "Medium", "Far"];
 
@@ -70,7 +276,15 @@ export function createArenaGame(options) {
     return stubApi();
   }
 
-  let theme = THEMES.lobby;
+  // Active arena theme — remembered per device so the arena greets the player
+  // in the style they picked last time.
+  let themeName = (() => {
+    try {
+      const saved = localStorage.getItem(THEME_LS_KEY);
+      return THEMES[saved] ? saved : "frostfall";
+    } catch (_) { return "frostfall"; }
+  })();
+  let theme = THEMES[themeName];
   // Player-chosen appearance ({ style, colors }) from the profile's APPEARANCE
   // tab. When set it overrides theme.player for the local fighter.
   let playerAppearance = null;
@@ -129,8 +343,9 @@ export function createArenaGame(options) {
   const camCenter = new THREE.Vector3(0, 0, 0);
   let following = true;
 
-  scene.add(new THREE.AmbientLight(0xffffff, 0.85));
-  const sun = new THREE.DirectionalLight(0xffffff, 0.65);
+  const ambient = new THREE.AmbientLight(theme.light.ambient, theme.light.ambientI);
+  scene.add(ambient);
+  const sun = new THREE.DirectionalLight(theme.light.sun, theme.light.sunI);
   sun.castShadow = true;
   sun.shadow.mapSize.set(2048, 2048);
   sun.shadow.camera.near = 1;
@@ -200,7 +415,7 @@ export function createArenaGame(options) {
   // fabric wave. { mesh, geo, h, phase, born }
   const clothBanners = [];
 
-  function buildArenaWalls(variant) {
+  function buildArenaWalls() {
     // Dispose existing wall objects via the shared traversal helper (it
     // handles shared materials, textures, and nested groups uniformly).
     wallObjects.forEach((obj) => {
@@ -214,8 +429,7 @@ export function createArenaGame(options) {
     const addObj = (obj) => { scene.add(obj); wallObjects.push(obj); return obj; };
 
     // Dark backing behind each wall
-    const backColor = 0x0a0804;
-    const sideMat = new THREE.MeshStandardMaterial({ color: backColor, roughness: 0.98, metalness: 0.0 });
+    const sideMat = new THREE.MeshStandardMaterial({ color: theme.wallBack, roughness: 0.98, metalness: 0.0 });
     [
       { x: 0,         z: -MAP_HALF, ry: 0 },
       { x: 0,         z:  MAP_HALF, ry: Math.PI },
@@ -237,7 +451,7 @@ export function createArenaGame(options) {
     btm.position.y = -DEPTH;
     addObj(btm);
 
-    // Glass panels — golden pixel grid
+    // Glass panels — glowing pixel grid in the theme's accent color
     const GH = 6;
     const CELL = 8;
     const PW = 256;
@@ -252,20 +466,20 @@ export function createArenaGame(options) {
       for (let col = 0; col < PW / CELL; col++) {
         const va = 0.85 + Math.random() * 0.15;
         const fillAlpha = rowAlpha * 0.28 * va;
-        gctx.fillStyle = `rgba(210,175,60,${fillAlpha.toFixed(3)})`;
+        gctx.fillStyle = `rgba(${theme.glassFill},${fillAlpha.toFixed(3)})`;
         gctx.fillRect(col * CELL + 1, row * CELL + 1, CELL - 2, CELL - 2);
       }
     }
     for (let row = 0; row <= PH / CELL; row++) {
       const rowAlpha = 1 - row / (PH / CELL);
-      gctx.strokeStyle = `rgba(255, 200, 48, ${(rowAlpha * 0.72).toFixed(3)})`;
+      gctx.strokeStyle = `rgba(${theme.glassLine}, ${(rowAlpha * 0.72).toFixed(3)})`;
       gctx.lineWidth = 1;
       gctx.beginPath(); gctx.moveTo(0, row * CELL); gctx.lineTo(PW, row * CELL); gctx.stroke();
     }
     for (let col = 0; col <= PW / CELL; col++) {
       for (let row = 0; row < PH / CELL; row++) {
         const rowAlpha = 1 - row / (PH / CELL);
-        gctx.strokeStyle = `rgba(255, 200, 48, ${(rowAlpha * 0.55).toFixed(3)})`;
+        gctx.strokeStyle = `rgba(${theme.glassLine}, ${(rowAlpha * 0.55).toFixed(3)})`;
         gctx.lineWidth = 1;
         gctx.beginPath(); gctx.moveTo(col * CELL, row * CELL); gctx.lineTo(col * CELL, (row + 1) * CELL); gctx.stroke();
       }
@@ -312,23 +526,23 @@ export function createArenaGame(options) {
     }
     silhouette.closePath();
     const bGrad = bnx.createLinearGradient(0, 0, 0, 360);
-    bGrad.addColorStop(0, "#d9a413");
-    bGrad.addColorStop(1, "#a87a08");
+    bGrad.addColorStop(0, theme.banner.top);
+    bGrad.addColorStop(1, theme.banner.bottom);
     bnx.fillStyle = bGrad;
     bnx.fill(silhouette);
     bnx.save();
     bnx.clip(silhouette);
-    bnx.strokeStyle = "rgba(122,88,0,0.28)"; // faint weave lines
+    bnx.strokeStyle = `rgba(${theme.banner.weave},0.28)`; // faint weave lines
     bnx.lineWidth = 2;
     for (let y = 30; y < 360; y += 30) {
       bnx.beginPath(); bnx.moveTo(0, y); bnx.lineTo(512, y); bnx.stroke();
     }
     bnx.restore();
-    bnx.strokeStyle = "#7a5800";
+    bnx.strokeStyle = theme.banner.edge;
     bnx.lineWidth = 10;
     bnx.stroke(silhouette);
-    // The F10 mark — matches the gold tower cloths: bold dark type, centered
-    bnx.fillStyle = "#0a0800";
+    // The F10 mark — matches the tower cloths: bold contrasting type, centered
+    bnx.fillStyle = theme.banner.text;
     bnx.font = "900 168px monospace";
     bnx.textAlign = "center";
     bnx.textBaseline = "middle";
@@ -349,14 +563,14 @@ export function createArenaGame(options) {
     banner.renderOrder = 3; // after the outer dot plane so it shows against the void
     addObj(banner);
     // Fold of cloth lying on the ledge top where the fabric crosses its edge
-    const fold = box(BANNER_W * PROP_SCALE, 0.1, 0.7, 0xc8940a);
+    const fold = box(BANNER_W * PROP_SCALE, 0.1, 0.7, theme.banner.fold);
     fold.position.set(0, LEDGE_TOP + 0.05, MAP_HALF + LEDGE_W - 0.35);
     addObj(fold);
     clothBanners.push({ mesh: banner, geo: bannerGeo, h: BANNER_H, phase: 0, born: performance.now() * 0.001 });
 
     // Top rim
-    const rimColor = 0xffc830;
-    const rimColor2 = 0xffaa00;
+    const rimColor = theme.rim[0];
+    const rimColor2 = theme.rim[1];
     const rimPts = [
       new THREE.Vector3(-MAP_HALF, 0.08, -MAP_HALF), new THREE.Vector3(MAP_HALF, 0.08, -MAP_HALF),
       new THREE.Vector3(MAP_HALF, 0.08,  MAP_HALF),  new THREE.Vector3(-MAP_HALF, 0.08,  MAP_HALF),
@@ -379,16 +593,22 @@ export function createArenaGame(options) {
     ));
   }
 
-  buildArenaWalls("game");
+  buildArenaWalls();
+  let builtWallsTheme = themeName; // walls carry baked theme colors — rebuilt on change
 
   // -- Edge ledge + flame lamps ----------------------------------------------
   // A polished black ledge ring hugging the map rim, with small flickering
   // flame lamps spaced along it — scene objects, so they stay anchored to the
   // map edges (home backdrop and in-game alike) instead of the viewport.
   const edgeLamps = []; // { sprite, glow, phase } — flickered in animate()
-  {
+  const ledgeObjects = []; // every ledge/lamp scene node, for theme rebuilds
+  function buildLedge() {
+    ledgeObjects.forEach((o) => { scene.remove(o); disposeObject3D(o); });
+    ledgeObjects.length = 0;
+    edgeLamps.length = 0;
+    const addL = (o) => { scene.add(o); ledgeObjects.push(o); return o; };
     const ledgeMat = new THREE.MeshStandardMaterial({
-      color: 0x0c0c0e, roughness: 0.16, metalness: 0.72, // black polished stone
+      color: theme.ledge.color, roughness: theme.ledge.rough, metalness: theme.ledge.metal,
     });
     const ledgeCY = LEDGE_TOP - LEDGE_H / 2;
     const L_OUT = MAP_HALF + LEDGE_W;
@@ -402,39 +622,41 @@ export function createArenaGame(options) {
       const band = new THREE.Mesh(new THREE.BoxGeometry(w, LEDGE_H, d), ledgeMat);
       band.position.set(x, ledgeCY, z);
       band.receiveShadow = true;
-      scene.add(band);
+      addL(band);
     });
-    // Gold trim line along the ledge's outer edge (matches the arena rim lines).
-    scene.add(new THREE.Line(
+    // Accent trim line along the ledge's outer edge (matches the arena rim lines).
+    addL(new THREE.Line(
       new THREE.BufferGeometry().setFromPoints([
         new THREE.Vector3(-L_OUT, LEDGE_TOP + 0.02, -L_OUT), new THREE.Vector3(L_OUT, LEDGE_TOP + 0.02, -L_OUT),
         new THREE.Vector3( L_OUT, LEDGE_TOP + 0.02,  L_OUT), new THREE.Vector3(-L_OUT, LEDGE_TOP + 0.02,  L_OUT),
         new THREE.Vector3(-L_OUT, LEDGE_TOP + 0.02, -L_OUT),
       ]),
-      new THREE.LineBasicMaterial({ color: 0xffaa00, transparent: true, opacity: 0.45 })
+      new THREE.LineBasicMaterial({ color: theme.ledge.trim, transparent: true, opacity: 0.45 })
     ));
 
-    // Flame sprite texture — soft radial gradient, warm core.
+    // Flame sprite texture — soft radial gradient, themed core→halo colors.
+    const F = theme.flame;
     const flameCanvas = document.createElement("canvas");
     flameCanvas.width = 64; flameCanvas.height = 64;
     const fx = flameCanvas.getContext("2d");
     const fg = fx.createRadialGradient(32, 38, 2, 32, 34, 30);
-    fg.addColorStop(0.00, "rgba(255,246,214,1)");
-    fg.addColorStop(0.25, "rgba(255,208,116,0.92)");
-    fg.addColorStop(0.55, "rgba(255,138,40,0.55)");
-    fg.addColorStop(1.00, "rgba(255,90,10,0)");
+    fg.addColorStop(0.00, `rgba(${F[0]},1)`);
+    fg.addColorStop(0.25, `rgba(${F[1]},0.92)`);
+    fg.addColorStop(0.55, `rgba(${F[2]},0.55)`);
+    fg.addColorStop(1.00, `rgba(${F[3]},0)`);
     fx.fillStyle = fg;
     fx.fillRect(0, 0, 64, 64);
     const flameTex = new THREE.CanvasTexture(flameCanvas);
 
-    // Warm glow pool cast on the polished ledge under each flame.
+    // Glow pool cast on the polished ledge under each flame.
+    const G = theme.lampGlow;
     const glowCanvas = document.createElement("canvas");
     glowCanvas.width = 64; glowCanvas.height = 64;
     const gx2 = glowCanvas.getContext("2d");
     const gg = gx2.createRadialGradient(32, 32, 1, 32, 32, 31);
-    gg.addColorStop(0.00, "rgba(255,180,80,0.9)");
-    gg.addColorStop(0.45, "rgba(255,130,30,0.35)");
-    gg.addColorStop(1.00, "rgba(255,90,10,0)");
+    gg.addColorStop(0.00, `rgba(${G[0]},0.9)`);
+    gg.addColorStop(0.45, `rgba(${G[1]},0.35)`);
+    gg.addColorStop(1.00, `rgba(${G[2]},0)`);
     gx2.fillStyle = gg;
     gx2.fillRect(0, 0, 64, 64);
     const glowTex = new THREE.CanvasTexture(glowCanvas);
@@ -454,25 +676,26 @@ export function createArenaGame(options) {
       const base = new THREE.Mesh(baseGeo, ledgeMat);
       base.scale.setScalar(PROP_SCALE);
       base.position.set(x, LEDGE_TOP + 0.25 * PROP_SCALE, z);
-      scene.add(base);
+      addL(base);
       // …its flame…
       const sprite = new THREE.Sprite(new THREE.SpriteMaterial({
         map: flameTex, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false,
       }));
       sprite.position.set(x, LEDGE_TOP + (0.5 + 0.72) * PROP_SCALE, z);
       sprite.scale.set(1.15 * PROP_SCALE, 1.7 * PROP_SCALE, 1);
-      scene.add(sprite);
-      // …and the warm pool it throws on the shiny ledge.
+      addL(sprite);
+      // …and the pool of light it throws on the shiny ledge.
       const glow = new THREE.Mesh(glowGeo, new THREE.MeshBasicMaterial({
         map: glowTex, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false,
       }));
       glow.scale.setScalar(PROP_SCALE);
       glow.rotation.x = -Math.PI / 2;
       glow.position.set(x, LEDGE_TOP + 0.015, z);
-      scene.add(glow);
+      addL(glow);
       edgeLamps.push({ sprite, glow, phase: Math.random() * Math.PI * 2 });
     });
   }
+  buildLedge();
 
   // -- Pixelated FIGHT10 ground decals (black pixel squares, random) --------
   const fight10Groups = [];
@@ -488,7 +711,7 @@ export function createArenaGame(options) {
     const dctx = dc.getContext("2d");
     dctx.imageSmoothingEnabled = false;
     dctx.clearRect(0, 0, CW, CH);
-    dctx.fillStyle = "#000000";
+    dctx.fillStyle = theme.decal.color;
     dctx.font = `bold ${CH}px monospace`;
     dctx.textAlign = "center";
     dctx.textBaseline = "middle";
@@ -498,7 +721,7 @@ export function createArenaGame(options) {
     tex.minFilter = THREE.NearestFilter;
     const mesh = new THREE.Mesh(
       new THREE.PlaneGeometry(40 * PROP_SCALE, 7.2 * PROP_SCALE),
-      new THREE.MeshBasicMaterial({ map: tex, transparent: true, depthWrite: false, opacity: 0.22 })
+      new THREE.MeshBasicMaterial({ map: tex, transparent: true, depthWrite: false, opacity: theme.decal.opacity })
     );
     mesh.rotation.x = -Math.PI / 2;
     const safe = MAP_HALF - 22;
@@ -514,14 +737,16 @@ export function createArenaGame(options) {
     fight10Groups.push(grp);
   }
 
-  // -- Outer dot plane (black field with receding white dots beyond the ledge) --
-  (function buildOuterDotPlane() {
+  // -- Outer dot plane (void field with receding dots beyond the ledge) ------
+  let outerDotPlane = null;
+  function buildOuterDots() {
+    if (outerDotPlane) { scene.remove(outerDotPlane); disposeObject3D(outerDotPlane); outerDotPlane = null; }
     const SIZE = 320;
     const PX = 512;
     const dc = document.createElement("canvas");
     dc.width = dc.height = PX;
     const dctx = dc.getContext("2d");
-    dctx.fillStyle = "#000000";
+    dctx.fillStyle = theme.dots.bg;
     dctx.fillRect(0, 0, PX, PX);
     // Dot grid — spacing 16px, dots radius 1.8px, fade toward edges
     const SPACING = 14;
@@ -536,7 +761,7 @@ export function createArenaGame(options) {
         // Dot size shrinks slightly as alpha decreases (receding effect)
         const r = 0.55 * (0.5 + 0.5 * alpha);
         dctx.globalAlpha = alpha * 0.7;
-        dctx.fillStyle = "#c8d0da";
+        dctx.fillStyle = theme.dots.dot;
         dctx.beginPath();
         dctx.arc(x, y, r, 0, Math.PI * 2);
         dctx.fill();
@@ -559,23 +784,17 @@ export function createArenaGame(options) {
     plane.rotation.x = -Math.PI / 2;
     plane.position.y = -0.01;
     scene.add(plane);
-  })();
-
-  // -- Snow -----------------------------------------------------------------
-  const SNOW_COUNT = 1400, SNOW_AREA = 48, SNOW_TOP = 30;
-  const snowGeo = new THREE.BufferGeometry();
-  const snowPos = new Float32Array(SNOW_COUNT * 3);
-  const snowVel = new Float32Array(SNOW_COUNT);
-  const snowPhase = new Float32Array(SNOW_COUNT);
-  for (let i = 0; i < SNOW_COUNT; i++) {
-    snowPos[i * 3] = (Math.random() - 0.5) * SNOW_AREA;
-    snowPos[i * 3 + 1] = Math.random() * SNOW_TOP;
-    snowPos[i * 3 + 2] = (Math.random() - 0.5) * SNOW_AREA;
-    snowVel[i] = 2 + Math.random() * 3;
-    snowPhase[i] = Math.random() * Math.PI * 2;
+    outerDotPlane = plane;
   }
-  snowGeo.setAttribute("position", new THREE.BufferAttribute(snowPos, 3));
-  function makeFlake() {
+  buildOuterDots();
+
+  // -- Ambient particles ------------------------------------------------------
+  // One themable system: snowfall (frostfall), cherry petals (sumi), digital
+  // rain (neon), rising embers (inferno), confetti (candy). A white radial
+  // sprite is tinted per-point via vertex colors; motion knobs (speed range,
+  // sway, rise direction, count) come from theme.particles.
+  const PART_AREA = 48, PART_TOP = 30;
+  function makePartTex() {
     const c = document.createElement("canvas");
     c.width = c.height = 32;
     const ctx = c.getContext("2d");
@@ -587,10 +806,41 @@ export function createArenaGame(options) {
     ctx.fillRect(0, 0, 32, 32);
     return new THREE.CanvasTexture(c);
   }
-  const snow = new THREE.Points(snowGeo, new THREE.PointsMaterial({
-    size: 0.34, map: makeFlake(), transparent: true, depthWrite: false, opacity: 0.9, sizeAttenuation: true
-  }));
-  scene.add(snow);
+  let particles = null, partGeo = null, partVel = null, partPhase = null, partCount = 0;
+  function buildParticles() {
+    if (particles) {
+      scene.remove(particles);
+      particles.geometry.dispose();
+      if (particles.material.map) particles.material.map.dispose();
+      particles.material.dispose();
+      particles = null;
+    }
+    const cfg = theme.particles;
+    partCount = cfg.count;
+    partGeo = new THREE.BufferGeometry();
+    const pos = new Float32Array(partCount * 3);
+    const col = new Float32Array(partCount * 3);
+    partVel = new Float32Array(partCount);
+    partPhase = new Float32Array(partCount);
+    const c = new THREE.Color();
+    for (let i = 0; i < partCount; i++) {
+      pos[i * 3] = (Math.random() - 0.5) * PART_AREA;
+      pos[i * 3 + 1] = Math.random() * PART_TOP;
+      pos[i * 3 + 2] = (Math.random() - 0.5) * PART_AREA;
+      partVel[i] = cfg.speed[0] + Math.random() * (cfg.speed[1] - cfg.speed[0]);
+      partPhase[i] = Math.random() * Math.PI * 2;
+      c.set(cfg.colors[i % cfg.colors.length]);
+      col[i * 3] = c.r; col[i * 3 + 1] = c.g; col[i * 3 + 2] = c.b;
+    }
+    partGeo.setAttribute("position", new THREE.BufferAttribute(pos, 3));
+    partGeo.setAttribute("color", new THREE.BufferAttribute(col, 3));
+    particles = new THREE.Points(partGeo, new THREE.PointsMaterial({
+      size: cfg.size, map: makePartTex(), vertexColors: true, transparent: true,
+      depthWrite: false, opacity: cfg.opacity, sizeAttenuation: true
+    }));
+    scene.add(particles);
+  }
+  buildParticles();
 
   // -- Drifting cloud shadows -------------------------------------------------
   // Three soft dark blobs sliding slowly across the floor, as if clouds were
@@ -614,7 +864,7 @@ export function createArenaGame(options) {
       const w = 18 + i * 8;
       const m = new THREE.Mesh(
         new THREE.PlaneGeometry(w, w * 0.75),
-        new THREE.MeshBasicMaterial({ map: ctex, transparent: true, opacity: 0.1, depthWrite: false })
+        new THREE.MeshBasicMaterial({ map: ctex, transparent: true, opacity: theme.clouds, depthWrite: false })
       );
       m.rotation.x = -Math.PI / 2;
       m.rotation.z = Math.random() * Math.PI * 2;
@@ -1223,25 +1473,26 @@ export function createArenaGame(options) {
     decoBits = []; // stale queued decoration bits must not leak into the next map
   }
   function addTower(x, z) {
+    const P = theme.props;
     const g = new THREE.Group();
-    const base  = box(4.0, 0.5,  4.0, 0x6a6a6a); base.position.y  = 0.25;
-    const body  = box(3.2, 11.0, 3.2, 0x787878); body.position.y  = 6.0;
-    const par   = box(3.8, 0.6,  3.8, 0x848484); par.position.y   = 11.8;
-    const psnow = box(3.9, 0.22, 3.9, 0xdde9f5); psnow.position.y = 12.22;
+    const base  = box(4.0, 0.5,  4.0, P.towerBase); base.position.y  = 0.25;
+    const body  = box(3.2, 11.0, 3.2, P.towerBody); body.position.y  = 6.0;
+    const par   = box(3.8, 0.6,  3.8, P.towerPar); par.position.y   = 11.8;
+    const psnow = box(3.9, 0.22, 3.9, P.towerCapA); psnow.position.y = 12.22;
     [[-1.3,-1.3],[-1.3,1.3],[1.3,-1.3],[1.3,1.3]].forEach(([bx, bz]) => {
-      const bt  = box(1.0, 1.4,  1.0, 0x7a7a7a); bt.position.set(bx, 12.9,  bz); g.add(bt);
-      const bsn = box(1.1, 0.22, 1.1, 0xe4eef7); bsn.position.set(bx, 13.71, bz); g.add(bsn);
+      const bt  = box(1.0, 1.4,  1.0, P.towerBt); bt.position.set(bx, 12.9,  bz); g.add(bt);
+      const bsn = box(1.1, 0.22, 1.1, P.towerCapB); bsn.position.set(bx, 13.71, bz); g.add(bsn);
     });
-    // Gold F10 cloth draped flat on top of the tower
+    // F10 cloth draped flat on top of the tower
     const clothCanvas = document.createElement("canvas");
     clothCanvas.width = 128; clothCanvas.height = 128;
     const cCtx = clothCanvas.getContext("2d");
-    cCtx.fillStyle = "#c8940a";
+    cCtx.fillStyle = P.towerCloth.bg;
     cCtx.fillRect(0, 0, 128, 128);
-    cCtx.strokeStyle = "#7a5800";
+    cCtx.strokeStyle = P.towerCloth.edge;
     cCtx.lineWidth = 5;
     cCtx.strokeRect(4, 4, 120, 120);
-    cCtx.fillStyle = "#0a0800";
+    cCtx.fillStyle = P.towerCloth.text;
     cCtx.font = "bold 52px monospace";
     cCtx.textAlign = "center";
     cCtx.textBaseline = "middle";
@@ -1254,10 +1505,10 @@ export function createArenaGame(options) {
     cloth.rotation.x = -Math.PI / 2;
     cloth.position.y = 14.0;
     g.add(cloth);
-    // Warm-lit arrow-slit windows, two storeys on every face. Instanced —
+    // Lit arrow-slit windows, two storeys on every face. Instanced —
     // all eight slits on a tower cost a single draw call.
     const winMat = new THREE.MeshStandardMaterial({
-      color: 0x1a1206, emissive: 0xffb23e, emissiveIntensity: 1.15, roughness: 0.6,
+      color: P.towerWin.color, emissive: P.towerWin.emissive, emissiveIntensity: 1.15, roughness: 0.6,
     });
     const wins = new THREE.InstancedMesh(new THREE.BoxGeometry(0.26, 0.62, 0.1), winMat, 8);
     {
@@ -1324,25 +1575,26 @@ export function createArenaGame(options) {
       for (let j = 0; j < bladeCount; j++) {
         const ox = (rng() * 2 - 1) * 0.4, oz = (rng() * 2 - 1) * 0.4;
         const h  = 0.28 + rng() * 0.32;
-        const col = rng() < 0.5 ? 0xc8dce0 : 0xa8c8b8;
+        const col = rng() < 0.5 ? theme.props.towerGrass[0] : theme.props.towerGrass[1];
         pushDecoBox(px + ox, h / 2, pz + oz, 0.12, h, 0.12, rng() * Math.PI, col);
       }
     }
   }
   function addGrass(x, z, rng) {
+    const P = theme.props;
     const count = 2 + Math.floor(rng() * 3); // 2–4 blades
     for (let i = 0; i < count; i++) {
       const ox = (rng() * 2 - 1) * 0.4, oz = (rng() * 2 - 1) * 0.4;
       const h  = 0.3 + rng() * 0.35;
-      const col = rng() < 0.5 ? 0x4a7a38 : 0x5a8a42;
+      const col = rng() < 0.5 ? P.grass[0] : P.grass[1];
       pushDecoBox(x + ox, h / 2, z + oz, 0.12, h, 0.12, rng() * Math.PI, col);
     }
     // Occasional wildflower poking out of a tuft
     if (rng() < 0.3) {
       const stemH = 0.5 + rng() * 0.25;
       const fx = x + (rng() * 2 - 1) * 0.3, fz = z + (rng() * 2 - 1) * 0.3;
-      const bloomCol = [0xe8d44f, 0xd9736b, 0xe8e6da][Math.floor(rng() * 3)];
-      pushDecoBox(fx, stemH / 2, fz, 0.06, stemH, 0.06, 0, 0x4a6a30);
+      const bloomCol = P.blooms[Math.floor(rng() * 3)];
+      pushDecoBox(fx, stemH / 2, fz, 0.06, stemH, 0.06, 0, P.flowerStem);
       pushDecoBox(fx, stemH + 0.04, fz, 0.15, 0.1, 0.15, 0, bloomCol);
     }
     // No solid entry — grass is purely decorative
@@ -1371,27 +1623,30 @@ export function createArenaGame(options) {
       // Squashed and half-sunk so they read as ground stones, not droppings
       m4.compose(p.set(x, 0.05 * sc, z), q, s.set(sc, sc * 0.55, sc));
       stones.setMatrixAt(placed, m4);
-      // Mostly grey shale, the odd snow-dusted white
-      const l = rng() < 0.22 ? 0.82 + rng() * 0.1 : 0.42 + rng() * 0.25;
-      stones.setColorAt(placed, col.setHSL(0.08, 0.04, l));
+      // Mostly base-tone stones, the odd bright-dusted one
+      const PB = theme.props.pebble;
+      const l = rng() < 0.22 ? PB.hiL[0] + rng() * PB.hiL[1] : PB.loL[0] + rng() * PB.loL[1];
+      stones.setColorAt(placed, col.setHSL(PB.h, PB.s, l));
       placed++;
     }
     stones.count = placed;
     mapGroup.add(stones);
   }
   function addTree(x, z, rng) {
+    const P = theme.props;
     const rand = rng || Math.random.bind(Math);
     const sc = 0.68 + rand() * 0.66;            // 0.68 – 1.34 scale
     const g = new THREE.Group();
-    const trunk = box(0.5, 1.6, 0.5, 0x5c3d1e); trunk.position.y = 0.8;
+    const trunk = box(0.5, 1.6, 0.5, P.treeTrunk); trunk.position.y = 0.8;
     // Two foliage shades so a stand of trees doesn't read as copy-paste
     const dark = rand() < 0.45;
-    const f1 = box(2.0, 1.4, 2.0, dark ? 0x27522a : 0x2d5e2a); f1.position.y = 2.0;
-    const f2 = box(1.3, 1.2, 1.3, dark ? 0x1f451e : 0x254f22); f2.position.y = 3.0;
-    // Snow resting on each canopy tier — ties the trees to the falling snow,
-    // snow-capped peaks and towers. Tiny slabs, so they skip the shadow pass.
-    const s1 = box(2.06, 0.16, 2.06, 0xe6eef6); s1.position.y = 2.76; s1.castShadow = false;
-    const s2 = box(1.36, 0.14, 1.36, 0xf1f6fb); s2.position.y = 3.65; s2.castShadow = false;
+    const f1 = box(2.0, 1.4, 2.0, dark ? P.treeDark[0] : P.treeLight[0]); f1.position.y = 2.0;
+    const f2 = box(1.3, 1.2, 1.3, dark ? P.treeDark[1] : P.treeLight[1]); f2.position.y = 3.0;
+    // Canopy caps (snow / blossom highlights / resting embers / icing per
+    // theme). Tiny slabs, so they skip the shadow pass; some themes drop them.
+    const s1 = box(2.06, 0.16, 2.06, P.treeCaps[0]); s1.position.y = 2.76; s1.castShadow = false;
+    const s2 = box(1.36, 0.14, 1.36, P.treeCaps[1]); s2.position.y = 3.65; s2.castShadow = false;
+    s1.visible = s2.visible = P.treeCapsOn;
     g.add(trunk, f1, f2, s1, s2);
     g.scale.setScalar(sc * PROP_SCALE);
     g.position.set(x, 0, z);
@@ -1403,15 +1658,15 @@ export function createArenaGame(options) {
     const tierScales = [0.48 + rng() * 0.22, 0.82 + rng() * 0.30, 1.40 + rng() * 0.45];
     const sc = tierScales[tier] ?? tierScales[1];
     const g = new THREE.Group();
-    // Rocky base + snow-capped cone.
+    // Rocky base + capped cone (snow / mist / lava / ice-cream scoop by theme).
     const rock = new THREE.Mesh(
       new THREE.ConeGeometry(2.6, 2.2, 7),
-      new THREE.MeshStandardMaterial({ color: 0x8b8f96, roughness: 1, flatShading: true })
+      new THREE.MeshStandardMaterial({ color: theme.props.peakRock, roughness: 1, flatShading: true })
     );
     rock.position.y = 1.1; rock.castShadow = true; rock.receiveShadow = true;
     const snow = new THREE.Mesh(
       new THREE.ConeGeometry(1.7, 2.4, 7),
-      new THREE.MeshStandardMaterial({ color: 0xf4f8fb, roughness: 0.9, flatShading: true })
+      new THREE.MeshStandardMaterial({ color: theme.props.peakCap, roughness: 0.9, flatShading: true })
     );
     snow.position.y = 2.6; snow.castShadow = true;
     g.add(rock, snow);
@@ -1428,13 +1683,14 @@ export function createArenaGame(options) {
     const sz = (1.1 + rng() * 0.8) * PROP_SCALE;
     const rock = new THREE.Mesh(
       new THREE.SphereGeometry(sz, 6, 5),
-      new THREE.MeshStandardMaterial({ color: 0x7a7875, roughness: 1, flatShading: true }),
+      new THREE.MeshStandardMaterial({ color: theme.props.boulder, roughness: 1, flatShading: true }),
     );
     rock.position.y = sz * 0.45;
     rock.rotation.set(rng() * 0.6, rng() * Math.PI * 2, rng() * 0.6);
     rock.castShadow = true;
-    const snowCap = box(sz * 1.3, sz * 0.32, sz * 1.3, 0xdde9f5);
+    const snowCap = box(sz * 1.3, sz * 0.32, sz * 1.3, theme.props.boulderCap);
     snowCap.position.y = sz * 1.0;
+    snowCap.visible = theme.props.boulderCapOn;
     g.add(rock, snowCap);
     g.position.set(x, 0, z);
     mapGroup.add(g);
@@ -1449,7 +1705,7 @@ export function createArenaGame(options) {
     // Cylinder lying on its side: rotate so axis runs along local X, then spin in Y.
     const logMesh = new THREE.Mesh(
       new THREE.CylinderGeometry(thick, thick * 1.12, len, 7),
-      new THREE.MeshStandardMaterial({ color: 0x4a2e12, roughness: 1, metalness: 0 })
+      new THREE.MeshStandardMaterial({ color: theme.props.log, roughness: 1, metalness: 0 })
     );
     logMesh.rotation.z = Math.PI / 2;  // lay flat
     logMesh.position.y = thick;         // sit on ground
@@ -1555,26 +1811,27 @@ export function createArenaGame(options) {
       }
     };
 
-    rctx.save(); rctx.strokeStyle = "rgba(20,60,100,0.35)";
+    const RV = theme.river;
+    rctx.save(); rctx.strokeStyle = RV.bed;
     rctx.lineWidth = lw + 10; rctx.lineCap = "round"; rctx.lineJoin = "round";
     drawPath(); rctx.stroke(); rctx.restore();
 
-    // Pale foam rim hugging both banks — peeks out from under the water stroke
-    rctx.save(); rctx.strokeStyle = "rgba(224,242,250,0.6)";
+    // Foam rim hugging both banks — peeks out from under the water stroke
+    rctx.save(); rctx.strokeStyle = RV.foam;
     rctx.lineWidth = lw + 4; rctx.lineCap = "round"; rctx.lineJoin = "round";
     drawPath(); rctx.stroke(); rctx.restore();
 
-    rctx.save(); rctx.strokeStyle = "rgba(55,120,175,0.88)";
+    rctx.save(); rctx.strokeStyle = RV.water;
     rctx.lineWidth = lw; rctx.lineCap = "round"; rctx.lineJoin = "round";
     drawPath(); rctx.stroke(); rctx.restore();
 
-    // Darker deep-water channel down the centre line
-    rctx.save(); rctx.strokeStyle = "rgba(28,78,128,0.5)";
+    // Channel down the centre line (dark deep water — or a bright molten core)
+    rctx.save(); rctx.strokeStyle = RV.deep;
     rctx.lineWidth = lw * 0.42; rctx.lineCap = "round"; rctx.lineJoin = "round";
     drawPath(); rctx.stroke(); rctx.restore();
 
-    // Static sun glints on the surface — baked into the texture, zero runtime cost
-    rctx.fillStyle = "rgba(235,248,255,0.5)";
+    // Static glints on the surface — baked into the texture, zero runtime cost
+    rctx.fillStyle = RV.glint;
     for (let i = 0; i < 110; i++) {
       const sp = sampledPts[Math.floor(rng() * sampledPts.length)];
       const u = toU(sp.x) + (rng() * 2 - 1) * lw * 0.34;
@@ -1630,7 +1887,7 @@ export function createArenaGame(options) {
       return { x: a.x + dx * t, z: a.z + dz * t, dirx: dx / len, dirz: dz / len };
     };
 
-    const FISH_COLORS = [0xe8963c, 0xd4a017, 0xf2ce5b];
+    const FISH_COLORS = theme.props.fish;
     const fishCount = 8 + Math.floor(rng() * 4); // 8–11 per river
     for (let i = 0; i < fishCount; i++) {
       const mat = new THREE.MeshStandardMaterial({
@@ -1688,7 +1945,7 @@ export function createArenaGame(options) {
         q.setFromEuler(e.set((rng() * 2 - 1) * 0.14, rng() * Math.PI, (rng() * 2 - 1) * 0.14));
         m4.compose(p.set(rx, 0, rz), q, s.set(PROP_SCALE, (0.7 + rng() * 0.9) * PROP_SCALE, PROP_SCALE));
         reeds.setMatrixAt(placed, m4);
-        reeds.setColorAt(placed, col.setHex(rng() < 0.4 ? 0x7d8a44 : 0x5d7036));
+        reeds.setColorAt(placed, col.setHex(rng() < 0.4 ? theme.props.reeds[0] : theme.props.reeds[1]));
         placed++;
       }
       reeds.count = placed;
@@ -1714,7 +1971,7 @@ export function createArenaGame(options) {
         // Sits above the water plane (0.05) and below the fish (0.09)
         m4.compose(p.set(px, 0.07, pz), q, s.set(sc, sc, 1));
         pads.setMatrixAt(padCount, m4);
-        pads.setColorAt(padCount, col.setHex(rng() < 0.5 ? 0x3f6e33 : 0x4a7a3a));
+        pads.setColorAt(padCount, col.setHex(rng() < 0.5 ? theme.props.pads[0] : theme.props.pads[1]));
         padCount++;
       }
       pads.count = padCount;
@@ -1732,7 +1989,8 @@ export function createArenaGame(options) {
     const bctx = bc.getContext("2d");
     const imgData = bctx.createImageData(CS, CS);
     const px = imgData.data;
-    // Large mountain solids (r >= 1.4) for the dark-earth halo
+    const OV = theme.overlay;
+    // Large mountain solids (r >= 1.4) for the peak-base halo
     const peaks = solids.filter((s) => s.r >= 1.4);
 
     for (let py = 0; py < CS; py++) {
@@ -1757,19 +2015,19 @@ export function createArenaGame(options) {
           const inner = riverHalfW, outer = riverHalfW * 2.4;
           if (minD < outer) {
             const fade = Math.max(0, 1 - (minD - inner) / (outer - inner));
-            r = 62; g = 88; b = 118;
+            r = OV.river[0]; g = OV.river[1]; b = OV.river[2];
             a = Math.round(fade * 52);
           }
         }
 
-        // Mountain halo — dark earthy tint around large peaks
+        // Mountain halo — tint around large peak bases
         for (const s of peaks) {
           const d = Math.hypot(wx - s.x, wz - s.z);
           const inner2 = s.r * 1.1, outer2 = s.r * 3.8;
           if (d < outer2) {
             const fade = Math.max(0, 1 - (d - inner2) / (outer2 - inner2));
             const da = Math.round(fade * 44);
-            if (da > a) { r = 22; g = 20; b = 16; a = da; }
+            if (da > a) { r = OV.peak[0]; g = OV.peak[1]; b = OV.peak[2]; a = da; }
           }
         }
 
@@ -1779,14 +2037,14 @@ export function createArenaGame(options) {
     }
     bctx.putImageData(imgData, 0, 0);
 
-    // Soft mottling blotches: pale snow drifts and worn dirt patches, baked
-    // into this same texture so they cost nothing extra at runtime.
+    // Soft mottling blotches (snow drifts / ink smudges / ember glow / icing
+    // swirls per theme), baked into this same texture — zero runtime cost.
     for (let i = 0; i < 18; i++) {
       const u = rng() * CS, v = rng() * CS, rad = 12 + rng() * 26;
       const snowy = rng() < 0.5;
       const grad = bctx.createRadialGradient(u, v, 0, u, v, rad);
-      grad.addColorStop(0, snowy ? "rgba(238,243,250,0.17)" : "rgba(88,74,52,0.13)");
-      grad.addColorStop(1, snowy ? "rgba(238,243,250,0)" : "rgba(88,74,52,0)");
+      grad.addColorStop(0, snowy ? `rgba(${OV.mottleA},0.17)` : `rgba(${OV.mottleB},0.13)`);
+      grad.addColorStop(1, snowy ? `rgba(${OV.mottleA},0)` : `rgba(${OV.mottleB},0)`);
       bctx.fillStyle = grad;
       bctx.beginPath(); bctx.arc(u, v, rad, 0, Math.PI * 2); bctx.fill();
     }
@@ -1799,9 +2057,11 @@ export function createArenaGame(options) {
     plane.position.y = 0.03;
     mapGroup.add(plane);
   }
+  let lastMapSeed = null; // remembered so a theme switch can repaint the same map
   function generateMap(seedStr) {
     clearMap();
-    const rng = makeRng(seedStr || "demo");
+    lastMapSeed = seedStr || "demo";
+    const rng = makeRng(lastMapSeed);
     buildRiver(rng);
     // Four snowy watchtowers, one at each corner — always present
     const tOff = MAP_HALF - 5;
@@ -1994,7 +2254,7 @@ export function createArenaGame(options) {
     );
     const tipM = new THREE.Mesh(
       new THREE.SphereGeometry(bulletSize, 6, 5),
-      new THREE.MeshBasicMaterial({ color: 0xFFD700 })
+      new THREE.MeshBasicMaterial({ color: theme.bullet })
     );
     bGroup.add(baseM, tipM);
     const fx = Math.sin(att.facing), fz = Math.cos(att.facing);
@@ -2676,7 +2936,7 @@ export function createArenaGame(options) {
       // Pixelated river — sample the polyline and stamp grid-snapped squares
       const CELL   = 5;   // minimap pixels per block (matches screenshot style)
       const hwSnap = Math.ceil(riverHalfW * mmScale / CELL) * CELL;
-      mmSCtx.fillStyle = "rgba(61,127,176,0.62)";
+      mmSCtx.fillStyle = theme.river.mm;
       const seen = new Set();
       for (let i = 0; i < riverSegments.length - 1; i++) {
         const a = riverSegments[i], b = riverSegments[i + 1];
@@ -2693,7 +2953,7 @@ export function createArenaGame(options) {
         }
       }
     }
-    mmSCtx.fillStyle = "rgba(40,46,40,0.7)";
+    mmSCtx.fillStyle = theme.mm.solid;
     for (const s of solids) {
       mmSCtx.fillRect(wToMM(s.x) - 1.5, wToMM(s.z) - 1.5, 3, 3);
     }
@@ -2739,12 +2999,17 @@ export function createArenaGame(options) {
   }
 
   // -- Theme switch ---------------------------------------------------------
-  let currentMapVariant = "game"; // "game" | "golden"
-
+  // applyTheme(view) refreshes the cheap, always-safe layers (sky, fog,
+  // lights, ground, grid, border, fighters, minimap) from the selected theme;
+  // the heavy baked pieces (walls/banner, ledge/lamps, particles, outer dots,
+  // map props) are rebuilt only when the theme actually changes, via
+  // setArenaTheme() below.
   function applyTheme(name) {
-    theme = THEMES[name] || THEMES.lobby;
+    theme = THEMES[themeName] || THEMES.frostfall;
     renderer.setClearColor(theme.bg, 1);
     scene.background = new THREE.Color(theme.bg);
+    ambient.color.setHex(theme.light.ambient); ambient.intensity = theme.light.ambientI;
+    sun.color.setHex(theme.light.sun); sun.intensity = theme.light.sunI;
     applyFog();
     if (name === "game") makeFight10Decal();
     const newTex = makeGroundTex(theme.ground);
@@ -2753,10 +3018,11 @@ export function createArenaGame(options) {
     ground.material.needsUpdate = true;
     buildGrid();
     border.material.color.setHex(theme.border);
-    if ("game" !== currentMapVariant) {
-      currentMapVariant = "game";
-      buildArenaWalls("game");
+    if (builtWallsTheme !== themeName) {
+      builtWallsTheme = themeName;
+      buildArenaWalls();
     }
+    cloudShadows.forEach((C) => { C.mesh.material.opacity = theme.clouds; });
     recolorFighter(player, playerAppearance?.colors || theme.player);
     player.bar.color = theme.playerBar;
     aiRaiders.forEach((r) => { recolorFighter(r, theme.enemy); r.bar.color = theme.enemyBar; });
@@ -2765,6 +3031,37 @@ export function createArenaGame(options) {
     cursorAttack = !cursorAttack; setCursor(false);
     buildMinimapStatic();
   }
+
+  // Switch to another of the five arena themes. Purely cosmetic and safe at
+  // any time — even mid-match: the map is regenerated from the seed it was
+  // built with, and every theme consumes the seeded rng identically, so the
+  // layout (solids, river, spawns) comes back exactly the same, repainted.
+  function setArenaTheme(name) {
+    if (!THEMES[name] || name === themeName) return;
+    themeName = name;
+    try { localStorage.setItem(THEME_LS_KEY, name); } catch (_) { /* private mode */ }
+    applyTheme(viewIsGame ? "game" : "lobby");
+    buildLedge();
+    buildOuterDots();
+    buildParticles();
+    if (lastMapSeed != null) generateMap(lastMapSeed);
+    makeFight10Decal();
+    buildMinimapStatic();
+    syncThemeSelects();
+  }
+  // The HUD carries two theme dropdowns (the in-arena picker and the settings
+  // row); populate both from the theme table and keep them in lockstep.
+  function syncThemeSelects() {
+    hud.themeSelects.forEach((sel) => { sel.value = themeName; });
+  }
+  hud.themeSelects.forEach((sel) => {
+    sel.innerHTML = THEME_ORDER
+      .map((k) => `<option value="${k}">${THEMES[k].label} — ${THEMES[k].styleName}</option>`)
+      .join("");
+    sel.value = themeName;
+    // blur() hands the keyboard straight back to WASD after picking.
+    sel.addEventListener("change", () => { setArenaTheme(sel.value); sel.blur(); });
+  });
 
   // Home / lobby background: dress the idle arena with the full map — river,
   // trees, snow peaks, corner towers — plus the FIGHT10 ground mark, so the
@@ -2940,14 +3237,21 @@ export function createArenaGame(options) {
     sun.position.copy(player.group.position).add(_sunOffset);
     sun.target.position.copy(player.group.position);
 
-    const sp = snowGeo.attributes.position.array, t = clock.elapsedTime;
-    for (let i = 0; i < SNOW_COUNT; i++) {
-      sp[i * 3 + 1] -= snowVel[i] * dt;
-      sp[i * 3] += Math.sin(snowPhase[i] + t * 1.4) * dt * 0.4;
-      if (sp[i * 3 + 1] < 0) { sp[i * 3 + 1] = SNOW_TOP; sp[i * 3] = (Math.random() - 0.5) * SNOW_AREA; sp[i * 3 + 2] = (Math.random() - 0.5) * SNOW_AREA; }
+    const pcfg = theme.particles;
+    const sp = partGeo.attributes.position.array, t = clock.elapsedTime;
+    for (let i = 0; i < partCount; i++) {
+      sp[i * 3 + 1] += (pcfg.rise ? 1 : -1) * partVel[i] * dt;
+      if (pcfg.sway) sp[i * 3] += Math.sin(partPhase[i] + t * pcfg.swaySpeed) * dt * pcfg.sway;
+      if (!pcfg.rise && sp[i * 3 + 1] < 0) {
+        sp[i * 3 + 1] = PART_TOP;
+        sp[i * 3] = (Math.random() - 0.5) * PART_AREA; sp[i * 3 + 2] = (Math.random() - 0.5) * PART_AREA;
+      } else if (pcfg.rise && sp[i * 3 + 1] > PART_TOP) {
+        sp[i * 3 + 1] = 0;
+        sp[i * 3] = (Math.random() - 0.5) * PART_AREA; sp[i * 3 + 2] = (Math.random() - 0.5) * PART_AREA;
+      }
     }
-    snowGeo.attributes.position.needsUpdate = true;
-    snow.position.set(camCenter.x, 0, camCenter.z);
+    partGeo.attributes.position.needsUpdate = true;
+    particles.position.set(camCenter.x, 0, camCenter.z);
 
     // F10 edge banners: unfurl drop after build, then a continuous cloth wave.
     // Vertices sway along the wall normal, more the further they hang down.
@@ -3074,6 +3378,8 @@ export function createArenaGame(options) {
       controllable = mode === "player";
     },
     setMapVariant(_variant) { applyTheme("game"); },
+    // Cosmetic arena theme: "frostfall" | "sumi" | "neon" | "inferno" | "candy".
+    setArenaTheme,
     showMapToggle(_on) {},
     showRaiderCount(on) { raiderCountCtrl.classList.toggle("hidden", !on); },
     setAiCount(n) {
@@ -3395,6 +3701,10 @@ function buildHud() {
     <div class="ki-row"><span class="ki-key">Esc</span><span class="ki-desc">Leave match</span></div>
     <div class="ki-row"><span class="ki-key">Frag ring</span><span class="ki-desc">Throw range</span></div>
   </div>`);
+  // In-arena theme picker — a compact dropdown floating over the battlefield
+  // (bottom-right, clear of minimap/hotbar/stats). Options are filled in by
+  // createArenaGame from the THEMES table.
+  const themeCtrl = add('<div class="theme-ctrl game-ui"><span class="theme-ctrl-label">Arena</span><select class="theme-select" title="Arena theme"></select></div>');
   add('<button class="gear game-ui" title="Menu">&#9776;</button>');
   const gearBtn = root.querySelector(".gear");
   const rivalsEl = add('<div class="game-rivals game-ui">--</div>');
@@ -3410,6 +3720,7 @@ function buildHud() {
           <button class="tab" data-tab="commands">COMMANDS</button>
         </div>
         <div class="tab-body" data-body="options">
+          <div class="row"><span>Arena Theme</span><select class="theme-select" data-theme-select></select></div>
           <div class="row"><span>Render Distance</span><button class="cycle" data-rd>Far</button></div>
           <div class="row"><span>Fog</span><button class="toggle" data-setting="fog"></button></div>
           <div class="row"><span>Anti-aliasing (MSAA)</span><button class="toggle" data-setting="msaa"></button></div>
@@ -3474,7 +3785,9 @@ function buildHud() {
     });
   }
 
-  return { root, coords, matchTimerEl, matchNoEl, mmCanvas, hotbar, slots, rivalsEl, fpsEl, pingEl, overlay, renderDistBtn, bindSettings, raiderCountCtrl, raiderCountEl, scorePanel, weaponPanel, keysInfoPanel, gearBtn };
+  const themeSelects = [themeCtrl.querySelector(".theme-select"), overlay.querySelector("[data-theme-select]")];
+
+  return { root, coords, matchTimerEl, matchNoEl, mmCanvas, hotbar, slots, rivalsEl, fpsEl, pingEl, overlay, renderDistBtn, bindSettings, raiderCountCtrl, raiderCountEl, scorePanel, weaponPanel, keysInfoPanel, gearBtn, themeSelects };
 }
 
 function clamp(v, min, max) {
@@ -3494,7 +3807,7 @@ function stubApi() {
     useAiFoe: noop, usePvpFoes: noop, addOpponent: noop, removeOpponent: () => 0,
     clearRemote: noop, resetForMatch: noop, receivePlayerState: noop,
     receiveAttack: noop, generateMap: noop, clearAll: noop, destroy: noop,
-    setMapVariant: noop, showMapToggle: noop, showRaiderCount: noop, setAiCount: noop,
+    setMapVariant: noop, setArenaTheme: noop, showMapToggle: noop, showRaiderCount: noop, setAiCount: noop,
     setPing: noop, openSettings: noop, setPlayerAppearance: noop,
     showHomeScene: noop, stopHomePlay: noop, isHomePlaying: () => false,
     mountAppearancePreview: () => null
