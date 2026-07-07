@@ -3759,6 +3759,18 @@ body.in-game .log-feed { left: 70px; }
      directly — drop the "click the battlefield" cue. */
   #homePlayPrompt { display: none !important; }
 
+  /* The world overlays (vignette, grain, scanlines, glitch) exist to keep the
+     hero readable over the visible battlefield. Here the battlefield is parked
+     invisibly behind the opaque page (z-index -1 above), so these fixed layers
+     would only paint over the in-flow home content and dim the whole page.
+     In-game they're already hidden by the body.in-game rules. */
+  .world-vignette,
+  .world-grain,
+  .world-scanlines,
+  .world-glitch {
+    display: none;
+  }
+
   .site-nav {
     position: fixed;
     background: rgba(0, 0, 0, 0.55);
