@@ -4582,3 +4582,87 @@ body.in-game .log-feed { left: 70px; }
   .admin-card-head { gap: 6px; }
   .admin-right { margin-left: 0; }
 }
+
+/* Admin dashboard — links, inline notes, in-overlay modal + toast (added for
+   clickable txns, visible per-card notes, and a prompt that isn't blocked). */
+.admin-link { color: var(--gold-hi); text-decoration: none; border-bottom: 1px dotted rgba(212,160,23,0.5); }
+.admin-link:hover { border-bottom-style: solid; }
+
+.admin-card-notes {
+  margin-top: 10px;
+  padding-top: 8px;
+  border-top: 1px dashed rgba(212, 160, 23, 0.2);
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+.admin-cnote { font-size: 0.63rem; color: rgba(233, 224, 200, 0.85); line-height: 1.35; }
+.admin-cnote .admin-dim { margin-right: 6px; }
+
+.admin-primary {
+  border-color: var(--gold);
+  background: var(--gold-grad-btn-vintage);
+  color: #1a1206;
+}
+.admin-primary:hover { background: var(--gold-grad-btn); border-color: var(--gold-hi); }
+
+/* Modal host sits above the panel; children are the backdrop + dialog. */
+.admin-modal-host { position: absolute; inset: 0; z-index: 5; pointer-events: none; }
+.admin-modal-back {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  background: rgba(2, 2, 1, 0.72);
+  pointer-events: auto;
+}
+.admin-modal {
+  width: min(460px, 100%);
+  padding: 18px;
+  border: 1px solid rgba(212, 160, 23, 0.5);
+  border-radius: 8px;
+  background: linear-gradient(160deg, rgba(26, 20, 9, 0.99), rgba(10, 8, 4, 1));
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.7);
+}
+.admin-modal-label {
+  margin-bottom: 12px;
+  font-family: var(--font-body);
+  font-size: 0.72rem;
+  color: #f0e8d2;
+  line-height: 1.4;
+}
+.admin-input {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 9px 11px;
+  border: 1px solid rgba(212, 160, 23, 0.4);
+  border-radius: 5px;
+  background: rgba(8, 7, 4, 0.9);
+  color: #f4ecd6;
+  font-family: var(--font-body);
+  font-size: 0.72rem;
+  resize: vertical;
+}
+.admin-input:focus { outline: none; border-color: var(--gold); }
+.admin-modal-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 14px; }
+
+.admin-toast {
+  position: absolute;
+  left: 50%;
+  bottom: 22px;
+  transform: translateX(-50%);
+  z-index: 6;
+  max-width: 80%;
+  padding: 9px 16px;
+  border-radius: 999px;
+  border: 1px solid rgba(212, 160, 23, 0.5);
+  background: rgba(20, 15, 7, 0.97);
+  color: var(--gold-hi);
+  font-family: var(--font-body);
+  font-size: 0.66rem;
+  pointer-events: auto;
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.6);
+}
+.admin-toast-err { border-color: rgba(198, 64, 42, 0.8); color: #f2b8ac; }

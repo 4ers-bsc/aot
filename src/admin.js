@@ -51,6 +51,14 @@ const ago = (iso) => {
 const shortId = (id) => (id ? `${String(id).slice(0, 8)}…` : "—");
 const player = (p) => escapeHtml(p?.display_name || p?.name || shortId(p?.user_id));
 
+// Solscan explorer links so the operator can review a signature / account on-chain.
+const solscanTx = (sig) => `https://solscan.io/tx/${encodeURIComponent(sig)}`;
+const solscanAddr = (addr) => `https://solscan.io/account/${encodeURIComponent(String(addr).split(":").pop())}`;
+const txLink = (sig, label) =>
+  sig ? `<a class="admin-link" href="${solscanTx(sig)}" target="_blank" rel="noopener noreferrer" title="${escapeHtml(sig)}">${escapeHtml(label || shortId(sig))} ↗</a>` : "—";
+const addrLink = (addr, label) =>
+  addr ? `<a class="admin-link" href="${solscanAddr(addr)}" target="_blank" rel="noopener noreferrer" title="${escapeHtml(addr)}">${escapeHtml(label || shortId(addr))} ↗</a>` : "—";
+
 export function initAdmin(supabase) {
   let root = null;
   let data = null;
@@ -75,7 +83,8 @@ export function initAdmin(supabase) {
         </header>
         <nav class="admin-tabs" id="adminTabs"></nav>
         <div class="admin-body" id="adminBody"></div>
-      </div>`;
+      </div>
+      <div class="admin-modal-host" id="adminModalHost"></div>`;
     document.body.appendChild(root);
 
     root.addEventListener("click", (e) => {
@@ -128,67 +137,139 @@ export function initAdmin(supabase) {
     }
   }
 
-  async function act(action, params, confirmMsg) {
-    if (confirmMsg && !window.confirm(confirmMsg)) return;
+  // Non-blocking toast (window.alert can be suppressed the same way prompt is).
+  function toast(msg, isError = false) {
+    const host = root?.querySelector("#adminModalHost");
+    if (!host) return;
+    const el = document.createElement("div");
+    el.className = `admin-toast${isError ? " admin-toast-err" : ""}`;
+    el.textContent = msg;
+    host.appendChild(el);
+    setTimeout(() => el.remove(), isError ? 6000 : 3000);
+  }
+
+  async function act(action, params) {
     try {
       const { data: resp, error } = await supabase.functions.invoke("f10admin", {
         body: { action, ...params },
       });
-      if (error) throw new Error(error.message || "request failed");
+      // A non-2xx (e.g. 403) surfaces as `error` with the reason in the body.
+      if (error) {
+        let reason = error.message || "request failed";
+        try { const b = await error.context?.json?.(); if (b?.error) reason = b.error; } catch (_) {}
+        throw new Error(reason);
+      }
       if (!resp?.ok) throw new Error(resp?.error || "request failed");
+      toast("Done ✓");
       await load();
     } catch (err) {
-      window.alert(`Action failed: ${err?.message || err}`);
+      toast(`Action failed: ${err?.message || err}`, true);
     }
   }
 
+  // ---- In-overlay prompt / confirm ------------------------------------------
+  // Replaces window.prompt/confirm (which some browsers block or ignore inside
+  // an overlay — the reason "Add note" appeared dead). Rendered inside the
+  // overlay so it always shows and matches the tool's styling.
+  function modal({ label, initial = "", placeholder = "", multiline = false, okText = "Save", showInput = true }) {
+    const host = root.querySelector("#adminModalHost");
+    return new Promise((resolve) => {
+      const field = multiline
+        ? `<textarea class="admin-input" rows="3" placeholder="${escapeHtml(placeholder)}">${escapeHtml(initial)}</textarea>`
+        : `<input class="admin-input" type="text" value="${escapeHtml(initial)}" placeholder="${escapeHtml(placeholder)}" />`;
+      host.innerHTML = `
+        <div class="admin-modal-back">
+          <div class="admin-modal" role="dialog" aria-modal="true">
+            <div class="admin-modal-label">${escapeHtml(label)}</div>
+            ${showInput ? field : ""}
+            <div class="admin-modal-actions">
+              <button class="admin-btn admin-btn-sm" data-m="cancel">Cancel</button>
+              <button class="admin-btn admin-btn-sm admin-primary" data-m="ok">${escapeHtml(okText)}</button>
+            </div>
+          </div>
+        </div>`;
+      const inputEl = host.querySelector(".admin-input");
+      const done = (val) => { host.innerHTML = ""; resolve(val); };
+      host.querySelector('[data-m="cancel"]').onclick = () => done(null);
+      host.querySelector('[data-m="ok"]').onclick = () => done(showInput ? (inputEl?.value ?? "") : true);
+      host.querySelector(".admin-modal-back").onclick = (e) => { if (e.target.classList.contains("admin-modal-back")) done(null); };
+      if (inputEl) {
+        inputEl.focus();
+        inputEl.select?.();
+        if (!multiline) inputEl.onkeydown = (e) => { if (e.key === "Enter") host.querySelector('[data-m="ok"]').click(); };
+      }
+    });
+  }
+  const askText = (label, initial = "", opts = {}) =>
+    modal({ label, initial, multiline: true, ...opts }).then((v) => (v == null ? null : String(v).trim()));
+  const askConfirm = (label, okText = "Confirm") =>
+    modal({ label, showInput: false, okText }).then((v) => v === true);
+
   // ---- Row action handler ---------------------------------------------------
-  function onAction(e) {
+  async function onAction(e) {
     const btn = e.target.closest("[data-act]");
     if (!btn) return;
     const { act: a, match, user } = btn.dataset;
 
     if (a === "note") {
-      const note = window.prompt("Review note:");
-      if (note && note.trim()) {
+      const note = await askText("Review note", "", { placeholder: "What did you check / decide?" });
+      if (note) {
         act("add_note", {
           subject_type: btn.dataset.subjectType || "general",
           subject_id: btn.dataset.subjectId || null,
-          note: note.trim(),
+          note,
         });
       }
       return;
     }
     if (a === "resolve_dispute") {
-      act("resolve_dispute", { match_id: match, winner_user_id: user },
-        `Award this match to ${btn.dataset.name || shortId(user)} and mark it finished? The winner will then be able to claim their payout.`);
+      if (await askConfirm(
+        `Award this match to ${btn.dataset.name || shortId(user)} and mark it finished? The winner will then be able to claim their payout.`,
+        "Award win")) {
+        act("resolve_dispute", { match_id: match, winner_user_id: user });
+      }
       return;
     }
     if (a === "void_match") {
-      act("void_match", { match_id: match }, "Void this match with no winner? The pot stays in escrow.");
+      if (await askConfirm("Void this match with no winner? The pot stays in escrow.", "Void match")) {
+        act("void_match", { match_id: match });
+      }
       return;
     }
     if (a === "close_waiting_room") {
-      act("close_waiting_room", { match_id: match }, "Close this stale waiting room?");
+      if (await askConfirm("Close this stale waiting room?", "Close room")) {
+        act("close_waiting_room", { match_id: match });
+      }
+      return;
+    }
+    if (a === "pay_winner") {
+      if (await askConfirm(
+        "Pay the winner now from the escrow wallet? This verifies every deposit on-chain, then sends 90% of the pot and records the transaction. Only proceed if no payout has already landed.",
+        "Pay winner")) {
+        act("admin_pay_winner", { match_id: match });
+      }
       return;
     }
     if (a === "release_payout") {
-      act("release_payout", { match_id: match },
-        "Release this stuck payout slot so the winner can retry? Only do this if no on-chain payout has landed.");
+      if (await askConfirm(
+        "Release this stuck payout slot so the winner can retry? Only do this if no on-chain payout has landed.",
+        "Release slot")) {
+        act("release_payout", { match_id: match });
+      }
       return;
     }
     if (a === "mark_payout_resolved") {
-      const tx = window.prompt("Paste the on-chain payout tx signature you sent manually:");
-      if (tx && tx.trim()) act("mark_payout_resolved", { match_id: match, payout_tx: tx.trim() });
+      const tx = await askText("Paste the on-chain payout tx signature you sent manually", "", { multiline: false });
+      if (tx) act("mark_payout_resolved", { match_id: match, payout_tx: tx });
       return;
     }
     if (a === "ban") {
-      const reason = window.prompt("Ban reason:", "manual_admin_ban");
-      if (reason !== null) act("ban_user", { user_id: user, reason: reason.trim() || "manual_admin_ban" });
+      const reason = await askText("Ban reason", "manual_admin_ban", { multiline: false });
+      if (reason !== null) act("ban_user", { user_id: user, reason: reason || "manual_admin_ban" });
       return;
     }
     if (a === "unban") {
-      act("unban_user", { user_id: user }, "Unban this user?");
+      if (await askConfirm("Unban this user?", "Unban")) act("unban_user", { user_id: user });
       return;
     }
   }
@@ -234,6 +315,22 @@ export function initAdmin(supabase) {
 
   const thead = (cols) => `<thead><tr>${cols.map((c) => `<th>${escapeHtml(c)}</th>`).join("")}</tr></thead><tbody>`;
 
+  // Notes attached to a given subject (match / payout / user id). The overview
+  // already returns the recent notes, so we just group them client-side and show
+  // them on the relevant card — that's why a note added on the Payout tab now
+  // appears right there instead of only under Review notes.
+  function notesFor(subjectId) {
+    if (!subjectId || !data?.notes) return [];
+    return data.notes.filter((n) => n.subject_id === subjectId);
+  }
+  function notesBlock(subjectId) {
+    const ns = notesFor(subjectId);
+    if (!ns.length) return "";
+    return `<div class="admin-card-notes">` + ns.map((n) =>
+      `<div class="admin-cnote"><span class="admin-dim">${ago(n.created_at)} · ${escapeHtml(n.author_name || shortId(n.author_id))}${n.action && n.action !== "note" ? ` · ${escapeHtml(n.action)}` : ""}</span> ${escapeHtml(n.note)}</div>`
+    ).join("") + `</div>`;
+  }
+
   function disputedCard(m) {
     const reason = m.shadow_meta?.reason ? escapeHtml(m.shadow_meta.reason) : "—";
     const forfeited = new Set(m.forfeited_user_ids || []);
@@ -262,6 +359,7 @@ export function initAdmin(supabase) {
         <button class="admin-btn admin-btn-sm admin-danger" data-act="void_match" data-match="${m.id}">Void (no winner)</button>
         <button class="admin-btn admin-btn-sm" data-act="note" data-subject-type="match" data-subject-id="${m.id}">Add note</button>
       </div>
+      ${notesBlock(m.id)}
     </div>`;
   }
 
@@ -278,10 +376,12 @@ export function initAdmin(supabase) {
         <span class="admin-dim admin-right">${fmtTime(m.ended_at)} (${ago(m.ended_at)})</span>
       </div>
       <div class="admin-card-actions">
+        <button class="admin-btn admin-btn-sm admin-primary" data-act="pay_winner" data-match="${m.id}">Pay winner now</button>
         <button class="admin-btn admin-btn-sm" data-act="release_payout" data-match="${m.id}">Release slot (retry)</button>
         <button class="admin-btn admin-btn-sm" data-act="mark_payout_resolved" data-match="${m.id}">Mark paid (tx)</button>
         <button class="admin-btn admin-btn-sm" data-act="note" data-subject-type="payout" data-subject-id="${m.id}">Add note</button>
       </div>
+      ${notesBlock(m.id)}
     </div>`;
   }
 
@@ -298,6 +398,7 @@ export function initAdmin(supabase) {
         <button class="admin-btn admin-btn-sm admin-danger" data-act="close_waiting_room" data-match="${m.id}">Close room</button>
         <button class="admin-btn admin-btn-sm" data-act="note" data-subject-type="waiting" data-subject-id="${m.id}">Add note</button>
       </div>
+      ${notesBlock(m.id)}
     </div>`;
   }
 
@@ -318,7 +419,7 @@ export function initAdmin(supabase) {
     return `<tr>
       <td class="admin-nowrap" title="${fmtTime(r.consumed_at)}">${ago(r.consumed_at)}</td>
       <td>${escapeHtml(r.user_name || shortId(r.user_id))}</td>
-      <td class="admin-mono">${escapeHtml(shortId(r.deposit_tx))}</td>
+      <td class="admin-mono">${txLink(r.deposit_tx)}</td>
       <td class="admin-nowrap">${shortId(r.match_id)}</td>
     </tr>`;
   }
@@ -326,7 +427,7 @@ export function initAdmin(supabase) {
   function bannedRow(r) {
     return `<tr>
       <td class="admin-nowrap" title="${fmtTime(r.created_at)}">${ago(r.created_at)}</td>
-      <td class="admin-mono">${escapeHtml(r.wallet ? shortId(r.wallet) : "—")}</td>
+      <td class="admin-mono">${r.wallet ? addrLink(r.wallet) : "—"}</td>
       <td>${escapeHtml(r.reason || "—")}</td>
       <td class="admin-nowrap">
         <button class="admin-btn admin-btn-xs" data-act="unban" data-user="${r.user_id}">Unban</button>
