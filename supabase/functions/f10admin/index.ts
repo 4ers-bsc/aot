@@ -775,10 +775,10 @@ Deno.serve(async (req: Request) => {
     const paidIds = paidMatches.map((m: any) => m.id);
     const [seatRes, waitSeatRes, ledgerRes] = await Promise.all([
       disputedIds.length
-        ? admin.from("match_players").select("match_id, user_id, seat, display_name, final_hp, last_seen").in("match_id", disputedIds)
+        ? admin.from("match_players").select("match_id, user_id, seat, display_name, deposit_wallet, final_hp, last_seen").in("match_id", disputedIds)
         : Promise.resolve({ data: [] as any[] }),
       waitingIds.length
-        ? admin.from("match_players").select("match_id, user_id, seat, display_name").in("match_id", waitingIds)
+        ? admin.from("match_players").select("match_id, user_id, seat, display_name, deposit_wallet").in("match_id", waitingIds)
         : Promise.resolve({ data: [] as any[] }),
       paidIds.length
         ? admin.from("payouts").select("match_id, winner_user_id, payout_tx, amount_raw, decimals, num_players, created_at").in("match_id", paidIds)
@@ -809,10 +809,12 @@ Deno.serve(async (req: Request) => {
       ...paidMatches.map((r: any) => r.winner_user_id),
     ]);
     const nameOf = (id?: string | null) => (id ? nameMap.get(id)?.name ?? null : null);
+    const walletOf = (id?: string | null) => (id ? nameMap.get(id)?.wallet ?? null : null);
 
     const payoutView = (m: any) => ({
       ...m,
       winner_name: nameOf(m.winner_user_id),
+      winner_wallet: walletOf(m.winner_user_id),
       stuck_minutes: m.payout_claimed_at
         ? Math.floor((now - new Date(m.payout_claimed_at).getTime()) / 60_000)
         : null,
@@ -837,19 +839,20 @@ Deno.serve(async (req: Request) => {
         ...m,
         players: (seatsByMatch.get(m.id) ?? []).sort((a, b) => a.seat - b.seat),
       })),
-      integrity: integrity.map((r: any) => ({ ...r, user_name: nameOf(r.user_id) })),
+      integrity: integrity.map((r: any) => ({ ...r, user_name: nameOf(r.user_id), user_wallet: walletOf(r.user_id) })),
       payout_pending: payoutPending.map(payoutView),
       payout_failed: payoutFailed.map(payoutView),
-      consumed_deposits: consumed.map((r: any) => ({ ...r, user_name: nameOf(r.user_id) })),
+      consumed_deposits: consumed.map((r: any) => ({ ...r, user_name: nameOf(r.user_id), user_wallet: walletOf(r.user_id) })),
       stale_waiting: waiting.map((m: any) => ({
         ...m,
         creator_name: nameOf(m.created_by),
+        creator_wallet: walletOf(m.created_by),
         players: (waitSeatsByMatch.get(m.id) ?? []).sort((a, b) => a.seat - b.seat),
         seats_filled: (waitSeatsByMatch.get(m.id) ?? []).length,
         open_minutes: Math.floor((now - new Date(m.created_at).getTime()) / 60_000),
       })),
       banned,
-      notes: notes.map((r: any) => ({ ...r, author_name: nameOf(r.author_id) })),
+      notes: notes.map((r: any) => ({ ...r, author_name: nameOf(r.author_id), author_wallet: walletOf(r.author_id) })),
       payouts: paidMatches.map((m: any) => {
         // Prefer the ledger row (exact paid amount); fall back to 90% of the
         // pot at 6 decimals for matches whose ledger insert never landed.
@@ -862,6 +865,7 @@ Deno.serve(async (req: Request) => {
           max_players: m.max_players,
           winner_user_id: m.winner_user_id,
           winner_name: nameOf(m.winner_user_id),
+          winner_wallet: walletOf(m.winner_user_id),
           payout_tx: m.payout_tx,
           amount_raw,
           decimals,
