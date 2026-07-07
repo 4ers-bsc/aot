@@ -4083,6 +4083,10 @@ body.in-game .log-feed { left: 70px; }
 
 .hs-title {
   margin: 0 0 clamp(26px, 4.5vh, 40px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: clamp(14px, 2.4vw, 28px);
   font-family: var(--font-display);
   font-size: clamp(1.35rem, 3.4vw, 2.1rem);
   letter-spacing: 0.1em;
@@ -4092,6 +4096,20 @@ body.in-game .log-feed { left: 70px; }
   color: transparent;
   -webkit-text-fill-color: transparent;
   filter: drop-shadow(0 2px 0 rgba(0, 0, 0, 0.9));
+}
+
+/* Flanking gold rules on either side of each section title,
+   matching the LAST ONE STANDING hero treatment. */
+.hs-title::before,
+.hs-title::after {
+  content: "";
+  width: clamp(28px, 7vw, 80px);
+  height: 1px;
+  flex-shrink: 0;
+  background: linear-gradient(90deg, transparent, rgba(212, 160, 23, 0.85));
+}
+.hs-title::after {
+  background: linear-gradient(90deg, rgba(212, 160, 23, 0.85), transparent);
 }
 
 .hs-grid {
