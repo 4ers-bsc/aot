@@ -514,11 +514,11 @@ export function createArenaGame(options) {
   }
 
   // -- Outer dot plane (black field with receding white dots beyond the ledge) --
-  // -- Molten pits (outside the arena) --------------------------------------
-  // Glowing molten pits scattered on the dark ground just beyond the ledge;
+  // -- Molten forge pits (along the arena sides) ----------------------------
+  // Glowing molten pits running along the four inner edges of the arena floor;
   // each pit's glow breathes every frame (animated via moltenPits).
   const moltenPits = []; // { glow, base, phase }
-  (function buildOuterPits() {
+  (function buildSidePits() {
     // Molten pit face — charred rim, glowing core, radiating cracks.
     const pitTex = () => {
       const c = document.createElement("canvas");
@@ -563,22 +563,24 @@ export function createArenaGame(options) {
 
     const PIT_COUNT = 16;
     for (let i = 0; i < PIT_COUNT; i++) {
-      const ang = Math.random() * Math.PI * 2;
-      // Keep the pit fully outside the ledge (Chebyshev clearance), then push it
-      // a little further out — clustered just beyond the arena so the pits stay
-      // in view at the usual gameplay zoom.
-      const clear = MAP_HALF + LEDGE_W + 3;
-      const minRad = clear / Math.max(Math.abs(Math.cos(ang)), Math.abs(Math.sin(ang)));
-      const rad = minRad + Math.random() * 26;
-      const px = Math.cos(ang) * rad, pz = Math.sin(ang) * rad;
-      const sz = 7 + Math.random() * 10;
+      // Run the pits along the four inner sides of the arena: pick a side, a
+      // spot along it, and a small inset in from the wall/rim.
+      const side  = i % 4;
+      const along = (Math.random() - 0.5) * 2 * (MAP_HALF - 6);
+      const inset = 2 + Math.random() * 5;
+      let px, pz;
+      if (side === 0)      { px = along;                pz = -(MAP_HALF - inset); }
+      else if (side === 1) { px = along;                pz =  (MAP_HALF - inset); }
+      else if (side === 2) { px = -(MAP_HALF - inset);  pz = along; }
+      else                 { px =  (MAP_HALF - inset);  pz = along; }
+      const sz = 6 + Math.random() * 8;
       const pit = new THREE.Mesh(
         new THREE.PlaneGeometry(sz, sz),
         new THREE.MeshBasicMaterial({ map: pitTex(), transparent: true, depthWrite: false }),
       );
       pit.rotation.x = -Math.PI / 2;
       pit.rotation.z = Math.random() * Math.PI * 2;
-      pit.position.set(px, 0.005, pz);
+      pit.position.set(px, 0.03, pz);
       scene.add(pit);
       const glow = new THREE.Mesh(
         new THREE.PlaneGeometry(sz * 1.8, sz * 1.8),
@@ -588,7 +590,7 @@ export function createArenaGame(options) {
         }),
       );
       glow.rotation.x = -Math.PI / 2;
-      glow.position.set(px, 0.02, pz);
+      glow.position.set(px, 0.05, pz);
       scene.add(glow);
       moltenPits.push({ glow, base: 0.55 + Math.random() * 0.25, phase: Math.random() * Math.PI * 2 });
     }
