@@ -204,9 +204,10 @@ export function createArenaGame(options) {
   // run each frame in animate().
   const wallFX = [];
 
-  // -- Arena side style: Frozen Aurora ---------------------------------------
-  // Frosted ice panels beneath a shimmering, hue-shifting aurora curtain with
-  // snow-sparkle drifting down the walls. Dark backing behind the panels.
+  // -- Arena side style: Golden Steps ----------------------------------------
+  // Golden panels dressed with a curtain of stone-block steps that thin out
+  // toward the bottom, plus a gold rim and gold sparkle drifting down the
+  // walls. Dark backing behind the panels.
   const SIDE_BACK = 0x0a0702;
 
   function buildArenaWalls(variant) {
@@ -320,21 +321,69 @@ export function createArenaGame(options) {
       return mat;
     };
 
-    // Frosted ice panels beneath a hue-shifting aurora curtain.
+    // Golden panels behind the stone steps.
     panelSet(new THREE.MeshBasicMaterial({
       map: makeIceTex(), transparent: true, side: THREE.DoubleSide,
       depthWrite: false, opacity: 0.92,
     }));
-    const auroraMat = new THREE.MeshBasicMaterial({
-      map: makeAuroraTex(), transparent: true, side: THREE.DoubleSide,
-      depthWrite: false, blending: THREE.AdditiveBlending, opacity: 0.4,
-    });
-    panelSet(auroraMat);
-    registerFX((t) => {
-      // Shimmer within a gold band (amber ↔ pale yellow) instead of blue/green.
-      auroraMat.color.setHSL(0.12 + 0.035 * Math.sin(t * 0.45), 0.9, 0.6);
-      auroraMat.opacity = 0.3 + 0.18 * (0.5 + 0.5 * Math.sin(t * 0.8));
-    });
+
+    // Step stones — a curtain of golden stone blocks hung down each wall that
+    // thins out toward the bottom: the top row is full-width and every row
+    // below has fewer, more tightly-centred blocks, tapering all the way down.
+    {
+      const COLS_TOP = 22;   // blocks in the top (widest) row
+      const LEVELS   = 13;   // rows from the rim down into the pit
+      const yTop     = -0.55, yStep = 0.52, sz = 0.9;
+      const golds = [0xE9C55A, 0xD4A82E, 0xF2D37A, 0xC7962A, 0xBE8B22];
+      // Count the instances up front so the InstancedMesh is sized exactly.
+      const rows = [];
+      let total = 0;
+      for (let k = 0; k < LEVELS; k++) {
+        const frac  = 1 - k / (LEVELS - 1);            // 1 at top → 0 at bottom
+        const count = Math.max(1, Math.round(COLS_TOP * frac));
+        rows.push({ k, count, frac });
+        total += count * 4;                             // four walls
+      }
+      // Unlit so the gold reads even down in the shadowed pit.
+      const inst = new THREE.InstancedMesh(
+        new THREE.BoxGeometry(1, 1, 1),
+        new THREE.MeshBasicMaterial({ color: 0xffffff }),
+        total,
+      );
+      inst.castShadow = false; inst.receiveShadow = false;
+      const m4 = new THREE.Matrix4(), q = new THREE.Quaternion();
+      const p = new THREE.Vector3(), s = new THREE.Vector3(sz, sz, sz);
+      const col = new THREE.Color();
+      // dir = inward normal; each descending row steps a little further back.
+      const sides = [
+        { axis: "x", fixed: -MAP_HALF, dir:  1 },
+        { axis: "x", fixed:  MAP_HALF, dir: -1 },
+        { axis: "z", fixed: -MAP_HALF, dir:  1 },
+        { axis: "z", fixed:  MAP_HALF, dir: -1 },
+      ];
+      let idx = 0;
+      for (const side of sides) {
+        for (const { k, count, frac } of rows) {
+          const y     = yTop - k * yStep;
+          const span  = (MAP_HALF - 2) * Math.max(frac, 0.05); // width tapers down
+          const inset = 1.0 + k * 0.14;                        // step back with depth
+          for (let c = 0; c < count; c++) {
+            const along = count === 1 ? 0 : -span + (c / (count - 1)) * span * 2;
+            if (side.axis === "x") p.set(along, y, side.fixed + side.dir * inset);
+            else                   p.set(side.fixed + side.dir * inset, y, along);
+            m4.compose(p, q, s);
+            inst.setMatrixAt(idx, m4);
+            col.setHex(golds[(k + c) % golds.length]);
+            inst.setColorAt(idx, col);
+            idx++;
+          }
+        }
+      }
+      inst.instanceMatrix.needsUpdate = true;
+      if (inst.instanceColor) inst.instanceColor.needsUpdate = true;
+      addObj(inst);
+    }
+
     addRim(0xffd76a, 0.9, 0xffaa00, 0.5);
     // Gold sparkle settling down the inside of the walls.
     wallField({ count: 130, size: 0.7, color: 0xffe9b0, rise: false, speed: 0.9, opacity: 0.85 });
@@ -356,23 +405,6 @@ export function createArenaGame(options) {
         x.moveTo(px, py);
         for (let s = 0; s < 4; s++) { px += (Math.random() - 0.5) * 60; py += (Math.random() - 0.5) * 60; x.lineTo(px, py); }
         x.stroke();
-      }
-      return new THREE.CanvasTexture(c);
-    }
-
-    // Aurora curtain overlay — soft vertical light bands, recolored each frame.
-    function makeAuroraTex() {
-      const c = document.createElement("canvas");
-      c.width = c.height = 256;
-      const x = c.getContext("2d");
-      x.clearRect(0, 0, 256, 256);
-      for (let i = 0; i < 7; i++) {
-        const cx = Math.random() * 256;
-        const g = x.createLinearGradient(cx - 30, 0, cx + 30, 0);
-        g.addColorStop(0, "rgba(255,210,90,0)");
-        g.addColorStop(0.5, `rgba(255,${200 + Math.random() * 45},${90 + Math.random() * 60},0.5)`);
-        g.addColorStop(1, "rgba(255,210,90,0)");
-        x.fillStyle = g; x.fillRect(cx - 30, 0, 60, 256);
       }
       return new THREE.CanvasTexture(c);
     }
