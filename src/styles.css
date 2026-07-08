@@ -2618,7 +2618,8 @@ body.in-game #homePlayPrompt { display: none !important; }
 .hud-hidden .hotbar,
 .hud-hidden .game-rivals,
 .hud-hidden .game-fps,
-.hud-hidden .game-ping {
+.hud-hidden .game-ping,
+.hud-hidden .wall-ctrl {
   display: none !important;
 }
 
@@ -2849,6 +2850,51 @@ body.in-game .log-feed { left: 70px; }
 
 .toggle.on { background: #2f8f4a; }
 .toggle.on::after { left: 30px; }
+
+/* Arena sides style dropdown — floating picker docked beside the gear button
+   in the top-left corner (weapon panel owns the bottom-right, minimap the
+   bottom-left, stats the top-right). */
+.wall-ctrl {
+  position: fixed;
+  top: 16px;
+  left: 64px;
+  z-index: 12;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 40px;
+  padding: 0 10px;
+  border-radius: 9px;
+  background: rgba(20, 28, 24, 0.6);
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+}
+.wall-ctrl-label {
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 10px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: rgba(240, 232, 208, 0.6);
+  user-select: none;
+}
+.wall-select {
+  min-width: 140px;
+  max-width: 200px;
+  padding: 7px 10px;
+  border-radius: 8px;
+  cursor: pointer;
+  background: rgba(14, 16, 20, 0.9);
+  color: #d8f4ff;
+  border: 1px solid rgba(84, 232, 255, 0.35);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  appearance: auto;
+}
+.wall-select:hover { border-color: rgba(84, 232, 255, 0.7); }
+.wall-select:focus { outline: none; border-color: rgba(84, 232, 255, 0.9); }
+.wall-select option { background: #101318; color: #d8f4ff; }
 
 .keys-list .k,
 .cmd-list .k {
@@ -3916,6 +3962,10 @@ body.in-game .log-feed { left: 70px; }
     height: 34px;
     font-size: 17px;
   }
+
+  .wall-ctrl { top: 10px; left: 50px; height: 34px; padding: 0 7px; gap: 5px; }
+  .wall-ctrl-label { display: none; }
+  .wall-ctrl .wall-select { min-width: 104px; max-width: 140px; font-size: 11px; padding: 5px 6px; }
 
   .keys-info-btn {
     top: 48px;

@@ -58,6 +58,192 @@ THEMES.lobby = THEMES.game;
 const RD_FOG = { Near: [18, 38], Medium: [30, 65], Far: [52, 100] };
 const RD_ORDER = ["Near", "Medium", "Far"];
 
+// -- Arena side-wall styles ---------------------------------------------------
+// Five futuristic looks for the walls that drop below the map rim, picked from
+// the in-game "Sides" dropdown. Cosmetic only: buildArenaWalls() consumes
+// these; the floor, props and gameplay are untouched.
+//   accent — [r,g,b] used by the canvas painters (panel + banner)
+//   back   — matte backing plane behind the energy panel
+//   rim/rim2 — the two rim outline colors at the map edge
+//   strut  — glowing vertical pylons + corner columns + top beam
+//   pattern — which painter draws the panel texture
+//   scroll — panel texture drift speed (energy-flow feel), in UV/s
+const WALL_STYLES = {
+  holo: {
+    name: "Holo Grid", back: 0x030a10, accent: [64, 224, 255],
+    rim: 0x54e8ff, rim2: 0x1e7f9e, strut: 0xaef4ff, pattern: "holo", scroll: 0.010,
+  },
+  plasma: {
+    name: "Plasma Conduit", back: 0x0c0512, accent: [255, 92, 226],
+    rim: 0xff5ce2, rim2: 0x8a2f9e, strut: 0xffb2ef, pattern: "circuit", scroll: 0.022,
+  },
+  quantum: {
+    name: "Quantum Field", back: 0x030718, accent: [110, 156, 255],
+    rim: 0x6f9dff, rim2: 0x2f4f9e, strut: 0xc4d6ff, pattern: "hex", scroll: 0.006,
+  },
+  ion: {
+    name: "Ion Storm", back: 0x02110c, accent: [70, 255, 190],
+    rim: 0x46ffbe, rim2: 0x1e9a70, strut: 0xb0ffe4, pattern: "ion", scroll: 0.030,
+  },
+  darkmatter: {
+    name: "Dark Matter", back: 0x100305, accent: [255, 74, 60],
+    rim: 0xff4a3c, rim2: 0x9e1f18, strut: 0xff9c92, pattern: "plate", scroll: 0.004,
+  },
+};
+const WALL_STYLE_ORDER = ["holo", "plasma", "quantum", "ion", "darkmatter"];
+const WALL_STYLE_LS_KEY = "fight10_wall_style";
+
+function wallRGBA(rgb, a) {
+  return `rgba(${rgb[0]},${rgb[1]},${rgb[2]},${Math.max(0, Math.min(1, a)).toFixed(3)})`;
+}
+
+// Paints one wall's energy-panel texture (W x H canvas, top row sits at the
+// map rim). Every painter fades toward the bottom so the panel dissolves into
+// the void, and keeps its marks clear of the left/right edges so the texture
+// tiles cleanly while animate() drifts it sideways.
+function paintWallPanel(g, W, H, style) {
+  const A = style.accent;
+  const fade = (y) => Math.max(0, 1 - y / H);
+  switch (style.pattern) {
+    case "holo": {
+      // Fine hologram lattice + sparse bright "data" cells.
+      const CELL = 8;
+      for (let y = 0; y <= H; y += CELL) {
+        g.strokeStyle = wallRGBA(A, fade(y) * 0.5);
+        g.lineWidth = 1;
+        g.beginPath(); g.moveTo(0, y + 0.5); g.lineTo(W, y + 0.5); g.stroke();
+      }
+      const vGrad = g.createLinearGradient(0, 0, 0, H);
+      vGrad.addColorStop(0, wallRGBA(A, 0.32));
+      vGrad.addColorStop(1, wallRGBA(A, 0));
+      g.strokeStyle = vGrad;
+      for (let x = 0; x <= W; x += CELL) {
+        g.beginPath(); g.moveTo(x + 0.5, 0); g.lineTo(x + 0.5, H); g.stroke();
+      }
+      for (let i = 0; i < 90; i++) {
+        const cx = (Math.random() * (W / CELL)) | 0, cy = (Math.random() * (H / CELL)) | 0;
+        g.fillStyle = wallRGBA(A, fade(cy * CELL) * (0.12 + Math.random() * 0.3));
+        g.fillRect(cx * CELL + 1, cy * CELL + 1, CELL - 2, CELL - 2);
+      }
+      break;
+    }
+    case "circuit": {
+      // Faint vertical bus lanes with bright right-angle traces + node pads.
+      const laneGrad = g.createLinearGradient(0, 0, 0, H);
+      laneGrad.addColorStop(0, wallRGBA(A, 0.16));
+      laneGrad.addColorStop(1, wallRGBA(A, 0));
+      g.strokeStyle = laneGrad;
+      g.lineWidth = 1;
+      for (let x = 8; x < W; x += 16) {
+        g.beginPath(); g.moveTo(x + 0.5, 0); g.lineTo(x + 0.5, H); g.stroke();
+      }
+      for (let i = 0; i < 26; i++) {
+        let x = 4 + Math.random() * (W - 8), y = Math.random() * (H * 0.6);
+        const f = fade(y);
+        g.strokeStyle = wallRGBA(A, f * (0.4 + Math.random() * 0.45));
+        g.lineWidth = 1.4;
+        g.beginPath(); g.moveTo(x, y);
+        let horiz = Math.random() < 0.5;
+        const segs = 2 + ((Math.random() * 3) | 0);
+        for (let s = 0; s < segs; s++) {
+          if (horiz) x += (Math.random() - 0.5) * 56; else y += 4 + Math.random() * 16;
+          x = Math.max(3, Math.min(W - 3, x));
+          y = Math.max(1, Math.min(H - 3, y));
+          g.lineTo(x, y);
+          horiz = !horiz;
+        }
+        g.stroke();
+        g.fillStyle = wallRGBA(A, f * 0.9);
+        g.fillRect(x - 1.6, y - 1.6, 3.2, 3.2);
+      }
+      break;
+    }
+    case "hex": {
+      // Flat-top hexagon force-field lattice, occasional charged cells.
+      const R = 7, hh = R * Math.sin(Math.PI / 3);
+      for (let col = 0; col * R * 1.5 < W + R; col++) {
+        for (let row = -1; row * hh * 2 < H + hh * 2; row++) {
+          const cx = col * R * 1.5;
+          const cy = row * hh * 2 + (col % 2 ? hh : 0);
+          const f = fade(cy);
+          if (f <= 0.03) continue;
+          g.beginPath();
+          for (let k = 0; k < 6; k++) {
+            const a = (Math.PI / 3) * k;
+            const px = cx + R * Math.cos(a), py = cy + R * Math.sin(a);
+            if (k) g.lineTo(px, py); else g.moveTo(px, py);
+          }
+          g.closePath();
+          if (Math.random() < 0.14) { g.fillStyle = wallRGBA(A, f * 0.3); g.fill(); }
+          g.strokeStyle = wallRGBA(A, f * 0.5);
+          g.lineWidth = 1;
+          g.stroke();
+        }
+      }
+      break;
+    }
+    case "ion": {
+      // Scanline haze with discharge bolts arcing down from the rim.
+      for (let y = 0; y < H; y += 4) {
+        g.fillStyle = wallRGBA(A, fade(y) * 0.1);
+        g.fillRect(0, y, W, 1);
+      }
+      const boltGrad = g.createLinearGradient(0, 0, 0, H);
+      boltGrad.addColorStop(0, wallRGBA(A, 0.85));
+      boltGrad.addColorStop(1, wallRGBA(A, 0));
+      for (let i = 0; i < 22; i++) {
+        let x = 6 + Math.random() * (W - 12), y = 0;
+        g.strokeStyle = boltGrad;
+        g.lineWidth = 1.2;
+        g.beginPath(); g.moveTo(x, 0);
+        const reach = H * (0.45 + Math.random() * 0.5);
+        while (y < reach) {
+          x = Math.max(2, Math.min(W - 2, x + (Math.random() - 0.5) * 14));
+          y += 4 + Math.random() * 7;
+          g.lineTo(x, y);
+        }
+        g.stroke();
+        g.fillStyle = wallRGBA(A, fade(y) * 0.9);
+        g.fillRect(x - 1, y - 1, 2, 2);
+      }
+      break;
+    }
+    case "plate": {
+      // Staggered armour plates, hot seams, hazard chevrons along the rim.
+      const PLW = 32, PLH = 16;
+      for (let y = 0; y <= H; y += PLH) {
+        g.strokeStyle = wallRGBA(A, fade(y) * 0.4);
+        g.lineWidth = 1;
+        g.beginPath(); g.moveTo(0, y + 0.5); g.lineTo(W, y + 0.5); g.stroke();
+      }
+      for (let ry = 0; ry < H; ry += PLH) {
+        const f = fade(ry);
+        const off = ((ry / PLH) % 2) * (PLW / 2);
+        for (let x = off; x <= W; x += PLW) {
+          g.strokeStyle = wallRGBA(A, f * 0.35);
+          g.beginPath(); g.moveTo(x + 0.5, ry); g.lineTo(x + 0.5, Math.min(H, ry + PLH)); g.stroke();
+        }
+      }
+      for (let i = 0; i < 8; i++) {
+        const y = PLH * (1 + ((Math.random() * 2) | 0));
+        const x = Math.random() * (W - 40);
+        g.fillStyle = wallRGBA(A, fade(y) * (0.5 + Math.random() * 0.4));
+        g.fillRect(x, y, 16 + Math.random() * 24, 1.6);
+      }
+      for (let x = -8; x < W + 8; x += 12) {
+        g.fillStyle = wallRGBA(A, 0.5);
+        g.beginPath();
+        g.moveTo(x, 6); g.lineTo(x + 6, 0); g.lineTo(x + 9, 0); g.lineTo(x + 3, 6);
+        g.closePath(); g.fill();
+      }
+      break;
+    }
+  }
+  // Hot edge right at the rim, shared by every pattern.
+  g.fillStyle = wallRGBA(A, 0.8);
+  g.fillRect(0, 0, W, 1.5);
+}
+
 export function createArenaGame(options) {
   const mount = options.mount;
   mount.innerHTML = "";
@@ -199,8 +385,19 @@ export function createArenaGame(options) {
   // per frame in animate(): an unfurl drop when built, then a continuous
   // fabric wave. { mesh, geo, h, phase, born }
   const clothBanners = [];
+  // Live wall effects rebuilt with the walls: panel texture drift + strut
+  // pulse, driven per frame in animate(). Null until the first build.
+  let wallFx = null;
 
-  function buildArenaWalls(variant) {
+  // Which of the five WALL_STYLES dresses the arena sides; persisted so the
+  // pick survives reloads.
+  let wallStyleName = WALL_STYLE_ORDER[0];
+  try {
+    const saved = localStorage.getItem(WALL_STYLE_LS_KEY);
+    if (WALL_STYLES[saved]) wallStyleName = saved;
+  } catch (_) { /* private mode */ }
+
+  function buildArenaWalls() {
     // Dispose existing wall objects via the shared traversal helper (it
     // handles shared materials, textures, and nested groups uniformly).
     wallObjects.forEach((obj) => {
@@ -209,13 +406,14 @@ export function createArenaGame(options) {
     });
     wallObjects.length = 0;
     clothBanners.length = 0; // banner meshes live in wallObjects, disposed above
+    wallFx = null;
 
+    const style = WALL_STYLES[wallStyleName];
     const DEPTH = 10;
     const addObj = (obj) => { scene.add(obj); wallObjects.push(obj); return obj; };
 
     // Dark backing behind each wall
-    const backColor = 0x0a0804;
-    const sideMat = new THREE.MeshStandardMaterial({ color: backColor, roughness: 0.98, metalness: 0.0 });
+    const sideMat = new THREE.MeshStandardMaterial({ color: style.back, roughness: 0.98, metalness: 0.0 });
     [
       { x: 0,         z: -MAP_HALF, ry: 0 },
       { x: 0,         z:  MAP_HALF, ry: Math.PI },
@@ -237,45 +435,24 @@ export function createArenaGame(options) {
     btm.position.y = -DEPTH;
     addObj(btm);
 
-    // Glass panels — golden pixel grid
+    // Energy panels — the selected style's pattern, brightest at the rim and
+    // dissolving downward. RepeatWrapping so animate() can drift the texture
+    // sideways for an energy-flow feel.
     const GH = 6;
-    const CELL = 8;
     const PW = 256;
     const PH = 64;
     const gc = document.createElement("canvas");
     gc.width = PW; gc.height = PH;
     const gctx = gc.getContext("2d");
     gctx.imageSmoothingEnabled = false;
+    paintWallPanel(gctx, PW, PH, style);
 
-    for (let row = 0; row < PH / CELL; row++) {
-      const rowAlpha = 1 - row / (PH / CELL);
-      for (let col = 0; col < PW / CELL; col++) {
-        const va = 0.85 + Math.random() * 0.15;
-        const fillAlpha = rowAlpha * 0.28 * va;
-        gctx.fillStyle = `rgba(210,175,60,${fillAlpha.toFixed(3)})`;
-        gctx.fillRect(col * CELL + 1, row * CELL + 1, CELL - 2, CELL - 2);
-      }
-    }
-    for (let row = 0; row <= PH / CELL; row++) {
-      const rowAlpha = 1 - row / (PH / CELL);
-      gctx.strokeStyle = `rgba(255, 200, 48, ${(rowAlpha * 0.72).toFixed(3)})`;
-      gctx.lineWidth = 1;
-      gctx.beginPath(); gctx.moveTo(0, row * CELL); gctx.lineTo(PW, row * CELL); gctx.stroke();
-    }
-    for (let col = 0; col <= PW / CELL; col++) {
-      for (let row = 0; row < PH / CELL; row++) {
-        const rowAlpha = 1 - row / (PH / CELL);
-        gctx.strokeStyle = `rgba(255, 200, 48, ${(rowAlpha * 0.55).toFixed(3)})`;
-        gctx.lineWidth = 1;
-        gctx.beginPath(); gctx.moveTo(col * CELL, row * CELL); gctx.lineTo(col * CELL, (row + 1) * CELL); gctx.stroke();
-      }
-    }
-
-    const glassTex = new THREE.CanvasTexture(gc);
-    glassTex.magFilter = THREE.NearestFilter;
-    glassTex.minFilter = THREE.NearestFilter;
-    const glassMat = new THREE.MeshBasicMaterial({
-      map: glassTex, transparent: true, side: THREE.DoubleSide, depthWrite: false
+    const panelTex = new THREE.CanvasTexture(gc);
+    panelTex.magFilter = THREE.NearestFilter;
+    panelTex.minFilter = THREE.NearestFilter;
+    panelTex.wrapS = THREE.RepeatWrapping;
+    const panelMat = new THREE.MeshBasicMaterial({
+      map: panelTex, transparent: true, side: THREE.DoubleSide, depthWrite: false
     });
 
     const SIDES = [
@@ -285,14 +462,52 @@ export function createArenaGame(options) {
       { x:  MAP_HALF, z: 0,         ry: -Math.PI / 2 },
     ];
     SIDES.forEach(({ x, z, ry }) => {
-      const panel = new THREE.Mesh(new THREE.PlaneGeometry(MAP_WORLD, GH), glassMat);
+      const panel = new THREE.Mesh(new THREE.PlaneGeometry(MAP_WORLD, GH), panelMat);
       panel.position.set(x, -GH / 2, z);
       panel.rotation.y = ry;
       addObj(panel);
     });
 
-    // -- F10 cloth banner — gold fabric draped over the rim, falling down the
-    // left map side (the +z edge, front-left from the fixed iso view).
+    // Glowing pylons: vertical struts spaced along each wall, a heavier
+    // column at each corner, and a light beam running along every top edge.
+    // All share one pulsing material so animate() only touches one opacity.
+    const strutMat = new THREE.MeshBasicMaterial({
+      color: style.strut, transparent: true, opacity: 0.8, depthWrite: false,
+    });
+    const strutGeo = new THREE.BoxGeometry(0.22, GH * 0.92, 0.22);
+    SIDES.forEach(({ x, z, ry }) => {
+      // The wall's inward normal (toward the arena) — struts sit just proud
+      // of the panel plane so they never z-fight with it.
+      const nx = Math.sin(ry), nz = Math.cos(ry);
+      for (let i = 1; i <= 7; i++) {
+        const along = -MAP_HALF + (MAP_WORLD * i) / 8;
+        const strut = new THREE.Mesh(strutGeo, strutMat);
+        strut.position.set(
+          x + (ry === 0 || ry === Math.PI ? along : nx * 0.12),
+          -GH * 0.46,
+          z + (ry === 0 || ry === Math.PI ? nz * 0.12 : along)
+        );
+        addObj(strut);
+      }
+      const beam = new THREE.Mesh(new THREE.BoxGeometry(
+        ry === 0 || ry === Math.PI ? MAP_WORLD : 0.16, 0.16,
+        ry === 0 || ry === Math.PI ? 0.16 : MAP_WORLD
+      ), strutMat);
+      beam.position.set(x + nx * 0.08, -0.1, z + nz * 0.08);
+      addObj(beam);
+    });
+    const cornerGeo = new THREE.BoxGeometry(0.5, GH, 0.5);
+    [[-MAP_HALF, -MAP_HALF], [MAP_HALF, -MAP_HALF], [-MAP_HALF, MAP_HALF], [MAP_HALF, MAP_HALF]].forEach(([cx, cz]) => {
+      const col = new THREE.Mesh(cornerGeo, strutMat);
+      col.position.set(cx, -GH / 2, cz);
+      addObj(col);
+    });
+
+    wallFx = { panelTex, panelMat, strutMat, scroll: style.scroll };
+
+    // -- F10 holo-banner — a translucent projection draped over the rim,
+    // falling down the left map side (the +z edge, front-left from the fixed
+    // iso view), tinted by the selected wall style.
     // Pinned at the rim; animate() unfurls it on build and keeps it waving.
     const BANNER_W = 10, BANNER_H = 7;
     const bnc = document.createElement("canvas");
@@ -312,27 +527,30 @@ export function createArenaGame(options) {
     }
     silhouette.closePath();
     const bGrad = bnx.createLinearGradient(0, 0, 0, 360);
-    bGrad.addColorStop(0, "#d9a413");
-    bGrad.addColorStop(1, "#a87a08");
+    bGrad.addColorStop(0, "rgba(8,14,20,0.94)");
+    bGrad.addColorStop(1, "rgba(8,14,20,0.55)");
     bnx.fillStyle = bGrad;
     bnx.fill(silhouette);
     bnx.save();
     bnx.clip(silhouette);
-    bnx.strokeStyle = "rgba(122,88,0,0.28)"; // faint weave lines
+    bnx.strokeStyle = wallRGBA(style.accent, 0.14); // faint projection scanlines
     bnx.lineWidth = 2;
-    for (let y = 30; y < 360; y += 30) {
+    for (let y = 14; y < 360; y += 14) {
       bnx.beginPath(); bnx.moveTo(0, y); bnx.lineTo(512, y); bnx.stroke();
     }
     bnx.restore();
-    bnx.strokeStyle = "#7a5800";
-    bnx.lineWidth = 10;
+    bnx.strokeStyle = wallRGBA(style.accent, 0.9);
+    bnx.lineWidth = 8;
     bnx.stroke(silhouette);
-    // The F10 mark — matches the gold tower cloths: bold dark type, centered
-    bnx.fillStyle = "#0a0800";
+    // The F10 mark — glowing emitter type in the style's accent, centered
+    bnx.fillStyle = wallRGBA(style.accent, 1);
+    bnx.shadowColor = wallRGBA(style.accent, 0.9);
+    bnx.shadowBlur = 26;
     bnx.font = "900 168px monospace";
     bnx.textAlign = "center";
     bnx.textBaseline = "middle";
     bnx.fillText("F10", 256, 150);
+    bnx.shadowBlur = 0;
     const bannerTex = new THREE.CanvasTexture(bnc);
     bannerTex.anisotropy = renderer.capabilities.getMaxAnisotropy();
     const bannerMat = new THREE.MeshBasicMaterial({
@@ -348,15 +566,18 @@ export function createArenaGame(options) {
     banner.position.set(0, LEDGE_TOP + 0.03, MAP_HALF + LEDGE_W + 0.16);
     banner.renderOrder = 3; // after the outer dot plane so it shows against the void
     addObj(banner);
-    // Fold of cloth lying on the ledge top where the fabric crosses its edge
-    const fold = box(BANNER_W * PROP_SCALE, 0.1, 0.7, 0xc8940a);
+    // Emitter bar on the ledge top where the projection crosses its edge
+    const fold = new THREE.Mesh(
+      new THREE.BoxGeometry(BANNER_W * PROP_SCALE, 0.1, 0.7),
+      new THREE.MeshBasicMaterial({ color: style.strut, transparent: true, opacity: 0.85 })
+    );
     fold.position.set(0, LEDGE_TOP + 0.05, MAP_HALF + LEDGE_W - 0.35);
     addObj(fold);
     clothBanners.push({ mesh: banner, geo: bannerGeo, h: BANNER_H, phase: 0, born: performance.now() * 0.001 });
 
     // Top rim
-    const rimColor = 0xffc830;
-    const rimColor2 = 0xffaa00;
+    const rimColor = style.rim;
+    const rimColor2 = style.rim2;
     const rimPts = [
       new THREE.Vector3(-MAP_HALF, 0.08, -MAP_HALF), new THREE.Vector3(MAP_HALF, 0.08, -MAP_HALF),
       new THREE.Vector3(MAP_HALF, 0.08,  MAP_HALF),  new THREE.Vector3(-MAP_HALF, 0.08,  MAP_HALF),
@@ -379,7 +600,7 @@ export function createArenaGame(options) {
     ));
   }
 
-  buildArenaWalls("game");
+  buildArenaWalls();
 
   // -- Edge ledge + flame lamps ----------------------------------------------
   // A polished black ledge ring hugging the map rim, with small flickering
@@ -2474,6 +2695,21 @@ export function createArenaGame(options) {
   // Top-right menu button: open the app's in-game menu (resume / how to play /
   // settings / leave) rather than jumping straight into settings — on touch
   // devices there is no Esc key, so this is the only way into that menu.
+  // "Sides" dropdown docked beside the menu button: picks which of the five
+  // sci-fi wall styles dresses the arena edges. Rebuilding the walls is
+  // cosmetic-only (no gameplay state), so switching mid-match is safe.
+  hud.wallSelect.innerHTML = WALL_STYLE_ORDER
+    .map((k) => `<option value="${k}">${WALL_STYLES[k].name}</option>`)
+    .join("");
+  hud.wallSelect.value = wallStyleName;
+  hud.wallSelect.addEventListener("change", () => {
+    const name = hud.wallSelect.value;
+    if (!WALL_STYLES[name] || name === wallStyleName) return;
+    wallStyleName = name;
+    try { localStorage.setItem(WALL_STYLE_LS_KEY, name); } catch (_) { /* private mode */ }
+    buildArenaWalls();
+  });
+
   hud.gearBtn.addEventListener("click", () => {
     if (options.onMenu) options.onMenu();
     else overlay.classList.add("show");
@@ -2735,8 +2971,6 @@ export function createArenaGame(options) {
   }
 
   // -- Theme switch ---------------------------------------------------------
-  let currentMapVariant = "game"; // "game" | "golden"
-
   function applyTheme(name) {
     theme = THEMES[name] || THEMES.lobby;
     renderer.setClearColor(theme.bg, 1);
@@ -2749,10 +2983,6 @@ export function createArenaGame(options) {
     ground.material.needsUpdate = true;
     buildGrid();
     border.material.color.setHex(theme.border);
-    if ("game" !== currentMapVariant) {
-      currentMapVariant = "game";
-      buildArenaWalls("game");
-    }
     recolorFighter(player, playerAppearance?.colors || theme.player);
     player.bar.color = theme.playerBar;
     aiRaiders.forEach((r) => { recolorFighter(r, theme.enemy); r.bar.color = theme.enemyBar; });
@@ -2963,6 +3193,14 @@ export function createArenaGame(options) {
           droop * droop * 0.4); // gentle outward billow away from the wall
       }
       pos.needsUpdate = true;
+    }
+
+    // Wall energy: drift the panel texture sideways (energy flow) and pulse
+    // the pylons/beams. One offset write + two opacity writes per frame.
+    if (wallFx) {
+      wallFx.panelTex.offset.x = (bNow * wallFx.scroll) % 1;
+      wallFx.panelMat.opacity = 0.86 + 0.14 * Math.sin(bNow * 1.7);
+      wallFx.strutMat.opacity = 0.62 + 0.26 * Math.sin(bNow * 2.3);
     }
 
     if (markerLife > 0) {
@@ -3393,6 +3631,10 @@ function buildHud() {
   </div>`);
   add('<button class="gear game-ui" title="Menu">&#9776;</button>');
   const gearBtn = root.querySelector(".gear");
+  // Arena sides style picker, docked beside the gear button. Populated and
+  // wired by createArenaGame (it owns the wall-style state).
+  const wallCtrl = add('<div class="wall-ctrl game-ui"><span class="wall-ctrl-label">Sides</span><select class="wall-select" title="Arena sides style"></select></div>');
+  const wallSelect = wallCtrl.querySelector(".wall-select");
   const rivalsEl = add('<div class="game-rivals game-ui">--</div>');
   const fpsEl = add('<div class="game-fps game-ui">FPS --</div>');
   const pingEl = add('<div class="game-ping game-ui">-- ms</div>');
@@ -3470,7 +3712,7 @@ function buildHud() {
     });
   }
 
-  return { root, coords, matchTimerEl, matchNoEl, mmCanvas, hotbar, slots, rivalsEl, fpsEl, pingEl, overlay, renderDistBtn, bindSettings, raiderCountCtrl, raiderCountEl, scorePanel, weaponPanel, keysInfoPanel, gearBtn };
+  return { root, coords, matchTimerEl, matchNoEl, mmCanvas, hotbar, slots, rivalsEl, fpsEl, pingEl, overlay, renderDistBtn, bindSettings, raiderCountCtrl, raiderCountEl, scorePanel, weaponPanel, keysInfoPanel, gearBtn, wallSelect };
 }
 
 function clamp(v, min, max) {
