@@ -514,53 +514,11 @@ export function createArenaGame(options) {
   }
 
   // -- Outer dot plane (black field with receding white dots beyond the ledge) --
-  // -- Outer snow barren + molten pits --------------------------------------
-  // The white arena floor bleeds out past the ledge into a wide snow plain
-  // that fades into the surrounding darkness, scattered with glowing molten
-  // pits. The pits' glow breathes each frame (animated via moltenPits).
+  // -- Molten pits (outside the arena) --------------------------------------
+  // Glowing molten pits scattered on the dark ground just beyond the ledge;
+  // each pit's glow breathes every frame (animated via moltenPits).
   const moltenPits = []; // { glow, base, phase }
-  (function buildOuterGround() {
-    const SIZE = 440;
-    const PX = 1024;
-    const dc = document.createElement("canvas");
-    dc.width = dc.height = PX;
-    const dctx = dc.getContext("2d");
-    const cx = PX / 2, cy = PX / 2;
-    // Snow near the arena, fading out to the dark void toward the edges.
-    const g = dctx.createRadialGradient(cx, cy, PX * 0.16, cx, cy, PX * 0.5);
-    g.addColorStop(0.00, "rgba(222,230,236,1)");
-    g.addColorStop(0.40, "rgba(196,206,214,0.96)");
-    g.addColorStop(0.60, "rgba(120,134,148,0.85)");
-    g.addColorStop(0.80, "rgba(34,42,54,0.5)");
-    g.addColorStop(1.00, "rgba(8,9,12,0)");
-    dctx.fillStyle = g;
-    dctx.fillRect(0, 0, PX, PX);
-    // Speckled snow grain, denser and brighter near the arena.
-    for (let i = 0; i < 4200; i++) {
-      const x = Math.random() * PX, y = Math.random() * PX;
-      const d = Math.hypot(x - cx, y - cy) / (PX * 0.5);
-      if (d > 1) continue;
-      dctx.globalAlpha = (1 - d) * 0.5 * Math.random();
-      dctx.fillStyle = Math.random() < 0.5 ? "#ffffff" : "#9aa4ac";
-      dctx.fillRect(x, y, 1.4, 1.4);
-    }
-    dctx.globalAlpha = 1;
-    // Punch out the arena square so the real floor shows through.
-    const arenaPx = (MAP_WORLD / SIZE) * PX;
-    const ao = (PX - arenaPx) / 2;
-    dctx.globalCompositeOperation = "destination-out";
-    dctx.fillRect(ao, ao, arenaPx, arenaPx);
-
-    const tex = new THREE.CanvasTexture(dc);
-    tex.wrapS = tex.wrapT = THREE.ClampToEdgeWrapping;
-    const plane = new THREE.Mesh(
-      new THREE.PlaneGeometry(SIZE, SIZE),
-      new THREE.MeshBasicMaterial({ map: tex, transparent: true, depthWrite: false })
-    );
-    plane.rotation.x = -Math.PI / 2;
-    plane.position.y = -0.01;
-    scene.add(plane);
-
+  (function buildOuterPits() {
     // Molten pit face — charred rim, glowing core, radiating cracks.
     const pitTex = () => {
       const c = document.createElement("canvas");
@@ -607,8 +565,8 @@ export function createArenaGame(options) {
     for (let i = 0; i < PIT_COUNT; i++) {
       const ang = Math.random() * Math.PI * 2;
       // Keep the pit fully outside the ledge (Chebyshev clearance), then push it
-      // a little further out — clustered in the snow apron just beyond the arena
-      // so the pits stay in view at the usual gameplay zoom.
+      // a little further out — clustered just beyond the arena so the pits stay
+      // in view at the usual gameplay zoom.
       const clear = MAP_HALF + LEDGE_W + 3;
       const minRad = clear / Math.max(Math.abs(Math.cos(ang)), Math.abs(Math.sin(ang)));
       const rad = minRad + Math.random() * 26;
