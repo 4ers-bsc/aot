@@ -562,37 +562,38 @@ export function createArenaGame(options) {
     gx.fillStyle = gg; gx.fillRect(0, 0, 128, 128);
     const glowTex = new THREE.CanvasTexture(gc);
 
-    const PIT_COUNT = 20;
-    const LAMP_MID = MAP_HALF + LEDGE_W / 2; // the ledge line the lamps sit on
-    for (let i = 0; i < PIT_COUNT; i++) {
-      // Run the pits along the ledge ring: pick a side, then a spot along it.
-      const side  = i % 4;
-      const along = (Math.random() - 0.5) * 2 * (MAP_HALF - 2);
-      let px, pz;
-      if (side === 0)      { px = along;      pz = -LAMP_MID; }
-      else if (side === 1) { px = along;      pz =  LAMP_MID; }
-      else if (side === 2) { px = -LAMP_MID;  pz = along; }
-      else                 { px =  LAMP_MID;  pz = along; }
-      const sz = 3.2 + Math.random() * 2.6; // sized to the narrow ledge band
-      const pit = new THREE.Mesh(
-        new THREE.PlaneGeometry(sz, sz),
-        new THREE.MeshBasicMaterial({ map: pitTex(), transparent: true, depthWrite: false }),
-      );
-      pit.rotation.x = -Math.PI / 2;
-      pit.rotation.z = Math.random() * Math.PI * 2;
-      pit.position.set(px, LEDGE_TOP + 0.02, pz);
-      scene.add(pit);
-      const glow = new THREE.Mesh(
-        new THREE.PlaneGeometry(sz * 1.8, sz * 1.8),
-        new THREE.MeshBasicMaterial({
-          map: glowTex, transparent: true, depthWrite: false,
-          blending: THREE.AdditiveBlending, opacity: 0.7,
-        }),
-      );
-      glow.rotation.x = -Math.PI / 2;
-      glow.position.set(px, LEDGE_TOP + 0.04, pz);
-      scene.add(glow);
-      moltenPits.push({ glow, base: 0.55 + Math.random() * 0.25, phase: Math.random() * Math.PI * 2 });
+    // Evenly spaced, uniform-size molten pits lining the whole ledge on all
+    // four sides.
+    const LAMP_MID  = MAP_HALF + LEDGE_W / 2; // the ledge line the lamps sit on
+    const PIT_SIZE  = 4.0;
+    const PER_SIDE  = 12;
+    for (let side = 0; side < 4; side++) {
+      for (let j = 0; j < PER_SIDE; j++) {
+        const along = -MAP_HALF + (j + 0.5) / PER_SIDE * MAP_WORLD;
+        let px, pz;
+        if (side === 0)      { px = along;      pz = -LAMP_MID; }
+        else if (side === 1) { px = along;      pz =  LAMP_MID; }
+        else if (side === 2) { px = -LAMP_MID;  pz = along; }
+        else                 { px =  LAMP_MID;  pz = along; }
+        const pit = new THREE.Mesh(
+          new THREE.PlaneGeometry(PIT_SIZE, PIT_SIZE),
+          new THREE.MeshBasicMaterial({ map: pitTex(), transparent: true, depthWrite: false }),
+        );
+        pit.rotation.x = -Math.PI / 2;
+        pit.position.set(px, LEDGE_TOP + 0.02, pz);
+        scene.add(pit);
+        const glow = new THREE.Mesh(
+          new THREE.PlaneGeometry(PIT_SIZE * 1.8, PIT_SIZE * 1.8),
+          new THREE.MeshBasicMaterial({
+            map: glowTex, transparent: true, depthWrite: false,
+            blending: THREE.AdditiveBlending, opacity: 0.7,
+          }),
+        );
+        glow.rotation.x = -Math.PI / 2;
+        glow.position.set(px, LEDGE_TOP + 0.04, pz);
+        scene.add(glow);
+        moltenPits.push({ glow, base: 0.6, phase: Math.random() * Math.PI * 2 });
+      }
     }
   })();
 
