@@ -2822,6 +2822,20 @@ body.in-game .log-feed { left: 70px; }
   font-weight: 700;
 }
 
+.side-select {
+  min-width: 160px;
+  padding: 8px 12px;
+  border-radius: 8px;
+  cursor: pointer;
+  background: #eef0f1;
+  color: #1a1f24;
+  border: 1px solid #c9ccce;
+  font-size: 15px;
+  font-weight: 700;
+  font-family: inherit;
+}
+.side-select:focus { outline: none; border-color: rgba(0, 0, 0, 0.45); }
+
 .toggle {
   width: 56px;
   height: 28px;
