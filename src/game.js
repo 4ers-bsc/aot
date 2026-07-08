@@ -514,11 +514,12 @@ export function createArenaGame(options) {
   }
 
   // -- Outer dot plane (black field with receding white dots beyond the ledge) --
-  // -- Molten forge pits (along the arena sides) ----------------------------
-  // Glowing molten pits running along the four inner edges of the arena floor;
-  // each pit's glow breathes every frame (animated via moltenPits).
+  // -- Molten forge pits (on the ledge, by the lamps) -----------------------
+  // Glowing molten pits set into the polished ledge ring around the arena —
+  // the same band the edge flame lamps sit on, outside the playfield. Each
+  // pit's glow breathes every frame (animated via moltenPits).
   const moltenPits = []; // { glow, base, phase }
-  (function buildSidePits() {
+  (function buildLedgePits() {
     // Molten pit face — charred rim, glowing core, radiating cracks.
     const pitTex = () => {
       const c = document.createElement("canvas");
@@ -561,26 +562,25 @@ export function createArenaGame(options) {
     gx.fillStyle = gg; gx.fillRect(0, 0, 128, 128);
     const glowTex = new THREE.CanvasTexture(gc);
 
-    const PIT_COUNT = 16;
+    const PIT_COUNT = 20;
+    const LAMP_MID = MAP_HALF + LEDGE_W / 2; // the ledge line the lamps sit on
     for (let i = 0; i < PIT_COUNT; i++) {
-      // Run the pits along the four inner sides of the arena: pick a side, a
-      // spot along it, and a small inset in from the wall/rim.
+      // Run the pits along the ledge ring: pick a side, then a spot along it.
       const side  = i % 4;
-      const along = (Math.random() - 0.5) * 2 * (MAP_HALF - 6);
-      const inset = 2 + Math.random() * 5;
+      const along = (Math.random() - 0.5) * 2 * (MAP_HALF - 2);
       let px, pz;
-      if (side === 0)      { px = along;                pz = -(MAP_HALF - inset); }
-      else if (side === 1) { px = along;                pz =  (MAP_HALF - inset); }
-      else if (side === 2) { px = -(MAP_HALF - inset);  pz = along; }
-      else                 { px =  (MAP_HALF - inset);  pz = along; }
-      const sz = 6 + Math.random() * 8;
+      if (side === 0)      { px = along;      pz = -LAMP_MID; }
+      else if (side === 1) { px = along;      pz =  LAMP_MID; }
+      else if (side === 2) { px = -LAMP_MID;  pz = along; }
+      else                 { px =  LAMP_MID;  pz = along; }
+      const sz = 3.2 + Math.random() * 2.6; // sized to the narrow ledge band
       const pit = new THREE.Mesh(
         new THREE.PlaneGeometry(sz, sz),
         new THREE.MeshBasicMaterial({ map: pitTex(), transparent: true, depthWrite: false }),
       );
       pit.rotation.x = -Math.PI / 2;
       pit.rotation.z = Math.random() * Math.PI * 2;
-      pit.position.set(px, 0.03, pz);
+      pit.position.set(px, LEDGE_TOP + 0.02, pz);
       scene.add(pit);
       const glow = new THREE.Mesh(
         new THREE.PlaneGeometry(sz * 1.8, sz * 1.8),
@@ -590,7 +590,7 @@ export function createArenaGame(options) {
         }),
       );
       glow.rotation.x = -Math.PI / 2;
-      glow.position.set(px, 0.05, pz);
+      glow.position.set(px, LEDGE_TOP + 0.04, pz);
       scene.add(glow);
       moltenPits.push({ glow, base: 0.55 + Math.random() * 0.25, phase: Math.random() * Math.PI * 2 });
     }
@@ -1263,13 +1263,42 @@ export function createArenaGame(options) {
   }
   function addTower(x, z) {
     const g = new THREE.Group();
-    const base  = box(4.0, 0.5,  4.0, 0x6a6a6a); base.position.y  = 0.25;
-    const body  = box(3.2, 11.0, 3.2, 0x787878); body.position.y  = 6.0;
-    const par   = box(3.8, 0.6,  3.8, 0x848484); par.position.y   = 11.8;
-    const psnow = box(3.9, 0.22, 3.9, 0xdde9f5); psnow.position.y = 12.22;
+    // Molten-forge tower: charred rock veined with glowing lava cracks, topped
+    // by a molten crust instead of snow. One rock material + texture is shared
+    // across the base/body/parapet of a tower.
+    const rockCanvas = document.createElement("canvas");
+    rockCanvas.width = rockCanvas.height = 128;
+    const rcx = rockCanvas.getContext("2d");
+    rcx.fillStyle = "#1a0e08"; rcx.fillRect(0, 0, 128, 128);
+    rcx.lineCap = "round";
+    for (let n = 0; n < 11; n++) {
+      let px = Math.random() * 128, py = Math.random() * 128;
+      const grad = rcx.createLinearGradient(0, 0, 128, 128);
+      grad.addColorStop(0, "#ffd27a"); grad.addColorStop(0.5, "#ff6a1a"); grad.addColorStop(1, "#7a1600");
+      rcx.strokeStyle = grad; rcx.lineWidth = 1 + Math.random() * 2.2;
+      rcx.beginPath(); rcx.moveTo(px, py);
+      for (let s = 0; s < 5; s++) { px += (Math.random() - 0.5) * 30; py += (Math.random() - 0.5) * 30; rcx.lineTo(px, py); }
+      rcx.stroke();
+    }
+    const rockTex = new THREE.CanvasTexture(rockCanvas);
+    const rockMat = new THREE.MeshStandardMaterial({
+      map: rockTex, emissiveMap: rockTex, emissive: 0xffffff, emissiveIntensity: 0.85,
+      roughness: 0.92, metalness: 0.08,
+    });
+    const crustMat = new THREE.MeshStandardMaterial({
+      color: 0x2a1206, emissive: 0xff5512, emissiveIntensity: 0.95, roughness: 0.75,
+    });
+    const rockMesh = (w, h, d) => {
+      const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), rockMat);
+      m.castShadow = true; m.receiveShadow = true; return m;
+    };
+    const base  = rockMesh(4.0, 0.5,  4.0); base.position.y  = 0.25;
+    const body  = rockMesh(3.2, 11.0, 3.2); body.position.y  = 6.0;
+    const par   = rockMesh(3.8, 0.6,  3.8); par.position.y   = 11.8;
+    const psnow = new THREE.Mesh(new THREE.BoxGeometry(3.9, 0.22, 3.9), crustMat); psnow.position.y = 12.22;
     [[-1.3,-1.3],[-1.3,1.3],[1.3,-1.3],[1.3,1.3]].forEach(([bx, bz]) => {
-      const bt  = box(1.0, 1.4,  1.0, 0x7a7a7a); bt.position.set(bx, 12.9,  bz); g.add(bt);
-      const bsn = box(1.1, 0.22, 1.1, 0xe4eef7); bsn.position.set(bx, 13.71, bz); g.add(bsn);
+      const bt  = box(1.0, 1.4,  1.0, 0x241611); bt.position.set(bx, 12.9,  bz); g.add(bt);
+      const bsn = new THREE.Mesh(new THREE.BoxGeometry(1.1, 0.22, 1.1), crustMat); bsn.position.set(bx, 13.71, bz); g.add(bsn);
     });
     // Gold F10 cloth draped flat on top of the tower
     const clothCanvas = document.createElement("canvas");
