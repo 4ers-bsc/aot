@@ -513,89 +513,6 @@ export function createArenaGame(options) {
     fight10Groups.push(grp);
   }
 
-  // -- Outer dot plane (black field with receding white dots beyond the ledge) --
-  // -- Molten forge pits (on the ledge, by the lamps) -----------------------
-  // Glowing molten pits set into the polished ledge ring around the arena —
-  // the same band the edge flame lamps sit on, outside the playfield. Each
-  // pit's glow breathes every frame (animated via moltenPits).
-  const moltenPits = []; // { glow, base, phase }
-  (function buildLedgePits() {
-    // Molten pit face — charred rim, glowing core, radiating cracks.
-    const pitTex = () => {
-      const c = document.createElement("canvas");
-      c.width = c.height = 128;
-      const x = c.getContext("2d");
-      const r = 64;
-      const rim = x.createRadialGradient(r, r, r * 0.3, r, r, r);
-      rim.addColorStop(0, "rgba(18,10,6,0)");
-      rim.addColorStop(0.55, "rgba(16,9,6,0.95)");
-      rim.addColorStop(0.85, "rgba(34,18,11,0.9)");
-      rim.addColorStop(1, "rgba(18,10,6,0)");
-      x.fillStyle = rim; x.beginPath(); x.arc(r, r, r, 0, Math.PI * 2); x.fill();
-      const core = x.createRadialGradient(r, r, 2, r, r, r * 0.62);
-      core.addColorStop(0, "rgba(255,238,158,0.95)");
-      core.addColorStop(0.4, "rgba(255,120,30,0.85)");
-      core.addColorStop(1, "rgba(120,22,0,0)");
-      x.fillStyle = core; x.beginPath(); x.arc(r, r, r * 0.62, 0, Math.PI * 2); x.fill();
-      x.strokeStyle = "rgba(255,150,40,0.8)"; x.lineWidth = 1.4; x.lineCap = "round";
-      for (let n = 0; n < 9; n++) {
-        const a = Math.random() * Math.PI * 2;
-        let px = r, py = r;
-        x.beginPath(); x.moveTo(px, py);
-        for (let s = 0; s < 4; s++) {
-          px += Math.cos(a) * 8 + (Math.random() - 0.5) * 6;
-          py += Math.sin(a) * 8 + (Math.random() - 0.5) * 6;
-          x.lineTo(px, py);
-        }
-        x.stroke();
-      }
-      return new THREE.CanvasTexture(c);
-    };
-    // Warm glow pool cast around each pit (additive, breathing).
-    const gc = document.createElement("canvas");
-    gc.width = gc.height = 128;
-    const gx = gc.getContext("2d");
-    const gg = gx.createRadialGradient(64, 64, 2, 64, 64, 64);
-    gg.addColorStop(0, "rgba(255,170,60,0.9)");
-    gg.addColorStop(0.5, "rgba(255,110,20,0.32)");
-    gg.addColorStop(1, "rgba(255,90,10,0)");
-    gx.fillStyle = gg; gx.fillRect(0, 0, 128, 128);
-    const glowTex = new THREE.CanvasTexture(gc);
-
-    // Evenly spaced, uniform-size molten pits lining the whole ledge on all
-    // four sides.
-    const LAMP_MID  = MAP_HALF + LEDGE_W / 2; // the ledge line the lamps sit on
-    const PIT_SIZE  = 4.0;
-    const PER_SIDE  = 12;
-    for (let side = 0; side < 4; side++) {
-      for (let j = 0; j < PER_SIDE; j++) {
-        const along = -MAP_HALF + (j + 0.5) / PER_SIDE * MAP_WORLD;
-        let px, pz;
-        if (side === 0)      { px = along;      pz = -LAMP_MID; }
-        else if (side === 1) { px = along;      pz =  LAMP_MID; }
-        else if (side === 2) { px = -LAMP_MID;  pz = along; }
-        else                 { px =  LAMP_MID;  pz = along; }
-        const pit = new THREE.Mesh(
-          new THREE.PlaneGeometry(PIT_SIZE, PIT_SIZE),
-          new THREE.MeshBasicMaterial({ map: pitTex(), transparent: true, depthWrite: false }),
-        );
-        pit.rotation.x = -Math.PI / 2;
-        pit.position.set(px, LEDGE_TOP + 0.02, pz);
-        scene.add(pit);
-        const glow = new THREE.Mesh(
-          new THREE.PlaneGeometry(PIT_SIZE * 1.8, PIT_SIZE * 1.8),
-          new THREE.MeshBasicMaterial({
-            map: glowTex, transparent: true, depthWrite: false,
-            blending: THREE.AdditiveBlending, opacity: 0.7,
-          }),
-        );
-        glow.rotation.x = -Math.PI / 2;
-        glow.position.set(px, LEDGE_TOP + 0.04, pz);
-        scene.add(glow);
-        moltenPits.push({ glow, base: 0.6, phase: Math.random() * Math.PI * 2 });
-      }
-    }
-  })();
 
   // -- Snow -----------------------------------------------------------------
   const SNOW_COUNT = 1400, SNOW_AREA = 48, SNOW_TOP = 30;
@@ -3175,11 +3092,6 @@ export function createArenaGame(options) {
 
     // Animated arena-side effects (frozen aurora hue-shift, snow-sparkle)
     for (const fx of wallFX) fx(t, dt);
-
-    // Molten pits out on the snow — breathing warm glow, per-pit phase.
-    for (const P of moltenPits) {
-      P.glow.material.opacity = P.base * (0.55 + 0.45 * Math.sin(t * 1.6 + P.phase));
-    }
 
     // River fish — glide along the curve, drift across lanes, wiggle the nose
     for (const F of riverFish) {
