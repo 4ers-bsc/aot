@@ -331,12 +331,13 @@ export function createArenaGame(options) {
     });
     panelSet(auroraMat);
     registerFX((t) => {
-      auroraMat.color.setHSL(0.5 + 0.13 * Math.sin(t * 0.45), 0.85, 0.6);
+      // Shimmer within a gold band (amber ↔ pale yellow) instead of blue/green.
+      auroraMat.color.setHSL(0.12 + 0.035 * Math.sin(t * 0.45), 0.9, 0.6);
       auroraMat.opacity = 0.3 + 0.18 * (0.5 + 0.5 * Math.sin(t * 0.8));
     });
-    addRim(0x9fe8ff, 0.9, 0x4fb0ff, 0.5);
-    // Snow-sparkle settling down the inside of the walls.
-    wallField({ count: 130, size: 0.7, color: 0xdff4ff, rise: false, speed: 0.9, opacity: 0.85 });
+    addRim(0xffd76a, 0.9, 0xffaa00, 0.5);
+    // Gold sparkle settling down the inside of the walls.
+    wallField({ count: 130, size: 0.7, color: 0xffe9b0, rise: false, speed: 0.9, opacity: 0.85 });
 
     // Frosted-ice panel texture — icy vertical gradient with white frost cracks.
     function makeIceTex() {
@@ -368,9 +369,9 @@ export function createArenaGame(options) {
       for (let i = 0; i < 7; i++) {
         const cx = Math.random() * 256;
         const g = x.createLinearGradient(cx - 30, 0, cx + 30, 0);
-        g.addColorStop(0, "rgba(80,255,180,0)");
-        g.addColorStop(0.5, `rgba(${80 + Math.random() * 60},255,${180 + Math.random() * 60},0.5)`);
-        g.addColorStop(1, "rgba(80,255,180,0)");
+        g.addColorStop(0, "rgba(255,210,90,0)");
+        g.addColorStop(0.5, `rgba(255,${200 + Math.random() * 45},${90 + Math.random() * 60},0.5)`);
+        g.addColorStop(1, "rgba(255,210,90,0)");
         x.fillStyle = g; x.fillRect(cx - 30, 0, 60, 256);
       }
       return new THREE.CanvasTexture(c);
