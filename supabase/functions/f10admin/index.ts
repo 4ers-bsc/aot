@@ -221,8 +221,12 @@ async function payoutWinner(admin: any, matchId: string) {
   const escrowTokenAccount = new PublicKey(escrowAccounts.value[0].pubkey);
   const escrowAtaStr = escrowTokenAccount.toString();
 
+  // searchTransactionHistory is required: these deposits are old by the time an
+  // admin pays out — far past the node's recent status cache (~2.5 min of
+  // slots). Without it the lookups return null and verification always fails.
   const depositSigs = players.map((p: any) => p.deposit_tx as string);
-  const { value: sigStatuses } = await rpc.run((c) => c.getSignatureStatuses(depositSigs));
+  const { value: sigStatuses } = await rpc.run((c) =>
+    c.getSignatureStatuses(depositSigs, { searchTransactionHistory: true }));
   for (let i = 0; i < depositSigs.length; i++) {
     const s = sigStatuses[i];
     if (!s) throw new Error(`Deposit ${i + 1} not found on-chain`);

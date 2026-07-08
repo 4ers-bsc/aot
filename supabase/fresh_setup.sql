@@ -1028,7 +1028,7 @@ $$;
 -- ---------------------------------------------------------------------------
 -- 8b. finalize_match — LEDGER-AUTHORITATIVE settlement (Option A, Phase 2).
 --     CANONICAL DEFINITION. Kept byte-for-byte in sync with the incremental
---     migration supabase/migrations/20260708_finalize_no_early_void.sql —
+--     migration supabase/migrations/20260716_ledger_corroboration.sql —
 --     edit both together (this is the from-scratch path; that is the upgrade
 --     path for already-provisioned databases).
 --     Decides the winner from match_damage, not from self-reported final_hp.
@@ -1038,7 +1038,15 @@ $$;
 --     (which catches one player deleting several rivals at once). Flagged
 --     cheaters are FORFEITED — excluded from winner selection so the best clean
 --     player still wins (and the cheater loses their deposit to that winner).
---     Only marks 'disputed' when no clean winner exists or no combat happened.
+--     Self-report corroboration: fabricated offense can stay UNDER the rate
+--     caps (e.g. 100 damage per victim over a fake 60s window), so a clean,
+--     connected LOSER whose self-reported final_hp sits far above their
+--     ledger-derived HP marks the match 'disputed' — the damage that "killed"
+--     them was never received, so the winner's margin can't be trusted and no
+--     automatic payout happens. The winner's own mismatch is ignored
+--     (fabricated damage AGAINST the winner only hurt them; the win stands).
+--     Only marks 'disputed' when no clean winner exists, no combat happened,
+--     or corroboration fails.
 --     p_force settles on timeout even if players never reported.
 -- ---------------------------------------------------------------------------
 create or replace function public.finalize_match(p_match_id uuid, p_force boolean default false)
@@ -1059,6 +1067,7 @@ declare
   v_dmg_total  bigint;
   v_winner     uuid;
   v_forfeited  uuid[];
+  v_mismatch   uuid[];
   v_live       uuid[];
   v_disputed   boolean := false;
   v_meta       jsonb;
@@ -1067,6 +1076,11 @@ declare
   c_max_firerate constant numeric := 4;    -- hits per second, per attacker→victim pair
   -- A player is "disconnected" once its heartbeat lapses past this window.
   c_dc_grace     constant interval := interval '15 seconds';
+  -- Self-report corroboration margin. Honest reports track the ledger closely
+  -- (each client applies damage from the same attack events the attacker
+  -- records); the slack absorbs grenade-splash variance and a dropped packet
+  -- or two, while a fabricated lethal total overshoots it by design.
+  c_hp_tolerance constant int := 25;
 begin
   select status, started_at, max_players into v_status, v_started, v_maxp
   from matches where id = p_match_id for update;
@@ -1179,7 +1193,7 @@ begin
     group by mp.user_id, mp.seat, mp.final_hp, mp.last_seen
   ),
   ranked as (
-    select h.user_id, h.hp, h.seat,
+    select h.user_id, h.hp, h.seat, h.final_hp,
            (f.attacker is not null) as is_flagged,
            -- Disconnected AND never reported → eliminated (a player who reported
            -- before leaving keeps their standing).
@@ -1196,6 +1210,13 @@ begin
   select
     (select user_id from ranked where rn = 1 and not is_flagged and not is_dc),
     (select coalesce(array_agg(user_id), '{}') from ranked where is_flagged),
+    -- Corroboration: clean, connected players whose SELF-reported HP sits far
+    -- above their ledger-derived HP — the damage the ledger says killed them
+    -- was never actually received on their client.
+    (select coalesce(array_agg(user_id), '{}') from ranked
+      where not is_flagged and not is_dc
+        and final_hp is not null
+        and final_hp > hp + c_hp_tolerance),
     jsonb_build_object(
       'secs',  v_secs,
       'caps',  jsonb_build_object('dps', c_max_dps, 'firerate', c_max_firerate),
@@ -1205,10 +1226,24 @@ begin
       'disconnected', (select coalesce(jsonb_agg(user_id), '[]'::jsonb) from ranked where is_dc),
       'attacker_out', (select jsonb_object_agg(attacker::text, out_total) from attacker_totals)
     )
-    into v_winner, v_forfeited, v_meta;
+    into v_winner, v_forfeited, v_mismatch, v_meta;
 
-  -- Disputed only if no clean player can win (e.g. everyone flagged).
+  -- Disputed if no clean player can win (e.g. everyone flagged)…
   if v_winner is null then v_disputed := true; end if;
+
+  -- …or if a LOSER's self-report contradicts the ledger damage against them:
+  -- the winner's margin may rest on fabricated offense that stayed under the
+  -- rate caps, so no automatic payout — hold for admin review. The winner is
+  -- excluded: fabricated damage against them could only have hurt them.
+  v_mismatch := array_remove(coalesce(v_mismatch, '{}'), v_winner);
+  if coalesce(array_length(v_mismatch, 1), 0) > 0 then
+    v_disputed := true;
+    v_meta := v_meta || jsonb_build_object(
+      'reason',   'ledger_mismatch',
+      'mismatch', to_jsonb(v_mismatch),
+      'hp_tolerance', c_hp_tolerance
+    );
+  end if;
 
   if v_disputed then
     update matches
