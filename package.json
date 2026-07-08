@@ -6,7 +6,10 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "test": "npm run test:sql && npm run test:edge",
+    "test:sql": "bash tests/sql/run.sh",
+    "test:edge": "node --experimental-strip-types --test \"tests/edge/*.test.mjs\""
   },
   "dependencies": {
     "@solana/spl-token": "^0.3.5",

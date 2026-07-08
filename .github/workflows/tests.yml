@@ -1,0 +1,28 @@
+name: tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  money-paths:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      # GitHub's Ubuntu runners ship PostgreSQL server binaries; run.sh finds
+      # them under /usr/lib/postgresql/*/bin and boots a throwaway cluster.
+      - name: SQL/RPC money-path tests
+        run: npm run test:sql
+
+      - name: Edge deposit-verification tests
+        run: npm run test:edge

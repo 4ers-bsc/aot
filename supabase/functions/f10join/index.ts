@@ -19,6 +19,7 @@ import {
   Connection,
   PublicKey,
 } from "npm:@solana/web3.js@1.87.6";
+import { canonicalPubkey, hasValidDepositTransfer } from "../_shared/deposit_verify.ts";
 
 // ---------------------------------------------------------------------------
 // Base58 decode (no external dependency)
@@ -204,7 +205,7 @@ Deno.serve(async (req: Request) => {
     // The wallet that must have authorised this deposit (the player's own wallet).
     let expectedSender: string;
     try {
-      expectedSender = pubkeyFromBase58(depositWallet.split(":").pop() ?? "").toBase58();
+      expectedSender = canonicalPubkey(depositWallet.split(":").pop() ?? "");
     } catch {
       return fail("deposit_wallet is invalid");
     }
@@ -242,28 +243,12 @@ Deno.serve(async (req: Request) => {
     const topLevel = parsed.transaction.message.instructions as any[];
     const inner    = (parsed.meta?.innerInstructions ?? []).flatMap((ii: any) => ii.instructions);
 
-    const valid = [...topLevel, ...inner].some((ix: any) => {
-      const prog = ix.programId?.toString();
-      if (prog !== tokenProgStr && prog !== tok2022Str) return false;
-      if (!ix.parsed) return false;
-      const { type, info } = ix.parsed;
-      // Single-sig wallets use `authority`; multisig uses `multisigAuthority`.
-      const senderRaw = info.authority ?? info.multisigAuthority;
-      if (!senderRaw) return false;
-      let sender: string;
-      try {
-        sender = pubkeyFromBase58(senderRaw).toBase58();
-      } catch {
-        return false;
-      }
-      if (sender !== expectedSender) return false;
-      if (type === "transfer") {
-        return info.destination === escrowAtaStr && info.amount === entryFeeAmtStr;
-      }
-      if (type === "transferChecked") {
-        return info.destination === escrowAtaStr && info.tokenAmount?.amount === entryFeeAmtStr;
-      }
-      return false;
+    const valid = hasValidDepositTransfer([...topLevel, ...inner], {
+      expectedSender,
+      escrowAta: escrowAtaStr,
+      amountRaw: entryFeeAmtStr,
+      tokenProgramId: tokenProgStr,
+      token2022ProgramId: tok2022Str,
     });
 
     if (!valid) {

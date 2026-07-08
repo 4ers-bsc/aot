@@ -11,6 +11,7 @@ import {
   TransactionInstruction,
   SystemProgram,
 } from "npm:@solana/web3.js@1.87.6";
+import { canonicalPubkey, hasValidDepositTransfer } from "../_shared/deposit_verify.ts";
 
 // ---------------------------------------------------------------------------
 // Base58 decode (no external dependency)
@@ -300,7 +301,7 @@ Deno.serve(async (req: Request) => {
       if (!expectedSenderRaw) return errorResponse(`Deposit ${i + 1}: depositing wallet was not recorded at join time`, 400);
       let expectedSender: string;
       try {
-        expectedSender = pubkeyFromBase58(expectedSenderRaw).toBase58();
+        expectedSender = canonicalPubkey(expectedSenderRaw);
       } catch {
         return errorResponse(`Deposit ${i + 1}: depositor wallet invalid`, 400);
       }
@@ -309,32 +310,12 @@ Deno.serve(async (req: Request) => {
       const topLevel = parsed.transaction.message.instructions as any[];
       const inner    = (parsed.meta?.innerInstructions ?? []).flatMap((ii: any) => ii.instructions);
 
-      const valid = [...topLevel, ...inner].some((ix: any) => {
-        const prog = ix.programId?.toString();
-        if (prog !== tokenProgStr && prog !== tok2022Str) return false;
-        if (!ix.parsed) return false;
-        const { type, info } = ix.parsed;
-        // The signer that owns the source token account. Single-sig wallets use
-        // `authority`; multisig uses `multisigAuthority`. Either must match the
-        // player's recorded wallet so a transfer funded by a third party is rejected.
-        // Normalise to canonical base58 before comparing.
-        const senderRaw = info.authority ?? info.multisigAuthority;
-        if (!senderRaw) return false;
-        let sender: string;
-        try {
-          sender = pubkeyFromBase58(senderRaw).toBase58();
-        } catch {
-          return false;
-        }
-        if (sender !== expectedSender) return false;
-        if (type === "transfer") {
-          return info.destination === escrowAtaStr && info.amount === entryFeeAmtStr;
-        }
-        if (type === "transferChecked") {
-          return info.destination === escrowAtaStr &&
-                 info.tokenAmount?.amount === entryFeeAmtStr;
-        }
-        return false;
+      const valid = hasValidDepositTransfer([...topLevel, ...inner], {
+        expectedSender,
+        escrowAta: escrowAtaStr,
+        amountRaw: entryFeeAmtStr,
+        tokenProgramId: tokenProgStr,
+        token2022ProgramId: tok2022Str,
       });
 
       if (!valid) {
