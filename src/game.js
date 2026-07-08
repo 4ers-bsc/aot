@@ -204,10 +204,9 @@ export function createArenaGame(options) {
   // run each frame in animate().
   const wallFX = [];
 
-  // -- Arena side style: Boulder Foundation ----------------------------------
-  // Golden panels backed by huge stone boulders in vertical columns running
-  // all the way down each wall, plus a gold rim and gold sparkle drifting down
-  // the walls. Dark backing behind the panels.
+  // -- Arena side style: Golden Walls ----------------------------------------
+  // Golden panels down each wall, a gold rim, and gold sparkle drifting down.
+  // Dark backing behind the panels.
   const SIDE_BACK = 0x0a0702;
 
   function buildArenaWalls(variant) {
@@ -321,66 +320,11 @@ export function createArenaGame(options) {
       return mat;
     };
 
-    // Golden panels behind the stone steps.
+    // Golden panels line the walls.
     panelSet(new THREE.MeshBasicMaterial({
       map: makeIceTex(), transparent: true, side: THREE.DoubleSide,
       depthWrite: false, opacity: 0.92,
     }));
-
-    // Huge stone boulders lining the OUTER face of every wall in vertical
-    // columns that run all the way down to the bottom of the pit — a massive
-    // rocky foundation holding the arena up.
-    {
-      const COLS     = 10;   // boulder columns per wall
-      const LEVELS   = 6;    // boulders stacked per column, top → pit floor
-      const yTop     = -0.5, yStep = 1.75, sizeBase = 2.7;
-      const greys = [0x8f9096, 0xa3a4a9, 0x7a7b80, 0xb4b5ba, 0x898a90];
-      const total = COLS * LEVELS * 4;
-      const inst = new THREE.InstancedMesh(
-        new THREE.IcosahedronGeometry(1, 0),
-        new THREE.MeshStandardMaterial({
-          color: 0xffffff, emissive: 0x171718, emissiveIntensity: 1,
-          roughness: 1, metalness: 0, flatShading: true,
-        }),
-        total,
-      );
-      inst.castShadow = false; inst.receiveShadow = false;
-      const m4 = new THREE.Matrix4(), q = new THREE.Quaternion(), e = new THREE.Euler();
-      const p = new THREE.Vector3(), s = new THREE.Vector3();
-      const col = new THREE.Color();
-      // out = outward normal, so the boulders sit on the visible void-facing side.
-      const sides = [
-        { axis: "x", fixed: -MAP_HALF, out: -1 },
-        { axis: "x", fixed:  MAP_HALF, out:  1 },
-        { axis: "z", fixed: -MAP_HALF, out: -1 },
-        { axis: "z", fixed:  MAP_HALF, out:  1 },
-      ];
-      let idx = 0;
-      for (const side of sides) {
-        for (let cCol = 0; cCol < COLS; cCol++) {
-          const base = -MAP_HALF + (cCol + 0.5) / COLS * MAP_WORLD;
-          for (let k = 0; k < LEVELS; k++) {
-            const y     = yTop - k * yStep + (Math.random() - 0.5) * 0.5;
-            const along = base + (Math.random() - 0.5) * 3.0;
-            const inset = 1.3 + Math.random() * 0.9;
-            if (side.axis === "x") p.set(along, y, side.fixed + side.out * inset);
-            else                   p.set(side.fixed + side.out * inset, y, along);
-            e.set(Math.random() * Math.PI, Math.random() * Math.PI, Math.random() * Math.PI);
-            q.setFromEuler(e);
-            const sc = sizeBase * (0.85 + Math.random() * 0.5);
-            s.set(sc * (0.8 + Math.random() * 0.4), sc * (0.85 + Math.random() * 0.4), sc * (0.8 + Math.random() * 0.4));
-            m4.compose(p, q, s);
-            inst.setMatrixAt(idx, m4);
-            col.setHex(greys[(cCol + k) % greys.length]);
-            inst.setColorAt(idx, col);
-            idx++;
-          }
-        }
-      }
-      inst.instanceMatrix.needsUpdate = true;
-      if (inst.instanceColor) inst.instanceColor.needsUpdate = true;
-      addObj(inst);
-    }
 
     addRim(0xffd76a, 0.9, 0xffaa00, 0.5);
     // Gold sparkle settling down the inside of the walls.
