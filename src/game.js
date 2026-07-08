@@ -199,6 +199,32 @@ export function createArenaGame(options) {
   // per frame in animate(): an unfurl drop when built, then a continuous
   // fabric wave. { mesh, geo, h, phase, born }
   const clothBanners = [];
+  // Per-frame updaters for the animated arena-side effects (neon scroll, ember
+  // rise, aurora hue-shift, star drift, …). Cleared and repopulated on every
+  // buildArenaWalls() call; run each frame in animate().
+  const wallFX = [];
+
+  // -- Arena side styles ------------------------------------------------------
+  // Five complete looks for the four arena walls; the user picks one from the
+  // Settings dropdown. "gold" is the original coliseum look (glass grid +
+  // F10 cloth banner); the rest each bring their own panels, rim colors and
+  // animated particle field. Selection persists in localStorage.
+  const SIDE_STYLE_KEY = "f10.arenaSides";
+  const SIDE_STYLES = [
+    { id: "gold",   label: "Golden Coliseum" },
+    { id: "neon",   label: "Neon Grid" },
+    { id: "molten", label: "Molten Forge" },
+    { id: "frozen", label: "Frozen Aurora" },
+    { id: "void",   label: "Void Nebula" },
+  ];
+  const SIDE_STYLE_IDS = SIDE_STYLES.map((s) => s.id);
+  // Dark backing color behind the panels, tuned per style.
+  const SIDE_BACK = { gold: 0x0a0804, neon: 0x02040a, molten: 0x0a0402, frozen: 0x03060c, void: 0x030209 };
+  let currentSideStyle = "gold";
+  try {
+    const saved = localStorage.getItem(SIDE_STYLE_KEY);
+    if (saved && SIDE_STYLE_IDS.includes(saved)) currentSideStyle = saved;
+  } catch { /* private mode → default */ }
 
   function buildArenaWalls(variant) {
     // Dispose existing wall objects via the shared traversal helper (it
@@ -209,12 +235,13 @@ export function createArenaGame(options) {
     });
     wallObjects.length = 0;
     clothBanners.length = 0; // banner meshes live in wallObjects, disposed above
+    wallFX.length = 0;       // animated updaters, rebuilt below per style
 
     const DEPTH = 10;
     const addObj = (obj) => { scene.add(obj); wallObjects.push(obj); return obj; };
 
-    // Dark backing behind each wall
-    const backColor = 0x0a0804;
+    // Dark backing behind each wall (color tuned to the active side style)
+    const backColor = SIDE_BACK[currentSideStyle] ?? 0x0a0804;
     const sideMat = new THREE.MeshStandardMaterial({ color: backColor, roughness: 0.98, metalness: 0.0 });
     [
       { x: 0,         z: -MAP_HALF, ry: 0 },
@@ -236,6 +263,84 @@ export function createArenaGame(options) {
     btm.rotation.x = Math.PI / 2;
     btm.position.y = -DEPTH;
     addObj(btm);
+
+    // Shared helpers used by the non-gold side styles below. Declared here so
+    // the hoisted buildAltSides() can capture addObj/registerFX once the dark
+    // backing + bottom cap are in place.
+    const registerFX = (fn) => wallFX.push(fn);
+    const WALL_SIDES = [
+      { x: 0,         z: -MAP_HALF, ry: 0 },
+      { x: 0,         z:  MAP_HALF, ry: Math.PI },
+      { x: -MAP_HALF, z: 0,         ry:  Math.PI / 2 },
+      { x:  MAP_HALF, z: 0,         ry: -Math.PI / 2 },
+    ];
+    // Drape one panel material across all four walls (height h, top at the rim).
+    const panelSet = (material, h = 6) => {
+      WALL_SIDES.forEach(({ x, z, ry }) => {
+        const p = new THREE.Mesh(new THREE.PlaneGeometry(MAP_WORLD, h), material);
+        p.position.set(x, -h / 2, z);
+        p.rotation.y = ry;
+        addObj(p);
+      });
+    };
+    // Twin rim outline (inner + slightly-outer glow line), returns the materials
+    // so a style can pulse them each frame.
+    const addRim = (colInner, opInner, colOuter, opOuter) => {
+      const matI = new THREE.LineBasicMaterial({ color: colInner, transparent: true, opacity: opInner });
+      addObj(new THREE.Line(new THREE.BufferGeometry().setFromPoints([
+        new THREE.Vector3(-MAP_HALF, 0.08, -MAP_HALF), new THREE.Vector3(MAP_HALF, 0.08, -MAP_HALF),
+        new THREE.Vector3( MAP_HALF, 0.08,  MAP_HALF), new THREE.Vector3(-MAP_HALF, 0.08,  MAP_HALF),
+        new THREE.Vector3(-MAP_HALF, 0.08, -MAP_HALF),
+      ]), matI));
+      const matO = new THREE.LineBasicMaterial({ color: colOuter, transparent: true, opacity: opOuter });
+      addObj(new THREE.Line(new THREE.BufferGeometry().setFromPoints([
+        new THREE.Vector3(-MAP_HALF - 0.05, 0.04, -MAP_HALF - 0.05),
+        new THREE.Vector3( MAP_HALF + 0.05, 0.04, -MAP_HALF - 0.05),
+        new THREE.Vector3( MAP_HALF + 0.05, 0.04,  MAP_HALF + 0.05),
+        new THREE.Vector3(-MAP_HALF - 0.05, 0.04,  MAP_HALF + 0.05),
+        new THREE.Vector3(-MAP_HALF - 0.05, 0.04, -MAP_HALF - 0.05),
+      ]), matO));
+      return { matI, matO };
+    };
+    // A field of soft sprites hugging the inside of the four walls, rising (or
+    // falling) and looping — embers, snow-sparkle, star motes, etc.
+    const wallField = ({ count = 140, size = 0.8, color = 0xffffff, rise = true, speed = 1, twinkle = true, opacity = 0.9 }) => {
+      const geo = new THREE.BufferGeometry();
+      const pos = new Float32Array(count * 3);
+      const spd = new Float32Array(count);
+      const yBot = -6.2, yTop = 1.6;
+      for (let i = 0; i < count; i++) {
+        const wall = i % 4, along = (Math.random() - 0.5) * MAP_WORLD, inset = 0.3 + Math.random() * 1.5;
+        let x, z;
+        if (wall === 0)      { x = along;              z = -MAP_HALF + inset; }
+        else if (wall === 1) { x = along;              z =  MAP_HALF - inset; }
+        else if (wall === 2) { x = -MAP_HALF + inset;  z = along; }
+        else                 { x =  MAP_HALF - inset;  z = along; }
+        pos[i * 3] = x; pos[i * 3 + 1] = yBot + Math.random() * (yTop - yBot); pos[i * 3 + 2] = z;
+        spd[i] = (0.5 + Math.random()) * speed;
+      }
+      geo.setAttribute("position", new THREE.BufferAttribute(pos, 3));
+      const mat = new THREE.PointsMaterial({
+        size, map: makeFlake(), color, transparent: true, depthWrite: false,
+        blending: THREE.AdditiveBlending, opacity,
+      });
+      addObj(new THREE.Points(geo, mat));
+      registerFX((t, dt) => {
+        const a = geo.attributes.position;
+        for (let i = 0; i < count; i++) {
+          let y = a.getY(i) + (rise ? spd[i] : -spd[i]) * dt;
+          if (rise && y > yTop) y = yBot;
+          else if (!rise && y < yBot) y = yTop;
+          a.setY(i, y);
+        }
+        a.needsUpdate = true;
+        if (twinkle) mat.opacity = opacity * (0.65 + 0.35 * Math.sin(t * 3));
+      });
+      return mat;
+    };
+
+    // Non-gold styles are self-contained: build and bail before the gold code.
+    if (currentSideStyle !== "gold") { buildAltSides(currentSideStyle); return; }
 
     // Glass panels — golden pixel grid
     const GH = 6;
@@ -377,6 +482,204 @@ export function createArenaGame(options) {
       new THREE.BufferGeometry().setFromPoints(rimPts2),
       new THREE.LineBasicMaterial({ color: rimColor2, transparent: true, opacity: 0.38 })
     ));
+
+    // ---- Alternate side styles (hoisted; called above for non-gold) -------
+    function buildAltSides(style) {
+      if (style === "neon") {
+        // Scrolling neon wire-grid panels + a pulsing two-tone rim and a haze
+        // of cyan motes rising up the glass.
+        const tex = makeNeonGridTex();
+        tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+        tex.repeat.set(4, 2);
+        const mat = new THREE.MeshBasicMaterial({
+          map: tex, transparent: true, side: THREE.DoubleSide,
+          depthWrite: false, blending: THREE.AdditiveBlending,
+        });
+        panelSet(mat);
+        registerFX((t, dt) => { tex.offset.y = (tex.offset.y + dt * 0.14) % 1; });
+        const rim = addRim(0x00e5ff, 0.95, 0xff2bd6, 0.5);
+        registerFX((t) => {
+          const p = 0.55 + 0.45 * Math.sin(t * 2.4);
+          rim.matI.opacity = p;
+          rim.matO.opacity = 0.3 + 0.35 * (1 - p);
+        });
+        wallField({ count: 170, size: 0.7, color: 0x35f0ff, rise: true, speed: 2.6, opacity: 0.85 });
+        return;
+      }
+
+      if (style === "molten") {
+        // Cracked-rock panels with a molten glow overlay that breathes, plus
+        // embers drifting up from the pit.
+        const rock = makeMoltenTex();
+        panelSet(new THREE.MeshBasicMaterial({
+          map: rock, transparent: true, side: THREE.DoubleSide, depthWrite: false,
+        }));
+        const glowMat = new THREE.MeshBasicMaterial({
+          map: makeMoltenTex(true), transparent: true, side: THREE.DoubleSide,
+          depthWrite: false, blending: THREE.AdditiveBlending, opacity: 0.5,
+        });
+        panelSet(glowMat);
+        registerFX((t) => {
+          glowMat.opacity = 0.35 + 0.35 * (0.6 * Math.sin(t * 1.7) + 0.4 * Math.sin(t * 4.3));
+        });
+        addRim(0xff6a1a, 0.95, 0xff2a00, 0.55);
+        wallField({ count: 150, size: 0.6, color: 0xff7a1a, rise: true, speed: 1.9, opacity: 0.9 });
+        return;
+      }
+
+      if (style === "frozen") {
+        // Frosted ice panels under a shimmering aurora curtain that slowly
+        // shifts hue, with snow-sparkle settling down the walls.
+        panelSet(new THREE.MeshBasicMaterial({
+          map: makeIceTex(), transparent: true, side: THREE.DoubleSide,
+          depthWrite: false, opacity: 0.92,
+        }));
+        const auroraMat = new THREE.MeshBasicMaterial({
+          map: makeAuroraTex(), transparent: true, side: THREE.DoubleSide,
+          depthWrite: false, blending: THREE.AdditiveBlending, opacity: 0.4,
+        });
+        panelSet(auroraMat);
+        registerFX((t) => {
+          auroraMat.color.setHSL(0.5 + 0.13 * Math.sin(t * 0.45), 0.85, 0.6);
+          auroraMat.opacity = 0.3 + 0.18 * (0.5 + 0.5 * Math.sin(t * 0.8));
+        });
+        addRim(0x9fe8ff, 0.9, 0x4fb0ff, 0.5);
+        wallField({ count: 130, size: 0.7, color: 0xdff4ff, rise: false, speed: 0.9, opacity: 0.85 });
+        return;
+      }
+
+      // "void" — deep-space nebula: a drifting starfield that twinkles, an
+      // indigo rim, and slow star motes.
+      const star = makeStarfieldTex();
+      star.wrapS = star.wrapT = THREE.RepeatWrapping;
+      const mat = new THREE.MeshBasicMaterial({
+        map: star, transparent: true, side: THREE.DoubleSide,
+        depthWrite: false, blending: THREE.AdditiveBlending,
+      });
+      panelSet(mat);
+      registerFX((t, dt) => {
+        star.offset.x = (star.offset.x + dt * 0.012) % 1;
+        mat.opacity = 0.72 + 0.22 * Math.sin(t * 1.3);
+      });
+      addRim(0x9a6bff, 0.9, 0x4a2bff, 0.5);
+      wallField({ count: 120, size: 0.6, color: 0xc9b6ff, rise: true, speed: 0.5, opacity: 0.8 });
+    }
+
+    // ---- Canvas textures for the alternate styles -------------------------
+    function makeNeonGridTex() {
+      const c = document.createElement("canvas");
+      c.width = c.height = 256;
+      const x = c.getContext("2d");
+      x.clearRect(0, 0, 256, 256);
+      // Perspective-ish grid: cyan verticals + horizontals with a glow.
+      x.shadowBlur = 6;
+      x.lineWidth = 2;
+      for (let i = 0; i <= 8; i++) {
+        const p = (i / 8) * 256;
+        x.strokeStyle = "rgba(0,229,255,0.85)"; x.shadowColor = "#00e5ff";
+        x.beginPath(); x.moveTo(p, 0); x.lineTo(p, 256); x.stroke();
+        x.beginPath(); x.moveTo(0, p); x.lineTo(256, p); x.stroke();
+      }
+      // Magenta accent nodes at intersections.
+      x.shadowColor = "#ff2bd6"; x.fillStyle = "rgba(255,43,214,0.9)";
+      for (let i = 0; i <= 8; i += 2) for (let j = 0; j <= 8; j += 2) {
+        x.beginPath(); x.arc((i / 8) * 256, (j / 8) * 256, 3, 0, Math.PI * 2); x.fill();
+      }
+      const tex = new THREE.CanvasTexture(c);
+      return tex;
+    }
+
+    function makeMoltenTex(glowOnly = false) {
+      const c = document.createElement("canvas");
+      c.width = c.height = 256;
+      const x = c.getContext("2d");
+      if (glowOnly) { x.clearRect(0, 0, 256, 256); }
+      else { x.fillStyle = "#140805"; x.fillRect(0, 0, 256, 256); }
+      // Jagged molten cracks branching down the rock.
+      x.lineCap = "round";
+      for (let n = 0; n < 14; n++) {
+        let px = Math.random() * 256, py = 0;
+        const grad = x.createLinearGradient(0, 0, 0, 256);
+        grad.addColorStop(0, "#ffd27a"); grad.addColorStop(0.5, "#ff6a1a"); grad.addColorStop(1, "#8a1a00");
+        x.strokeStyle = grad;
+        x.shadowBlur = 8; x.shadowColor = "#ff5a10";
+        x.lineWidth = 1.5 + Math.random() * 2.5;
+        x.beginPath(); x.moveTo(px, py);
+        while (py < 256) {
+          px += (Math.random() - 0.5) * 40; py += 12 + Math.random() * 20;
+          x.lineTo(px, py);
+        }
+        x.stroke();
+      }
+      const tex = new THREE.CanvasTexture(c);
+      return tex;
+    }
+
+    function makeIceTex() {
+      const c = document.createElement("canvas");
+      c.width = c.height = 256;
+      const x = c.getContext("2d");
+      const g = x.createLinearGradient(0, 0, 0, 256);
+      g.addColorStop(0, "rgba(210,240,255,0.85)");
+      g.addColorStop(0.5, "rgba(140,200,240,0.65)");
+      g.addColorStop(1, "rgba(60,110,170,0.9)");
+      x.fillStyle = g; x.fillRect(0, 0, 256, 256);
+      // Frost fractures — thin bright white cracks.
+      x.strokeStyle = "rgba(255,255,255,0.7)"; x.lineWidth = 1;
+      for (let n = 0; n < 26; n++) {
+        x.beginPath();
+        let px = Math.random() * 256, py = Math.random() * 256;
+        x.moveTo(px, py);
+        for (let s = 0; s < 4; s++) { px += (Math.random() - 0.5) * 60; py += (Math.random() - 0.5) * 60; x.lineTo(px, py); }
+        x.stroke();
+      }
+      const tex = new THREE.CanvasTexture(c);
+      return tex;
+    }
+
+    function makeAuroraTex() {
+      const c = document.createElement("canvas");
+      c.width = c.height = 256;
+      const x = c.getContext("2d");
+      x.clearRect(0, 0, 256, 256);
+      // Soft vertical light curtains.
+      for (let i = 0; i < 7; i++) {
+        const cx = Math.random() * 256;
+        const g = x.createLinearGradient(cx - 30, 0, cx + 30, 0);
+        g.addColorStop(0, "rgba(80,255,180,0)");
+        g.addColorStop(0.5, `rgba(${80 + Math.random() * 60},255,${180 + Math.random() * 60},0.5)`);
+        g.addColorStop(1, "rgba(80,255,180,0)");
+        x.fillStyle = g; x.fillRect(cx - 30, 0, 60, 256);
+      }
+      const tex = new THREE.CanvasTexture(c);
+      return tex;
+    }
+
+    function makeStarfieldTex() {
+      const c = document.createElement("canvas");
+      c.width = c.height = 256;
+      const x = c.getContext("2d");
+      x.fillStyle = "#000000"; x.fillRect(0, 0, 256, 256);
+      // Faint nebula blooms.
+      for (let n = 0; n < 5; n++) {
+        const nx = Math.random() * 256, ny = Math.random() * 256, r = 40 + Math.random() * 60;
+        const g = x.createRadialGradient(nx, ny, 0, nx, ny, r);
+        const hue = Math.random() < 0.5 ? "120,60,255" : "60,90,255";
+        g.addColorStop(0, `rgba(${hue},0.35)`); g.addColorStop(1, `rgba(${hue},0)`);
+        x.fillStyle = g; x.fillRect(nx - r, ny - r, r * 2, r * 2);
+      }
+      // Stars.
+      for (let n = 0; n < 260; n++) {
+        const s = Math.random();
+        x.globalAlpha = 0.4 + Math.random() * 0.6;
+        x.fillStyle = s < 0.15 ? "#bfd0ff" : "#ffffff";
+        const r = s < 0.08 ? 1.6 : 0.8;
+        x.beginPath(); x.arc(Math.random() * 256, Math.random() * 256, r, 0, Math.PI * 2); x.fill();
+      }
+      x.globalAlpha = 1;
+      const tex = new THREE.CanvasTexture(c);
+      return tex;
+    }
   }
 
   buildArenaWalls("game");
@@ -2626,7 +2929,18 @@ export function createArenaGame(options) {
     pingEl.style.display = settings.ping && !settings.hideHud ? "block" : "none";
     coords.style.display = settings.location && !settings.hideHud ? "block" : "none";
   }
-  hud.bindSettings({ settings, applyFog, applyMsaa, refreshHud, onCenter: () => { if (settings.centerCamera) following = true; } });
+  // Swap the arena-side visual style, persist the choice, and rebuild the walls.
+  function setSideStyle(id) {
+    if (!SIDE_STYLE_IDS.includes(id) || id === currentSideStyle) return;
+    currentSideStyle = id;
+    try { localStorage.setItem(SIDE_STYLE_KEY, id); } catch { /* private mode */ }
+    buildArenaWalls(currentMapVariant);
+  }
+  hud.bindSettings({
+    settings, applyFog, applyMsaa, refreshHud,
+    onCenter: () => { if (settings.centerCamera) following = true; },
+    sideStyles: SIDE_STYLES, sideStyle: currentSideStyle, onSideStyle: setSideStyle,
+  });
   applyFog(); applyMsaa(); refreshHud();
 
   // Raider count control (demo only)
@@ -3021,6 +3335,9 @@ export function createArenaGame(options) {
       L.glow.material.opacity = 0.6 * f;
     }
 
+    // Animated arena-side effects (neon scroll, embers, aurora, star drift)
+    for (const fx of wallFX) fx(t, dt);
+
     // River fish — glide along the curve, drift across lanes, wiggle the nose
     for (const F of riverFish) {
       F.dist += F.speed * dt;
@@ -3406,6 +3723,7 @@ function buildHud() {
           <button class="tab" data-tab="commands">COMMANDS</button>
         </div>
         <div class="tab-body" data-body="options">
+          <div class="row"><span>Arena Sides</span><select class="side-select" data-side></select></div>
           <div class="row"><span>Render Distance</span><button class="cycle" data-rd>Far</button></div>
           <div class="row"><span>Fog</span><button class="toggle" data-setting="fog"></button></div>
           <div class="row"><span>Anti-aliasing (MSAA)</span><button class="toggle" data-setting="msaa"></button></div>
@@ -3434,6 +3752,7 @@ function buildHud() {
       </div>
     </div>`);
   const renderDistBtn = overlay.querySelector("[data-rd]");
+  const sideSelect = overlay.querySelector("[data-side]");
 
   // Tabs + open/close
   overlay.querySelectorAll(".tab").forEach((tab) => {
@@ -3468,6 +3787,13 @@ function buildHud() {
       renderDistBtn.textContent = ctx.settings.renderDistance;
       ctx.applyFog();
     });
+    // Arena side-style dropdown — populate from the game's style list.
+    if (sideSelect && ctx.sideStyles) {
+      sideSelect.innerHTML = ctx.sideStyles
+        .map((s) => `<option value="${s.id}">${s.label}</option>`).join("");
+      sideSelect.value = ctx.sideStyle;
+      sideSelect.addEventListener("change", () => ctx.onSideStyle(sideSelect.value));
+    }
   }
 
   return { root, coords, matchTimerEl, matchNoEl, mmCanvas, hotbar, slots, rivalsEl, fpsEl, pingEl, overlay, renderDistBtn, bindSettings, raiderCountCtrl, raiderCountEl, scorePanel, weaponPanel, keysInfoPanel, gearBtn };
