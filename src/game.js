@@ -2319,7 +2319,7 @@ export function createArenaGame(options) {
   const _wasdF = new THREE.Vector3();
   const wasd = { w: false, a: false, s: false, d: false };
   function updateBar(f) {
-    if (!viewIsGame || !f.connected || f.dead || settings.hideHud) { f.bar.el.style.display = "none"; return; }
+    if ((!viewIsGame && !homePlay) || !f.connected || f.dead || settings.hideHud) { f.bar.el.style.display = "none"; return; }
     const rect = mount.getBoundingClientRect();
     _bv.set(f.group.position.x, 3.05 * CHAR_SCALE, f.group.position.z).project(camera);
     if (_bv.z > 1) { f.bar.el.style.display = "none"; return; }
