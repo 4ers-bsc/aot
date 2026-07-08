@@ -327,14 +327,15 @@ export function createArenaGame(options) {
       depthWrite: false, opacity: 0.92,
     }));
 
-    // Step stones — a curtain of golden stone blocks hung down each wall that
-    // thins out toward the bottom: the top row is full-width and every row
-    // below has fewer, more tightly-centred blocks, tapering all the way down.
+    // Step stones — stone blocks buttressing the OUTER face of each wall,
+    // tucked under the ledge and descending all the way to the bottom of the
+    // pit. The top row is full-width; each row below has fewer blocks, so the
+    // support tapers as it goes down ("becomes less as it goes down").
     {
-      const COLS_TOP = 22;   // blocks in the top (widest) row
-      const LEVELS   = 13;   // rows from the rim down into the pit
-      const yTop     = -0.55, yStep = 0.52, sz = 0.9;
-      const golds = [0xE9C55A, 0xD4A82E, 0xF2D37A, 0xC7962A, 0xBE8B22];
+      const COLS_TOP = 16;   // blocks in the top (widest) row
+      const LEVELS   = 16;   // rows from just under the ledge to the pit floor
+      const yTop     = -0.7, yStep = 0.58, sz = 1.4;
+      const golds = [0x8f9096, 0xa7a8ac, 0x7c7d82, 0xb7b8bc, 0x9a9ba0]; // stone greys
       // Count the instances up front so the InstancedMesh is sized exactly.
       const rows = [];
       let total = 0;
@@ -344,7 +345,7 @@ export function createArenaGame(options) {
         rows.push({ k, count, frac });
         total += count * 4;                             // four walls
       }
-      // Unlit so the gold reads even down in the shadowed pit.
+      // Unlit so the stone reads even down in the shadowed pit.
       const inst = new THREE.InstancedMesh(
         new THREE.BoxGeometry(1, 1, 1),
         new THREE.MeshBasicMaterial({ color: 0xffffff }),
@@ -352,25 +353,27 @@ export function createArenaGame(options) {
       );
       inst.castShadow = false; inst.receiveShadow = false;
       const m4 = new THREE.Matrix4(), q = new THREE.Quaternion();
-      const p = new THREE.Vector3(), s = new THREE.Vector3(sz, sz, sz);
+      const p = new THREE.Vector3(), s = new THREE.Vector3();
       const col = new THREE.Color();
-      // dir = inward normal; each descending row steps a little further back.
+      // out = outward normal of each wall, so the steps sit on the visible
+      // (void-facing) side and appear to hold the arena up.
       const sides = [
-        { axis: "x", fixed: -MAP_HALF, dir:  1 },
-        { axis: "x", fixed:  MAP_HALF, dir: -1 },
-        { axis: "z", fixed: -MAP_HALF, dir:  1 },
-        { axis: "z", fixed:  MAP_HALF, dir: -1 },
+        { axis: "x", fixed: -MAP_HALF, out: -1 },
+        { axis: "x", fixed:  MAP_HALF, out:  1 },
+        { axis: "z", fixed: -MAP_HALF, out: -1 },
+        { axis: "z", fixed:  MAP_HALF, out:  1 },
       ];
       let idx = 0;
       for (const side of sides) {
         for (const { k, count, frac } of rows) {
           const y     = yTop - k * yStep;
-          const span  = (MAP_HALF - 2) * Math.max(frac, 0.05); // width tapers down
-          const inset = 1.0 + k * 0.14;                        // step back with depth
+          const span  = (MAP_HALF - 2) * Math.max(frac, 0.04); // width tapers down
+          const inset = 0.8 + k * 0.06;                        // slight outward batter
           for (let c = 0; c < count; c++) {
             const along = count === 1 ? 0 : -span + (c / (count - 1)) * span * 2;
-            if (side.axis === "x") p.set(along, y, side.fixed + side.dir * inset);
-            else                   p.set(side.fixed + side.dir * inset, y, along);
+            if (side.axis === "x") p.set(along, y, side.fixed + side.out * inset);
+            else                   p.set(side.fixed + side.out * inset, y, along);
+            s.set(sz, sz, sz);
             m4.compose(p, q, s);
             inst.setMatrixAt(idx, m4);
             col.setHex(golds[(k + c) % golds.length]);
