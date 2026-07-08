@@ -1426,6 +1426,8 @@ export function createArenaGame(options) {
   let riverSegments = []; // array of {x,z} waypoints defining the river centre-line
   let riverHalfW = 0;     // half-width of the river for capsule checks
   let riverFish = [];     // swimming fish — meshes live in mapGroup, animated per frame
+  let riverNebulaMat = null; // void-nebula overlay material on the water (twinkled each frame)
+  let riverMotes = null;     // drifting star motes riding the current { geo, dists, speeds, lats, posAt, mat }
 
   function makeRng(seedStr) {
     const str = String(seedStr);
@@ -1523,6 +1525,8 @@ export function createArenaGame(options) {
     riverSegments = [];
     riverHalfW = 0;
     riverFish = []; // meshes were children of mapGroup — already disposed above
+    riverNebulaMat = null; // overlay mesh was a mapGroup child — already disposed
+    riverMotes = null;     // motes Points was a mapGroup child — already disposed
     decoBits = []; // stale queued decoration bits must not leak into the next map
   }
   function addTower(x, z) {
@@ -1891,6 +1895,60 @@ export function createArenaGame(options) {
     plane.receiveShadow = false;
     mapGroup.add(plane);
 
+    // -- Void-nebula overlay — the same blue as the water above, reimagined as
+    // a drifting, twinkling starfield. Painted full-canvas, then masked to the
+    // river band and laid over the surface with additive blending so the
+    // water's own color shows through. Animated in animate() (twinkle + motes).
+    {
+      const nc  = document.createElement("canvas");
+      nc.width  = nc.height = CS;
+      const nx  = nc.getContext("2d");
+      // Faint nebula blooms in the river's blue tones.
+      for (let i = 0; i < 7; i++) {
+        const sp = sampledPts[Math.floor(rng() * sampledPts.length)];
+        const bu = toU(sp.x), bv = toV(sp.z), r = lw * (0.5 + rng() * 0.9);
+        const g = nx.createRadialGradient(bu, bv, 0, bu, bv, r);
+        const shade = rng() < 0.5 ? "40,110,175" : "28,78,128";
+        g.addColorStop(0, `rgba(${shade},0.5)`);
+        g.addColorStop(1, `rgba(${shade},0)`);
+        nx.fillStyle = g; nx.fillRect(bu - r, bv - r, r * 2, r * 2);
+      }
+      // Stars — blue-white, matching the river's foam/glint palette.
+      for (let i = 0; i < 220; i++) {
+        const sp = sampledPts[Math.floor(rng() * sampledPts.length)];
+        const u  = toU(sp.x) + (rng() * 2 - 1) * lw * 0.42;
+        const v  = toV(sp.z) + (rng() * 2 - 1) * lw * 0.42;
+        const s  = rng();
+        nx.globalAlpha = 0.5 + rng() * 0.5;
+        nx.fillStyle = s < 0.25 ? "rgba(200,228,250,1)" : "rgba(235,248,255,1)";
+        nx.beginPath(); nx.arc(u, v, s < 0.1 ? 1.7 : 0.9, 0, Math.PI * 2); nx.fill();
+      }
+      nx.globalAlpha = 1;
+      // Keep only what falls inside the river band (mask by the stroked path).
+      nx.globalCompositeOperation = "destination-in";
+      nx.strokeStyle = "#fff";
+      nx.lineWidth = lw; nx.lineCap = "round"; nx.lineJoin = "round";
+      nx.beginPath();
+      nx.moveTo(pts[0].u, pts[0].v);
+      for (let i = 0; i < pts.length - 1; i++) {
+        const { cp1u, cp1v, cp2u, cp2v } = crBez(i);
+        nx.bezierCurveTo(cp1u, cp1v, cp2u, cp2v, pts[i + 1].u, pts[i + 1].v);
+      }
+      nx.stroke();
+
+      const nplane = new THREE.Mesh(
+        new THREE.PlaneGeometry(MAP_WORLD, MAP_WORLD),
+        new THREE.MeshBasicMaterial({
+          map: new THREE.CanvasTexture(nc), transparent: true, depthWrite: false,
+          blending: THREE.AdditiveBlending, opacity: 0.8,
+        }),
+      );
+      nplane.rotation.x = -Math.PI / 2;
+      nplane.position.y = 0.061; // above the water plane (0.05), below the fish (0.09)
+      mapGroup.add(nplane);
+      riverNebulaMat = nplane.material;
+    }
+
     // Snowy boulders scattered on the river
     for (let attempt = 0, count = 0; attempt < 80 && count < 5; attempt++) {
       const si = Math.floor(rng() * (wps.length - 1));
@@ -1955,6 +2013,33 @@ export function createArenaGame(options) {
         latPhase: rng() * Math.PI * 2,
         wigglePhase: rng() * Math.PI * 2,
       });
+    }
+
+    // Star motes riding the current — the nebula's slow-drift layer. Placed and
+    // parameterised along the same centre-line the fish use, animated in animate().
+    {
+      const MOTES = 90;
+      const geo    = new THREE.BufferGeometry();
+      const pos    = new Float32Array(MOTES * 3);
+      const dists  = new Float32Array(MOTES);
+      const speeds = new Float32Array(MOTES);
+      const lats   = new Float32Array(MOTES);
+      for (let i = 0; i < MOTES; i++) {
+        dists[i]  = rng() * riverLen;
+        speeds[i] = (1 + rng() * 1.6) * (rng() < 0.5 ? 1 : -1); // drift either way
+        lats[i]   = (rng() * 2 - 1) * hw * 0.7;                 // lane within the banks
+        const p = posAt(dists[i]);
+        pos[i * 3]     = p.x - p.dirz * lats[i];
+        pos[i * 3 + 1] = 0.07;
+        pos[i * 3 + 2] = p.z + p.dirx * lats[i];
+      }
+      geo.setAttribute("position", new THREE.BufferAttribute(pos, 3));
+      const mat = new THREE.PointsMaterial({
+        size: 0.7 * PROP_SCALE, map: makeFlake(), color: 0xcfe6ff,
+        transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, opacity: 0.85,
+      });
+      mapGroup.add(new THREE.Points(geo, mat));
+      riverMotes = { geo, dists, speeds, lats, posAt, mat };
     }
 
     // Reeds clumped along both banks. Purely decorative (no solids), and
@@ -3347,6 +3432,20 @@ export function createArenaGame(options) {
       F.g.position.x = p.x - p.dirz * lat;
       F.g.position.z = p.z + p.dirx * lat;
       F.g.rotation.y = Math.atan2(-p.dirz * sgn, p.dirx * sgn) + Math.sin(t * 7 + F.wigglePhase) * 0.18;
+    }
+
+    // River void-nebula — twinkle the surface overlay, drift the star motes.
+    if (riverNebulaMat) riverNebulaMat.opacity = 0.6 + 0.28 * Math.sin(t * 1.4);
+    if (riverMotes) {
+      const arr = riverMotes.geo.attributes.position;
+      for (let i = 0; i < riverMotes.dists.length; i++) {
+        riverMotes.dists[i] += riverMotes.speeds[i] * dt;
+        const p = riverMotes.posAt(riverMotes.dists[i]);
+        arr.setX(i, p.x - p.dirz * riverMotes.lats[i]);
+        arr.setZ(i, p.z + p.dirx * riverMotes.lats[i]);
+      }
+      arr.needsUpdate = true;
+      riverMotes.mat.opacity = 0.6 + 0.3 * Math.sin(t * 2.2);
     }
 
     drawMinimap();
