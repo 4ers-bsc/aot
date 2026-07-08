@@ -1035,7 +1035,10 @@ export function createArenaGame(options) {
   const aiRaiders = [aiEnemy]; // grows/shrinks via setAiCount
   const opponents = new Map(); // userId -> networked fighter
   let foeMode = "ai"; // "ai" (demo) | "net" (pvp)
-  const AI_AGGRO = 14;
+  // Raiders advance on the player from anywhere on the map, then hold at this
+  // preferred combat distance to plant and snipe. Well inside sniper range (60)
+  // so a bot that has closed the gap is always able to fire.
+  const AI_ENGAGE = 22;
   const AI_MELEE_MULT = 0.6; // AI raider sword damage scale (player deals full)
 
   let _foeCache = null;
@@ -1965,40 +1968,29 @@ export function createArenaGame(options) {
       }
     }
 
+    // Direct path blocked: turn a right angle off the heading and step sideways
+    // to slip past the obstacle, then resume chasing on the next frames. The
+    // two 90° options are left (-ndz, ndx) and right (ndz, -ndx); prefer the
+    // one that steers away from the blocker's centre, fall back to the other.
+    let leftFirst = true;
     if (blocker) {
-      // Steer around the blocker on the same side as the target.
-      const toSolidX = blocker.x - px, toSolidZ = blocker.z - pz;
-      const toSolidLen = Math.hypot(toSolidX, toSolidZ) || 1;
-      // 2D cross: positive → target is CCW (left) of the solid from player's view.
-      const cross = toSolidX * (tz - pz) - toSolidZ * (tx - px);
-      const side = cross >= 0 ? 1 : -1;
-      const perpX =  side * (-toSolidZ / toSolidLen);
-      const perpZ =  side * ( toSolidX / toSolidLen);
-      const tangentX = blocker.x + perpX * (blocker.r + BODY_R + 0.35);
-      const tangentZ = blocker.z + perpZ * (blocker.r + BODY_R + 0.35);
-      const tdx = tangentX - px, tdz = tangentZ - pz;
-      const tdist = Math.hypot(tdx, tdz) || 1;
-      const anx = Math.max(-lim, Math.min(lim, px + (tdx / tdist) * step));
-      const anz = Math.max(-lim, Math.min(lim, pz + (tdz / tdist) * step));
+      // cross of heading × (heading→blocker): >0 means blocker sits to the
+      // left, so turning right clears it (and vice versa).
+      const cross = ndx * (blocker.z - pz) - ndz * (blocker.x - px);
+      leftFirst = cross < 0;
+    }
+    const perps = leftFirst
+      ? [[-ndz, ndx], [ndz, -ndx]]
+      : [[ndz, -ndx], [-ndz, ndx]];
+    for (const [tx90, tz90] of perps) {
+      const anx = Math.max(-lim, Math.min(lim, px + tx90 * step));
+      const anz = Math.max(-lim, Math.min(lim, pz + tz90 * step));
       if (!collidesSolid(anx, anz, BODY_R) && !collidesFish(anx, anz, BODY_R)) {
         f.group.position.x = anx; f.group.position.z = anz;
-        f.facing = Math.atan2(tdx, tdz);
+        f.facing = Math.atan2(tx90, tz90);
         f.walkPhase += dt * f.speed * 1.6;
         f.moving = true;
         return false;
-      }
-    }
-
-    // Tangent also blocked (tight gap) — try sliding along each axis separately.
-    const axX = Math.max(-lim, Math.min(lim, px + ndx * step));
-    if (!collidesSolid(axX, pz, BODY_R) && !collidesFish(axX, pz, BODY_R)) {
-      f.group.position.x = axX;
-      f.walkPhase += dt * f.speed * 1.6; f.moving = true;
-    } else {
-      const azZ = Math.max(-lim, Math.min(lim, pz + ndz * step));
-      if (!collidesSolid(px, azZ, BODY_R) && !collidesFish(px, azZ, BODY_R)) {
-        f.group.position.z = azZ;
-        f.walkPhase += dt * f.speed * 1.6; f.moving = true;
       }
     }
     return false;
@@ -2331,11 +2323,16 @@ export function createArenaGame(options) {
       if (player.dead || !controllable) { e.chargeTimer = 0; continue; }
       const dx = player.group.position.x - e.group.position.x, dz = player.group.position.z - e.group.position.z;
       const dist = Math.hypot(dx, dz);
-      if (dist <= e.weapon.range) {
-        // Player is in range: plant, face them, and fire — mirroring the
-        // player's sniper mechanic of holding the aim pose for chargeTime
-        // before the shot is released.
-        e.facing = Math.atan2(dx, dz);
+      e.facing = Math.atan2(dx, dz);
+      if (dist > AI_ENGAGE) {
+        // Too far to plant a reliable shot: chase the player down. moveStep
+        // handles steering around trees, logs and the river on the way in.
+        e.chargeTimer = 0;
+        moveStep(e, player.group.position.x, player.group.position.z, dt);
+      } else if (dist <= e.weapon.range) {
+        // Within preferred combat distance and in range: plant, face them, and
+        // fire — mirroring the player's sniper mechanic of holding the aim pose
+        // for chargeTime before the shot is released.
         const ct = e.weapon.chargeTime ?? 0;
         if (ct > 0) {
           if (e.cdTimer <= 0) {
@@ -2348,7 +2345,6 @@ export function createArenaGame(options) {
         }
       } else {
         e.chargeTimer = 0;
-        if (dist <= AI_AGGRO) moveStep(e, player.group.position.x, player.group.position.z, dt);
       }
     }
   }
