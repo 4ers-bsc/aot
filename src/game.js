@@ -204,10 +204,10 @@ export function createArenaGame(options) {
   // run each frame in animate().
   const wallFX = [];
 
-  // -- Arena side style: Golden Steps ----------------------------------------
-  // Golden panels dressed with a curtain of stone-block steps that thin out
-  // toward the bottom, plus a gold rim and gold sparkle drifting down the
-  // walls. Dark backing behind the panels.
+  // -- Arena side style: Boulder Foundation ----------------------------------
+  // Golden panels backed by huge stone boulders in vertical columns running
+  // all the way down each wall, plus a gold rim and gold sparkle drifting down
+  // the walls. Dark backing behind the panels.
   const SIDE_BACK = 0x0a0702;
 
   function buildArenaWalls(variant) {
@@ -327,36 +327,28 @@ export function createArenaGame(options) {
       depthWrite: false, opacity: 0.92,
     }));
 
-    // Step stones — stone blocks buttressing the OUTER face of each wall,
-    // tucked under the ledge and descending all the way to the bottom of the
-    // pit. The top row is full-width; each row below has fewer blocks, so the
-    // support tapers as it goes down ("becomes less as it goes down").
+    // Huge stone boulders lining the OUTER face of every wall in vertical
+    // columns that run all the way down to the bottom of the pit — a massive
+    // rocky foundation holding the arena up.
     {
-      const COLS_TOP = 16;   // blocks in the top (widest) row
-      const LEVELS   = 16;   // rows from just under the ledge to the pit floor
-      const yTop     = -0.7, yStep = 0.58, sz = 1.4;
-      const golds = [0x8f9096, 0xa7a8ac, 0x7c7d82, 0xb7b8bc, 0x9a9ba0]; // stone greys
-      // Count the instances up front so the InstancedMesh is sized exactly.
-      const rows = [];
-      let total = 0;
-      for (let k = 0; k < LEVELS; k++) {
-        const frac  = 1 - k / (LEVELS - 1);            // 1 at top → 0 at bottom
-        const count = Math.max(1, Math.round(COLS_TOP * frac));
-        rows.push({ k, count, frac });
-        total += count * 4;                             // four walls
-      }
-      // Unlit so the stone reads even down in the shadowed pit.
+      const COLS     = 10;   // boulder columns per wall
+      const LEVELS   = 6;    // boulders stacked per column, top → pit floor
+      const yTop     = -0.5, yStep = 1.75, sizeBase = 2.7;
+      const greys = [0x8f9096, 0xa3a4a9, 0x7a7b80, 0xb4b5ba, 0x898a90];
+      const total = COLS * LEVELS * 4;
       const inst = new THREE.InstancedMesh(
-        new THREE.BoxGeometry(1, 1, 1),
-        new THREE.MeshBasicMaterial({ color: 0xffffff }),
+        new THREE.IcosahedronGeometry(1, 0),
+        new THREE.MeshStandardMaterial({
+          color: 0xffffff, emissive: 0x171718, emissiveIntensity: 1,
+          roughness: 1, metalness: 0, flatShading: true,
+        }),
         total,
       );
       inst.castShadow = false; inst.receiveShadow = false;
-      const m4 = new THREE.Matrix4(), q = new THREE.Quaternion();
+      const m4 = new THREE.Matrix4(), q = new THREE.Quaternion(), e = new THREE.Euler();
       const p = new THREE.Vector3(), s = new THREE.Vector3();
       const col = new THREE.Color();
-      // out = outward normal of each wall, so the steps sit on the visible
-      // (void-facing) side and appear to hold the arena up.
+      // out = outward normal, so the boulders sit on the visible void-facing side.
       const sides = [
         { axis: "x", fixed: -MAP_HALF, out: -1 },
         { axis: "x", fixed:  MAP_HALF, out:  1 },
@@ -365,18 +357,21 @@ export function createArenaGame(options) {
       ];
       let idx = 0;
       for (const side of sides) {
-        for (const { k, count, frac } of rows) {
-          const y     = yTop - k * yStep;
-          const span  = (MAP_HALF - 2) * Math.max(frac, 0.04); // width tapers down
-          const inset = 0.8 + k * 0.06;                        // slight outward batter
-          for (let c = 0; c < count; c++) {
-            const along = count === 1 ? 0 : -span + (c / (count - 1)) * span * 2;
+        for (let cCol = 0; cCol < COLS; cCol++) {
+          const base = -MAP_HALF + (cCol + 0.5) / COLS * MAP_WORLD;
+          for (let k = 0; k < LEVELS; k++) {
+            const y     = yTop - k * yStep + (Math.random() - 0.5) * 0.5;
+            const along = base + (Math.random() - 0.5) * 3.0;
+            const inset = 1.3 + Math.random() * 0.9;
             if (side.axis === "x") p.set(along, y, side.fixed + side.out * inset);
             else                   p.set(side.fixed + side.out * inset, y, along);
-            s.set(sz, sz, sz);
+            e.set(Math.random() * Math.PI, Math.random() * Math.PI, Math.random() * Math.PI);
+            q.setFromEuler(e);
+            const sc = sizeBase * (0.85 + Math.random() * 0.5);
+            s.set(sc * (0.8 + Math.random() * 0.4), sc * (0.85 + Math.random() * 0.4), sc * (0.8 + Math.random() * 0.4));
             m4.compose(p, q, s);
             inst.setMatrixAt(idx, m4);
-            col.setHex(golds[(k + c) % golds.length]);
+            col.setHex(greys[(cCol + k) % greys.length]);
             inst.setColorAt(idx, col);
             idx++;
           }
