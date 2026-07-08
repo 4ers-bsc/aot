@@ -1181,42 +1181,44 @@ export function createArenaGame(options) {
   }
   function addTower(x, z) {
     const g = new THREE.Group();
-    // Molten-forge tower: charred rock veined with glowing lava cracks, topped
-    // by a molten crust instead of snow. One rock material + texture is shared
-    // across the base/body/parapet of a tower.
-    const rockCanvas = document.createElement("canvas");
-    rockCanvas.width = rockCanvas.height = 128;
-    const rcx = rockCanvas.getContext("2d");
-    rcx.fillStyle = "#1a0e08"; rcx.fillRect(0, 0, 128, 128);
-    rcx.lineCap = "round";
-    for (let n = 0; n < 11; n++) {
-      let px = Math.random() * 128, py = Math.random() * 128;
-      const grad = rcx.createLinearGradient(0, 0, 128, 128);
-      grad.addColorStop(0, "#ffd27a"); grad.addColorStop(0.5, "#ff6a1a"); grad.addColorStop(1, "#7a1600");
-      rcx.strokeStyle = grad; rcx.lineWidth = 1 + Math.random() * 2.2;
-      rcx.beginPath(); rcx.moveTo(px, py);
-      for (let s = 0; s < 5; s++) { px += (Math.random() - 0.5) * 30; py += (Math.random() - 0.5) * 30; rcx.lineTo(px, py); }
-      rcx.stroke();
+    // Grained-stone tower: grey stone speckled with fine grain and a few faint
+    // mortar cracks. One stone material + texture is shared across the
+    // base/body/parapet of a tower.
+    const stoneCanvas = document.createElement("canvas");
+    stoneCanvas.width = stoneCanvas.height = 128;
+    const scx = stoneCanvas.getContext("2d");
+    scx.fillStyle = "#7c7d80"; scx.fillRect(0, 0, 128, 128);
+    // Fine grain speckle — lighter and darker flecks.
+    for (let i = 0; i < 2600; i++) {
+      const v = Math.random();
+      scx.fillStyle = v < 0.5
+        ? `rgba(150,152,156,${(0.15 + Math.random() * 0.3).toFixed(2)})`
+        : `rgba(70,71,74,${(0.15 + Math.random() * 0.3).toFixed(2)})`;
+      scx.fillRect(Math.random() * 128, Math.random() * 128, 1.2, 1.2);
     }
-    const rockTex = new THREE.CanvasTexture(rockCanvas);
-    const rockMat = new THREE.MeshStandardMaterial({
-      map: rockTex, emissiveMap: rockTex, emissive: 0xffffff, emissiveIntensity: 0.85,
-      roughness: 0.92, metalness: 0.08,
+    // A few faint cracks/mortar lines.
+    scx.strokeStyle = "rgba(52,53,56,0.5)"; scx.lineWidth = 1; scx.lineCap = "round";
+    for (let n = 0; n < 7; n++) {
+      let px = Math.random() * 128, py = Math.random() * 128;
+      scx.beginPath(); scx.moveTo(px, py);
+      for (let s = 0; s < 4; s++) { px += (Math.random() - 0.5) * 40; py += (Math.random() - 0.5) * 40; scx.lineTo(px, py); }
+      scx.stroke();
+    }
+    const stoneTex = new THREE.CanvasTexture(stoneCanvas);
+    const stoneMat = new THREE.MeshStandardMaterial({
+      map: stoneTex, color: 0x9a9c9f, roughness: 0.95, metalness: 0.0,
     });
-    const crustMat = new THREE.MeshStandardMaterial({
-      color: 0x2a1206, emissive: 0xff5512, emissiveIntensity: 0.95, roughness: 0.75,
-    });
-    const rockMesh = (w, h, d) => {
-      const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), rockMat);
+    const stoneMesh = (w, h, d) => {
+      const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), stoneMat);
       m.castShadow = true; m.receiveShadow = true; return m;
     };
-    const base  = rockMesh(4.0, 0.5,  4.0); base.position.y  = 0.25;
-    const body  = rockMesh(3.2, 11.0, 3.2); body.position.y  = 6.0;
-    const par   = rockMesh(3.8, 0.6,  3.8); par.position.y   = 11.8;
-    const psnow = new THREE.Mesh(new THREE.BoxGeometry(3.9, 0.22, 3.9), crustMat); psnow.position.y = 12.22;
+    const base  = stoneMesh(4.0, 0.5,  4.0); base.position.y  = 0.25;
+    const body  = stoneMesh(3.2, 11.0, 3.2); body.position.y  = 6.0;
+    const par   = stoneMesh(3.8, 0.6,  3.8); par.position.y   = 11.8;
+    const psnow = box(3.9, 0.22, 3.9, 0xdde9f5); psnow.position.y = 12.22;
     [[-1.3,-1.3],[-1.3,1.3],[1.3,-1.3],[1.3,1.3]].forEach(([bx, bz]) => {
-      const bt  = box(1.0, 1.4,  1.0, 0x241611); bt.position.set(bx, 12.9,  bz); g.add(bt);
-      const bsn = new THREE.Mesh(new THREE.BoxGeometry(1.1, 0.22, 1.1), crustMat); bsn.position.set(bx, 13.71, bz); g.add(bsn);
+      const bt  = box(1.0, 1.4,  1.0, 0x7a7a7a); bt.position.set(bx, 12.9,  bz); g.add(bt);
+      const bsn = box(1.1, 0.22, 1.1, 0xe4eef7); bsn.position.set(bx, 13.71, bz); g.add(bsn);
     });
     // Gold F10 cloth draped flat on top of the tower
     const clothCanvas = document.createElement("canvas");
