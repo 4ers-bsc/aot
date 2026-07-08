@@ -4841,3 +4841,139 @@ body.in-game .log-feed { left: 70px; }
 @media (max-width: 640px) {
   .cf-summary { grid-template-columns: 1fr; }
 }
+
+/* ===== First-visit tutorial ===== */
+.tutorial-overlay { z-index: 40; } /* above the home chrome, below in-match UI */
+
+.tutorial-panel { width: 460px; }
+
+.tut-body {
+  position: relative;
+  padding: 26px 26px 18px;
+  min-height: 210px;
+  display: flex;
+  flex-direction: column;
+}
+
+/* Only the active step is shown; a soft fade/slide when it changes. */
+.tut-step { display: none; text-align: center; animation: tut-fade 0.28s ease; }
+.tut-step.is-active { display: flex; flex-direction: column; align-items: center; }
+
+@keyframes tut-fade {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+.tut-icon {
+  width: 60px;
+  height: 60px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  color: var(--gold-hi);
+  background: rgba(212, 160, 23, 0.1);
+  border: 1px solid rgba(212, 160, 23, 0.35);
+  margin-bottom: 16px;
+}
+
+.tut-step-title {
+  font-family: var(--font-head);
+  font-size: 17px;
+  letter-spacing: 0.1em;
+  color: #ffffff;
+  margin-bottom: 12px;
+}
+
+.tut-step-text {
+  font-family: var(--font-body);
+  font-size: 13.5px;
+  line-height: 1.6;
+  color: rgba(255, 255, 255, 0.72);
+  max-width: 340px;
+}
+
+.tut-controls {
+  width: 100%;
+  max-width: 320px;
+  text-align: left;
+}
+.tut-ctrl-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 2px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.07);
+  font-size: 13px;
+}
+.tut-ctrl-row:last-child { border-bottom: 0; }
+.tut-ctrl-row .k { color: var(--gold-hi); font-family: var(--font-head); font-size: 11.5px; letter-spacing: 0.04em; }
+
+.tut-foot {
+  padding: 4px 22px 20px;
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.tut-dots {
+  display: flex;
+  justify-content: center;
+  gap: 8px;
+  padding: 16px 0;
+}
+.tut-dot {
+  width: 8px;
+  height: 8px;
+  padding: 0;
+  border-radius: 50%;
+  cursor: pointer;
+  background: rgba(255, 255, 255, 0.18);
+  border: none;
+  transition: background 0.2s ease, transform 0.2s ease;
+}
+.tut-dot.is-active { background: var(--gold); transform: scale(1.25); }
+
+.tut-nav {
+  display: flex;
+  gap: 10px;
+}
+.tut-btn {
+  flex: 1;
+  padding: 11px 6px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-family: var(--font-head);
+  font-size: 12px;
+  letter-spacing: 0.1em;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+}
+.tut-btn-ghost {
+  background: rgba(255, 255, 255, 0.05);
+  color: rgba(255, 255, 255, 0.7);
+}
+.tut-btn-ghost:hover { background: rgba(255, 255, 255, 0.1); color: #fff; }
+.tut-btn-ghost.is-hidden { visibility: hidden; }
+.tut-btn-primary {
+  background: var(--gold-grad-btn);
+  color: #1a1205;
+  border-color: transparent;
+}
+.tut-btn-primary:hover { filter: brightness(1.06); }
+
+.tut-dontshow {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  margin-top: 16px;
+  cursor: pointer;
+  font-family: var(--font-body);
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.5);
+}
+.tut-dontshow input { accent-color: var(--gold); cursor: pointer; }
+.tut-dontshow:hover { color: rgba(255, 255, 255, 0.75); }
+
+@media (max-width: 480px) {
+  .tut-body { padding: 22px 18px 14px; min-height: 190px; }
+  .tut-foot { padding: 4px 16px 18px; }
+}

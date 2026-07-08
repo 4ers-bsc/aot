@@ -8,11 +8,15 @@ import { createArenaGame } from "./game.js";
 import { escapeHtml } from "./utils.js";
 import { mountViews } from "./views/index.js";
 import { initHomeAnimations } from "./home-anim.js";
+import { initHomeTutorial } from "./tutorial.js";
 import { initAdmin } from "./admin.js";
 import { APPEARANCE_PRESETS } from "./appearance.js";
 
 mountViews();
 initHomeAnimations();
+// First-visit walkthrough — shows once when the home page loads (reveals after
+// the boot splash lifts) and can be permanently dismissed via "Don't show again".
+initHomeTutorial();
 
 const SUPABASE_URL =
   import.meta.env?.VITE_SUPABASE_URL?.trim() || "https://sajvismyvcgaszjcafcr.supabase.co";
