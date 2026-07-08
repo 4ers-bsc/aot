@@ -207,7 +207,7 @@ export function createArenaGame(options) {
   // -- Arena side style: Frozen Aurora ---------------------------------------
   // Frosted ice panels beneath a shimmering, hue-shifting aurora curtain with
   // snow-sparkle drifting down the walls. Dark backing behind the panels.
-  const SIDE_BACK = 0x03060c;
+  const SIDE_BACK = 0x0a0702;
 
   function buildArenaWalls(variant) {
     // Dispose existing wall objects via the shared traversal helper (it
@@ -345,11 +345,11 @@ export function createArenaGame(options) {
       c.width = c.height = 256;
       const x = c.getContext("2d");
       const g = x.createLinearGradient(0, 0, 0, 256);
-      g.addColorStop(0, "rgba(210,240,255,0.85)");
-      g.addColorStop(0.5, "rgba(140,200,240,0.65)");
-      g.addColorStop(1, "rgba(60,110,170,0.9)");
+      g.addColorStop(0, "rgba(255,240,196,0.88)");
+      g.addColorStop(0.5, "rgba(228,178,72,0.72)");
+      g.addColorStop(1, "rgba(150,100,20,0.92)");
       x.fillStyle = g; x.fillRect(0, 0, 256, 256);
-      x.strokeStyle = "rgba(255,255,255,0.7)"; x.lineWidth = 1;
+      x.strokeStyle = "rgba(255,245,205,0.75)"; x.lineWidth = 1;
       for (let n = 0; n < 26; n++) {
         x.beginPath();
         let px = Math.random() * 256, py = Math.random() * 256;
