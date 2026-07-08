@@ -153,11 +153,14 @@ Deno.serve(async (req: Request) => {
     // Non-browser / direct (curl) request detection. A genuine browser fetch to
     // this cross-origin function normally sends an Origin header, but privacy
     // extensions, proxies and some webviews strip it — so a missing Origin is
-    // grounds to REJECT the request, never to ban the wallet. Real abuse still
+    // grounds to REJECT the request, never to ban the wallet. When APP_ORIGIN
+    // is configured the Origin must also MATCH it — presence alone is trivially
+    // spoofed (`curl -H "Origin: x"`). Defense-in-depth only: real abuse still
     // surfaces through the rate limiter and the server-side combat validation.
     const reqOrigin = req.headers.get("Origin");
-    if (!reqOrigin) {
-      console.error("Rejected non-browser join (no Origin)", { user: user.id });
+    const stripSlash = (o: string) => o.replace(/\/+$/, "");
+    if (!reqOrigin || (appOrigin && stripSlash(reqOrigin) !== stripSlash(appOrigin))) {
+      console.error("Rejected non-browser join (bad Origin)", { user: user.id, origin: reqOrigin });
       return fail("Request rejected — please join from the game client.");
     }
 
@@ -224,7 +227,11 @@ Deno.serve(async (req: Request) => {
     const escrowAtaStr = new PublicKey(escrowAccounts.value[0].pubkey).toString();
 
     // ── Verify the deposit tx is confirmed on-chain ──────────────────────────
-    const { value: sigStatuses } = await rpc.run((c) => c.getSignatureStatuses([depositTx]));
+    // searchTransactionHistory is required: without it the node only consults
+    // its recent status cache (~2.5 min of slots), so a deposit retried after a
+    // reload/crash minutes later reports "not found" even though it landed.
+    const { value: sigStatuses } = await rpc.run((c) =>
+      c.getSignatureStatuses([depositTx], { searchTransactionHistory: true }));
     const sigStatus = sigStatuses[0];
     if (!sigStatus) return fail("Deposit not found on-chain");
     if (sigStatus.err) return fail("Deposit failed on-chain");

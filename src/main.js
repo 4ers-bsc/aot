@@ -1483,18 +1483,27 @@ async function joinPvp(maxPlayers) {
 // ---------------------------------------------------------------------------
 // FIGHT10 deposit — transfer ENTRY_FEE from player wallet to escrow on-chain
 // Poll getSignatureStatuses over HTTP — confirmTransaction uses WebSockets which break in browsers.
+// Errors are tagged so callers can tell a DEFINITIVE on-chain failure (tokens
+// never moved — safe to forget the signature) from a timeout / RPC hiccup
+// (the tx may still land — the signature must be kept).
 async function pollTxConfirmation(connection, sig, timeoutMs = 90000) {
   const start = Date.now();
   while (Date.now() - start < timeoutMs) {
     const { value } = await connection.getSignatureStatuses([sig]);
     const status = value[0];
     if (status) {
-      if (status.err) throw new Error("Transaction failed on-chain: " + JSON.stringify(status.err));
+      if (status.err) {
+        const e = new Error("Transaction failed on-chain: " + JSON.stringify(status.err));
+        e.failedOnChain = true;
+        throw e;
+      }
       if (status.confirmationStatus === "confirmed" || status.confirmationStatus === "finalized") return status;
     }
     await new Promise(r => setTimeout(r, 2000));
   }
-  throw new Error(`Tx not confirmed after ${timeoutMs / 1000}s — sig: ${sig}`);
+  const e = new Error(`Tx not confirmed after ${timeoutMs / 1000}s — sig: ${sig}`);
+  e.confirmTimeout = true;
+  throw e;
 }
 
 // Transfers 2500 FIGHT10 to the escrow on-chain and waits for confirmation.
@@ -1592,22 +1601,34 @@ async function depositEntryFee(numPlayers = 2) {
     const signedTx = await wallet.signTransaction(tx);
     const txSig = await connection.sendRawTransaction(signedTx.serialize());
 
+    // Persist the signature + signing wallet the moment the tx is broadcast
+    // (memory AND localStorage), BEFORE waiting for confirmation. If the poll
+    // below times out (congestion / RPC hiccup) but the transfer lands anyway,
+    // an unsaved signature would mean the player pays AGAIN on the next
+    // attempt. f10join re-verifies confirmation server-side either way, and a
+    // definitive on-chain failure clears the saved signature in the catch.
+    savePendingDeposit(txSig, playerPubkey.toString());
+
     setStatus("Confirming deposit on-chain…");
     els.pvpLobbyStatus.textContent = "Confirming on-chain…";
     await pollTxConfirmation(connection, txSig);
-
-    // Persist the confirmed signature + signing wallet immediately (memory AND
-    // localStorage): join_pvp_match stores the wallet for payout verification,
-    // and if anything fails from here on the deposit survives a reload.
-    savePendingDeposit(txSig, playerPubkey.toString());
 
     setStatus("Deposit confirmed — entering queue.");
     return txSig;
   } catch (err) {
     console.error("[depositEntryFee]", err);
     const msg = err?.message || String(err);
-    if (msg.includes("User rejected") || msg.includes("cancelled")) {
+    if (err?.failedOnChain) {
+      // The tx landed on-chain as a FAILURE — no tokens moved, so the saved
+      // signature is worthless; forget it to keep the next attempt clean.
+      savePendingDeposit(null, null);
+      setStatus("Deposit failed on-chain — you were not charged. Try again.");
+    } else if (msg.includes("User rejected") || msg.includes("cancelled")) {
       setStatus("Deposit cancelled.");
+    } else if (state.pendingDepositTx) {
+      // Broadcast but not (yet) confirmed. The signature is saved, so the next
+      // Play PvP click retries the join with it instead of charging again.
+      setStatus("Deposit sent but not confirmed yet — your payment is saved. Click Play PvP again in a moment to retry without paying twice.");
     } else {
       setStatus("Deposit failed: " + msg);
     }
@@ -1999,8 +2020,12 @@ async function handleMatchOver() {
   } catch (_) { /* fall through to the ledger check */ }
 
   // Not settled. If we're locally alive, only accept the signal when the
-  // ledger proves we're actually dead (a desync: opponents saw us fall but we
-  // missed the packets). The sender flushes their ledger BEFORE broadcasting,
+  // ledger AND our own state agree we're (nearly) dead — a true desync means
+  // we missed a packet or two, not most of our health. A lethal ledger total
+  // against a locally-healthy player is fabricated offense (rows invented to
+  // stay under the settlement rate caps), not a desync: keep playing, log it,
+  // and let settlement's self-report corroboration dispute the match instead
+  // of conceding to it. The sender flushes their ledger BEFORE broadcasting,
   // so a genuine kill is always visible here by the time the event arrives.
   if (game.playerAlive()) {
     let received = 0;
@@ -2010,14 +2035,17 @@ async function handleMatchOver() {
         .eq("match_id", matchId).eq("victim", state.user.id);
       received = (dmg || []).reduce((sum, r) => sum + (r.total_damage || 0), 0);
     } catch (_) {}
-    if (received < 100) {
-      // Premature or spoofed — keep playing, log it for review.
-      reportIntegritySignal("spoofed_match_over", { received });
+    if (received < 100 || game.currentHp() > 25) {
+      // Premature, spoofed, or implausible — keep playing, log it for review.
+      reportIntegritySignal("spoofed_match_over", { received, local_hp: game.currentHp() });
       return;
     }
   }
 
-  await reportResult("loss", { standings: game.standings() });
+  // Conceding to a ledger-verified death: report HP 0 (we accept the ledger's
+  // verdict) so the self-report matches the ledger and can't trip the
+  // settlement mismatch check over the few packets we missed.
+  await reportResult("loss", { standings: game.standings(), finalHp: 0 });
 }
 
 // Phase 2: the winner is decided SERVER-SIDE from the combat ledger. Each
@@ -2026,7 +2054,7 @@ async function handleMatchOver() {
 // 'disputed' when the ledger is implausible). The client never trusts its own
 // win/loss detection for the result — `resultHint` only chooses whether to show
 // the winner's suspense spinner; the screen shown comes from the server verdict.
-async function reportResult(resultHint, { standings = [] } = {}) {
+async function reportResult(resultHint, { standings = [], finalHp = null } = {}) {
   if (state.match?.mode !== "pvp" || !state.match.id || state.match.finished) return;
   state.match.finished = true;
   const matchId = state.match.id;
@@ -2035,14 +2063,18 @@ async function reportResult(resultHint, { standings = [] } = {}) {
   const matchKills = ledger.kills.size;
   const matchTimeMs = ledger.startMs ? Date.now() - ledger.startMs : 0;
 
-  // Flush our offense ledger, then report "done". final_hp is now only a
-  // "this player reported" marker — it no longer decides the winner.
+  // Flush our offense ledger, then report "done". final_hp no longer decides
+  // the winner, but settlement now CORROBORATES it against the ledger-derived
+  // HP: a loser whose self-report sits far above the damage others claim to
+  // have dealt them marks the match disputed (fabricated-offense guard).
+  // finalHp overrides the local value when the caller has already reconciled
+  // with the ledger (e.g. conceding a verified death as 0).
   await flushLedger(matchId);
   if (_kicked) return; // flushLedger removed us for a server-flagged manipulation
   try {
     const { error } = await supabase.rpc("finish_match", {
       p_match_id: matchId,
-      p_final_hp: game.currentHp(),
+      p_final_hp: finalHp ?? game.currentHp(),
     });
     if (error) {
       if (isIntegrityError(error)) return kickForManipulation("Removed: invalid actions detected.");

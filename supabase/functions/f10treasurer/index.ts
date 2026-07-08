@@ -265,8 +265,13 @@ Deno.serve(async (req: Request) => {
     const escrowAtaStr       = escrowTokenAccount.toString();
 
     // ── Verify each deposit tx is confirmed on-chain ─────────────────────────
+    // searchTransactionHistory is required: deposits are minutes old by the
+    // time a match settles, well past the node's recent status cache (~2.5 min
+    // of slots). Without it these lookups return null and every payout fails
+    // with "Deposit N not found on-chain".
     const depositSigs = players.map((p: any) => p.deposit_tx as string);
-    const { value: sigStatuses } = await rpc.run((c) => c.getSignatureStatuses(depositSigs));
+    const { value: sigStatuses } = await rpc.run((c) =>
+      c.getSignatureStatuses(depositSigs, { searchTransactionHistory: true }));
     for (let i = 0; i < depositSigs.length; i++) {
       const s = sigStatuses[i];
       if (!s) return errorResponse(`Deposit ${i + 1} not found on-chain`, 400);
