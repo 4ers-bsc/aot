@@ -1035,7 +1035,10 @@ export function createArenaGame(options) {
   const aiRaiders = [aiEnemy]; // grows/shrinks via setAiCount
   const opponents = new Map(); // userId -> networked fighter
   let foeMode = "ai"; // "ai" (demo) | "net" (pvp)
-  const AI_AGGRO = 14;
+  // Raiders advance on the player from anywhere on the map, then hold at this
+  // preferred combat distance to plant and snipe. Well inside sniper range (60)
+  // so a bot that has closed the gap is always able to fire.
+  const AI_ENGAGE = 22;
   const AI_MELEE_MULT = 0.6; // AI raider sword damage scale (player deals full)
 
   let _foeCache = null;
@@ -2331,11 +2334,16 @@ export function createArenaGame(options) {
       if (player.dead || !controllable) { e.chargeTimer = 0; continue; }
       const dx = player.group.position.x - e.group.position.x, dz = player.group.position.z - e.group.position.z;
       const dist = Math.hypot(dx, dz);
-      if (dist <= e.weapon.range) {
-        // Player is in range: plant, face them, and fire — mirroring the
-        // player's sniper mechanic of holding the aim pose for chargeTime
-        // before the shot is released.
-        e.facing = Math.atan2(dx, dz);
+      e.facing = Math.atan2(dx, dz);
+      if (dist > AI_ENGAGE) {
+        // Too far to plant a reliable shot: chase the player down. moveStep
+        // handles steering around trees, logs and the river on the way in.
+        e.chargeTimer = 0;
+        moveStep(e, player.group.position.x, player.group.position.z, dt);
+      } else if (dist <= e.weapon.range) {
+        // Within preferred combat distance and in range: plant, face them, and
+        // fire — mirroring the player's sniper mechanic of holding the aim pose
+        // for chargeTime before the shot is released.
         const ct = e.weapon.chargeTime ?? 0;
         if (ct > 0) {
           if (e.cdTimer <= 0) {
@@ -2348,7 +2356,6 @@ export function createArenaGame(options) {
         }
       } else {
         e.chargeTimer = 0;
-        if (dist <= AI_AGGRO) moveStep(e, player.group.position.x, player.group.position.z, dt);
       }
     }
   }
