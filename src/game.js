@@ -204,10 +204,10 @@ export function createArenaGame(options) {
   // run each frame in animate().
   const wallFX = [];
 
-  // -- Arena side style: Frozen Aurora ---------------------------------------
-  // Frosted ice panels beneath a shimmering, hue-shifting aurora curtain with
-  // snow-sparkle drifting down the walls. Dark backing behind the panels.
-  const SIDE_BACK = 0x03060c;
+  // -- Arena side style: Golden Walls ----------------------------------------
+  // Golden panels down each wall, a gold rim, and gold sparkle drifting down.
+  // Dark backing behind the panels.
+  const SIDE_BACK = 0x0a0702;
 
   function buildArenaWalls(variant) {
     // Dispose existing wall objects via the shared traversal helper (it
@@ -320,23 +320,15 @@ export function createArenaGame(options) {
       return mat;
     };
 
-    // Frosted ice panels beneath a hue-shifting aurora curtain.
+    // Golden panels line the walls.
     panelSet(new THREE.MeshBasicMaterial({
       map: makeIceTex(), transparent: true, side: THREE.DoubleSide,
       depthWrite: false, opacity: 0.92,
     }));
-    const auroraMat = new THREE.MeshBasicMaterial({
-      map: makeAuroraTex(), transparent: true, side: THREE.DoubleSide,
-      depthWrite: false, blending: THREE.AdditiveBlending, opacity: 0.4,
-    });
-    panelSet(auroraMat);
-    registerFX((t) => {
-      auroraMat.color.setHSL(0.5 + 0.13 * Math.sin(t * 0.45), 0.85, 0.6);
-      auroraMat.opacity = 0.3 + 0.18 * (0.5 + 0.5 * Math.sin(t * 0.8));
-    });
-    addRim(0x9fe8ff, 0.9, 0x4fb0ff, 0.5);
-    // Snow-sparkle settling down the inside of the walls.
-    wallField({ count: 130, size: 0.7, color: 0xdff4ff, rise: false, speed: 0.9, opacity: 0.85 });
+
+    addRim(0xffd76a, 0.9, 0xffaa00, 0.5);
+    // Gold sparkle settling down the inside of the walls.
+    wallField({ count: 130, size: 0.7, color: 0xffe9b0, rise: false, speed: 0.9, opacity: 0.85 });
 
     // Frosted-ice panel texture — icy vertical gradient with white frost cracks.
     function makeIceTex() {
@@ -344,34 +336,17 @@ export function createArenaGame(options) {
       c.width = c.height = 256;
       const x = c.getContext("2d");
       const g = x.createLinearGradient(0, 0, 0, 256);
-      g.addColorStop(0, "rgba(210,240,255,0.85)");
-      g.addColorStop(0.5, "rgba(140,200,240,0.65)");
-      g.addColorStop(1, "rgba(60,110,170,0.9)");
+      g.addColorStop(0, "rgba(255,240,196,0.88)");
+      g.addColorStop(0.5, "rgba(228,178,72,0.72)");
+      g.addColorStop(1, "rgba(150,100,20,0.92)");
       x.fillStyle = g; x.fillRect(0, 0, 256, 256);
-      x.strokeStyle = "rgba(255,255,255,0.7)"; x.lineWidth = 1;
+      x.strokeStyle = "rgba(255,245,205,0.75)"; x.lineWidth = 1;
       for (let n = 0; n < 26; n++) {
         x.beginPath();
         let px = Math.random() * 256, py = Math.random() * 256;
         x.moveTo(px, py);
         for (let s = 0; s < 4; s++) { px += (Math.random() - 0.5) * 60; py += (Math.random() - 0.5) * 60; x.lineTo(px, py); }
         x.stroke();
-      }
-      return new THREE.CanvasTexture(c);
-    }
-
-    // Aurora curtain overlay — soft vertical light bands, recolored each frame.
-    function makeAuroraTex() {
-      const c = document.createElement("canvas");
-      c.width = c.height = 256;
-      const x = c.getContext("2d");
-      x.clearRect(0, 0, 256, 256);
-      for (let i = 0; i < 7; i++) {
-        const cx = Math.random() * 256;
-        const g = x.createLinearGradient(cx - 30, 0, cx + 30, 0);
-        g.addColorStop(0, "rgba(80,255,180,0)");
-        g.addColorStop(0.5, `rgba(${80 + Math.random() * 60},255,${180 + Math.random() * 60},0.5)`);
-        g.addColorStop(1, "rgba(80,255,180,0)");
-        x.fillStyle = g; x.fillRect(cx - 30, 0, 60, 256);
       }
       return new THREE.CanvasTexture(c);
     }
