@@ -234,6 +234,7 @@ export function createArenaGame(options) {
   const WALL_T = 2.6;                     // rampart thickness
   const WALL_H = 6.6;                     // rampart height above the floor
   const WALL_MID = MAP_HALF + WALL_T / 2; // wall centreline (inner face at the rim)
+  const FENCE_H = 9.4;                    // barbed-wire fence top strand height (tall)
   const wallObjects = []; // tracks all wall scene objects for disposal
   // F10 cloth banner draped over the left map edge. Each entry is animated
   // per frame in animate(): an unfurl drop when built, then a continuous
@@ -335,16 +336,17 @@ export function createArenaGame(options) {
   }
 
   // -- Arena rampart: the "F10 ARENA" fortress -------------------------------
-  // A black-brick-and-gold curtain wall standing on the arena edge (palette
-  // and brick face pattern from WALL_THEME): gold-crowned battlements and a
-  // gold "F10" on each wall face, tall corner beacon towers with glowing gold
-  // lanterns, giant billboard signs (F10 ARENA / TRADE·FIGHT·EARN / pump.fun),
-  // gold crystal clusters and an F10 hologram. Flame torches
-  // ride the wall top. Built once and parented to the scene, so it stays
-  // anchored to the map rim in both the lobby backdrop and a live match, and is
-  // released with everything else by disposeObject3D(scene) on destroy(). The
-  // wall's inner face sits on the play boundary (±MAP_HALF): it never overlaps
-  // the floor, so fighters, projectiles and the solid-prop set are untouched.
+  // A tall barbed-wire security fence rings the arena edge (dark-steel posts
+  // strung with crossed-barb strands, canted inward on top arms), anchored at
+  // its corners by black-brick-and-gold beacon towers with glowing gold
+  // lanterns (palette from WALL_THEME), giant billboard signs (F10 ARENA /
+  // TRADE·FIGHT·EARN / pump.fun), gold crystal clusters and an F10 hologram.
+  // Flame lamps ride the top of the fence. Built once and parented to the
+  // scene, so it stays anchored to the map rim in both the lobby backdrop and a
+  // live match, and is released with everything else by disposeObject3D(scene)
+  // on destroy(). The fence sits on the play boundary (±MAP_HALF): it never
+  // overlaps the floor, so fighters, projectiles and the solid-prop set are
+  // untouched.
   {
     const rampart = new THREE.Group();
 
@@ -360,7 +362,7 @@ export function createArenaGame(options) {
     // Dimensions. WMID is the wall centreline; its inner face sits flush with
     // the arena edge (±MAP_HALF). WALL_T/WALL_H/WALL_MID come from up top.
     const WMID = WALL_MID;
-    const M_W = 2.4, M_H = 1.7, M_STEP = 4.8; // merlon width / height / spacing
+    const M_STEP = 4.8; // battlement/torch spacing along the wall top
     const T_W = 5.4;       // corner beacon-tower footprint
     const GATE_W = 13, GATE_HALF = GATE_W / 2;
 
@@ -375,17 +377,6 @@ export function createArenaGame(options) {
     };
     const goldGlowTex = glowSpriteTex("255,190,70");
 
-    // Wall-face texture, tiled along each curtain: black brick courses with
-    // gold banding, painted by WALL_THEME.drawFace().
-    const wallCanvas = document.createElement("canvas");
-    wallCanvas.width = 256; wallCanvas.height = 128;
-    WALL_THEME.drawFace(wallCanvas.getContext("2d"), wallCanvas.width, wallCanvas.height);
-    const wallTex = (rep) => {
-      const t = new THREE.CanvasTexture(wallCanvas);
-      t.wrapS = t.wrapT = THREE.RepeatWrapping; t.repeat.set(rep, 1);
-      return t;
-    };
-
     // Gold "F10" crest and the gold F10 hologram face.
     const crestTex = (() => {
       const c = document.createElement("canvas"); c.width = c.height = 128;
@@ -399,18 +390,6 @@ export function createArenaGame(options) {
       return new THREE.CanvasTexture(c);
     })();
     const plaqueMat = signMat(crestTex);
-    // Dark, gold-framed "F10" marker for the middle of each wall side.
-    const markMat = signMat((() => {
-      const c = document.createElement("canvas"); c.width = c.height = 128;
-      const g = c.getContext("2d");
-      const grd = g.createLinearGradient(0, 0, 0, 128);
-      grd.addColorStop(0, "#1a1a1f"); grd.addColorStop(1, "#0a0a0d");
-      g.fillStyle = grd; g.fillRect(0, 0, 128, 128);
-      g.strokeStyle = "#ffc627"; g.lineWidth = 8; g.strokeRect(10, 10, 108, 108);
-      g.fillStyle = "#ffce3a"; g.font = "bold 60px Arial"; g.textAlign = "center"; g.textBaseline = "middle";
-      g.fillText("F10", 64, 68);
-      return new THREE.CanvasTexture(c);
-    })());
     const holoTex = (() => {
       const c = document.createElement("canvas"); c.width = c.height = 128;
       const g = c.getContext("2d"); g.clearRect(0, 0, 128, 128);
@@ -425,59 +404,68 @@ export function createArenaGame(options) {
     const mesh = (geo, mat) => { const m = new THREE.Mesh(geo, mat); m.castShadow = true; m.receiveShadow = true; return m; };
     const slab = (w, h, d, mat, x, y, z) => { const m = mesh(new THREE.BoxGeometry(w, h, d), mat); m.position.set(x, y, z); rampart.add(m); return m; };
 
-    // Crenellated battlement: dark merlons with bright gold caps, stepping along
-    // `axis`, skipping the corner-tower footprints and (on the gate side) the
-    // central opening.
-    const battlement = (fixed, axis, gateGap) => {
-      const merlonY = WALL_H + M_H / 2;
-      for (let p = -WMID + M_STEP / 2 + 0.6; p <= WMID - 0.6; p += M_STEP) {
-        if (Math.abs(p) > WMID - T_W / 2 - 0.5) continue;        // under a tower
-        if (gateGap && Math.abs(p) < GATE_HALF + 2.2) continue;  // over the gateway
-        const [x, z] = axis === "x" ? [p, fixed] : [fixed, p];
-        const w = axis === "x" ? M_W : WALL_T;
-        const d = axis === "x" ? WALL_T : M_W;
-        slab(w, M_H, d, darkMat2, x, merlonY, z);
-        slab(w + 0.16, 0.3, d + 0.16, goldMat, x, WALL_H + M_H + 0.15, z); // gold cap
+    // -- Barbed-wire perimeter fence (replaces the solid curtain walls). Tall
+    //    dark-steel posts strung with horizontal barbed strands run between the
+    //    corner towers; every strand is dotted with little crossed steel barbs,
+    //    and two extra strands cant inward on angled top arms — a high security
+    //    fence ringing the arena. Barbed strands are one merged LineSegments per
+    //    side (one draw call); posts and arms are thin cylinders. The fence sits
+    //    on the arena rim exactly where the curtain wall stood, so it never
+    //    overlaps the play floor.
+    const postMat = new THREE.MeshStandardMaterial({ color: 0x26292f, roughness: 0.5, metalness: 0.72 });
+    const wireMat = new THREE.LineBasicMaterial({ color: 0xb9c0c8, transparent: true, opacity: 0.9 });
+    const STRAND_YS = [1.5, 3.1, 4.7, 6.3, 7.9, FENCE_H]; // horizontal strand heights
+    const ARM_YS = [FENCE_H + 0.7, FENCE_H + 1.4];        // inward-canted top strands
+    const CANT = 1.3;                                     // inward lean of the top arm
+
+    const barbedFence = (axis, fixed, a, b) => {
+      const inward = fixed > 0 ? -1 : 1;                  // arms lean toward arena centre
+      const XZ = (p, off = 0) => axis === "x" ? [p, fixed + off] : [fixed + off, p];
+      const pos = [];
+      const seg = (x1, y1, z1, x2, y2, z2) => pos.push(x1, y1, z1, x2, y2, z2);
+
+      // Horizontal barbed strands, each dotted with crossed barbs.
+      const BARB = 1.5;
+      for (const y of STRAND_YS) {
+        const [ax, az] = XZ(a), [bx, bz] = XZ(b);
+        seg(ax, y, az, bx, y, bz);
+        for (let p = a + BARB / 2; p < b; p += BARB) {
+          const [x, z] = XZ(p);
+          if (axis === "x") { seg(x - 0.16, y - 0.22, z, x + 0.16, y + 0.22, z); seg(x - 0.16, y + 0.22, z, x + 0.16, y - 0.22, z); }
+          else { seg(x, y - 0.22, z - 0.16, x, y + 0.22, z + 0.16); seg(x, y + 0.22, z - 0.16, x, y - 0.22, z + 0.16); }
+        }
+      }
+      // Inward-canted top strands carried on the angled arms.
+      for (const y of ARM_YS) {
+        const [ax, az] = XZ(a, inward * CANT), [bx, bz] = XZ(b, inward * CANT);
+        seg(ax, y, az, bx, y, bz);
+      }
+      const g = new THREE.BufferGeometry();
+      g.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3));
+      rampart.add(new THREE.LineSegments(g, wireMat));
+
+      // Steel posts with an inward-canted top arm, spaced along the run and
+      // tucked short of the corner-tower footprints.
+      const POST_STEP = 7.5;
+      const n = Math.max(2, Math.round(Math.abs(b - a) / POST_STEP));
+      const up = new THREE.Vector3(0, 1, 0);
+      for (let i = 0; i <= n; i++) {
+        const p = a + (b - a) * (i / n);
+        if (Math.abs(p) > WMID - T_W / 2 + 0.2) continue;
+        const [x, z] = XZ(p);
+        const post = mesh(new THREE.CylinderGeometry(0.22, 0.3, FENCE_H, 8), postMat);
+        post.position.set(x, FENCE_H / 2, z); rampart.add(post);
+        const [ex, ez] = XZ(p, inward * CANT);
+        const arm = mesh(new THREE.CylinderGeometry(0.12, 0.12, 1.95, 6), postMat);
+        arm.position.set((x + ex) / 2, FENCE_H + 0.9, (z + ez) / 2);
+        arm.quaternion.setFromUnitVectors(up, new THREE.Vector3(ex - x, 1.4, ez - z).normalize());
+        rampart.add(arm);
       }
     };
-
-    // One straight run of curtain wall (dark F10 panels) with bright gold rails
-    // capping the top walkway and skirting the base.
-    const curtain = (axis, fixed, a, b) => {
-      const len = Math.abs(b - a), mid = (a + b) / 2, rep = Math.max(1, Math.round(len / 12));
-      const m = new THREE.MeshStandardMaterial({ map: wallTex(rep), roughness: 0.55, metalness: 0.35 });
-      if (axis === "x") {
-        const wall = mesh(new THREE.BoxGeometry(len, WALL_H, WALL_T), m); wall.position.set(mid, WALL_H / 2, fixed); rampart.add(wall);
-        slab(len, 0.34, WALL_T + 0.24, goldMat, mid, WALL_H - 0.05, fixed);
-        slab(len, 0.34, WALL_T + 0.24, goldMat, mid, 0.42, fixed);
-      } else {
-        const wall = mesh(new THREE.BoxGeometry(WALL_T, WALL_H, len), m); wall.position.set(fixed, WALL_H / 2, mid); rampart.add(wall);
-        slab(WALL_T + 0.24, 0.34, len, goldMat, fixed, WALL_H - 0.05, mid);
-        slab(WALL_T + 0.24, 0.34, len, goldMat, fixed, 0.42, mid);
-      }
-    };
-
-    // North/west/east curtains run full span; the south side (near the camera)
-    // is split by the gateway into two runs.
-    curtain("x", -WMID, -WMID, WMID);            // north
-    curtain("z", -WMID, -WMID, WMID);            // west
-    curtain("z",  WMID, -WMID, WMID);            // east
-    curtain("x",  WMID, -WMID, WMID);            // south (near camera) — solid
-    battlement(-WMID, "x", false); // north
-    battlement( WMID, "x", false); // south
-    battlement(-WMID, "z", false); // west
-    battlement( WMID, "z", false); // east
-
-    // A single F10 marker centred on each side's inner wall face.
-    const inFace = WALL_T / 2 + 0.06, markY = WALL_H * 0.5 + 0.2;
-    const midMark = (x, z, ry) => {
-      const pl = new THREE.Mesh(new THREE.PlaneGeometry(3.6, 3.6), markMat);
-      pl.position.set(x, markY, z); pl.rotation.y = ry; rampart.add(pl);
-    };
-    midMark(0, -WMID + inFace, 0);            // north → faces +z
-    midMark(0,  WMID - inFace, Math.PI);      // south → faces -z
-    midMark(-WMID + inFace, 0, Math.PI / 2);  // west  → faces +x
-    midMark( WMID - inFace, 0, -Math.PI / 2); // east  → faces -x
+    barbedFence("x", -WMID, -WMID, WMID); // north
+    barbedFence("z", -WMID, -WMID, WMID); // west
+    barbedFence("z",  WMID, -WMID, WMID); // east
+    barbedFence("x",  WMID, -WMID, WMID); // south (near camera)
 
     // -- Four corner beacon towers: a tall dark shaft banded with gold, F10
     //    plaques on every face, a crenellated crown and a glowing gold lantern.
@@ -623,7 +611,7 @@ export function createArenaGame(options) {
 
       const baseGeo = new THREE.CylinderGeometry(0.3, 0.38, 0.5, 10);
       const glowGeo = new THREE.PlaneGeometry(2.2, 2.2);
-      const wallTop = WALL_H;
+      const wallTop = FENCE_H; // lamps ride the top of the barbed-wire fence
       const torchAt = (x, z) => {
         const base = mesh(baseGeo, ironMat);
         base.scale.setScalar(PROP_SCALE);
