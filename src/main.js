@@ -1668,6 +1668,10 @@ function updatePrizePot(numPlayers) {
 async function refreshFight10Balance() {
   const balEl = document.getElementById("fight10Balance");
   if (!balEl || !state.user) return;
+  // Before the token is deployed FIGHT10_TOKEN is a placeholder, not an
+  // address — ethers would treat it as an ENS name and blow up on Robinhood
+  // Chain, which has no ENS. Skip the on-chain read entirely until launch.
+  if (FIGHT10_TOKEN.startsWith("<")) return;
   const addr = await getWalletAddress();
   if (!addr) return;
   try {
