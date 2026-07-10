@@ -2484,48 +2484,6 @@ body.in-game #homePlayPrompt { display: none !important; }
 
 .gear:hover { transform: rotate(45deg); border-color: #33b14a; }
 
-/* Arena wall-theme dropdown — sits under the gear in the top-left corner. */
-.wall-theme-ctrl {
-  position: fixed;
-  top: 64px;
-  left: 16px;
-  z-index: 12;
-  display: flex;
-  align-items: center;
-  gap: 7px;
-  height: 36px;
-  padding: 0 10px;
-  border-radius: 9px;
-  background: rgba(20, 28, 24, 0.6);
-  border: 1px solid rgba(255, 255, 255, 0.18);
-  backdrop-filter: blur(6px);
-}
-.wt-label {
-  font-size: 10px;
-  font-weight: 700;
-  letter-spacing: 0.12em;
-  color: rgba(255, 255, 255, 0.45);
-  user-select: none;
-}
-.wall-theme-select {
-  appearance: none;
-  -webkit-appearance: none;
-  background: rgba(8, 12, 10, 0.7)
-    url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='8' height='5'><path d='M0 0l4 5 4-5z' fill='%23dfeee0'/></svg>")
-    no-repeat right 8px center;
-  color: #dfeee0;
-  border: 1px solid rgba(255, 255, 255, 0.2);
-  border-radius: 6px;
-  font: 600 12px/1.2 "Rajdhani", sans-serif;
-  letter-spacing: 0.04em;
-  padding: 4px 24px 4px 9px;
-  cursor: pointer;
-  transition: border-color 0.15s;
-}
-.wall-theme-select:hover,
-.wall-theme-select:focus { border-color: #33b14a; outline: none; }
-.wall-theme-select option { background: #0c120e; color: #dfeee0; }
-
 .keys-info-btn {
   position: fixed;
   top: 64px;
@@ -2660,8 +2618,7 @@ body.in-game #homePlayPrompt { display: none !important; }
 .hud-hidden .hotbar,
 .hud-hidden .game-rivals,
 .hud-hidden .game-fps,
-.hud-hidden .game-ping,
-.hud-hidden .wall-theme-ctrl {
+.hud-hidden .game-ping {
   display: none !important;
 }
 
@@ -3959,16 +3916,6 @@ body.in-game .log-feed { left: 70px; }
     height: 34px;
     font-size: 17px;
   }
-
-  .wall-theme-ctrl {
-    top: 50px;
-    left: 10px;
-    height: 28px;
-    padding: 0 7px;
-    gap: 5px;
-  }
-  .wt-label { font-size: 8.5px; }
-  .wall-theme-select { font-size: 11px; padding: 2px 20px 2px 7px; }
 
   .keys-info-btn {
     top: 48px;

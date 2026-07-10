@@ -10,7 +10,7 @@
 import * as THREE from "three";
 import { escapeHtml } from "./utils.js";
 import { APPEARANCE_PRESETS } from "./appearance.js";
-import { WALL_THEMES, WALL_THEME_KEY } from "./wallThemes.js";
+import { WALL_THEME } from "./wallThemes.js";
 
 const TILE = 2;
 const MAP_TILES = 50;
@@ -244,7 +244,7 @@ export function createArenaGame(options) {
   const wallFX = [];
 
   // -- Arena underside --------------------------------------------------------
-  // A plain dark-navy slab below the play floor (backing walls + bottom cap +
+  // A plain near-black slab below the play floor (backing walls + bottom cap +
   // a faint gold rim), so the arena reads as a solid platform floating in the
   // clouds beneath the fortress rampart.
   function buildArenaWalls(variant) {
@@ -261,8 +261,8 @@ export function createArenaGame(options) {
     const DEPTH = 10;
     const addObj = (obj) => { scene.add(obj); wallObjects.push(obj); return obj; };
 
-    // Dark navy underside slab behind each wall (matches the fortress rampart).
-    const sideMat = new THREE.MeshStandardMaterial({ color: 0x0a1226, roughness: 0.92, metalness: 0.12 });
+    // Near-black underside slab behind each wall (matches the fortress rampart).
+    const sideMat = new THREE.MeshStandardMaterial({ color: 0x0b0b0e, roughness: 0.92, metalness: 0.12 });
     [
       { x: 0,         z: -MAP_HALF, ry: 0 },
       { x: 0,         z:  MAP_HALF, ry: Math.PI },
@@ -334,20 +334,12 @@ export function createArenaGame(options) {
     // they can be dropped into the merlon gaps at the correct wall height.
   }
 
-  // -- Wall theme plumbing ----------------------------------------------------
-  // The rampart below registers its shared materials and the curtain-face
-  // canvas here so applyWallTheme() can restyle the fortress live from the
-  // HUD's WALL dropdown, without rebuilding any geometry.
-  const curtainTextures = []; // one CanvasTexture per curtain run, all sharing wallCanvas
-  let rampartMats = null;     // { darkMat, darkMat2, goldMat, goldGlowMat, crystalMat, wallCanvas }
-
   // -- Arena rampart: the "F10 ARENA" fortress -------------------------------
-  // A dark obsidian-and-gold curtain wall standing on the arena edge, styled
-  // after the F10 splash art: gold-crowned battlements and repeated gold "F10"
-  // on the wall face, tall corner beacon towers with glowing gold lanterns,
-  // giant billboard signs (F10 ARENA / TRADE·FIGHT·EARN / LEADERBOARD / ₿), a
-  // gold-arched south gateway with a blue energy barrier, blue crystal clusters
-  // and an F10 hologram, and chains hanging into the clouds below. Flame torches
+  // A black-brick-and-gold curtain wall standing on the arena edge (palette
+  // and brick face pattern from WALL_THEME): gold-crowned battlements and a
+  // gold "F10" on each wall face, tall corner beacon towers with glowing gold
+  // lanterns, giant billboard signs (F10 ARENA / TRADE·FIGHT·EARN / pump.fun),
+  // gold crystal clusters and an F10 hologram. Flame torches
   // ride the wall top. Built once and parented to the scene, so it stays
   // anchored to the map rim in both the lobby backdrop and a live match, and is
   // released with everything else by disposeObject3D(scene) on destroy(). The
@@ -356,14 +348,14 @@ export function createArenaGame(options) {
   {
     const rampart = new THREE.Group();
 
-    // ---- Obsidian-navy stone with gold and blue-crystal accents -------------
-    const darkMat  = new THREE.MeshStandardMaterial({ color: 0x0c1430, emissive: 0x060a1a, emissiveIntensity: 0.5, roughness: 0.5, metalness: 0.4 });
-    const darkMat2 = new THREE.MeshStandardMaterial({ color: 0x18213c, roughness: 0.55, metalness: 0.35 });
-    const goldMat  = new THREE.MeshStandardMaterial({ color: 0xffc21a, emissive: 0x6a4300, emissiveIntensity: 0.55, roughness: 0.32, metalness: 0.85 });
-    const goldGlowMat = new THREE.MeshStandardMaterial({ color: 0xffd23a, emissive: 0xffa406, emissiveIntensity: 1.6, roughness: 0.3, metalness: 0.5 });
+    // ---- Black brick with gold accents (palette from WALL_THEME) ------------
+    const darkMat  = new THREE.MeshStandardMaterial({ color: WALL_THEME.stone, emissive: WALL_THEME.stoneEmissive, emissiveIntensity: 0.5, roughness: 0.5, metalness: 0.4 });
+    const darkMat2 = new THREE.MeshStandardMaterial({ color: WALL_THEME.stone2, roughness: 0.55, metalness: 0.35 });
+    const goldMat  = new THREE.MeshStandardMaterial({ color: WALL_THEME.trim, emissive: WALL_THEME.trimEmissive, emissiveIntensity: 0.55, roughness: 0.32, metalness: 0.85 });
+    const goldGlowMat = new THREE.MeshStandardMaterial({ color: WALL_THEME.glow, emissive: WALL_THEME.glowEmissive, emissiveIntensity: 1.6, roughness: 0.3, metalness: 0.5 });
     const ironMat  = new THREE.MeshStandardMaterial({ color: 0x2c2f34, roughness: 0.45, metalness: 0.65 });
-    const crystalMat = new THREE.MeshStandardMaterial({ color: 0x38b0ff, emissive: 0x1c7cff, emissiveIntensity: 1.3, roughness: 0.15, metalness: 0.1, transparent: true, opacity: 0.85 });
-    const signMat = (tex) => new THREE.MeshStandardMaterial({ map: tex, roughness: 0.55, metalness: 0.2, emissive: 0x141d38, emissiveIntensity: 0.35 });
+    const crystalMat = new THREE.MeshStandardMaterial({ color: WALL_THEME.crystal, emissive: WALL_THEME.crystalEmissive, emissiveIntensity: 1.3, roughness: 0.15, metalness: 0.1, transparent: true, opacity: 0.85 });
+    const signMat = (tex) => new THREE.MeshStandardMaterial({ map: tex, roughness: 0.55, metalness: 0.2, emissive: 0x141416, emissiveIntensity: 0.35 });
 
     // Dimensions. WMID is the wall centreline; its inner face sits flush with
     // the arena edge (±MAP_HALF). WALL_T/WALL_H/WALL_MID come from up top.
@@ -372,7 +364,7 @@ export function createArenaGame(options) {
     const T_W = 5.4;       // corner beacon-tower footprint
     const GATE_W = 13, GATE_HALF = GATE_W / 2;
 
-    // Soft radial glow sprite (gold beacons, blue crystals).
+    // Soft radial glow sprite (gold beacons, crystals, hologram).
     const glowSpriteTex = (rgb) => {
       const c = document.createElement("canvas"); c.width = c.height = 64;
       const g = c.getContext("2d");
@@ -382,22 +374,19 @@ export function createArenaGame(options) {
       return new THREE.CanvasTexture(c);
     };
     const goldGlowTex = glowSpriteTex("255,190,70");
-    const blueGlowTex = glowSpriteTex("90,180,255");
 
-    // Wall-face texture, tiled along each curtain. Painted by the active wall
-    // theme's drawFace() (default: Royal Gold, the original navy-and-gold
-    // panels); applyWallTheme() repaints this same canvas on a theme change.
+    // Wall-face texture, tiled along each curtain: black brick courses with
+    // gold banding, painted by WALL_THEME.drawFace().
     const wallCanvas = document.createElement("canvas");
     wallCanvas.width = 256; wallCanvas.height = 128;
-    WALL_THEMES[0].drawFace(wallCanvas.getContext("2d"), wallCanvas.width, wallCanvas.height);
+    WALL_THEME.drawFace(wallCanvas.getContext("2d"), wallCanvas.width, wallCanvas.height);
     const wallTex = (rep) => {
       const t = new THREE.CanvasTexture(wallCanvas);
       t.wrapS = t.wrapT = THREE.RepeatWrapping; t.repeat.set(rep, 1);
-      curtainTextures.push(t); // repainted in place on theme change
       return t;
     };
 
-    // Gold "F10" crest and the blue F10 hologram face.
+    // Gold "F10" crest and the gold F10 hologram face.
     const crestTex = (() => {
       const c = document.createElement("canvas"); c.width = c.height = 128;
       const g = c.getContext("2d");
@@ -415,7 +404,7 @@ export function createArenaGame(options) {
       const c = document.createElement("canvas"); c.width = c.height = 128;
       const g = c.getContext("2d");
       const grd = g.createLinearGradient(0, 0, 0, 128);
-      grd.addColorStop(0, "#141f42"); grd.addColorStop(1, "#0a1024");
+      grd.addColorStop(0, "#1a1a1f"); grd.addColorStop(1, "#0a0a0d");
       g.fillStyle = grd; g.fillRect(0, 0, 128, 128);
       g.strokeStyle = "#ffc627"; g.lineWidth = 8; g.strokeRect(10, 10, 108, 108);
       g.fillStyle = "#ffce3a"; g.font = "bold 60px Arial"; g.textAlign = "center"; g.textBaseline = "middle";
@@ -425,10 +414,10 @@ export function createArenaGame(options) {
     const holoTex = (() => {
       const c = document.createElement("canvas"); c.width = c.height = 128;
       const g = c.getContext("2d"); g.clearRect(0, 0, 128, 128);
-      g.strokeStyle = "rgba(120,205,255,0.9)"; g.lineWidth = 5; g.beginPath();
+      g.strokeStyle = "rgba(255,205,90,0.9)"; g.lineWidth = 5; g.beginPath();
       for (let i = 0; i < 6; i++) { const a = Math.PI / 6 + i * Math.PI / 3, px = 64 + 52 * Math.cos(a), py = 64 + 52 * Math.sin(a); if (i) g.lineTo(px, py); else g.moveTo(px, py); }
       g.closePath(); g.stroke();
-      g.fillStyle = "rgba(160,220,255,0.95)"; g.font = "bold 38px Arial"; g.textAlign = "center"; g.textBaseline = "middle";
+      g.fillStyle = "rgba(255,225,150,0.95)"; g.font = "bold 38px Arial"; g.textAlign = "center"; g.textBaseline = "middle";
       g.fillText("F10", 64, 66);
       return new THREE.CanvasTexture(c);
     })();
@@ -518,7 +507,7 @@ export function createArenaGame(options) {
     //    is the position down that wall; drawFn paints the dark, gold-framed face.
     const panelBase = (g, W, H) => {
       const grd = g.createLinearGradient(0, 0, 0, H);
-      grd.addColorStop(0, "#0e1a38"); grd.addColorStop(1, "#060b1c");
+      grd.addColorStop(0, "#18181d"); grd.addColorStop(1, "#08080a");
       g.fillStyle = grd; g.fillRect(0, 0, W, H);
       g.strokeStyle = "#ffc627"; g.lineWidth = Math.max(5, W * 0.014); g.strokeRect(g.lineWidth, g.lineWidth, W - 2 * g.lineWidth, H - 2 * g.lineWidth);
       g.strokeStyle = "rgba(255,198,39,0.4)"; g.lineWidth = 2; g.strokeRect(W * 0.03, H * 0.06, W * 0.94, H * 0.88);
@@ -581,7 +570,7 @@ export function createArenaGame(options) {
     placeSign("north", -13, 15, 7,   drawTrade);         // TRADE. FIGHT. EARN.
     placeImageSign("north", 14, 6.6, 6.6, "/pump.webp"); // pump.fun emblem
 
-    // -- Blue crystal clusters just outside each corner tower.
+    // -- Gold crystal clusters just outside each corner tower.
     const crystalCluster = (cx, cz) => {
       for (let i = 0; i < 5; i++) {
         const s = 1.0 + Math.random() * 1.8;
@@ -590,7 +579,7 @@ export function createArenaGame(options) {
         cr.rotation.set((Math.random() - 0.5) * 0.5, Math.random() * 6, (Math.random() - 0.5) * 0.5);
         rampart.add(cr);
       }
-      const glow = new THREE.Sprite(new THREE.SpriteMaterial({ map: blueGlowTex, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, opacity: 0.85 }));
+      const glow = new THREE.Sprite(new THREE.SpriteMaterial({ map: goldGlowTex, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, opacity: 0.85 }));
       glow.position.set(cx, 2.6, cz); glow.scale.set(12, 12, 1); rampart.add(glow);
     };
     const OC = WMID + 4.5;
@@ -603,7 +592,7 @@ export function createArenaGame(options) {
         new THREE.MeshBasicMaterial({ map: holoTex, transparent: true, opacity: 0.82, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide }));
       holo.position.set(hx, 6, hz); holo.rotation.z = Math.PI / 6; holo.rotation.y = -Math.PI / 4; rampart.add(holo);
       const base = mesh(new THREE.CylinderGeometry(1.4, 1.7, 0.6, 8), goldMat); base.position.set(hx, 0.3, hz); rampart.add(base);
-      const hg = new THREE.Sprite(new THREE.SpriteMaterial({ map: blueGlowTex, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, opacity: 0.8 }));
+      const hg = new THREE.Sprite(new THREE.SpriteMaterial({ map: goldGlowTex, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, opacity: 0.8 }));
       hg.position.set(hx, 6, hz); hg.scale.set(10, 10, 1); rampart.add(hg);
     }
 
@@ -673,43 +662,8 @@ export function createArenaGame(options) {
       torchLine( WMID, "z", false); // east
     }
 
-    // Hand the shared, retintable materials to the wall-theme system. The
-    // signs/plaques keep their gold F10 branding regardless of theme.
-    rampartMats = { darkMat, darkMat2, goldMat, goldGlowMat, crystalMat, wallCanvas };
-
     scene.add(rampart);
   }
-
-  // -- Wall themes -------------------------------------------------------------
-  // Restyles the fortress rampart in place: retints the shared stone/trim/glow/
-  // crystal materials and repaints the curtain-face canvas with the theme's
-  // pattern. Driven by the WALL dropdown on the in-game HUD; the pick persists
-  // across sessions in localStorage.
-  let wallThemeId = WALL_THEMES[0].id;
-  function applyWallTheme(id) {
-    const t = WALL_THEMES.find((w) => w.id === id) || WALL_THEMES[0];
-    wallThemeId = t.id;
-    if (rampartMats) {
-      rampartMats.darkMat.color.setHex(t.stone);
-      rampartMats.darkMat.emissive.setHex(t.stoneEmissive);
-      rampartMats.darkMat2.color.setHex(t.stone2);
-      rampartMats.goldMat.color.setHex(t.trim);
-      rampartMats.goldMat.emissive.setHex(t.trimEmissive);
-      rampartMats.goldGlowMat.color.setHex(t.glow);
-      rampartMats.goldGlowMat.emissive.setHex(t.glowEmissive);
-      rampartMats.crystalMat.color.setHex(t.crystal);
-      rampartMats.crystalMat.emissive.setHex(t.crystalEmissive);
-      t.drawFace(rampartMats.wallCanvas.getContext("2d"), rampartMats.wallCanvas.width, rampartMats.wallCanvas.height);
-      curtainTextures.forEach((tex) => { tex.needsUpdate = true; });
-    }
-    try { localStorage.setItem(WALL_THEME_KEY, t.id); } catch { /* private mode */ }
-  }
-  // Restore the last-picked theme (first run / unknown value → Royal Gold,
-  // which the rampart above was already painted with).
-  try {
-    const saved = localStorage.getItem(WALL_THEME_KEY);
-    if (saved && saved !== wallThemeId && WALL_THEMES.some((w) => w.id === saved)) applyWallTheme(saved);
-  } catch { /* private mode */ }
 
   // -- Pixelated FIGHT10 ground decals (black pixel squares, random) --------
   const fight10Groups = [];
@@ -2781,10 +2735,6 @@ export function createArenaGame(options) {
     else overlay.classList.add("show");
   });
 
-  // Wall-theme dropdown: restyle the fortress rampart live and remember the pick.
-  hud.wallThemeSelect.value = wallThemeId;
-  hud.wallThemeSelect.addEventListener("change", () => applyWallTheme(hud.wallThemeSelect.value));
-
   // Separate frag cooldown — never pollutes the active weapon's cdTimer
   let fragCd = 0;
 
@@ -3715,13 +3665,6 @@ function buildHud() {
   </div>`);
   add('<button class="gear game-ui" title="Menu">&#9776;</button>');
   const gearBtn = root.querySelector(".gear");
-  // Arena wall-theme dropdown (below the gear). createArenaGame wires the
-  // change handler and sets the persisted initial value.
-  const wallThemeCtrl = add(`<div class="wall-theme-ctrl game-ui" title="Arena wall theme">
-    <span class="wt-label">WALL</span>
-    <select class="wall-theme-select" aria-label="Arena wall theme">${WALL_THEMES.map((t) => `<option value="${t.id}">${t.name}</option>`).join("")}</select>
-  </div>`);
-  const wallThemeSelect = wallThemeCtrl.querySelector(".wall-theme-select");
   const rivalsEl = add('<div class="game-rivals game-ui">--</div>');
   const fpsEl = add('<div class="game-fps game-ui">FPS --</div>');
   const pingEl = add('<div class="game-ping game-ui">-- ms</div>');
@@ -3799,7 +3742,7 @@ function buildHud() {
     });
   }
 
-  return { root, coords, matchTimerEl, matchNoEl, mmCanvas, hotbar, slots, rivalsEl, fpsEl, pingEl, overlay, renderDistBtn, bindSettings, raiderCountCtrl, raiderCountEl, scorePanel, weaponPanel, keysInfoPanel, gearBtn, wallThemeSelect };
+  return { root, coords, matchTimerEl, matchNoEl, mmCanvas, hotbar, slots, rivalsEl, fpsEl, pingEl, overlay, renderDistBtn, bindSettings, raiderCountCtrl, raiderCountEl, scorePanel, weaponPanel, keysInfoPanel, gearBtn };
 }
 
 function clamp(v, min, max) {
