@@ -261,34 +261,47 @@ export function createArenaGame(options) {
     const DEPTH = 10;
     const addObj = (obj) => { scene.add(obj); wallObjects.push(obj); return obj; };
 
+    // The underside is flush with the fortress silhouette: its vertical faces
+    // sit directly beneath the ledge's OUTER edge (MAP_HALF + LEDGE_W), not at
+    // the inner floor rim. Anchoring it inboard left the ledge and rampart
+    // jutting out over a recessed slab — the near edge read as a floating shelf
+    // rather than one solid platform. UNDER_OUT lines the slab up with the
+    // outermost stonework so the foundation drops straight down from the ledge
+    // and the near edge simply clips against the viewport with no offset band.
+    const UNDER_OUT = MAP_HALF + LEDGE_W;      // outer face, flush with the ledge
+    const UNDER_WORLD = MAP_WORLD + LEDGE_W * 2; // full span across that face
+    const UNDER_TOP = LEDGE_TOP - LEDGE_H;     // start at the ledge underside
+    const UNDER_H = UNDER_TOP + DEPTH;          // reach from there down past -DEPTH
+
     // Near-black underside slab behind each wall (matches the fortress rampart).
     const sideMat = new THREE.MeshStandardMaterial({ color: 0x0b0b0e, roughness: 0.92, metalness: 0.12 });
     [
-      { x: 0,         z: -MAP_HALF, ry: 0 },
-      { x: 0,         z:  MAP_HALF, ry: Math.PI },
-      { x: -MAP_HALF, z: 0,         ry:  Math.PI / 2 },
-      { x:  MAP_HALF, z: 0,         ry: -Math.PI / 2 },
+      { x: 0,          z: -UNDER_OUT, ry: 0 },
+      { x: 0,          z:  UNDER_OUT, ry: Math.PI },
+      { x: -UNDER_OUT, z: 0,          ry:  Math.PI / 2 },
+      { x:  UNDER_OUT, z: 0,          ry: -Math.PI / 2 },
     ].forEach(({ x, z, ry }) => {
-      const wall = new THREE.Mesh(new THREE.PlaneGeometry(MAP_WORLD, DEPTH), sideMat);
-      wall.position.set(x, -DEPTH / 2, z);
+      const wall = new THREE.Mesh(new THREE.PlaneGeometry(UNDER_WORLD, UNDER_H), sideMat);
+      wall.position.set(x, UNDER_TOP - UNDER_H / 2, z);
       wall.rotation.y = ry;
       addObj(wall);
     });
 
     // Bottom cap
     const btm = new THREE.Mesh(
-      new THREE.PlaneGeometry(MAP_WORLD, MAP_WORLD),
+      new THREE.PlaneGeometry(UNDER_WORLD, UNDER_WORLD),
       new THREE.MeshStandardMaterial({ color: 0x030302, roughness: 1 })
     );
     btm.rotation.x = Math.PI / 2;
     btm.position.y = -DEPTH;
     addObj(btm);
 
-    // A single faint gold trim line along the top rim, meeting the rampart base.
+    // A single faint gold trim line along the foundation top, tucked just under
+    // the ledge's outer edge so it reads as one continuous rim.
     addObj(new THREE.Line(new THREE.BufferGeometry().setFromPoints([
-      new THREE.Vector3(-MAP_HALF, -0.02, -MAP_HALF), new THREE.Vector3(MAP_HALF, -0.02, -MAP_HALF),
-      new THREE.Vector3( MAP_HALF, -0.02,  MAP_HALF), new THREE.Vector3(-MAP_HALF, -0.02,  MAP_HALF),
-      new THREE.Vector3(-MAP_HALF, -0.02, -MAP_HALF),
+      new THREE.Vector3(-UNDER_OUT, UNDER_TOP, -UNDER_OUT), new THREE.Vector3(UNDER_OUT, UNDER_TOP, -UNDER_OUT),
+      new THREE.Vector3( UNDER_OUT, UNDER_TOP,  UNDER_OUT), new THREE.Vector3(-UNDER_OUT, UNDER_TOP,  UNDER_OUT),
+      new THREE.Vector3(-UNDER_OUT, UNDER_TOP, -UNDER_OUT),
     ]), new THREE.LineBasicMaterial({ color: 0xffc21a, transparent: true, opacity: 0.3 })));
   }
 
