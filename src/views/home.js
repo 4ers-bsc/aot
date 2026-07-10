@@ -87,7 +87,7 @@ export const html = `
         <div class="hs-card">
           <div class="hs-card-num">01</div>
           <div class="hs-card-label">CONNECT</div>
-          <div class="hs-card-desc">Link your Solana wallet — Phantom, Backpack, or Brave. One wallet maps to one active match at a time.</div>
+          <div class="hs-card-desc">Link your Ethereum wallet — MetaMask, Rabby, or Brave. One wallet maps to one active match at a time.</div>
         </div>
         <div class="hs-card">
           <div class="hs-card-num">02</div>
@@ -237,7 +237,7 @@ export const html = `
 
     <footer class="hs-footer">
       <div class="hs-footer-disclaimer">FOR ENTERTAINMENT PURPOSES ONLY — FIGHT10 is purely for entertainment. All $FIGHT10 amounts are show values displayed at token scale and carry no guaranteed real-world or monetary value. Nothing here is financial advice.</div>
-      <div class="hs-footer-text">FIGHT10 · LAST ONE STANDING — skill-based arena on Solana. Winner takes 90% of the pot; a 10% protocol fee funds the arena. Entries are non-refundable once a match is joined.</div>
+      <div class="hs-footer-text">FIGHT10 · LAST ONE STANDING — skill-based arena on Robinhood Chain, an Ethereum L2. Winner takes 90% of the pot; a 10% protocol fee funds the arena. Entries are non-refundable once a match is joined.</div>
       <a class="hs-footer-x" href="https://x.com/fight10_club" target="_blank" rel="noopener noreferrer" aria-label="FIGHT10 on X">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-4.714-6.231-5.401 6.231H2.748l7.73-8.835L1.254 2.25H8.08l4.259 5.63 5.905-5.63zm-1.161 17.52h1.833L7.084 4.126H5.117z"/></svg>
         @fight10_club

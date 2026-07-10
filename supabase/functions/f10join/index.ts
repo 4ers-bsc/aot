@@ -1,67 +1,68 @@
 /// Verified-join Edge Function
 //
 // Deposit verification happens BEFORE lobby admission. The browser sends the
-// confirmed deposit tx signature here; this function:
+// confirmed deposit tx hash here; this function:
 //   1. authenticates the caller (JWT),
-//   2. verifies the tx on-chain (confirmed + correct FIGHT10 amount to escrow,
-//      signed by the player's own wallet),
+//   2. verifies the tx on-chain (mined + successful + an ERC-20 Transfer of
+//      the exact FIGHT10 amount from the player's own wallet to escrow),
 //   3. ONLY THEN calls the service-role `join_pvp_match` RPC to take a seat.
 //
 // Because join_pvp_match is no longer granted to `authenticated`, a malicious
-// user cannot call the RPC directly with a fake signature to fill a lobby.
+// user cannot call the RPC directly with a fake hash to fill a lobby.
 //
-// Required Supabase secrets: ESCROW_WALLET (base58 public key), FIGHT10_MINT,
-// RPC_URL. Verifying a deposit only needs the escrow's PUBLIC address — the
-// private key stays with f10treasurer, the only function that signs payouts.
+// Chain: Robinhood Chain (an Ethereum L2). Which network is used comes from
+// the NETWORK secret ("testnet" | "mainnet", default testnet) via the table
+// below — it must match the client's VITE_NETWORK. Verification runs on raw
+// JSON-RPC (eth_getTransactionReceipt / eth_call), no web3 library needed.
+//
+// Required Supabase secrets: ESCROW_WALLET (0x address), FIGHT10_TOKEN
+// (ERC-20 contract 0x address), NETWORK, and optionally RPC_URL(_2, _3).
+// Verifying a deposit only needs the escrow's PUBLIC address — the private
+// key stays with f10treasurer, the only function that signs payouts.
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-import {
-  Connection,
-  PublicKey,
-} from "npm:@solana/web3.js@1.87.6";
 
 // ---------------------------------------------------------------------------
-// Base58 decode (no external dependency)
+// Robinhood Chain network table — switch with the NETWORK secret. Kept in
+// sync with src/network.js on the client.
 // ---------------------------------------------------------------------------
-function base58Decode(str: string): Uint8Array {
-  const ALPHA = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";
-  const map = new Uint8Array(256).fill(255);
-  for (let i = 0; i < ALPHA.length; i++) map[ALPHA.charCodeAt(i)] = i;
-  const bytes: number[] = [];
-  for (const ch of str) {
-    const v = map[ch.charCodeAt(0)];
-    if (v === 255) throw new Error("Invalid base58 char: " + ch);
-    let carry = v;
-    for (let j = bytes.length - 1; j >= 0; j--) {
-      carry += bytes[j] * 58;
-      bytes[j] = carry & 0xff;
-      carry >>= 8;
-    }
-    while (carry) { bytes.unshift(carry & 0xff); carry >>= 8; }
-  }
-  let zeros = 0;
-  while (str[zeros] === "1") zeros++;
-  return new Uint8Array([...new Array(zeros).fill(0), ...bytes]);
-}
+const NETWORKS: Record<string, { name: string; chainId: number; rpcUrl: string }> = {
+  mainnet: {
+    name: "Robinhood Chain",
+    chainId: 4663,
+    rpcUrl: "https://rpc.mainnet.chain.robinhood.com",
+  },
+  testnet: {
+    name: "Robinhood Chain Testnet",
+    chainId: 46630,
+    rpcUrl: "https://rpc.testnet.chain.robinhood.com/rpc",
+  },
+};
+const NETWORK =
+  NETWORKS[(Deno.env.get("NETWORK") ?? "testnet").trim().toLowerCase()] ?? NETWORKS.testnet;
 
-// web3.js's internal base-x decoder does NOT pad to 32 bytes; do it manually.
-function pubkeyFromBase58(str: string): PublicKey {
-  const raw = base58Decode(str.replace(/[^123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz]/g, ""));
-  if (raw.length > 32) throw new Error(`base58 too long: ${raw.length} bytes`);
-  const padded = new Uint8Array(32);
-  padded.set(raw, 32 - raw.length);
-  return new PublicKey(padded);
-}
+// keccak256("Transfer(address,address,uint256)") — the ERC-20 Transfer event.
+const TRANSFER_TOPIC = "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef";
 
-const TOKEN_PROGRAM_ID      = new PublicKey("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA");
-const TOKEN_2022_PROGRAM_ID = new PublicKey("TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb");
+// ---------------------------------------------------------------------------
+// Address / hex helpers
+// ---------------------------------------------------------------------------
+// Ethereum addresses are case-insensitive (EIP-55 checksums just vary the
+// case), and stored wallet_address values may carry a "chain:" prefix
+// (e.g. "ethereum:0x…") — normalise to the lowercased trailing segment.
+const normAddr = (w?: string | null) =>
+  ((w ?? "").trim().split(":").pop() ?? "").trim().toLowerCase();
+const isAddress = (a: string) => /^0x[0-9a-f]{40}$/.test(a);
+const isTxHash = (h: string) => /^0x[0-9a-fA-F]{64}$/.test(h);
+// An indexed address event topic is the address left-padded to 32 bytes.
+const topicToAddr = (t?: string) => (t ? "0x" + t.slice(-40).toLowerCase() : "");
 
 // ---------------------------------------------------------------------------
 // RPC endpoint pool — spread load across up to 3 keys (RPC_URL, RPC_URL_2,
-// RPC_URL_3). Each call grabs the next endpoint round-robin, so concurrent joins
-// and parallel lookups hit different keys; on error (e.g. a 429 rate limit) the
-// call rotates to the next key instead of failing. Random start index keeps load
-// balanced across function instances rather than all hammering RPC #1 first.
+// RPC_URL_3; the network's public RPC as fallback). Each call grabs the next
+// endpoint round-robin, so concurrent joins hit different keys; on error
+// (e.g. a 429 rate limit) the call rotates to the next key instead of failing.
+// Random start index keeps load balanced across function instances.
 // ---------------------------------------------------------------------------
 function getRpcUrls(): string[] {
   const urls = [
@@ -72,26 +73,35 @@ function getRpcUrls(): string[] {
     .map((u) => u?.trim())
     .filter((u): u is string => !!u);
   const unique = [...new Set(urls)];
-  return unique.length ? unique : ["https://api.mainnet-beta.solana.com"];
+  return unique.length ? unique : [NETWORK.rpcUrl];
 }
 
-function createRpcPool(commitment: "confirmed" | "finalized" = "confirmed") {
-  const conns = getRpcUrls().map((u) => new Connection(u, commitment));
-  let idx = Math.floor(Math.random() * conns.length);
+async function rpcCall(url: string, method: string, params: unknown[]): Promise<any> {
+  const res = await fetch(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ jsonrpc: "2.0", id: 1, method, params }),
+  });
+  if (!res.ok) throw new Error(`RPC ${method} HTTP ${res.status}`);
+  const body = await res.json();
+  if (body.error) throw new Error(`RPC ${method} error: ${body.error.message ?? JSON.stringify(body.error)}`);
+  return body.result;
+}
+
+function createRpcPool() {
+  const urls = getRpcUrls();
+  let idx = Math.floor(Math.random() * urls.length);
   const next = () => {
-    const c = conns[idx];
-    idx = (idx + 1) % conns.length;
-    return c;
+    const u = urls[idx];
+    idx = (idx + 1) % urls.length;
+    return u;
   };
   return {
-    // One connection (round-robin) for a sticky sequence such as send+confirm.
-    lease: () => next(),
-    // Run a read with failover: rotate to the next endpoint on error.
-    async run<T>(fn: (c: Connection) => Promise<T>): Promise<T> {
+    async run(method: string, params: unknown[]): Promise<any> {
       let lastErr: unknown;
-      for (let i = 0; i < conns.length; i++) {
+      for (let i = 0; i < urls.length; i++) {
         try {
-          return await fn(next());
+          return await rpcCall(next(), method, params);
         } catch (err) {
           lastErr = err;
         }
@@ -99,6 +109,13 @@ function createRpcPool(commitment: "confirmed" | "finalized" = "confirmed") {
       throw lastErr;
     },
   };
+}
+
+// ERC-20 decimals() — selector 0x313ce567.
+async function getTokenDecimals(rpc: ReturnType<typeof createRpcPool>, token: string): Promise<number> {
+  const result = await rpc.run("eth_call", [{ to: token, data: "0x313ce567" }, "latest"]);
+  if (!result || result === "0x") throw new Error("Token contract not found on-chain");
+  return Number(BigInt(result));
 }
 
 // ---------------------------------------------------------------------------
@@ -189,93 +206,52 @@ Deno.serve(async (req: Request) => {
 
     if (![2, 5, 10].includes(maxPlayers)) return fail("max_players must be 2, 5, or 10");
     if (!depositTx)     return fail("deposit_tx is required");
+    if (!isTxHash(depositTx)) return fail("deposit_tx is not a valid transaction hash");
     if (!depositWallet) return fail("deposit_wallet is required");
 
-    // ── Escrow / mint config ────────────────────────────────────────────────
+    // ── Escrow / token config ────────────────────────────────────────────────
     // Only the escrow's PUBLIC address is needed to verify a deposit landed in
     // it — the same address the client pays into. Never load the private key
     // here; f10treasurer is the only function that signs with it.
-    const escrowStr = Deno.env.get("ESCROW_WALLET");
-    const mintStr   = Deno.env.get("FIGHT10_MINT");
-    if (!escrowStr || !mintStr) return jsonResponse({ ok: false, error: "Escrow configuration missing" }, 500);
-
-    const B58_CHARS    = /[^123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz]/g;
-    const escrowPubkey = pubkeyFromBase58(escrowStr.replace(B58_CHARS, ""));
-    const mintPubkey   = pubkeyFromBase58(mintStr.replace(B58_CHARS, ""));
-    const rpc          = createRpcPool("confirmed");
-
-    // The wallet that must have authorised this deposit (the player's own wallet).
-    let expectedSender: string;
-    try {
-      expectedSender = pubkeyFromBase58(depositWallet.split(":").pop() ?? "").toBase58();
-    } catch {
-      return fail("deposit_wallet is invalid");
+    const escrowAddr = normAddr(Deno.env.get("ESCROW_WALLET"));
+    const tokenAddr  = normAddr(Deno.env.get("FIGHT10_TOKEN"));
+    if (!isAddress(escrowAddr) || !isAddress(tokenAddr)) {
+      return jsonResponse({ ok: false, error: "Escrow configuration missing" }, 500);
     }
+    const rpc = createRpcPool();
 
-    // ── Resolve mint → token program, decimals, escrow token account ─────────
-    const mintAcct = await rpc.run((c) => c.getAccountInfo(mintPubkey));
-    if (!mintAcct) return jsonResponse({ ok: false, error: "Mint account not found on-chain" }, 500);
-    const tokenProgramId = mintAcct.owner.equals(TOKEN_2022_PROGRAM_ID)
-      ? TOKEN_2022_PROGRAM_ID : TOKEN_PROGRAM_ID;
-    const decimals       = mintAcct.data[44];
-    const entryFeeAmtStr = (BigInt(2500) * BigInt(10 ** decimals)).toString();
-    const tokenProgStr   = tokenProgramId.toString();
-    const tok2022Str     = TOKEN_2022_PROGRAM_ID.toString();
+    // The wallet that must have sent this deposit (the player's own wallet).
+    const expectedSender = normAddr(depositWallet);
+    if (!isAddress(expectedSender)) return fail("deposit_wallet is invalid");
 
-    const escrowAccounts = await rpc.run((c) => c.getParsedTokenAccountsByOwner(escrowPubkey, { mint: mintPubkey }));
-    if (escrowAccounts.value.length === 0) return jsonResponse({ ok: false, error: "Escrow has no token account for this mint" }, 500);
-    const escrowAtaStr = new PublicKey(escrowAccounts.value[0].pubkey).toString();
+    // ── Resolve token decimals → exact entry-fee amount ─────────────────────
+    const decimals = await getTokenDecimals(rpc, tokenAddr);
+    const entryFeeRaw = BigInt(2500) * BigInt(10) ** BigInt(decimals);
 
-    // ── Verify the deposit tx is confirmed on-chain ──────────────────────────
-    // searchTransactionHistory is required: without it the node only consults
-    // its recent status cache (~2.5 min of slots), so a deposit retried after a
-    // reload/crash minutes later reports "not found" even though it landed.
-    const { value: sigStatuses } = await rpc.run((c) =>
-      c.getSignatureStatuses([depositTx], { searchTransactionHistory: true }));
-    const sigStatus = sigStatuses[0];
-    if (!sigStatus) return fail("Deposit not found on-chain");
-    if (sigStatus.err) return fail("Deposit failed on-chain");
-    if (sigStatus.confirmationStatus !== "confirmed" && sigStatus.confirmationStatus !== "finalized") {
-      return fail("Deposit not yet confirmed — try again in a moment");
-    }
+    // ── Verify the deposit tx is mined and succeeded ─────────────────────────
+    // A receipt only exists once the tx is included in a block; status 0x1
+    // means it executed without reverting. Unlike Solana there is no separate
+    // status cache — receipts are queryable for the chain's full history.
+    const receipt = await rpc.run("eth_getTransactionReceipt", [depositTx]);
+    if (!receipt) return fail("Deposit not found on-chain — try again in a moment");
+    if (receipt.status !== "0x1") return fail("Deposit failed on-chain");
 
     // ── Verify the tx transferred the correct amount to escrow from the player ─
-    const parsed = await rpc.run((c) => c.getParsedTransaction(depositTx, {
-      commitment: "confirmed",
-      maxSupportedTransactionVersion: 0,
-    }));
-    if (!parsed) return fail("Deposit could not be parsed");
-
-    const topLevel = parsed.transaction.message.instructions as any[];
-    const inner    = (parsed.meta?.innerInstructions ?? []).flatMap((ii: any) => ii.instructions);
-
-    const valid = [...topLevel, ...inner].some((ix: any) => {
-      const prog = ix.programId?.toString();
-      if (prog !== tokenProgStr && prog !== tok2022Str) return false;
-      if (!ix.parsed) return false;
-      const { type, info } = ix.parsed;
-      // Single-sig wallets use `authority`; multisig uses `multisigAuthority`.
-      const senderRaw = info.authority ?? info.multisigAuthority;
-      if (!senderRaw) return false;
-      let sender: string;
-      try {
-        sender = pubkeyFromBase58(senderRaw).toBase58();
-      } catch {
-        return false;
-      }
-      if (sender !== expectedSender) return false;
-      if (type === "transfer") {
-        return info.destination === escrowAtaStr && info.amount === entryFeeAmtStr;
-      }
-      if (type === "transferChecked") {
-        return info.destination === escrowAtaStr && info.tokenAmount?.amount === entryFeeAmtStr;
-      }
-      return false;
-    });
+    // The ERC-20 Transfer event is emitted by the token contract itself, so a
+    // confirmed-but-unrelated tx hash cannot pass this: the log must come from
+    // OUR token contract, from the player's wallet, to escrow, for the exact
+    // entry fee. Works for direct transfers and router/contract-wrapped ones.
+    const valid = (receipt.logs ?? []).some((log: any) =>
+      (log.address ?? "").toLowerCase() === tokenAddr &&
+      log.topics?.[0] === TRANSFER_TOPIC &&
+      topicToAddr(log.topics?.[1]) === expectedSender &&
+      topicToAddr(log.topics?.[2]) === escrowAddr &&
+      BigInt(log.data ?? "0x0") === entryFeeRaw
+    );
 
     if (!valid) {
       console.error("Join deposit verification failed", JSON.stringify({
-        user: user.id, expectedSender, escrowAtaStr, entryFeeAmtStr,
+        user: user.id, expectedSender, escrowAddr, tokenAddr, entryFee: entryFeeRaw.toString(),
       }));
       return fail("Deposit does not contain a valid FIGHT10 transfer from your wallet to escrow");
     }

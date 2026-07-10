@@ -346,7 +346,8 @@ export function createArenaGame(options) {
   // strung with crossed-barb strands, canted inward on top arms), anchored at
   // its corners by black-brick-and-gold beacon towers with glowing gold
   // lanterns (palette from WALL_THEME), giant billboard signs (F10 ARENA /
-  // TRADE·FIGHT·EARN / pump.fun), gold crystal clusters and an F10 hologram.
+  // TRADE·FIGHT·EARN / ROBINHOOD CHAIN), gold crystal clusters and an F10
+  // hologram.
   // Flame lamps ride the top of the fence. Built once and parented to the
   // scene, so it stays anchored to the map rim in both the lobby backdrop and a
   // live match, and is released with everything else by disposeObject3D(scene)
@@ -525,23 +526,6 @@ export function createArenaGame(options) {
       drawFn(c.getContext("2d"), CW, CH);
       buildSign(wall, along, w, h, signMat(new THREE.CanvasTexture(c)));
     };
-    // Image-faced sign (the pump.fun emblem): a dark gold-framed panel with the
-    // image (served from /pump.webp) drawn centred on top once it loads.
-    const placeImageSign = (wall, along, w, h, url) => {
-      const CW = Math.round(w * 40), CH = Math.round(h * 40);
-      const c = document.createElement("canvas"); c.width = CW; c.height = CH;
-      const g = c.getContext("2d"); panelBase(g, CW, CH);
-      const tex = new THREE.CanvasTexture(c);
-      const img = new Image();
-      img.onload = () => {
-        const pad = Math.min(CW, CH) * 0.13;
-        const scale = Math.min((CW - 2 * pad) / img.width, (CH - 2 * pad) / img.height);
-        const dw = img.width * scale, dh = img.height * scale;
-        g.drawImage(img, (CW - dw) / 2, (CH - dh) / 2, dw, dh); tex.needsUpdate = true;
-      };
-      img.src = url;
-      buildSign(wall, along, w, h, signMat(tex));
-    };
     const drawArena = (g, W, H) => {
       panelBase(g, W, H);
       g.textAlign = "center"; g.textBaseline = "middle";
@@ -556,9 +540,20 @@ export function createArenaGame(options) {
       g.fillStyle = "#ffce35"; g.font = `bold ${Math.round(H * 0.15)}px Arial`;
       g.fillText("F10 IS THE FUTURE", W / 2, H * 0.66);
     };
-    placeSign("west",  -1,  18, 8,   drawArena);         // F10 ARENA
-    placeSign("north", -13, 15, 7,   drawTrade);         // TRADE. FIGHT. EARN.
-    placeImageSign("north", 14, 6.6, 6.6, "/pump.webp"); // pump.fun emblem
+    // Chain-branding sign: LIVE ON ROBINHOOD CHAIN, drawn like the others so
+    // no image asset has to load.
+    const drawChain = (g, W, H) => {
+      panelBase(g, W, H);
+      g.textAlign = "center"; g.textBaseline = "middle";
+      g.fillStyle = "#f4f7ff"; g.font = `bold ${Math.round(H * 0.13)}px Arial`;
+      g.fillText("LIVE ON", W / 2, H * 0.28);
+      g.fillStyle = "#ffce35"; g.font = `bold ${Math.round(H * 0.155)}px Arial`;
+      g.fillText("ROBINHOOD", W / 2, H * 0.52);
+      g.fillText("CHAIN", W / 2, H * 0.72);
+    };
+    placeSign("west",  -1,  18, 8,   drawArena);       // F10 ARENA
+    placeSign("north", -13, 15, 7,   drawTrade);       // TRADE. FIGHT. EARN.
+    placeSign("north", 14, 6.6, 6.6, drawChain);       // ROBINHOOD CHAIN
 
     // -- F10 hologram hovering off the near corner, on a small gold emitter.
     {

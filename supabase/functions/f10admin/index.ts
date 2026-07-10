@@ -30,9 +30,7 @@
 // ============================================================================
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-import {
-  Connection, Keypair, PublicKey, Transaction, TransactionInstruction, SystemProgram,
-} from "npm:@solana/web3.js@1.87.6";
+import { Contract, JsonRpcProvider, Wallet } from "npm:ethers@6.13.0";
 
 const appOrigin = Deno.env.get("APP_ORIGIN");
 if (!appOrigin) {
@@ -63,7 +61,11 @@ const LIST_LIMIT = 100;
 // payout rows in JS up to a cap (and flag when a narrower range is needed).
 const CASHFLOW_ROWS    = 200;   // rows returned per side for the on-screen table
 const CASHFLOW_SUM_CAP = 5000;  // max payout rows summed for the outgoing total
-const ENTRY_FEE_RAW    = 2500n * 1_000_000n; // 2500 × 10^6, matches join_pvp_match
+// Token decimals used only to scale dashboard amounts (the payout path reads
+// the contract's decimals() on-chain). Standard ERC-20 tokens use 18; override
+// with the FIGHT10_DECIMALS secret if the deployed token differs.
+const TOKEN_DECIMALS = Number(Deno.env.get("FIGHT10_DECIMALS") ?? "18");
+const ENTRY_FEE_RAW  = 2500n * 10n ** BigInt(TOKEN_DECIMALS); // matches join_pvp_match
 
 const norm = (w?: string | null) => ((w ?? "").split(":").pop() ?? "").trim().toLowerCase();
 const csv = (v?: string | null) =>
@@ -76,92 +78,64 @@ const csv = (v?: string | null) =>
 // never claimed. Kept behaviourally in sync with f10treasurer/index.ts — edit
 // both together if the payout math or deposit verification changes.
 // ============================================================================
-function base58Decode(str: string): Uint8Array {
-  const ALPHA = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";
-  const map = new Uint8Array(256).fill(255);
-  for (let i = 0; i < ALPHA.length; i++) map[ALPHA.charCodeAt(i)] = i;
-  const bytes: number[] = [];
-  for (const ch of str) {
-    const v = map[ch.charCodeAt(0)];
-    if (v === 255) throw new Error("Invalid base58 char: " + ch);
-    let carry = v;
-    for (let j = bytes.length - 1; j >= 0; j--) {
-      carry += bytes[j] * 58;
-      bytes[j] = carry & 0xff;
-      carry >>= 8;
-    }
-    while (carry) { bytes.unshift(carry & 0xff); carry >>= 8; }
-  }
-  let zeros = 0;
-  while (str[zeros] === "1") zeros++;
-  return new Uint8Array([...new Array(zeros).fill(0), ...bytes]);
-}
-const B58_CHARS = /[^123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz]/g;
-function pubkeyFromBase58(str: string): PublicKey {
-  const raw = base58Decode(str.replace(B58_CHARS, ""));
-  if (raw.length > 32) throw new Error(`base58 too long: ${raw.length} bytes`);
-  const padded = new Uint8Array(32);
-  padded.set(raw, 32 - raw.length);
-  return new PublicKey(padded);
-}
 
-const TOKEN_PROGRAM_ID = new PublicKey("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA");
-const TOKEN_2022_PROGRAM_ID = new PublicKey("TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb");
-const ASSOCIATED_TOKEN_PROGRAM_ID = new PublicKey("ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJe1bj");
+// Robinhood Chain network table — switch with the NETWORK secret. Kept in
+// sync with src/network.js on the client.
+const NETWORKS: Record<string, { name: string; chainId: number; rpcUrl: string }> = {
+  mainnet: {
+    name: "Robinhood Chain",
+    chainId: 4663,
+    rpcUrl: "https://rpc.mainnet.chain.robinhood.com",
+  },
+  testnet: {
+    name: "Robinhood Chain Testnet",
+    chainId: 46630,
+    rpcUrl: "https://rpc.testnet.chain.robinhood.com/rpc",
+  },
+};
+const NETWORK =
+  NETWORKS[(Deno.env.get("NETWORK") ?? "testnet").trim().toLowerCase()] ?? NETWORKS.testnet;
 
-async function getATA(mint: PublicKey, owner: PublicKey, tokenProgram: PublicKey): Promise<PublicKey> {
-  const [address] = await PublicKey.findProgramAddress(
-    [owner.toBuffer(), tokenProgram.toBuffer(), mint.toBuffer()], ASSOCIATED_TOKEN_PROGRAM_ID,
+// keccak256("Transfer(address,address,uint256)") — the ERC-20 Transfer event.
+const TRANSFER_TOPIC = "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef";
+
+const ERC20_ABI = [
+  "function transfer(address to, uint256 amount) returns (bool)",
+  "function decimals() view returns (uint8)",
+];
+
+const isAddress = (a: string) => /^0x[0-9a-f]{40}$/.test(a);
+// An indexed address event topic is the address left-padded to 32 bytes.
+const topicToAddr = (t?: string) => (t ? "0x" + t.slice(-40).toLowerCase() : "");
+
+// Does this receipt contain the exact entry-fee Transfer from the player's
+// wallet to escrow, emitted by OUR token contract?
+function receiptHasDeposit(receipt: any, tokenAddr: string, sender: string, escrow: string, amount: bigint): boolean {
+  return (receipt?.logs ?? []).some((log: any) =>
+    (log.address ?? "").toLowerCase() === tokenAddr &&
+    (log.topics?.[0] ?? "") === TRANSFER_TOPIC &&
+    topicToAddr(log.topics?.[1]) === sender &&
+    topicToAddr(log.topics?.[2]) === escrow &&
+    BigInt(log.data ?? "0x0") === amount
   );
-  return address;
-}
-function transferInstruction(source: PublicKey, dest: PublicKey, owner: PublicKey, amount: bigint, tokenProgram: PublicKey): TransactionInstruction {
-  const data = new Uint8Array(9);
-  data[0] = 3;
-  const lo = Number(amount & BigInt(0xffffffff));
-  const hi = Number(amount >> BigInt(32));
-  new DataView(data.buffer).setUint32(1, lo, true);
-  new DataView(data.buffer).setUint32(5, hi, true);
-  return new TransactionInstruction({
-    programId: tokenProgram,
-    keys: [
-      { pubkey: source, isSigner: false, isWritable: true },
-      { pubkey: dest, isSigner: false, isWritable: true },
-      { pubkey: owner, isSigner: true, isWritable: false },
-    ],
-    data,
-  });
-}
-function createATAInstruction(payer: PublicKey, ata: PublicKey, owner: PublicKey, mint: PublicKey, tokenProgram: PublicKey): TransactionInstruction {
-  return new TransactionInstruction({
-    programId: ASSOCIATED_TOKEN_PROGRAM_ID,
-    keys: [
-      { pubkey: payer, isSigner: true, isWritable: true },
-      { pubkey: ata, isSigner: false, isWritable: true },
-      { pubkey: owner, isSigner: false, isWritable: false },
-      { pubkey: mint, isSigner: false, isWritable: false },
-      { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
-      { pubkey: tokenProgram, isSigner: false, isWritable: false },
-    ],
-    data: new Uint8Array(0),
-  });
 }
 
 function getRpcUrls(): string[] {
   const urls = [Deno.env.get("RPC_URL"), Deno.env.get("RPC_URL_2"), Deno.env.get("RPC_URL_3")]
     .map((u) => u?.trim()).filter((u): u is string => !!u);
   const unique = [...new Set(urls)];
-  return unique.length ? unique : ["https://api.mainnet-beta.solana.com"];
+  return unique.length ? unique : [NETWORK.rpcUrl];
 }
-function createRpcPool(commitment: "confirmed" | "finalized" = "confirmed") {
-  const conns = getRpcUrls().map((u) => new Connection(u, commitment));
-  let idx = Math.floor(Math.random() * conns.length);
-  const next = () => { const c = conns[idx]; idx = (idx + 1) % conns.length; return c; };
+function createRpcPool() {
+  const providers = getRpcUrls().map((u) =>
+    new JsonRpcProvider(u, NETWORK.chainId, { staticNetwork: true }));
+  let idx = Math.floor(Math.random() * providers.length);
+  const next = () => { const p = providers[idx]; idx = (idx + 1) % providers.length; return p; };
   return {
     lease: () => next(),
-    async run<T>(fn: (c: Connection) => Promise<T>): Promise<T> {
+    async run<T>(fn: (p: JsonRpcProvider) => Promise<T>): Promise<T> {
       let lastErr: unknown;
-      for (let i = 0; i < conns.length; i++) {
+      for (let i = 0; i < providers.length; i++) {
         try { return await fn(next()); } catch (err) { lastErr = err; }
       }
       throw lastErr;
@@ -189,81 +163,43 @@ async function payoutWinner(admin: any, matchId: string) {
   if (missing.length > 0) throw new Error(`${missing.length} player(s) have no recorded deposit`);
 
   const walletByUser = new Map<string, string>(
-    players.map((p: any) => [p.user_id, ((p.deposit_wallet ?? "").split(":").pop() ?? "").trim()]),
+    players.map((p: any) => [p.user_id, norm(p.deposit_wallet)]),
   );
 
   const { data: profile } = await admin
     .from("profiles").select("wallet_address").eq("user_id", winnerId).maybeSingle();
   if (!profile?.wallet_address) throw new Error("Winner wallet address not found");
 
-  const escrowB58 = Deno.env.get("ESCROW_PRIVATE_KEY");
-  const mintStr = Deno.env.get("FIGHT10_MINT");
-  if (!escrowB58 || !mintStr) throw new Error("Escrow configuration missing (ESCROW_PRIVATE_KEY / FIGHT10_MINT)");
+  const escrowKey = (Deno.env.get("ESCROW_PRIVATE_KEY") ?? "").trim();
+  const tokenAddr = norm(Deno.env.get("FIGHT10_TOKEN"));
+  if (!escrowKey || !isAddress(tokenAddr)) throw new Error("Escrow configuration missing (ESCROW_PRIVATE_KEY / FIGHT10_TOKEN)");
 
-  const escrowKeypair = Keypair.fromSecretKey(base58Decode(escrowB58.replace(B58_CHARS, "")));
-  const mintPubkey = pubkeyFromBase58(mintStr.replace(B58_CHARS, ""));
-  const rawWallet = (profile.wallet_address ?? "").split(":").pop() ?? "";
-  if (!rawWallet) throw new Error("Winner wallet address invalid");
-  const winnerPubkey = pubkeyFromBase58(rawWallet);
-  const rpc = createRpcPool("confirmed");
+  const escrowWallet = new Wallet(escrowKey.startsWith("0x") ? escrowKey : "0x" + escrowKey);
+  const escrowAddr = escrowWallet.address.toLowerCase();
+  const winnerAddr = norm(profile.wallet_address);
+  if (!isAddress(winnerAddr)) throw new Error("Winner wallet address invalid");
+  const rpc = createRpcPool();
 
-  const mintAcct = await rpc.run((c) => c.getAccountInfo(mintPubkey));
-  if (!mintAcct) throw new Error("Mint account not found on-chain");
-  const tokenProgramId = mintAcct.owner.equals(TOKEN_2022_PROGRAM_ID) ? TOKEN_2022_PROGRAM_ID : TOKEN_PROGRAM_ID;
-  const decimals = mintAcct.data[44];
-  const entryFeeRaw = BigInt(2500) * BigInt(10 ** decimals);
-  const entryFeeAmtStr = entryFeeRaw.toString();
-  const tokenProgStr = tokenProgramId.toString();
-  const tok2022Str = TOKEN_2022_PROGRAM_ID.toString();
+  const decimals = Number(await rpc.run((p) => new Contract(tokenAddr, ERC20_ABI, p).decimals()));
+  const entryFeeRaw = BigInt(2500) * BigInt(10) ** BigInt(decimals);
 
-  const escrowAccounts = await rpc.run((c) => c.getParsedTokenAccountsByOwner(escrowKeypair.publicKey, { mint: mintPubkey }));
-  if (escrowAccounts.value.length === 0) throw new Error("Escrow has no token account for this mint");
-  const escrowTokenAccount = new PublicKey(escrowAccounts.value[0].pubkey);
-  const escrowAtaStr = escrowTokenAccount.toString();
-
-  // searchTransactionHistory is required: these deposits are old by the time an
-  // admin pays out — far past the node's recent status cache (~2.5 min of
-  // slots). Without it the lookups return null and verification always fails.
-  const depositSigs = players.map((p: any) => p.deposit_tx as string);
-  const { value: sigStatuses } = await rpc.run((c) =>
-    c.getSignatureStatuses(depositSigs, { searchTransactionHistory: true }));
-  for (let i = 0; i < depositSigs.length; i++) {
-    const s = sigStatuses[i];
-    if (!s) throw new Error(`Deposit ${i + 1} not found on-chain`);
-    if (s.err) throw new Error(`Deposit ${i + 1} failed on-chain`);
-    if (s.confirmationStatus !== "confirmed" && s.confirmationStatus !== "finalized") {
-      throw new Error(`Deposit ${i + 1} not yet confirmed`);
-    }
-  }
-  const parsedTxs = await Promise.all(
-    depositSigs.map((sig) => rpc.run((c) => c.getParsedTransaction(sig, { commitment: "confirmed", maxSupportedTransactionVersion: 0 }))),
+  // Receipts are queryable for the chain's full history (no status-cache
+  // window like Solana's), and the Transfer log proves token contract,
+  // sender, destination, and exact amount — a confirmed-but-unrelated tx
+  // hash cannot pass.
+  const depositTxs = players.map((p: any) => p.deposit_tx as string);
+  const receipts = await Promise.all(
+    depositTxs.map((tx) => rpc.run((p) => p.getTransactionReceipt(tx))),
   );
-  for (let i = 0; i < depositSigs.length; i++) {
-    const parsed = parsedTxs[i];
-    if (!parsed) throw new Error(`Deposit ${i + 1} could not be parsed`);
-    const expectedSenderRaw = walletByUser.get(players[i].user_id);
-    if (!expectedSenderRaw) throw new Error(`Deposit ${i + 1}: depositing wallet was not recorded at join time`);
-    let expectedSender: string;
-    try { expectedSender = pubkeyFromBase58(expectedSenderRaw).toBase58(); }
-    catch { throw new Error(`Deposit ${i + 1}: depositor wallet invalid`); }
-
-    const topLevel = parsed.transaction.message.instructions as any[];
-    const inner = (parsed.meta?.innerInstructions ?? []).flatMap((ii: any) => ii.instructions);
-    const valid = [...topLevel, ...inner].some((ix: any) => {
-      const prog = ix.programId?.toString();
-      if (prog !== tokenProgStr && prog !== tok2022Str) return false;
-      if (!ix.parsed) return false;
-      const { type, info } = ix.parsed;
-      const senderRaw = info.authority ?? info.multisigAuthority;
-      if (!senderRaw) return false;
-      let sender: string;
-      try { sender = pubkeyFromBase58(senderRaw).toBase58(); } catch { return false; }
-      if (sender !== expectedSender) return false;
-      if (type === "transfer") return info.destination === escrowAtaStr && info.amount === entryFeeAmtStr;
-      if (type === "transferChecked") return info.destination === escrowAtaStr && info.tokenAmount?.amount === entryFeeAmtStr;
-      return false;
-    });
-    if (!valid) throw new Error(`Deposit ${i + 1} does not contain a valid FIGHT10 transfer from the player to escrow`);
+  for (let i = 0; i < depositTxs.length; i++) {
+    const receipt = receipts[i];
+    if (!receipt) throw new Error(`Deposit ${i + 1} not found on-chain`);
+    if (receipt.status !== 1) throw new Error(`Deposit ${i + 1} failed on-chain`);
+    const expectedSender = walletByUser.get(players[i].user_id) ?? "";
+    if (!isAddress(expectedSender)) throw new Error(`Deposit ${i + 1}: depositing wallet was not recorded at join time`);
+    if (!receiptHasDeposit(receipt, tokenAddr, expectedSender, escrowAddr, entryFeeRaw)) {
+      throw new Error(`Deposit ${i + 1} does not contain a valid FIGHT10 transfer from the player to escrow`);
+    }
   }
 
   // Reserve the slot atomically (service role; no winner JWT). Replicates
@@ -284,35 +220,26 @@ async function payoutWinner(admin: any, matchId: string) {
     const totalRaw = BigInt(players.length) * entryFeeRaw;
     const winnerAmountRaw = (totalRaw * BigInt(900)) / BigInt(1000);
 
-    const winnerAccounts = await rpc.run((c) => c.getParsedTokenAccountsByOwner(winnerPubkey, { mint: mintPubkey }));
-    const tx = new Transaction();
-    let winnerTokenAccount: PublicKey;
-    if (winnerAccounts.value.length > 0) {
-      winnerTokenAccount = new PublicKey(winnerAccounts.value[0].pubkey);
-    } else {
-      winnerTokenAccount = await getATA(mintPubkey, winnerPubkey, tokenProgramId);
-      tx.add(createATAInstruction(escrowKeypair.publicKey, winnerTokenAccount, winnerPubkey, mintPubkey, tokenProgramId));
-    }
-    tx.add(transferInstruction(escrowTokenAccount, winnerTokenAccount, escrowKeypair.publicKey, winnerAmountRaw, tokenProgramId));
-
-    const payConn = rpc.lease();
-    const { blockhash } = await payConn.getLatestBlockhash("confirmed");
-    tx.recentBlockhash = blockhash;
-    tx.feePayer = escrowKeypair.publicKey;
-    tx.sign(escrowKeypair);
-
-    const payoutSig = await payConn.sendRawTransaction(tx.serialize(), { skipPreflight: false });
+    // Lease one provider for the whole send + confirm sequence so the tx is
+    // broadcast and polled on a single endpoint.
+    const payProvider = rpc.lease();
+    const signer = escrowWallet.connect(payProvider);
+    const token = new Contract(tokenAddr, ERC20_ABI, signer);
+    const sentTx = await token.transfer(winnerAddr, winnerAmountRaw);
+    const payoutSig: string = sentTx.hash;
 
     const deadline = Date.now() + 90000;
     let confirmed = false;
     while (Date.now() < deadline) {
-      const { value } = await payConn.getSignatureStatuses([payoutSig]);
-      const s = value[0];
-      if (s?.err) throw new Error("Payout tx failed: " + JSON.stringify(s.err));
-      if (s?.confirmationStatus === "confirmed" || s?.confirmationStatus === "finalized") { confirmed = true; break; }
+      const receipt = await payProvider.getTransactionReceipt(payoutSig).catch(() => null);
+      if (receipt) {
+        if (receipt.status !== 1) throw new Error("Payout tx reverted on-chain: " + payoutSig);
+        confirmed = true;
+        break;
+      }
       await new Promise((r) => setTimeout(r, 2000));
     }
-    if (!confirmed) throw new Error(`Payout tx not confirmed after 90s — sig: ${payoutSig}`);
+    if (!confirmed) throw new Error(`Payout tx not confirmed after 90s — hash: ${payoutSig}`);
     payoutConfirmed = true;
 
     let dbWritten = false;
@@ -511,7 +438,7 @@ Deno.serve(async (req: Request) => {
           return json({
             ok: true,
             filters: { from: fromRaw, to: toRaw, wallet: walletTail },
-            decimals: 6,
+            decimals: TOKEN_DECIMALS,
             incoming: {
               count: inCount,
               total_raw: inTotalRaw.toString(),
@@ -537,7 +464,7 @@ Deno.serve(async (req: Request) => {
                   ?? outSeatWallets.get(`${r.match_id}:${r.winner_user_id}`) ?? null,
                 num_players: r.num_players,
                 amount_raw: String(r.amount_raw ?? "0"),
-                decimals: r.decimals ?? 6,
+                decimals: r.decimals ?? TOKEN_DECIMALS,
                 payout_tx: r.payout_tx,
                 match_id: r.match_id,
               })),
@@ -902,11 +829,12 @@ Deno.serve(async (req: Request) => {
       banned,
       notes: notes.map((r: any) => ({ ...r, author_name: nameOf(r.author_id), author_wallet: walletOf(r.author_id) })),
       payouts: paidMatches.map((m: any) => {
-        // Prefer the ledger row (exact paid amount); fall back to 90% of the
-        // pot at 6 decimals for matches whose ledger insert never landed.
+        // Prefer the ledger row (exact paid amount at its recorded decimals);
+        // fall back to 90% of the pot for matches whose ledger insert never
+        // landed — pot_tokens is stored in WHOLE tokens, so decimals 0.
         const p = ledgerByMatch.get(m.id);
         const amount_raw = p?.amount_raw ?? Math.floor(Number(m.pot_tokens ?? 0) * 0.9);
-        const decimals = p?.decimals ?? 6;
+        const decimals = p ? (p.decimals ?? TOKEN_DECIMALS) : 0;
         return {
           match_id: m.id,
           match_no: m.match_no,

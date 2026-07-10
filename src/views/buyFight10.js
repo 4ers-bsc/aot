@@ -7,7 +7,7 @@ export const html = `
         <div class="holdings-coin">F10</div>
         <div class="buyf10-title">You need <span class="buyf10-amount">2,500 $FIGHT10</span> to enter a PvP match.</div>
         <div class="buyf10-balance" id="buyFight10Balance"></div>
-        <a class="buyf10-btn" id="buyFight10Link" href="https://pump.fun" target="_blank" rel="noopener noreferrer">BUY $FIGHT10</a>
+        <a class="buyf10-btn" id="buyFight10Link" href="https://robinhoodchain.blockscout.com" target="_blank" rel="noopener noreferrer">BUY $FIGHT10</a>
         <div class="buyf10-note">Buy with your connected wallet, then come back and hit PLAY PVP.</div>
       </div>
     </div>

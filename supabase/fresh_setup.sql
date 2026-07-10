@@ -199,8 +199,9 @@ create table public.payouts (
   match_id       uuid     not null references public.matches(id) on delete cascade,
   winner_user_id uuid     not null references auth.users(id) on delete cascade,
   payout_tx      text     not null,
-  amount_raw     bigint   not null,
-  decimals       smallint not null default 6,
+  -- Raw ERC-20 units; numeric because 18-decimal amounts overflow bigint.
+  amount_raw     numeric(38,0) not null,
+  decimals       smallint not null default 18,
   num_players    int      not null default 0,
   created_at     timestamptz not null default now(),
   primary key (match_id)
@@ -519,7 +520,10 @@ declare
   v_count        smallint;
   v_status       text;
   v_existing     record;
-  c_entry_fee    constant bigint := 2500000000; -- 2500 × 10^6 (6-decimal mint)
+  -- WHOLE tokens, not raw units: 2500 × 10^18 raw (18-decimal ERC-20 on
+  -- Robinhood Chain) would overflow bigint. Display layers know pot_tokens
+  -- needs no decimals shift.
+  c_entry_fee    constant bigint := 2500;
 begin
   -- p_user_id is supplied by the edge function from the verified JWT. This RPC
   -- is service-role only, so v_uid is trusted.
@@ -591,10 +595,12 @@ begin
 
   -- One wallet per player: the wallet that signs the deposit MUST be the same
   -- wallet the player signed in with. Both values may carry a "chain:" prefix
-  -- (e.g. "solana:<pubkey>"), so compare only the trailing pubkey segment.
+  -- (e.g. "ethereum:0x…"), so compare only the trailing address segment —
+  -- LOWERCASED, because the same Ethereum address can arrive checksummed
+  -- (EIP-55 mixed case) or all-lowercase.
   if v_login_wallet is null
-     or regexp_replace(trim(v_login_wallet),  '^.*:', '')
-      <> regexp_replace(trim(p_deposit_wallet), '^.*:', '') then
+     or lower(regexp_replace(trim(v_login_wallet),  '^.*:', ''))
+      <> lower(regexp_replace(trim(p_deposit_wallet), '^.*:', '')) then
     raise exception 'deposit_wallet_mismatch: deposit must come from your signed-in wallet';
   end if;
 
@@ -788,7 +794,7 @@ declare
   r             record;
   v_remaining   integer;
   v_had_deposit boolean;
-  c_entry_fee   constant bigint := 2500000000;
+  c_entry_fee   constant bigint := 2500; -- whole tokens; see join_pvp_match
 begin
   if v_uid is null then
     raise exception 'not_authenticated';

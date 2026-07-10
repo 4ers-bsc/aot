@@ -9,15 +9,10 @@
     "preview": "vite preview"
   },
   "dependencies": {
-    "@solana/spl-token": "^0.3.5",
-    "@solana/web3.js": "^1.87.6",
     "@supabase/supabase-js": "^2.50.0",
-    "buffer": "^6.0.3",
     "devtools-detector": "^2.0.25",
+    "ethers": "^6.13.0",
     "three": "^0.128.0"
-  },
-  "overrides": {
-    "rpc-websockets": "7.5.1"
   },
   "devDependencies": {
     "javascript-obfuscator": "^5.4.3",
