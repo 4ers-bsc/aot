@@ -258,7 +258,14 @@ export function createArenaGame(options) {
     clothBanners.length = 0; // banner meshes live in wallObjects, disposed above
     wallFX.length = 0;       // animated updaters, rebuilt below per style
 
-    const DEPTH = 10;
+    // Deep foundation: the near (south) corner sits low on screen, right behind
+    // the weapon-key bar. With a shallow skirt its bottom rim floated above the
+    // viewport edge, so the dark underside and background showed around the keys
+    // and the arena looked chopped off. A tall foundation drops the near edge
+    // well past the bottom of the view at every zoom (and fog-fades its lower
+    // reaches into the backdrop), so the arena is simply clipped by the viewport
+    // — cut by the view, with no floating rim or band around the keys.
+    const DEPTH = 140;
     const addObj = (obj) => { scene.add(obj); wallObjects.push(obj); return obj; };
 
     // The underside is flush with the fortress silhouette: its vertical faces
