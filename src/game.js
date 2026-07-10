@@ -136,7 +136,35 @@ export function createArenaGame(options) {
     }
     return new THREE.CanvasTexture(c);
   })();
-  scene.background = skyTex;
+  scene.background = skyTex; // procedural fallback until the splash art decodes
+
+  // -- Splash-art backdrop ----------------------------------------------------
+  // The black-and-gold "F10 ARENA" fortress art (assets/blgo.png) is a fixed 2D
+  // backdrop the 3D arena sits inside. It replaces the procedural night sky once
+  // it decodes. scene.background stretches a texture across the whole viewport,
+  // which would distort the art on non-16:9 screens, so fitBackground() maps a
+  // "cover" sub-rect (aspect-preserving, centred, cropping the overflow) via the
+  // texture's offset/repeat and re-runs on every resize.
+  let bgArt = null;
+  function fitBackground() {
+    const t = bgArt;
+    if (!t || scene.background !== t || !t.image) return;
+    const screenAspect = dim.w / dim.h;
+    const artAspect = t.image.width / t.image.height;
+    if (screenAspect > artAspect) t.repeat.set(1, artAspect / screenAspect);
+    else t.repeat.set(screenAspect / artAspect, 1);
+    t.offset.set((1 - t.repeat.x) / 2, (1 - t.repeat.y) / 2);
+    t.needsUpdate = true;
+  }
+  new THREE.TextureLoader().load("/blgo.png", (tex) => {
+    tex.encoding = THREE.sRGBEncoding; // decode as sRGB so the golds stay warm
+    tex.generateMipmaps = false;       // full-screen quad never minifies
+    tex.minFilter = THREE.LinearFilter;
+    bgArt = tex;
+    scene.background = bgArt;
+    fitBackground();
+  });
+
   scene.fog = new THREE.Fog(theme.bg, RD_FOG.Far[0], RD_FOG.Far[1]);
 
   const FRUSTUM = 16;
@@ -2905,7 +2933,8 @@ export function createArenaGame(options) {
   function applyTheme(name) {
     theme = THEMES[name] || THEMES.lobby;
     renderer.setClearColor(theme.bg, 1);
-    scene.background = skyTex;
+    scene.background = bgArt || skyTex; // keep the splash-art backdrop across theme switches
+    fitBackground();
     applyFog();
     if (name === "game") makeFight10Decal();
     const newTex = makeGroundTex(theme.ground);
@@ -2944,6 +2973,7 @@ export function createArenaGame(options) {
     camera.top = FRUSTUM; camera.bottom = -FRUSTUM;
     camera.updateProjectionMatrix();
     renderer.setSize(dim.w, dim.h, false);
+    fitBackground(); // re-cover the splash-art backdrop for the new aspect
   }
   const ro = new ResizeObserver(onResize);
   ro.observe(mount);
