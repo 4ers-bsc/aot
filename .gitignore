@@ -1,3 +1,10 @@
 node_modules/
 dist/
 .DS_Store
+
+# Local env files — hold real addresses/keys, never commit. Templates live in
+# .env.example and supabase/functions/.env.example.
+.env
+.env.local
+.env.*.local
+supabase/functions/.env
