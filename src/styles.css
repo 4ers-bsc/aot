@@ -2484,6 +2484,51 @@ body.in-game #homePlayPrompt { display: none !important; }
 
 .gear:hover { transform: rotate(45deg); border-color: #33b14a; }
 
+/* Arena wall theme dropdown — sits under the gear, top-left of the game HUD */
+.wall-theme-ctrl {
+  position: fixed;
+  top: 64px;
+  left: 16px;
+  z-index: 12;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 5px 8px;
+  border-radius: 9px;
+  background: rgba(20, 28, 24, 0.6);
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  backdrop-filter: blur(6px);
+}
+.wall-theme-ctrl .wt-label {
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  color: rgba(223, 238, 224, 0.65);
+  user-select: none;
+}
+.wall-theme-ctrl .wt-select {
+  appearance: none;
+  -webkit-appearance: none;
+  background: rgba(8, 12, 10, 0.85);
+  color: #dfeee0;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 6px;
+  font-family: inherit;
+  font-size: 11px;
+  padding: 4px 22px 4px 8px;
+  cursor: pointer;
+  outline: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='8' height='5'%3E%3Cpath d='M0 0l4 5 4-5z' fill='%23dfeee0'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 8px center;
+}
+.wall-theme-ctrl .wt-select:hover,
+.wall-theme-ctrl .wt-select:focus { border-color: #33b14a; }
+.wall-theme-ctrl .wt-select option {
+  background: #101511;
+  color: #dfeee0;
+}
+
 .keys-info-btn {
   position: fixed;
   top: 64px;
@@ -2618,7 +2663,8 @@ body.in-game #homePlayPrompt { display: none !important; }
 .hud-hidden .hotbar,
 .hud-hidden .game-rivals,
 .hud-hidden .game-fps,
-.hud-hidden .game-ping {
+.hud-hidden .game-ping,
+.hud-hidden .wall-theme-ctrl {
   display: none !important;
 }
 

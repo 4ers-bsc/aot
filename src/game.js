@@ -58,6 +58,30 @@ THEMES.lobby = THEMES.game;
 const RD_FOG = { Near: [18, 38], Medium: [30, 65], Far: [52, 100] };
 const RD_ORDER = ["Near", "Medium", "Far"];
 
+// Selectable arena-wall themes. Each id maps to a builder inside
+// buildArenaWalls(); the names populate the in-game WALLS dropdown.
+const WALL_STYLES = [
+  { id: "aurora",    name: "Frozen Aurora" },
+  { id: "molten",    name: "Molten Core" },
+  { id: "jade",      name: "Jade Temple" },
+  { id: "neon",      name: "Neon Grid" },
+  { id: "sandstone", name: "Desert Sandstone" },
+  { id: "abyss",     name: "Deep Abyss" },
+  { id: "amethyst",  name: "Amethyst Vault" },
+  { id: "sakura",    name: "Sakura Bloom" },
+  { id: "bastion",   name: "Iron Bastion" },
+  { id: "void",      name: "Starlit Void" },
+];
+const DEFAULT_WALL_STYLE = "aurora";
+const WALL_STYLE_KEY = "fight10.wallStyle";
+function loadWallStyle() {
+  try {
+    const v = localStorage.getItem(WALL_STYLE_KEY);
+    if (WALL_STYLES.some((s) => s.id === v)) return v;
+  } catch { /* storage unavailable (private mode) — fall through */ }
+  return DEFAULT_WALL_STYLE;
+}
+
 export function createArenaGame(options) {
   const mount = options.mount;
   mount.innerHTML = "";
@@ -204,12 +228,17 @@ export function createArenaGame(options) {
   // run each frame in animate().
   const wallFX = [];
 
-  // -- Arena side style: Frozen Aurora ---------------------------------------
-  // Frosted ice panels beneath a shimmering, hue-shifting aurora curtain with
-  // snow-sparkle drifting down the walls. Dark backing behind the panels.
-  const SIDE_BACK = 0x03060c;
+  // -- Arena side styles ------------------------------------------------------
+  // Ten selectable wall looks (see WALL_STYLES) — each drapes its own panel
+  // texture, rim glow, and particle field over the same four-sided pit. Dark
+  // backing color per style sits behind the translucent panels and tints them.
+  const SIDE_BACKS = {
+    aurora: 0x03060c, molten: 0x0a0303, jade: 0x03110a, neon: 0x050208,
+    sandstone: 0x160f05, abyss: 0x020610, amethyst: 0x0a0412, sakura: 0x180b10,
+    bastion: 0x0a0b0c, void: 0x010103,
+  };
 
-  function buildArenaWalls(variant) {
+  function buildArenaWalls(styleId) {
     // Dispose existing wall objects via the shared traversal helper (it
     // handles shared materials, textures, and nested groups uniformly).
     wallObjects.forEach((obj) => {
@@ -220,11 +249,12 @@ export function createArenaGame(options) {
     clothBanners.length = 0; // banner meshes live in wallObjects, disposed above
     wallFX.length = 0;       // animated updaters, rebuilt below per style
 
+    const style = SIDE_BACKS[styleId] !== undefined ? styleId : DEFAULT_WALL_STYLE;
     const DEPTH = 10;
     const addObj = (obj) => { scene.add(obj); wallObjects.push(obj); return obj; };
 
     // Dark backing behind each wall
-    const backColor = SIDE_BACK;
+    const backColor = SIDE_BACKS[style];
     const sideMat = new THREE.MeshStandardMaterial({ color: backColor, roughness: 0.98, metalness: 0.0 });
     [
       { x: 0,         z: -MAP_HALF, ry: 0 },
@@ -320,64 +350,266 @@ export function createArenaGame(options) {
       return mat;
     };
 
-    // Frosted ice panels beneath a hue-shifting aurora curtain.
-    panelSet(new THREE.MeshBasicMaterial({
-      map: makeIceTex(), transparent: true, side: THREE.DoubleSide,
-      depthWrite: false, opacity: 0.92,
+    // Canvas-texture helper: 256×256, drawn by `draw(ctx, size)`.
+    const tex = (draw) => {
+      const c = document.createElement("canvas");
+      c.width = c.height = 256;
+      draw(c.getContext("2d"), 256);
+      return new THREE.CanvasTexture(c);
+    };
+    // Drape a static canvas texture across all four walls.
+    const panelTex = (map, opacity = 0.94) => panelSet(new THREE.MeshBasicMaterial({
+      map, transparent: true, side: THREE.DoubleSide, depthWrite: false, opacity,
     }));
-    const auroraMat = new THREE.MeshBasicMaterial({
-      map: makeAuroraTex(), transparent: true, side: THREE.DoubleSide,
-      depthWrite: false, blending: THREE.AdditiveBlending, opacity: 0.4,
-    });
-    panelSet(auroraMat);
-    registerFX((t) => {
-      auroraMat.color.setHSL(0.5 + 0.13 * Math.sin(t * 0.45), 0.85, 0.6);
-      auroraMat.opacity = 0.3 + 0.18 * (0.5 + 0.5 * Math.sin(t * 0.8));
-    });
-    addRim(0x9fe8ff, 0.9, 0x4fb0ff, 0.5);
-    // Snow-sparkle settling down the inside of the walls.
-    wallField({ count: 130, size: 0.7, color: 0xdff4ff, rise: false, speed: 0.9, opacity: 0.85 });
 
-    // Frosted-ice panel texture — icy vertical gradient with white frost cracks.
-    function makeIceTex() {
-      const c = document.createElement("canvas");
-      c.width = c.height = 256;
-      const x = c.getContext("2d");
-      const g = x.createLinearGradient(0, 0, 0, 256);
-      g.addColorStop(0, "rgba(210,240,255,0.85)");
-      g.addColorStop(0.5, "rgba(140,200,240,0.65)");
-      g.addColorStop(1, "rgba(60,110,170,0.9)");
-      x.fillStyle = g; x.fillRect(0, 0, 256, 256);
-      x.strokeStyle = "rgba(255,255,255,0.7)"; x.lineWidth = 1;
-      for (let n = 0; n < 26; n++) {
-        x.beginPath();
-        let px = Math.random() * 256, py = Math.random() * 256;
-        x.moveTo(px, py);
-        for (let s = 0; s < 4; s++) { px += (Math.random() - 0.5) * 60; py += (Math.random() - 0.5) * 60; x.lineTo(px, py); }
-        x.stroke();
-      }
-      return new THREE.CanvasTexture(c);
-    }
+    const styleBuilders = {
+      // Frosted ice panels beneath a shimmering, hue-shifting aurora curtain
+      // with snow-sparkle drifting down the walls.
+      aurora() {
+        panelTex(tex((x, S) => {
+          const g = x.createLinearGradient(0, 0, 0, S);
+          g.addColorStop(0, "rgba(210,240,255,0.85)");
+          g.addColorStop(0.5, "rgba(140,200,240,0.65)");
+          g.addColorStop(1, "rgba(60,110,170,0.9)");
+          x.fillStyle = g; x.fillRect(0, 0, S, S);
+          x.strokeStyle = "rgba(255,255,255,0.7)"; x.lineWidth = 1;
+          for (let n = 0; n < 26; n++) {
+            x.beginPath();
+            let px = Math.random() * S, py = Math.random() * S;
+            x.moveTo(px, py);
+            for (let s = 0; s < 4; s++) { px += (Math.random() - 0.5) * 60; py += (Math.random() - 0.5) * 60; x.lineTo(px, py); }
+            x.stroke();
+          }
+        }), 0.92);
+        // Aurora curtain overlay — soft vertical light bands, recolored each frame.
+        const auroraMat = new THREE.MeshBasicMaterial({
+          map: tex((x, S) => {
+            x.clearRect(0, 0, S, S);
+            for (let i = 0; i < 7; i++) {
+              const cx = Math.random() * S;
+              const g = x.createLinearGradient(cx - 30, 0, cx + 30, 0);
+              g.addColorStop(0, "rgba(80,255,180,0)");
+              g.addColorStop(0.5, `rgba(${80 + Math.random() * 60},255,${180 + Math.random() * 60},0.5)`);
+              g.addColorStop(1, "rgba(80,255,180,0)");
+              x.fillStyle = g; x.fillRect(cx - 30, 0, 60, S);
+            }
+          }),
+          transparent: true, side: THREE.DoubleSide,
+          depthWrite: false, blending: THREE.AdditiveBlending, opacity: 0.4,
+        });
+        panelSet(auroraMat);
+        registerFX((t) => {
+          auroraMat.color.setHSL(0.5 + 0.13 * Math.sin(t * 0.45), 0.85, 0.6);
+          auroraMat.opacity = 0.3 + 0.18 * (0.5 + 0.5 * Math.sin(t * 0.8));
+        });
+        addRim(0x9fe8ff, 0.9, 0x4fb0ff, 0.5);
+        wallField({ count: 130, size: 0.7, color: 0xdff4ff, rise: false, speed: 0.9, opacity: 0.85 });
+      },
 
-    // Aurora curtain overlay — soft vertical light bands, recolored each frame.
-    function makeAuroraTex() {
-      const c = document.createElement("canvas");
-      c.width = c.height = 256;
-      const x = c.getContext("2d");
-      x.clearRect(0, 0, 256, 256);
-      for (let i = 0; i < 7; i++) {
-        const cx = Math.random() * 256;
-        const g = x.createLinearGradient(cx - 30, 0, cx + 30, 0);
-        g.addColorStop(0, "rgba(80,255,180,0)");
-        g.addColorStop(0.5, `rgba(${80 + Math.random() * 60},255,${180 + Math.random() * 60},0.5)`);
-        g.addColorStop(1, "rgba(80,255,180,0)");
-        x.fillStyle = g; x.fillRect(cx - 30, 0, 60, 256);
-      }
-      return new THREE.CanvasTexture(c);
-    }
+      // Dark basalt shot through with glowing lava cracks; embers rise and the
+      // orange rim breathes like a forge.
+      molten() {
+        panelTex(tex((x, S) => {
+          x.fillStyle = "#151114"; x.fillRect(0, 0, S, S);
+          for (let n = 0; n < 220; n++) {
+            x.fillStyle = `rgba(0,0,0,${0.1 + Math.random() * 0.25})`;
+            x.fillRect(Math.random() * S, Math.random() * S, 2 + Math.random() * 10, 2 + Math.random() * 6);
+          }
+          for (let n = 0; n < 9; n++) {
+            let px = Math.random() * S, py = 0;
+            x.strokeStyle = `rgba(255,${90 + Math.random() * 60 | 0},30,0.9)`;
+            x.lineWidth = 1 + Math.random() * 1.4;
+            x.beginPath(); x.moveTo(px, py);
+            while (py < S) { px += (Math.random() - 0.5) * 44; py += 14 + Math.random() * 26; x.lineTo(px, py); }
+            x.stroke();
+          }
+        }), 0.96);
+        const rim = addRim(0xff7a2a, 0.9, 0xff3b1c, 0.5);
+        registerFX((t) => {
+          rim.matI.opacity = 0.65 + 0.3 * (0.5 + 0.5 * Math.sin(t * 2.2));
+          rim.matO.opacity = 0.35 + 0.25 * (0.5 + 0.5 * Math.sin(t * 2.2 + 1.1));
+        });
+        wallField({ count: 110, size: 0.6, color: 0xffa24d, rise: true, speed: 1.4, opacity: 0.9 });
+      },
+
+      // Polished jade slabs crossed by gold inlay stripes, gold motes drifting up.
+      jade() {
+        panelTex(tex((x, S) => {
+          const g = x.createLinearGradient(0, 0, 0, S);
+          g.addColorStop(0, "#1d5c3c"); g.addColorStop(0.55, "#14452c"); g.addColorStop(1, "#0a2b1a");
+          x.fillStyle = g; x.fillRect(0, 0, S, S);
+          x.strokeStyle = "rgba(216,168,33,0.5)"; x.lineWidth = 3;
+          for (let i = -S; i < S; i += 32) { x.beginPath(); x.moveTo(i, S); x.lineTo(i + S, 0); x.stroke(); }
+          x.fillStyle = "rgba(255,255,255,0.08)";
+          for (let n = 0; n < 90; n++) x.fillRect(Math.random() * S, Math.random() * S, 2, 2);
+        }));
+        addRim(0xffd75e, 0.9, 0xb8860b, 0.5);
+        wallField({ count: 80, size: 0.55, color: 0xffd75e, rise: true, speed: 0.5, opacity: 0.7 });
+      },
+
+      // Synthwave grid — cyan lines over black with magenta accents, rim pulsing.
+      neon() {
+        panelTex(tex((x, S) => {
+          x.fillStyle = "#07030d"; x.fillRect(0, 0, S, S);
+          x.strokeStyle = "rgba(0,229,255,0.7)"; x.lineWidth = 1;
+          for (let i = 0; i <= S; i += 32) {
+            x.beginPath(); x.moveTo(0, i); x.lineTo(S, i); x.stroke();
+            x.beginPath(); x.moveTo(i, 0); x.lineTo(i, S); x.stroke();
+          }
+          x.strokeStyle = "rgba(255,45,205,0.6)"; x.lineWidth = 2;
+          for (let i = 0; i <= S; i += 64) {
+            x.beginPath(); x.moveTo(0, i); x.lineTo(S, i); x.stroke();
+            x.beginPath(); x.moveTo(i, 0); x.lineTo(i, S); x.stroke();
+          }
+        }), 0.96);
+        const rim = addRim(0x00e5ff, 0.95, 0xff2dcd, 0.55);
+        registerFX((t) => {
+          rim.matI.opacity = 0.6 + 0.35 * (0.5 + 0.5 * Math.sin(t * 3));
+          rim.matO.opacity = 0.3 + 0.3 * (0.5 + 0.5 * Math.sin(t * 3 + Math.PI));
+        });
+        wallField({ count: 70, size: 0.5, color: 0x7df9ff, rise: true, speed: 1.1, opacity: 0.75 });
+      },
+
+      // Sun-baked sandstone bricks with dusty motes hanging in the air.
+      sandstone() {
+        panelTex(tex((x, S) => {
+          x.fillStyle = "#c89a5f"; x.fillRect(0, 0, S, S);
+          const BH = 32, BW = 64;
+          for (let row = 0; row < S / BH; row++) {
+            const off = (row % 2) * (BW / 2);
+            for (let col = -1; col < S / BW + 1; col++) {
+              const shade = 185 + Math.random() * 40 | 0;
+              x.fillStyle = `rgb(${shade},${shade * 0.76 | 0},${shade * 0.47 | 0})`;
+              x.fillRect(col * BW + off + 2, row * BH + 2, BW - 4, BH - 4);
+            }
+          }
+          x.strokeStyle = "rgba(90,64,34,0.55)"; x.lineWidth = 2;
+          for (let i = 0; i <= S; i += BH) { x.beginPath(); x.moveTo(0, i); x.lineTo(S, i); x.stroke(); }
+        }));
+        addRim(0xe0b46a, 0.85, 0x8a6034, 0.5);
+        wallField({ count: 60, size: 0.5, color: 0xd9b98a, rise: true, speed: 0.35, opacity: 0.5, twinkle: false });
+      },
+
+      // Deep-sea trench — blue depth gradient, wavering caustic lines, bubbles.
+      abyss() {
+        panelTex(tex((x, S) => {
+          const g = x.createLinearGradient(0, 0, 0, S);
+          g.addColorStop(0, "#0c3a5c"); g.addColorStop(0.6, "#07223e"); g.addColorStop(1, "#041428");
+          x.fillStyle = g; x.fillRect(0, 0, S, S);
+          x.strokeStyle = "rgba(120,220,255,0.3)"; x.lineWidth = 1.5;
+          for (let row = 20; row < S; row += 30) {
+            x.beginPath();
+            for (let px = 0; px <= S; px += 8) {
+              const py = row + Math.sin(px * 0.06 + row) * 6;
+              px === 0 ? x.moveTo(px, py) : x.lineTo(px, py);
+            }
+            x.stroke();
+          }
+        }));
+        addRim(0x35d0ff, 0.85, 0x1668a8, 0.5);
+        // Bubbles streaming up the walls.
+        wallField({ count: 100, size: 0.45, color: 0xa8e6ff, rise: true, speed: 1.6, opacity: 0.8, twinkle: false });
+      },
+
+      // Crystalline amethyst facets with drifting violet sparkles.
+      amethyst() {
+        panelTex(tex((x, S) => {
+          x.fillStyle = "#2a1145"; x.fillRect(0, 0, S, S);
+          for (let n = 0; n < 60; n++) {
+            const cx = Math.random() * S, cy = Math.random() * S, r = 12 + Math.random() * 26;
+            x.beginPath();
+            x.moveTo(cx + (Math.random() - 0.5) * r, cy + (Math.random() - 0.5) * r);
+            x.lineTo(cx + (Math.random() - 0.5) * r * 2, cy + (Math.random() - 0.5) * r * 2);
+            x.lineTo(cx + (Math.random() - 0.5) * r * 2, cy + (Math.random() - 0.5) * r * 2);
+            x.closePath();
+            const l = 30 + Math.random() * 35 | 0;
+            x.fillStyle = `hsla(${268 + Math.random() * 20}, 60%, ${l}%, 0.85)`;
+            x.fill();
+            x.strokeStyle = "rgba(220,180,255,0.35)"; x.lineWidth = 1; x.stroke();
+          }
+        }));
+        addRim(0xc678ff, 0.9, 0x7a2fd0, 0.5);
+        wallField({ count: 90, size: 0.55, color: 0xe6c8ff, rise: true, speed: 0.6, opacity: 0.8 });
+      },
+
+      // Spring pinks with white petal flecks; petals flutter down the walls.
+      sakura() {
+        panelTex(tex((x, S) => {
+          const g = x.createLinearGradient(0, 0, 0, S);
+          g.addColorStop(0, "#f7cfe0"); g.addColorStop(0.55, "#d98cb0"); g.addColorStop(1, "#a5537f");
+          x.fillStyle = g; x.fillRect(0, 0, S, S);
+          for (let n = 0; n < 70; n++) {
+            x.save();
+            x.translate(Math.random() * S, Math.random() * S);
+            x.rotate(Math.random() * Math.PI);
+            x.fillStyle = Math.random() < 0.5 ? "rgba(255,255,255,0.4)" : "rgba(150,60,100,0.3)";
+            x.beginPath();
+            x.ellipse(0, 0, 2 + Math.random() * 3, 5 + Math.random() * 4, 0, 0, Math.PI * 2);
+            x.fill();
+            x.restore();
+          }
+        }));
+        addRim(0xffc4dd, 0.9, 0xd06a9a, 0.5);
+        // Falling petals.
+        wallField({ count: 90, size: 0.8, color: 0xffc4dd, rise: false, speed: 0.5, opacity: 0.85, twinkle: false });
+      },
+
+      // Riveted steel plating with a hazard-striped crown and faint weld sparks.
+      bastion() {
+        panelTex(tex((x, S) => {
+          x.fillStyle = "#3a3f45"; x.fillRect(0, 0, S, S);
+          const P = 64;
+          x.strokeStyle = "#23262a"; x.lineWidth = 3;
+          for (let i = 0; i <= S; i += P) {
+            x.beginPath(); x.moveTo(0, i); x.lineTo(S, i); x.stroke();
+            x.beginPath(); x.moveTo(i, 0); x.lineTo(i, S); x.stroke();
+          }
+          x.fillStyle = "#565c63";
+          for (let py = 0; py <= S; py += P) for (let px = 0; px <= S; px += P) {
+            x.beginPath(); x.arc((px + 8) % S, (py + 8) % S, 2.5, 0, Math.PI * 2); x.fill();
+          }
+          // Hazard stripes along the top edge (the map rim).
+          for (let i = -S; i < S; i += 24) {
+            x.fillStyle = (i / 24 | 0) % 2 ? "#d8a821" : "#15161a";
+            x.beginPath();
+            x.moveTo(i, 0); x.lineTo(i + 24, 0); x.lineTo(i + 12, 18); x.lineTo(i - 12, 18);
+            x.closePath(); x.fill();
+          }
+        }), 0.97);
+        addRim(0xffc830, 0.9, 0x6f7378, 0.5);
+        wallField({ count: 40, size: 0.4, color: 0xffd98a, rise: true, speed: 1.8, opacity: 0.6 });
+      },
+
+      // Near-black starfield with faint nebulae and twinkling star motes.
+      void() {
+        panelTex(tex((x, S) => {
+          x.fillStyle = "#05060d"; x.fillRect(0, 0, S, S);
+          for (let n = 0; n < 3; n++) {
+            const cx = Math.random() * S, cy = Math.random() * S;
+            const g = x.createRadialGradient(cx, cy, 0, cx, cy, 60 + Math.random() * 50);
+            g.addColorStop(0, `rgba(${100 + Math.random() * 60 | 0},80,200,0.22)`);
+            g.addColorStop(1, "rgba(60,40,140,0)");
+            x.fillStyle = g; x.fillRect(0, 0, S, S);
+          }
+          for (let n = 0; n < 160; n++) {
+            const b = 0.3 + Math.random() * 0.7;
+            x.fillStyle = Math.random() < 0.8 ? `rgba(255,255,255,${b})` : `rgba(170,200,255,${b})`;
+            const sz = Math.random() < 0.9 ? 1 : 2;
+            x.fillRect(Math.random() * S, Math.random() * S, sz, sz);
+          }
+        }), 0.97);
+        addRim(0xbfd0ff, 0.85, 0x4055a8, 0.5);
+        wallField({ count: 80, size: 0.5, color: 0xffffff, rise: true, speed: 0.25, opacity: 0.8 });
+      },
+    };
+
+    styleBuilders[style]();
   }
 
-  buildArenaWalls("game");
+  // Player-chosen wall theme — restored from the last visit, switched live via
+  // the WALLS dropdown in the HUD.
+  let wallStyle = loadWallStyle();
+  buildArenaWalls(wallStyle);
 
 
   // -- Edge ledge + flame lamps ----------------------------------------------
@@ -2547,6 +2779,14 @@ export function createArenaGame(options) {
     else overlay.classList.add("show");
   });
 
+  // Wall theme dropdown: rebuild the arena sides live and remember the pick.
+  hud.wallSelect.value = wallStyle;
+  hud.wallSelect.addEventListener("change", () => {
+    wallStyle = hud.wallSelect.value;
+    try { localStorage.setItem(WALL_STYLE_KEY, wallStyle); } catch { /* private mode */ }
+    buildArenaWalls(wallStyle);
+  });
+
   // Separate frag cooldown — never pollutes the active weapon's cdTimer
   let fragCd = 0;
 
@@ -2818,7 +3058,7 @@ export function createArenaGame(options) {
     border.material.color.setHex(theme.border);
     if ("game" !== currentMapVariant) {
       currentMapVariant = "game";
-      buildArenaWalls("game");
+      buildArenaWalls(wallStyle);
     }
     recolorFighter(player, playerAppearance?.colors || theme.player);
     player.bar.color = theme.playerBar;
@@ -3477,6 +3717,11 @@ function buildHud() {
   </div>`);
   add('<button class="gear game-ui" title="Menu">&#9776;</button>');
   const gearBtn = root.querySelector(".gear");
+  // Arena wall theme picker — ten looks, applied live (see buildArenaWalls).
+  const wallCtrl = add(`<div class="wall-theme-ctrl game-ui"><span class="wt-label">WALLS</span><select class="wt-select" title="Arena wall theme">${
+    WALL_STYLES.map((s) => `<option value="${s.id}">${s.name}</option>`).join("")
+  }</select></div>`);
+  const wallSelect = wallCtrl.querySelector(".wt-select");
   const rivalsEl = add('<div class="game-rivals game-ui">--</div>');
   const fpsEl = add('<div class="game-fps game-ui">FPS --</div>');
   const pingEl = add('<div class="game-ping game-ui">-- ms</div>');
@@ -3554,7 +3799,7 @@ function buildHud() {
     });
   }
 
-  return { root, coords, matchTimerEl, matchNoEl, mmCanvas, hotbar, slots, rivalsEl, fpsEl, pingEl, overlay, renderDistBtn, bindSettings, raiderCountCtrl, raiderCountEl, scorePanel, weaponPanel, keysInfoPanel, gearBtn };
+  return { root, coords, matchTimerEl, matchNoEl, mmCanvas, hotbar, slots, rivalsEl, fpsEl, pingEl, overlay, renderDistBtn, bindSettings, raiderCountCtrl, raiderCountEl, scorePanel, weaponPanel, keysInfoPanel, gearBtn, wallSelect };
 }
 
 function clamp(v, min, max) {
