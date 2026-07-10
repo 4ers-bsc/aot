@@ -17,6 +17,7 @@
 // ============================================================================
 
 import { escapeHtml } from "./utils.js";
+import { txExplorerUrl, addrExplorerUrl } from "./network.js";
 
 const TABS = [
   ["disputed",          "Disputed"],
@@ -36,8 +37,12 @@ const INFO_TABS = new Set(["payouts", "consumed_deposits", "notes"]);
 // free-text search + row table.
 const CUSTOM_TABS = new Set(["cashflow"]);
 
-const fmtTokens = (raw) => {
-  const n = Number(raw || 0) / 1e6; // 6-decimal mint
+// Raw on-chain units → whole $FIGHT10. ERC-20 default is 18 decimals
+// (override with VITE_FIGHT10_DECIMALS); pass decimals 0 for values already
+// stored in whole tokens (matches.pot_tokens).
+const TOKEN_DECIMALS = Number(import.meta.env?.VITE_FIGHT10_DECIMALS ?? 18);
+const fmtTokens = (raw, decimals = TOKEN_DECIMALS) => {
+  const n = Number(raw || 0) / 10 ** decimals;
   return `${n.toLocaleString(undefined, { maximumFractionDigits: 0 })} $FIGHT10`;
 };
 const fmtTime = (iso) => {
@@ -58,13 +63,12 @@ const ago = (iso) => {
 const shortId = (id) => (id ? `${String(id).slice(0, 8)}…` : "—");
 const player = (p) => escapeHtml(p?.display_name || p?.name || shortId(p?.user_id));
 
-// Solscan explorer links so the operator can review a signature / account on-chain.
-const solscanTx = (sig) => `https://solscan.io/tx/${encodeURIComponent(sig)}`;
-const solscanAddr = (addr) => `https://solscan.io/account/${encodeURIComponent(String(addr).split(":").pop())}`;
+// Blockscout explorer links (network-aware via network.js) so the operator
+// can review a transaction / address on-chain.
 const txLink = (sig, label) =>
-  sig ? `<a class="admin-link" href="${solscanTx(sig)}" target="_blank" rel="noopener noreferrer" title="${escapeHtml(sig)}">${escapeHtml(label || shortId(sig))} ↗</a>` : "—";
+  sig ? `<a class="admin-link" href="${txExplorerUrl(sig)}" target="_blank" rel="noopener noreferrer" title="${escapeHtml(sig)}">${escapeHtml(label || shortId(sig))} ↗</a>` : "—";
 const addrLink = (addr, label) =>
-  addr ? `<a class="admin-link" href="${solscanAddr(addr)}" target="_blank" rel="noopener noreferrer" title="${escapeHtml(addr)}">${escapeHtml(label || shortId(addr))} ↗</a>` : "—";
+  addr ? `<a class="admin-link" href="${addrExplorerUrl(addr)}" target="_blank" rel="noopener noreferrer" title="${escapeHtml(addr)}">${escapeHtml(label || shortId(addr))} ↗</a>` : "—";
 
 export function initAdmin(supabase) {
   let root = null;
@@ -552,7 +556,7 @@ export function initAdmin(supabase) {
       <td>${escapeHtml(r.winner_name || shortId(r.winner_user_id))}</td>
       <td class="admin-mono">${r.winner_wallet ? addrLink(r.winner_wallet) : "—"}</td>
       <td class="admin-nowrap">${r.num_players ?? "—"}</td>
-      <td class="admin-nowrap">${fmtTokens(r.amount_raw)}</td>
+      <td class="admin-nowrap">${fmtTokens(r.amount_raw, r.decimals ?? TOKEN_DECIMALS)}</td>
       <td class="admin-mono">${txLink(r.payout_tx)}</td>
     </tr>`;
   }
@@ -594,7 +598,7 @@ export function initAdmin(supabase) {
     return `<div class="admin-card">
       <div class="admin-card-head">
         <b>Match #${m.match_no ?? shortId(m.id)}</b>
-        <span class="admin-dim">${m.max_players}-player · pot ${fmtTokens(m.pot_tokens)} · reason: ${reason}</span>
+        <span class="admin-dim">${m.max_players}-player · pot ${fmtTokens(m.pot_tokens, 0)} · reason: ${reason}</span>
         <span class="admin-dim admin-right">${fmtTime(m.ended_at)} (${ago(m.ended_at)})</span>
       </div>
       <div class="admin-players">${players || '<span class="admin-dim">no players</span>'}</div>
@@ -614,7 +618,7 @@ export function initAdmin(supabase) {
     return `<div class="admin-card">
       <div class="admin-card-head">
         <b>Match #${m.match_no ?? shortId(m.id)}</b>
-        <span class="admin-dim">winner ${escapeHtml(m.winner_name || shortId(m.winner_user_id))}${m.winner_wallet ? ` · <span class="admin-mono">${addrLink(m.winner_wallet)}</span>` : ""} · pot ${fmtTokens(m.pot_tokens)}</span>
+        <span class="admin-dim">winner ${escapeHtml(m.winner_name || shortId(m.winner_user_id))}${m.winner_wallet ? ` · <span class="admin-mono">${addrLink(m.winner_wallet)}</span>` : ""} · pot ${fmtTokens(m.pot_tokens, 0)}</span>
         ${status}
         <span class="admin-dim admin-right">${fmtTime(m.ended_at)} (${ago(m.ended_at)})</span>
       </div>
@@ -634,7 +638,7 @@ export function initAdmin(supabase) {
     return `<div class="admin-card">
       <div class="admin-card-head">
         <b>Match #${m.match_no ?? shortId(m.id)}</b>
-        <span class="admin-dim">${m.seats_filled}/${m.max_players} seats · open ${m.open_minutes}m · pot ${fmtTokens(m.pot_tokens)}</span>
+        <span class="admin-dim">${m.seats_filled}/${m.max_players} seats · open ${m.open_minutes}m · pot ${fmtTokens(m.pot_tokens, 0)}</span>
         <span class="admin-dim admin-right">${fmtTime(m.created_at)}</span>
       </div>
       <div class="admin-players"><span class="admin-dim">${players || "empty"}</span></div>

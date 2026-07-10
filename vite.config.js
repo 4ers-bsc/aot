@@ -8,7 +8,7 @@ export default defineConfig({
       // Overrides the plugin's default exclude, so node_modules must be
       // restated. lazy-deps.js must stay unobfuscated: it holds the dynamic
       // import() literals that Vite needs to see verbatim to code-split the
-      // Solana/devtools-detector libraries into local chunks (see that file).
+      // ethers/devtools-detector libraries into local chunks (see that file).
       exclude: [/node_modules/, /src\/lazy-deps\.js$/],
       debugger: false,
       options: {
@@ -52,7 +52,7 @@ export default defineConfig({
   server: {
     host: true,
     // Must match the Supabase project's Site URL (http://localhost:3000) so the
-    // Sign in with Solana (SIWS) message URI is on the auth server's allow list.
+    // Sign-In with Ethereum (SIWE) message URI is on the auth server's allow list.
     port: 3000,
     strictPort: true
   },
