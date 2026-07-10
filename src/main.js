@@ -78,7 +78,20 @@ async function getReadProvider() {
   return _readProvider;
 }
 
+// A configured, syntactically valid 0x address — placeholders like
+// "<FIGHT10_TOKEN_ADDRESS>" (and typos) fail this. Checked before every
+// ethers call: a non-address string makes ethers fall back to an ENS lookup,
+// and Robinhood Chain has no ENS, so the real problem (unconfigured token)
+// would surface as a cryptic UNSUPPORTED_OPERATION "network does not support
+// ENS" error instead of a clear config message.
+function isConfiguredAddress(a) {
+  return /^0x[0-9a-fA-F]{40}$/.test((a ?? "").trim());
+}
+
 async function getFight10Contract() {
+  if (!isConfiguredAddress(FIGHT10_TOKEN)) {
+    throw new Error("$FIGHT10 token address is not configured (VITE_FIGHT10_TOKEN).");
+  }
   const ethers = await loadEthers();
   return new ethers.Contract(FIGHT10_TOKEN, ERC20_ABI, await getReadProvider());
 }
@@ -1197,7 +1210,7 @@ async function startPvp() {
   // confirmed) deposit skips the check, and an unreadable balance falls
   // through to the authoritative re-check inside depositEntryFee — this gate
   // must never block a legitimate join on an RPC hiccup.
-  if (!state.pendingDepositTx && !FIGHT10_TOKEN.startsWith("<")) {
+  if (!state.pendingDepositTx && isConfiguredAddress(FIGHT10_TOKEN)) {
     const addr = await getWalletAddress();
     if (addr) {
       try {
@@ -1223,7 +1236,7 @@ async function startPvp() {
 // token address is configured, the explorer home before launch.
 const BUY_FIGHT10_URL =
   import.meta.env?.VITE_BUY_FIGHT10_URL?.trim() ||
-  (FIGHT10_TOKEN.startsWith("<")
+  (!isConfiguredAddress(FIGHT10_TOKEN)
     ? NETWORK.explorerBase
     : `${NETWORK.explorerBase}/token/${FIGHT10_TOKEN}`);
 
@@ -1327,7 +1340,7 @@ async function loadStatsBoard(tab) {
 // Holdings tab — balances live on-chain, so rank client-side: one ERC-20
 // balanceOf read per wallet, all in parallel against the read provider.
 async function loadHoldingsBoard() {
-  if (FIGHT10_TOKEN.startsWith("<")) return { empty: '<div class="lb-empty">Holder rankings go live at token launch.</div>' };
+  if (!isConfiguredAddress(FIGHT10_TOKEN)) return { empty: '<div class="lb-empty">Holder rankings go live at token launch.</div>' };
   const { data, error } = await supabase.rpc("get_holdings_wallets", { p_limit: 100 });
   if (error || !Array.isArray(data)) throw error ?? new Error("bad get_holdings_wallets response");
   // wallet_address may carry a "chain:" prefix (e.g. "ethereum:0x…") —
@@ -1578,7 +1591,7 @@ async function depositEntryFee(numPlayers = 2) {
     return null;
   }
 
-  if (FIGHT10_TOKEN.startsWith("<") || ESCROW_WALLET.startsWith("<")) {
+  if (!isConfiguredAddress(FIGHT10_TOKEN) || !isConfiguredAddress(ESCROW_WALLET)) {
     setStatus("Game not configured for live deposits yet (missing token/escrow address).");
     return null;
   }
@@ -1668,6 +1681,9 @@ function updatePrizePot(numPlayers) {
 async function refreshFight10Balance() {
   const balEl = document.getElementById("fight10Balance");
   if (!balEl || !state.user) return;
+  // Pre-launch (token address unconfigured): keep the chip hidden instead of
+  // logging a failed balance read on every sign-in.
+  if (!isConfiguredAddress(FIGHT10_TOKEN)) return;
   const addr = await getWalletAddress();
   if (!addr) return;
   try {
@@ -1692,7 +1708,7 @@ async function loadHoldings() {
     if (noteEl) noteEl.textContent = "Connect your wallet to see your holdings.";
     return;
   }
-  if (FIGHT10_TOKEN.startsWith("<")) {
+  if (!isConfiguredAddress(FIGHT10_TOKEN)) {
     amtEl.textContent = "—";
     if (noteEl) noteEl.textContent = "Live balances go on-chain at token launch.";
     return;
