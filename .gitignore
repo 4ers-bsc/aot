@@ -1,3 +1,7 @@
 node_modules/
 dist/
 .DS_Store
+
+# Local env (copy of .env.example with real values)
+.env
+.env.local
