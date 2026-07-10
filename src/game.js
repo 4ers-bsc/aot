@@ -155,7 +155,13 @@ export function createArenaGame(options) {
   const PROP_SCALE = 1.25;
   let dim = size();
   let aspect = dim.w / dim.h;
-  const camera = new THREE.OrthographicCamera(-FRUSTUM * aspect, FRUSTUM * aspect, FRUSTUM, -FRUSTUM, 0.1, 1000);
+  // Near plane is pulled negative: the isometric CAM_OFFSET (28,34,28) sits
+  // inside the 100×100 map, so the camera-side arena corner (and the fence /
+  // rampart on it) lands just behind the camera plane. An orthographic camera
+  // still hard-clips negative view-space depth, so a positive near would slice
+  // through the near walls. A negative near keeps that whole corner in view;
+  // ortho depth is linear so the wider range costs no meaningful precision.
+  const camera = new THREE.OrthographicCamera(-FRUSTUM * aspect, FRUSTUM * aspect, FRUSTUM, -FRUSTUM, -300, 1000);
   camera.zoom = ZOOM_MIN;            // start fully zoomed out
   camera.updateProjectionMatrix();
   const CAM_OFFSET = new THREE.Vector3(28, 34, 28);
