@@ -361,18 +361,14 @@ export function createArenaGame(options) {
     const darkMat2 = new THREE.MeshStandardMaterial({ color: WALL_THEME.stone2, roughness: 0.55, metalness: 0.35 });
     const goldMat  = new THREE.MeshStandardMaterial({ color: WALL_THEME.trim, emissive: WALL_THEME.trimEmissive, emissiveIntensity: 0.55, roughness: 0.32, metalness: 0.85 });
     const goldGlowMat = new THREE.MeshStandardMaterial({ color: WALL_THEME.glow, emissive: WALL_THEME.glowEmissive, emissiveIntensity: 1.6, roughness: 0.3, metalness: 0.5 });
-    const ironMat  = new THREE.MeshStandardMaterial({ color: 0x2c2f34, roughness: 0.45, metalness: 0.65 });
-    const crystalMat = new THREE.MeshStandardMaterial({ color: WALL_THEME.crystal, emissive: WALL_THEME.crystalEmissive, emissiveIntensity: 1.3, roughness: 0.15, metalness: 0.1, transparent: true, opacity: 0.85 });
     const signMat = (tex) => new THREE.MeshStandardMaterial({ map: tex, roughness: 0.55, metalness: 0.2, emissive: 0x141416, emissiveIntensity: 0.35 });
 
     // Dimensions. WMID is the wall centreline; its inner face sits flush with
     // the arena edge (±MAP_HALF). WALL_T/WALL_H/WALL_MID come from up top.
     const WMID = WALL_MID;
-    const M_STEP = 4.8; // battlement/torch spacing along the wall top
     const T_W = 5.4;       // corner beacon-tower footprint
-    const GATE_W = 13, GATE_HALF = GATE_W / 2;
 
-    // Soft radial glow sprite (gold beacons, crystals, hologram).
+    // Soft radial glow sprite (gold beacons, hologram).
     const glowSpriteTex = (rgb) => {
       const c = document.createElement("canvas"); c.width = c.height = 64;
       const g = c.getContext("2d");
@@ -564,23 +560,9 @@ export function createArenaGame(options) {
     placeSign("north", -13, 15, 7,   drawTrade);         // TRADE. FIGHT. EARN.
     placeImageSign("north", 14, 6.6, 6.6, "/pump.webp"); // pump.fun emblem
 
-    // -- Gold crystal clusters just outside each corner tower.
-    const crystalCluster = (cx, cz) => {
-      for (let i = 0; i < 5; i++) {
-        const s = 1.0 + Math.random() * 1.8;
-        const cr = new THREE.Mesh(new THREE.ConeGeometry(s * 0.45, s * 2.4, 5), crystalMat);
-        cr.position.set(cx + (Math.random() - 0.5) * 3.4, s * 1.1, cz + (Math.random() - 0.5) * 3.4);
-        cr.rotation.set((Math.random() - 0.5) * 0.5, Math.random() * 6, (Math.random() - 0.5) * 0.5);
-        rampart.add(cr);
-      }
-      const glow = new THREE.Sprite(new THREE.SpriteMaterial({ map: goldGlowTex, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, opacity: 0.85 }));
-      glow.position.set(cx, 2.6, cz); glow.scale.set(12, 12, 1); rampart.add(glow);
-    };
-    const OC = WMID + 4.5;
-    [[-OC, -OC], [OC, -OC], [-OC, OC], [OC, OC]].forEach(([cx, cz]) => crystalCluster(cx, cz));
-
     // -- F10 hologram hovering off the near corner, on a small gold emitter.
     {
+      const OC = WMID + 4.5;
       const hx = OC - 1, hz = OC - 8;
       const holo = new THREE.Mesh(new THREE.CircleGeometry(3.6, 6),
         new THREE.MeshBasicMaterial({ map: holoTex, transparent: true, opacity: 0.82, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide }));
@@ -588,72 +570,6 @@ export function createArenaGame(options) {
       const base = mesh(new THREE.CylinderGeometry(1.4, 1.7, 0.6, 8), goldMat); base.position.set(hx, 0.3, hz); rampart.add(base);
       const hg = new THREE.Sprite(new THREE.SpriteMaterial({ map: goldGlowTex, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, opacity: 0.8 }));
       hg.position.set(hx, 6, hz); hg.scale.set(10, 10, 1); rampart.add(hg);
-    }
-
-    // -- Battlement flame lamps: flickering torches standing in the merlon gaps
-    //    along the wall top (pushed to edgeLamps so animate() flickers them).
-    {
-      // Flame sprite texture — soft radial gradient, warm core.
-      const flameCanvas = document.createElement("canvas");
-      flameCanvas.width = flameCanvas.height = 64;
-      const fx = flameCanvas.getContext("2d");
-      const fg = fx.createRadialGradient(32, 38, 2, 32, 34, 30);
-      fg.addColorStop(0.00, "rgba(255,246,214,1)");
-      fg.addColorStop(0.25, "rgba(255,208,116,0.92)");
-      fg.addColorStop(0.55, "rgba(255,138,40,0.55)");
-      fg.addColorStop(1.00, "rgba(255,90,10,0)");
-      fx.fillStyle = fg; fx.fillRect(0, 0, 64, 64);
-      const flameTex = new THREE.CanvasTexture(flameCanvas);
-      // Warm glow pool the flame throws on the walkway.
-      const glowCanvas = document.createElement("canvas");
-      glowCanvas.width = glowCanvas.height = 64;
-      const gx2 = glowCanvas.getContext("2d");
-      const gg = gx2.createRadialGradient(32, 32, 1, 32, 32, 31);
-      gg.addColorStop(0.00, "rgba(255,180,80,0.9)");
-      gg.addColorStop(0.45, "rgba(255,130,30,0.35)");
-      gg.addColorStop(1.00, "rgba(255,90,10,0)");
-      gx2.fillStyle = gg; gx2.fillRect(0, 0, 64, 64);
-      const glowTex = new THREE.CanvasTexture(glowCanvas);
-
-      const baseGeo = new THREE.CylinderGeometry(0.3, 0.38, 0.5, 10);
-      const glowGeo = new THREE.PlaneGeometry(2.2, 2.2);
-      const wallTop = FENCE_H; // lamps ride the top of the barbed-wire fence
-      const torchAt = (x, z) => {
-        const base = mesh(baseGeo, ironMat);
-        base.scale.setScalar(PROP_SCALE);
-        base.position.set(x, wallTop + 0.25 * PROP_SCALE, z);
-        rampart.add(base);
-        const sprite = new THREE.Sprite(new THREE.SpriteMaterial({
-          map: flameTex, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false,
-        }));
-        sprite.position.set(x, wallTop + (0.5 + 0.72) * PROP_SCALE, z);
-        sprite.scale.set(1.15 * PROP_SCALE, 1.7 * PROP_SCALE, 1);
-        rampart.add(sprite);
-        const glow = new THREE.Mesh(glowGeo, new THREE.MeshBasicMaterial({
-          map: glowTex, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false,
-        }));
-        glow.scale.setScalar(PROP_SCALE);
-        glow.rotation.x = -Math.PI / 2;
-        glow.position.set(x, wallTop + 0.03, z);
-        rampart.add(glow);
-        edgeLamps.push({ sprite, glow, phase: Math.random() * Math.PI * 2 });
-      };
-      // Walk each wall top and drop a torch in every third merlon gap (gap
-      // centres sit half a step off the merlon centres), skipping the corner
-      // turrets and, on the north side, the gateway.
-      const torchLine = (fixed, axis, gateGap) => {
-        let k = 0;
-        for (let p = -WMID + M_STEP + 0.6; p <= WMID - M_STEP; p += M_STEP, k++) {
-          if (k % 3 !== 1) continue;
-          if (Math.abs(p) > WMID - T_W / 2 - 1.0) continue;        // clear of towers
-          if (gateGap && Math.abs(p) < GATE_HALF + 2.6) continue;  // clear of the gate
-          if (axis === "x") torchAt(p, fixed); else torchAt(fixed, p);
-        }
-      };
-      torchLine( WMID, "x", false); // south
-      torchLine(-WMID, "x", false); // north
-      torchLine(-WMID, "z", false); // west
-      torchLine( WMID, "z", false); // east
     }
 
     scene.add(rampart);
