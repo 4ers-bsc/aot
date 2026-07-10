@@ -501,8 +501,8 @@ export function createArenaGame(options) {
     const goldGlowTex = glowSpriteTex("255,190,70");
     const blueGlowTex = glowSpriteTex("90,180,255");
 
-    // Wall-face texture: dark navy panel, gold rails and a gold "F10", tiled
-    // along each curtain so the mark marches down the wall.
+    // Wall-face texture: plain dark navy panel with gold rails, tiled along each
+    // curtain (the F10 mark now sits only at the middle of each side).
     const wallCanvas = (() => {
       const c = document.createElement("canvas"); c.width = 256; c.height = 128;
       const g = c.getContext("2d");
@@ -512,8 +512,6 @@ export function createArenaGame(options) {
       g.strokeStyle = "rgba(255,200,50,0.55)"; g.lineWidth = 3; g.strokeRect(14, 14, 228, 100);
       g.strokeStyle = "rgba(120,150,210,0.25)"; g.lineWidth = 1; g.strokeRect(20, 20, 216, 88);
       g.fillStyle = "#ffc627"; g.fillRect(0, 4, 256, 3); g.fillRect(0, 121, 256, 3);
-      g.fillStyle = "#ffce3a"; g.font = "bold 58px Arial"; g.textAlign = "center"; g.textBaseline = "middle";
-      g.fillText("F10", 128, 66);
       return c;
     })();
     const wallTex = (rep) => {
@@ -522,7 +520,7 @@ export function createArenaGame(options) {
       return t;
     };
 
-    // Gold "F10" crest, blue gate-energy streaks, and the F10 hologram face.
+    // Gold "F10" crest and the blue F10 hologram face.
     const crestTex = (() => {
       const c = document.createElement("canvas"); c.width = c.height = 128;
       const g = c.getContext("2d");
@@ -535,19 +533,18 @@ export function createArenaGame(options) {
       return new THREE.CanvasTexture(c);
     })();
     const plaqueMat = signMat(crestTex);
-    const energyTex = (() => {
+    // Dark, gold-framed "F10" marker for the middle of each wall side.
+    const markMat = signMat((() => {
       const c = document.createElement("canvas"); c.width = c.height = 128;
-      const g = c.getContext("2d"); g.clearRect(0, 0, 128, 128);
-      for (let i = 0; i < 11; i++) {
-        const px = Math.random() * 128, grd = g.createLinearGradient(px - 6, 0, px + 6, 0);
-        grd.addColorStop(0, "rgba(60,160,255,0)"); grd.addColorStop(0.5, `rgba(120,200,255,${(0.3 + Math.random() * 0.4).toFixed(2)})`); grd.addColorStop(1, "rgba(60,160,255,0)");
-        g.fillStyle = grd; g.fillRect(px - 6, 0, 12, 128);
-      }
-      const hg = g.createLinearGradient(0, 0, 0, 128);
-      hg.addColorStop(0, "rgba(130,205,255,0.3)"); hg.addColorStop(0.5, "rgba(90,180,255,0.05)"); hg.addColorStop(1, "rgba(130,205,255,0.3)");
-      g.fillStyle = hg; g.fillRect(0, 0, 128, 128);
+      const g = c.getContext("2d");
+      const grd = g.createLinearGradient(0, 0, 0, 128);
+      grd.addColorStop(0, "#141f42"); grd.addColorStop(1, "#0a1024");
+      g.fillStyle = grd; g.fillRect(0, 0, 128, 128);
+      g.strokeStyle = "#ffc627"; g.lineWidth = 8; g.strokeRect(10, 10, 108, 108);
+      g.fillStyle = "#ffce3a"; g.font = "bold 60px Arial"; g.textAlign = "center"; g.textBaseline = "middle";
+      g.fillText("F10", 64, 68);
       return new THREE.CanvasTexture(c);
-    })();
+    })());
     const holoTex = (() => {
       const c = document.createElement("canvas"); c.width = c.height = 128;
       const g = c.getContext("2d"); g.clearRect(0, 0, 128, 128);
@@ -596,15 +593,25 @@ export function createArenaGame(options) {
 
     // North/west/east curtains run full span; the south side (near the camera)
     // is split by the gateway into two runs.
-    curtain("x", -WMID, -WMID, WMID);            // north (far)
-    curtain("z", -WMID, -WMID, WMID);            // west  (far)
-    curtain("z",  WMID, -WMID, WMID);            // east  (near)
-    curtain("x",  WMID, -WMID, -GATE_HALF);      // south, left of the gate
-    curtain("x",  WMID,  GATE_HALF, WMID);       // south, right of the gate
+    curtain("x", -WMID, -WMID, WMID);            // north
+    curtain("z", -WMID, -WMID, WMID);            // west
+    curtain("z",  WMID, -WMID, WMID);            // east
+    curtain("x",  WMID, -WMID, WMID);            // south (near camera) — solid
     battlement(-WMID, "x", false); // north
-    battlement( WMID, "x", true);  // south (gateway)
+    battlement( WMID, "x", false); // south
     battlement(-WMID, "z", false); // west
     battlement( WMID, "z", false); // east
+
+    // A single F10 marker centred on each side's inner wall face.
+    const inFace = WALL_T / 2 + 0.06, markY = WALL_H * 0.5 + 0.2;
+    const midMark = (x, z, ry) => {
+      const pl = new THREE.Mesh(new THREE.PlaneGeometry(3.6, 3.6), markMat);
+      pl.position.set(x, markY, z); pl.rotation.y = ry; rampart.add(pl);
+    };
+    midMark(0, -WMID + inFace, 0);            // north → faces +z
+    midMark(0,  WMID - inFace, Math.PI);      // south → faces -z
+    midMark(-WMID + inFace, 0, Math.PI / 2);  // west  → faces +x
+    midMark( WMID - inFace, 0, -Math.PI / 2); // east  → faces -x
 
     // -- Four corner beacon towers: a tall dark shaft banded with gold, F10
     //    plaques on every face, a crenellated crown and a glowing gold lantern.
@@ -628,28 +635,6 @@ export function createArenaGame(options) {
       const glow = new THREE.Sprite(new THREE.SpriteMaterial({ map: goldGlowTex, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, opacity: 0.95 }));
       glow.position.set(x, H + 3.5, z); glow.scale.set(10, 10, 1); rampart.add(glow);
     });
-
-    // -- South gateway (near the camera): dark gold-banded piers with beacons, a
-    //    gold-arched lintel, an F10 crest and a translucent blue energy barrier.
-    {
-      const gz = WMID, pierW = 3.6, pierH = WALL_H + 3.6;
-      [-1, 1].forEach((s) => {
-        const px = s * (GATE_HALF + pierW / 2);
-        slab(pierW, pierH, WALL_T + 1.0, darkMat, px, pierH / 2, gz);
-        [2.5, 5.5, 8.5].forEach((ty) => slab(pierW + 0.3, 0.34, WALL_T + 1.1, goldMat, px, ty, gz));
-        slab(pierW + 0.5, 0.9, WALL_T + 1.3, goldMat, px, pierH + 0.3, gz);
-        slab(pierW - 1.6, 1.5, pierW - 1.6, goldGlowMat, px, pierH + 1.4, gz);
-      });
-      const lintelY = WALL_H + 1.4;
-      slab(GATE_W + pierW * 2, 2.2, WALL_T + 0.6, darkMat, 0, lintelY, gz);
-      slab(GATE_W + pierW * 2 + 0.2, 0.4, WALL_T + 0.85, goldMat, 0, lintelY + 1.2, gz);
-      slab(GATE_W + 0.8, 0.42, 0.5, goldMat, 0, WALL_H + 0.2, gz + WALL_T / 2 + 0.2); // gold arch
-      const barrier = new THREE.Mesh(new THREE.PlaneGeometry(GATE_W - 0.5, WALL_H - 0.3),
-        new THREE.MeshBasicMaterial({ map: energyTex, transparent: true, opacity: 0.5, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide }));
-      barrier.position.set(0, (WALL_H - 0.3) / 2, gz); rampart.add(barrier);
-      const crest = new THREE.Mesh(new THREE.PlaneGeometry(2.9, 2.9), plaqueMat);
-      crest.position.set(0, lintelY + 0.05, gz + WALL_T / 2 + 0.32); rampart.add(crest);
-    }
 
     // -- Billboard signs mounted on posts above the two far walls. `wall` is
     //    "north" (z=-WMID, facing +z) or "west" (x=-WMID, facing +x); `along`
@@ -704,18 +689,8 @@ export function createArenaGame(options) {
     const drawArena = (g, W, H) => {
       panelBase(g, W, H);
       g.textAlign = "center"; g.textBaseline = "middle";
-      g.fillStyle = "#ffd24a"; g.font = `bold ${Math.round(H * 0.26)}px Arial`;
-      g.fillText("F10 ARENA", W / 2, H * 0.3);
-      g.strokeStyle = "#ffc627"; g.lineWidth = 3; g.beginPath(); g.moveTo(W * 0.14, H * 0.5); g.lineTo(W * 0.86, H * 0.5); g.stroke();
-      g.fillStyle = "#e6d59a"; g.font = `${Math.round(H * 0.11)}px Arial`;
-      g.fillText("FIGHT10 · EARN · POWER", W / 2, H * 0.63);
-      const hx = W * 0.34, hy = H * 0.82, hr = H * 0.09; // hex + F10 TOKEN
-      g.fillStyle = "#ffce35"; g.beginPath();
-      for (let i = 0; i < 6; i++) { const a = Math.PI / 6 + i * Math.PI / 3, px = hx + hr * Math.cos(a), py = hy + hr * Math.sin(a); if (i) g.lineTo(px, py); else g.moveTo(px, py); }
-      g.closePath(); g.fill();
-      g.fillStyle = "#0a0c16"; g.font = `bold ${Math.round(H * 0.07)}px Arial`; g.fillText("F10", hx, hy);
-      g.fillStyle = "#ffce35"; g.textAlign = "left"; g.font = `bold ${Math.round(H * 0.12)}px Arial`;
-      g.fillText("F10 TOKEN", hx + hr + 10, hy);
+      g.fillStyle = "#ffd24a"; g.font = `bold ${Math.round(H * 0.5)}px Arial`;
+      g.fillText("F10", W / 2, H * 0.54);
     };
     const drawTrade = (g, W, H) => {
       panelBase(g, W, H);
@@ -815,7 +790,7 @@ export function createArenaGame(options) {
           if (axis === "x") torchAt(p, fixed); else torchAt(fixed, p);
         }
       };
-      torchLine( WMID, "x", true);  // south (has the gateway)
+      torchLine( WMID, "x", false); // south
       torchLine(-WMID, "x", false); // north
       torchLine(-WMID, "z", false); // west
       torchLine( WMID, "z", false); // east
