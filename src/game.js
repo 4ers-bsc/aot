@@ -103,7 +103,39 @@ export function createArenaGame(options) {
 
   // -- Scene ----------------------------------------------------------------
   const scene = new THREE.Scene();
-  scene.background = new THREE.Color(theme.bg);
+  // Baked night-sky backdrop (deep-blue gradient, stars, drifting clouds and
+  // faint far spires) so the arena reads as a fortress floating in the clouds.
+  // A fixed 2D background texture, so it never moves with the follow camera.
+  // Reused by applyTheme() instead of a flat clear colour.
+  const skyTex = (() => {
+    const c = document.createElement("canvas");
+    c.width = 1024; c.height = 512;
+    const x = c.getContext("2d");
+    const g = x.createLinearGradient(0, 0, 0, 512);
+    g.addColorStop(0.0, "#070f26"); g.addColorStop(0.55, "#0b1734"); g.addColorStop(1.0, "#173058");
+    x.fillStyle = g; x.fillRect(0, 0, 1024, 512);
+    for (let i = 0; i < 280; i++) {
+      x.fillStyle = `rgba(255,255,255,${(0.25 + Math.random() * 0.6).toFixed(2)})`;
+      const s = Math.random() < 0.12 ? 2.2 : 1.2;
+      x.fillRect(Math.random() * 1024, Math.random() * 320, s, s);
+    }
+    // Faint far spires along the horizon.
+    x.fillStyle = "rgba(120,150,205,0.16)";
+    for (let i = 0; i < 22; i++) {
+      const sx = Math.random() * 1024, sw = 6 + Math.random() * 16, sh = 40 + Math.random() * 120;
+      x.fillRect(sx, 360 - sh, sw, sh);
+      x.beginPath(); x.moveTo(sx, 360 - sh); x.lineTo(sx + sw / 2, 360 - sh - 22); x.lineTo(sx + sw, 360 - sh); x.fill();
+    }
+    // Drifting clouds.
+    for (let i = 0; i < 30; i++) {
+      const cx = Math.random() * 1024, cy = 190 + Math.random() * 300, cr = 45 + Math.random() * 110;
+      const cg = x.createRadialGradient(cx, cy, 0, cx, cy, cr);
+      cg.addColorStop(0, "rgba(96,126,182,0.22)"); cg.addColorStop(1, "rgba(96,126,182,0)");
+      x.fillStyle = cg; x.beginPath(); x.arc(cx, cy, cr, 0, 7); x.fill();
+    }
+    return new THREE.CanvasTexture(c);
+  })();
+  scene.background = skyTex;
   scene.fog = new THREE.Fog(theme.bg, RD_FOG.Far[0], RD_FOG.Far[1]);
 
   const FRUSTUM = 16;
@@ -194,21 +226,26 @@ export function createArenaGame(options) {
   const LEDGE_W = 3.2;   // ledge band width beyond the map rim
   const LEDGE_H = 0.56;  // ledge thickness; top sits just above the floor
   const LEDGE_TOP = 0.06;
+  // Fortress-rampart dimensions — shared by buildArenaRampart() (which raises
+  // the wall and its corner turrets) and the battlement torches mounted on the
+  // wall top. The wall's inner face sits flush with the arena edge (±MAP_HALF),
+  // so it rises right at the play boundary and the turrets cap its corners.
+  const WALL_T = 2.6;                     // rampart thickness
+  const WALL_H = 6.6;                     // rampart height above the floor
+  const WALL_MID = MAP_HALF + WALL_T / 2; // wall centreline (inner face at the rim)
   const wallObjects = []; // tracks all wall scene objects for disposal
   // F10 cloth banner draped over the left map edge. Each entry is animated
   // per frame in animate(): an unfurl drop when built, then a continuous
   // fabric wave. { mesh, geo, h, phase, born }
   const clothBanners = [];
-  // Per-frame updaters for the animated arena-side effects (aurora hue-shift,
-  // snow-sparkle). Cleared and repopulated on every buildArenaWalls() call;
-  // run each frame in animate().
+  // Per-frame updaters for animated arena-side effects. Kept for compatibility
+  // with animate(); the current dark underside registers none.
   const wallFX = [];
 
-  // -- Arena side style: Frozen Aurora ---------------------------------------
-  // Frosted ice panels beneath a shimmering, hue-shifting aurora curtain with
-  // snow-sparkle drifting down the walls. Dark backing behind the panels.
-  const SIDE_BACK = 0x03060c;
-
+  // -- Arena underside --------------------------------------------------------
+  // A plain dark-navy slab below the play floor (backing walls + bottom cap +
+  // a faint gold rim), so the arena reads as a solid platform floating in the
+  // clouds beneath the fortress rampart.
   function buildArenaWalls(variant) {
     // Dispose existing wall objects via the shared traversal helper (it
     // handles shared materials, textures, and nested groups uniformly).
@@ -223,9 +260,8 @@ export function createArenaGame(options) {
     const DEPTH = 10;
     const addObj = (obj) => { scene.add(obj); wallObjects.push(obj); return obj; };
 
-    // Dark backing behind each wall
-    const backColor = SIDE_BACK;
-    const sideMat = new THREE.MeshStandardMaterial({ color: backColor, roughness: 0.98, metalness: 0.0 });
+    // Dark navy underside slab behind each wall (matches the fortress rampart).
+    const sideMat = new THREE.MeshStandardMaterial({ color: 0x0a1226, roughness: 0.92, metalness: 0.12 });
     [
       { x: 0,         z: -MAP_HALF, ry: 0 },
       { x: 0,         z:  MAP_HALF, ry: Math.PI },
@@ -247,143 +283,22 @@ export function createArenaGame(options) {
     btm.position.y = -DEPTH;
     addObj(btm);
 
-    // Shared helpers for the frozen-aurora side build below.
-    const registerFX = (fn) => wallFX.push(fn);
-    const WALL_SIDES = [
-      { x: 0,         z: -MAP_HALF, ry: 0 },
-      { x: 0,         z:  MAP_HALF, ry: Math.PI },
-      { x: -MAP_HALF, z: 0,         ry:  Math.PI / 2 },
-      { x:  MAP_HALF, z: 0,         ry: -Math.PI / 2 },
-    ];
-    // Drape one panel material across all four walls (height h, top at the rim).
-    const panelSet = (material, h = 6) => {
-      WALL_SIDES.forEach(({ x, z, ry }) => {
-        const p = new THREE.Mesh(new THREE.PlaneGeometry(MAP_WORLD, h), material);
-        p.position.set(x, -h / 2, z);
-        p.rotation.y = ry;
-        addObj(p);
-      });
-    };
-    // Twin rim outline (inner + slightly-outer glow line), returns the materials
-    // so a style can pulse them each frame.
-    const addRim = (colInner, opInner, colOuter, opOuter) => {
-      const matI = new THREE.LineBasicMaterial({ color: colInner, transparent: true, opacity: opInner });
-      addObj(new THREE.Line(new THREE.BufferGeometry().setFromPoints([
-        new THREE.Vector3(-MAP_HALF, 0.08, -MAP_HALF), new THREE.Vector3(MAP_HALF, 0.08, -MAP_HALF),
-        new THREE.Vector3( MAP_HALF, 0.08,  MAP_HALF), new THREE.Vector3(-MAP_HALF, 0.08,  MAP_HALF),
-        new THREE.Vector3(-MAP_HALF, 0.08, -MAP_HALF),
-      ]), matI));
-      const matO = new THREE.LineBasicMaterial({ color: colOuter, transparent: true, opacity: opOuter });
-      addObj(new THREE.Line(new THREE.BufferGeometry().setFromPoints([
-        new THREE.Vector3(-MAP_HALF - 0.05, 0.04, -MAP_HALF - 0.05),
-        new THREE.Vector3( MAP_HALF + 0.05, 0.04, -MAP_HALF - 0.05),
-        new THREE.Vector3( MAP_HALF + 0.05, 0.04,  MAP_HALF + 0.05),
-        new THREE.Vector3(-MAP_HALF - 0.05, 0.04,  MAP_HALF + 0.05),
-        new THREE.Vector3(-MAP_HALF - 0.05, 0.04, -MAP_HALF - 0.05),
-      ]), matO));
-      return { matI, matO };
-    };
-    // A field of soft sprites hugging the inside of the four walls, rising (or
-    // falling) and looping — embers, snow-sparkle, star motes, etc.
-    const wallField = ({ count = 140, size = 0.8, color = 0xffffff, rise = true, speed = 1, twinkle = true, opacity = 0.9 }) => {
-      const geo = new THREE.BufferGeometry();
-      const pos = new Float32Array(count * 3);
-      const spd = new Float32Array(count);
-      const yBot = -6.2, yTop = 1.6;
-      for (let i = 0; i < count; i++) {
-        const wall = i % 4, along = (Math.random() - 0.5) * MAP_WORLD, inset = 0.3 + Math.random() * 1.5;
-        let x, z;
-        if (wall === 0)      { x = along;              z = -MAP_HALF + inset; }
-        else if (wall === 1) { x = along;              z =  MAP_HALF - inset; }
-        else if (wall === 2) { x = -MAP_HALF + inset;  z = along; }
-        else                 { x =  MAP_HALF - inset;  z = along; }
-        pos[i * 3] = x; pos[i * 3 + 1] = yBot + Math.random() * (yTop - yBot); pos[i * 3 + 2] = z;
-        spd[i] = (0.5 + Math.random()) * speed;
-      }
-      geo.setAttribute("position", new THREE.BufferAttribute(pos, 3));
-      const mat = new THREE.PointsMaterial({
-        size, map: makeFlake(), color, transparent: true, depthWrite: false,
-        blending: THREE.AdditiveBlending, opacity,
-      });
-      addObj(new THREE.Points(geo, mat));
-      registerFX((t, dt) => {
-        const a = geo.attributes.position;
-        for (let i = 0; i < count; i++) {
-          let y = a.getY(i) + (rise ? spd[i] : -spd[i]) * dt;
-          if (rise && y > yTop) y = yBot;
-          else if (!rise && y < yBot) y = yTop;
-          a.setY(i, y);
-        }
-        a.needsUpdate = true;
-        if (twinkle) mat.opacity = opacity * (0.65 + 0.35 * Math.sin(t * 3));
-      });
-      return mat;
-    };
-
-    // Frosted ice panels beneath a hue-shifting aurora curtain.
-    panelSet(new THREE.MeshBasicMaterial({
-      map: makeIceTex(), transparent: true, side: THREE.DoubleSide,
-      depthWrite: false, opacity: 0.92,
-    }));
-    const auroraMat = new THREE.MeshBasicMaterial({
-      map: makeAuroraTex(), transparent: true, side: THREE.DoubleSide,
-      depthWrite: false, blending: THREE.AdditiveBlending, opacity: 0.4,
-    });
-    panelSet(auroraMat);
-    registerFX((t) => {
-      auroraMat.color.setHSL(0.5 + 0.13 * Math.sin(t * 0.45), 0.85, 0.6);
-      auroraMat.opacity = 0.3 + 0.18 * (0.5 + 0.5 * Math.sin(t * 0.8));
-    });
-    addRim(0x9fe8ff, 0.9, 0x4fb0ff, 0.5);
-    // Snow-sparkle settling down the inside of the walls.
-    wallField({ count: 130, size: 0.7, color: 0xdff4ff, rise: false, speed: 0.9, opacity: 0.85 });
-
-    // Frosted-ice panel texture — icy vertical gradient with white frost cracks.
-    function makeIceTex() {
-      const c = document.createElement("canvas");
-      c.width = c.height = 256;
-      const x = c.getContext("2d");
-      const g = x.createLinearGradient(0, 0, 0, 256);
-      g.addColorStop(0, "rgba(210,240,255,0.85)");
-      g.addColorStop(0.5, "rgba(140,200,240,0.65)");
-      g.addColorStop(1, "rgba(60,110,170,0.9)");
-      x.fillStyle = g; x.fillRect(0, 0, 256, 256);
-      x.strokeStyle = "rgba(255,255,255,0.7)"; x.lineWidth = 1;
-      for (let n = 0; n < 26; n++) {
-        x.beginPath();
-        let px = Math.random() * 256, py = Math.random() * 256;
-        x.moveTo(px, py);
-        for (let s = 0; s < 4; s++) { px += (Math.random() - 0.5) * 60; py += (Math.random() - 0.5) * 60; x.lineTo(px, py); }
-        x.stroke();
-      }
-      return new THREE.CanvasTexture(c);
-    }
-
-    // Aurora curtain overlay — soft vertical light bands, recolored each frame.
-    function makeAuroraTex() {
-      const c = document.createElement("canvas");
-      c.width = c.height = 256;
-      const x = c.getContext("2d");
-      x.clearRect(0, 0, 256, 256);
-      for (let i = 0; i < 7; i++) {
-        const cx = Math.random() * 256;
-        const g = x.createLinearGradient(cx - 30, 0, cx + 30, 0);
-        g.addColorStop(0, "rgba(80,255,180,0)");
-        g.addColorStop(0.5, `rgba(${80 + Math.random() * 60},255,${180 + Math.random() * 60},0.5)`);
-        g.addColorStop(1, "rgba(80,255,180,0)");
-        x.fillStyle = g; x.fillRect(cx - 30, 0, 60, 256);
-      }
-      return new THREE.CanvasTexture(c);
-    }
+    // A single faint gold trim line along the top rim, meeting the rampart base.
+    addObj(new THREE.Line(new THREE.BufferGeometry().setFromPoints([
+      new THREE.Vector3(-MAP_HALF, -0.02, -MAP_HALF), new THREE.Vector3(MAP_HALF, -0.02, -MAP_HALF),
+      new THREE.Vector3( MAP_HALF, -0.02,  MAP_HALF), new THREE.Vector3(-MAP_HALF, -0.02,  MAP_HALF),
+      new THREE.Vector3(-MAP_HALF, -0.02, -MAP_HALF),
+    ]), new THREE.LineBasicMaterial({ color: 0xffc21a, transparent: true, opacity: 0.3 })));
   }
 
   buildArenaWalls("game");
 
 
-  // -- Edge ledge + flame lamps ----------------------------------------------
-  // A polished black ledge ring hugging the map rim, with small flickering
-  // flame lamps spaced along it — scene objects, so they stay anchored to the
-  // map edges (home backdrop and in-game alike) instead of the viewport.
+  // -- Edge ledge ------------------------------------------------------------
+  // A polished black ledge ring hugging the map rim — a foundation course that
+  // the rampart wall rises from. Scene objects, so they stay anchored to the
+  // map edges (home backdrop and in-game alike) instead of the viewport. The
+  // flame lamps that used to sit here now ride the top of the rampart wall.
   const edgeLamps = []; // { sprite, glow, phase } — flickered in animate()
   {
     const ledgeMat = new THREE.MeshStandardMaterial({
@@ -413,64 +328,350 @@ export function createArenaGame(options) {
       new THREE.LineBasicMaterial({ color: 0xffaa00, transparent: true, opacity: 0.45 })
     ));
 
-    // Flame sprite texture — soft radial gradient, warm core.
-    const flameCanvas = document.createElement("canvas");
-    flameCanvas.width = 64; flameCanvas.height = 64;
-    const fx = flameCanvas.getContext("2d");
-    const fg = fx.createRadialGradient(32, 38, 2, 32, 34, 30);
-    fg.addColorStop(0.00, "rgba(255,246,214,1)");
-    fg.addColorStop(0.25, "rgba(255,208,116,0.92)");
-    fg.addColorStop(0.55, "rgba(255,138,40,0.55)");
-    fg.addColorStop(1.00, "rgba(255,90,10,0)");
-    fx.fillStyle = fg;
-    fx.fillRect(0, 0, 64, 64);
-    const flameTex = new THREE.CanvasTexture(flameCanvas);
+    // The flickering flame lamps that used to line this ledge now ride the top
+    // of the rampart; they are built with the wall in buildArenaRampart() so
+    // they can be dropped into the merlon gaps at the correct wall height.
+  }
 
-    // Warm glow pool cast on the polished ledge under each flame.
-    const glowCanvas = document.createElement("canvas");
-    glowCanvas.width = 64; glowCanvas.height = 64;
-    const gx2 = glowCanvas.getContext("2d");
-    const gg = gx2.createRadialGradient(32, 32, 1, 32, 32, 31);
-    gg.addColorStop(0.00, "rgba(255,180,80,0.9)");
-    gg.addColorStop(0.45, "rgba(255,130,30,0.35)");
-    gg.addColorStop(1.00, "rgba(255,90,10,0)");
-    gx2.fillStyle = gg;
-    gx2.fillRect(0, 0, 64, 64);
-    const glowTex = new THREE.CanvasTexture(glowCanvas);
+  // -- Arena rampart: the "F10 ARENA" fortress -------------------------------
+  // A dark obsidian-and-gold curtain wall standing on the arena edge, styled
+  // after the F10 splash art: gold-crowned battlements and repeated gold "F10"
+  // on the wall face, tall corner beacon towers with glowing gold lanterns,
+  // giant billboard signs (F10 ARENA / TRADE·FIGHT·EARN / LEADERBOARD / ₿), a
+  // gold-arched south gateway with a blue energy barrier, blue crystal clusters
+  // and an F10 hologram, and chains hanging into the clouds below. Flame torches
+  // ride the wall top. Built once and parented to the scene, so it stays
+  // anchored to the map rim in both the lobby backdrop and a live match, and is
+  // released with everything else by disposeObject3D(scene) on destroy(). The
+  // wall's inner face sits on the play boundary (±MAP_HALF): it never overlaps
+  // the floor, so fighters, projectiles and the solid-prop set are untouched.
+  {
+    const rampart = new THREE.Group();
 
-    const baseGeo = new THREE.CylinderGeometry(0.3, 0.38, 0.5, 10);
-    const glowGeo = new THREE.PlaneGeometry(3.4, 3.4);
-    const LAMP_MID = MAP_HALF + LEDGE_W / 2; // lamp row centered on the ledge band
-    // Eight lamps total: one at each of the four corners and one at the middle
-    // of each of the four sides.
-    const lampSpots = [
-      [-LAMP_MID, -LAMP_MID], [LAMP_MID, -LAMP_MID], // corners
-      [-LAMP_MID,  LAMP_MID], [LAMP_MID,  LAMP_MID],
-      [0, -LAMP_MID], [0, LAMP_MID], [-LAMP_MID, 0], [LAMP_MID, 0], // mid-sides
-    ];
-    lampSpots.forEach(([x, z]) => {
-      // Small polished base…
-      const base = new THREE.Mesh(baseGeo, ledgeMat);
-      base.scale.setScalar(PROP_SCALE);
-      base.position.set(x, LEDGE_TOP + 0.25 * PROP_SCALE, z);
-      scene.add(base);
-      // …its flame…
-      const sprite = new THREE.Sprite(new THREE.SpriteMaterial({
-        map: flameTex, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false,
-      }));
-      sprite.position.set(x, LEDGE_TOP + (0.5 + 0.72) * PROP_SCALE, z);
-      sprite.scale.set(1.15 * PROP_SCALE, 1.7 * PROP_SCALE, 1);
-      scene.add(sprite);
-      // …and the warm pool it throws on the shiny ledge.
-      const glow = new THREE.Mesh(glowGeo, new THREE.MeshBasicMaterial({
-        map: glowTex, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false,
-      }));
-      glow.scale.setScalar(PROP_SCALE);
-      glow.rotation.x = -Math.PI / 2;
-      glow.position.set(x, LEDGE_TOP + 0.015, z);
-      scene.add(glow);
-      edgeLamps.push({ sprite, glow, phase: Math.random() * Math.PI * 2 });
+    // ---- Obsidian-navy stone with gold and blue-crystal accents -------------
+    const darkMat  = new THREE.MeshStandardMaterial({ color: 0x0c1430, emissive: 0x060a1a, emissiveIntensity: 0.5, roughness: 0.5, metalness: 0.4 });
+    const darkMat2 = new THREE.MeshStandardMaterial({ color: 0x18213c, roughness: 0.55, metalness: 0.35 });
+    const goldMat  = new THREE.MeshStandardMaterial({ color: 0xffc21a, emissive: 0x6a4300, emissiveIntensity: 0.55, roughness: 0.32, metalness: 0.85 });
+    const goldGlowMat = new THREE.MeshStandardMaterial({ color: 0xffd23a, emissive: 0xffa406, emissiveIntensity: 1.6, roughness: 0.3, metalness: 0.5 });
+    const ironMat  = new THREE.MeshStandardMaterial({ color: 0x2c2f34, roughness: 0.45, metalness: 0.65 });
+    const crystalMat = new THREE.MeshStandardMaterial({ color: 0x38b0ff, emissive: 0x1c7cff, emissiveIntensity: 1.3, roughness: 0.15, metalness: 0.1, transparent: true, opacity: 0.85 });
+    const signMat = (tex) => new THREE.MeshStandardMaterial({ map: tex, roughness: 0.55, metalness: 0.2, emissive: 0x141d38, emissiveIntensity: 0.35 });
+
+    // Dimensions. WMID is the wall centreline; its inner face sits flush with
+    // the arena edge (±MAP_HALF). WALL_T/WALL_H/WALL_MID come from up top.
+    const WMID = WALL_MID;
+    const M_W = 2.4, M_H = 1.7, M_STEP = 4.8; // merlon width / height / spacing
+    const T_W = 5.4;       // corner beacon-tower footprint
+    const GATE_W = 13, GATE_HALF = GATE_W / 2;
+
+    // Soft radial glow sprite (gold beacons, blue crystals).
+    const glowSpriteTex = (rgb) => {
+      const c = document.createElement("canvas"); c.width = c.height = 64;
+      const g = c.getContext("2d");
+      const rad = g.createRadialGradient(32, 32, 1, 32, 32, 32);
+      rad.addColorStop(0, `rgba(${rgb},0.95)`); rad.addColorStop(0.4, `rgba(${rgb},0.4)`); rad.addColorStop(1, `rgba(${rgb},0)`);
+      g.fillStyle = rad; g.fillRect(0, 0, 64, 64);
+      return new THREE.CanvasTexture(c);
+    };
+    const goldGlowTex = glowSpriteTex("255,190,70");
+    const blueGlowTex = glowSpriteTex("90,180,255");
+
+    // Wall-face texture: plain dark navy panel with gold rails, tiled along each
+    // curtain (the F10 mark now sits only at the middle of each side).
+    const wallCanvas = (() => {
+      const c = document.createElement("canvas"); c.width = 256; c.height = 128;
+      const g = c.getContext("2d");
+      const grd = g.createLinearGradient(0, 0, 0, 128);
+      grd.addColorStop(0, "#141f42"); grd.addColorStop(0.5, "#0c1730"); grd.addColorStop(1, "#070c1c");
+      g.fillStyle = grd; g.fillRect(0, 0, 256, 128);
+      g.strokeStyle = "rgba(255,200,50,0.55)"; g.lineWidth = 3; g.strokeRect(14, 14, 228, 100);
+      g.strokeStyle = "rgba(120,150,210,0.25)"; g.lineWidth = 1; g.strokeRect(20, 20, 216, 88);
+      g.fillStyle = "#ffc627"; g.fillRect(0, 4, 256, 3); g.fillRect(0, 121, 256, 3);
+      return c;
+    })();
+    const wallTex = (rep) => {
+      const t = new THREE.CanvasTexture(wallCanvas);
+      t.wrapS = t.wrapT = THREE.RepeatWrapping; t.repeat.set(rep, 1);
+      return t;
+    };
+
+    // Gold "F10" crest and the blue F10 hologram face.
+    const crestTex = (() => {
+      const c = document.createElement("canvas"); c.width = c.height = 128;
+      const g = c.getContext("2d");
+      const grd = g.createLinearGradient(0, 0, 0, 128);
+      grd.addColorStop(0, "#ffd657"); grd.addColorStop(1, "#c8940a");
+      g.fillStyle = grd; g.fillRect(0, 0, 128, 128);
+      g.strokeStyle = "#3a2600"; g.lineWidth = 8; g.strokeRect(9, 9, 110, 110);
+      g.fillStyle = "#0a0c16"; g.font = "bold 52px Arial"; g.textAlign = "center"; g.textBaseline = "middle";
+      g.fillText("F10", 64, 68);
+      return new THREE.CanvasTexture(c);
+    })();
+    const plaqueMat = signMat(crestTex);
+    // Dark, gold-framed "F10" marker for the middle of each wall side.
+    const markMat = signMat((() => {
+      const c = document.createElement("canvas"); c.width = c.height = 128;
+      const g = c.getContext("2d");
+      const grd = g.createLinearGradient(0, 0, 0, 128);
+      grd.addColorStop(0, "#141f42"); grd.addColorStop(1, "#0a1024");
+      g.fillStyle = grd; g.fillRect(0, 0, 128, 128);
+      g.strokeStyle = "#ffc627"; g.lineWidth = 8; g.strokeRect(10, 10, 108, 108);
+      g.fillStyle = "#ffce3a"; g.font = "bold 60px Arial"; g.textAlign = "center"; g.textBaseline = "middle";
+      g.fillText("F10", 64, 68);
+      return new THREE.CanvasTexture(c);
+    })());
+    const holoTex = (() => {
+      const c = document.createElement("canvas"); c.width = c.height = 128;
+      const g = c.getContext("2d"); g.clearRect(0, 0, 128, 128);
+      g.strokeStyle = "rgba(120,205,255,0.9)"; g.lineWidth = 5; g.beginPath();
+      for (let i = 0; i < 6; i++) { const a = Math.PI / 6 + i * Math.PI / 3, px = 64 + 52 * Math.cos(a), py = 64 + 52 * Math.sin(a); if (i) g.lineTo(px, py); else g.moveTo(px, py); }
+      g.closePath(); g.stroke();
+      g.fillStyle = "rgba(160,220,255,0.95)"; g.font = "bold 38px Arial"; g.textAlign = "center"; g.textBaseline = "middle";
+      g.fillText("F10", 64, 66);
+      return new THREE.CanvasTexture(c);
+    })();
+
+    const mesh = (geo, mat) => { const m = new THREE.Mesh(geo, mat); m.castShadow = true; m.receiveShadow = true; return m; };
+    const slab = (w, h, d, mat, x, y, z) => { const m = mesh(new THREE.BoxGeometry(w, h, d), mat); m.position.set(x, y, z); rampart.add(m); return m; };
+
+    // Crenellated battlement: dark merlons with bright gold caps, stepping along
+    // `axis`, skipping the corner-tower footprints and (on the gate side) the
+    // central opening.
+    const battlement = (fixed, axis, gateGap) => {
+      const merlonY = WALL_H + M_H / 2;
+      for (let p = -WMID + M_STEP / 2 + 0.6; p <= WMID - 0.6; p += M_STEP) {
+        if (Math.abs(p) > WMID - T_W / 2 - 0.5) continue;        // under a tower
+        if (gateGap && Math.abs(p) < GATE_HALF + 2.2) continue;  // over the gateway
+        const [x, z] = axis === "x" ? [p, fixed] : [fixed, p];
+        const w = axis === "x" ? M_W : WALL_T;
+        const d = axis === "x" ? WALL_T : M_W;
+        slab(w, M_H, d, darkMat2, x, merlonY, z);
+        slab(w + 0.16, 0.3, d + 0.16, goldMat, x, WALL_H + M_H + 0.15, z); // gold cap
+      }
+    };
+
+    // One straight run of curtain wall (dark F10 panels) with bright gold rails
+    // capping the top walkway and skirting the base.
+    const curtain = (axis, fixed, a, b) => {
+      const len = Math.abs(b - a), mid = (a + b) / 2, rep = Math.max(1, Math.round(len / 12));
+      const m = new THREE.MeshStandardMaterial({ map: wallTex(rep), roughness: 0.55, metalness: 0.35 });
+      if (axis === "x") {
+        const wall = mesh(new THREE.BoxGeometry(len, WALL_H, WALL_T), m); wall.position.set(mid, WALL_H / 2, fixed); rampart.add(wall);
+        slab(len, 0.34, WALL_T + 0.24, goldMat, mid, WALL_H - 0.05, fixed);
+        slab(len, 0.34, WALL_T + 0.24, goldMat, mid, 0.42, fixed);
+      } else {
+        const wall = mesh(new THREE.BoxGeometry(WALL_T, WALL_H, len), m); wall.position.set(fixed, WALL_H / 2, mid); rampart.add(wall);
+        slab(WALL_T + 0.24, 0.34, len, goldMat, fixed, WALL_H - 0.05, mid);
+        slab(WALL_T + 0.24, 0.34, len, goldMat, fixed, 0.42, mid);
+      }
+    };
+
+    // North/west/east curtains run full span; the south side (near the camera)
+    // is split by the gateway into two runs.
+    curtain("x", -WMID, -WMID, WMID);            // north
+    curtain("z", -WMID, -WMID, WMID);            // west
+    curtain("z",  WMID, -WMID, WMID);            // east
+    curtain("x",  WMID, -WMID, WMID);            // south (near camera) — solid
+    battlement(-WMID, "x", false); // north
+    battlement( WMID, "x", false); // south
+    battlement(-WMID, "z", false); // west
+    battlement( WMID, "z", false); // east
+
+    // A single F10 marker centred on each side's inner wall face.
+    const inFace = WALL_T / 2 + 0.06, markY = WALL_H * 0.5 + 0.2;
+    const midMark = (x, z, ry) => {
+      const pl = new THREE.Mesh(new THREE.PlaneGeometry(3.6, 3.6), markMat);
+      pl.position.set(x, markY, z); pl.rotation.y = ry; rampart.add(pl);
+    };
+    midMark(0, -WMID + inFace, 0);            // north → faces +z
+    midMark(0,  WMID - inFace, Math.PI);      // south → faces -z
+    midMark(-WMID + inFace, 0, Math.PI / 2);  // west  → faces +x
+    midMark( WMID - inFace, 0, -Math.PI / 2); // east  → faces -x
+
+    // -- Four corner beacon towers: a tall dark shaft banded with gold, F10
+    //    plaques on every face, a crenellated crown and a glowing gold lantern.
+    [[-WMID, -WMID], [WMID, -WMID], [-WMID, WMID], [WMID, WMID]].forEach(([x, z]) => {
+      const H = 15.5;
+      slab(T_W + 0.6, 0.9, T_W + 0.6, darkMat2, x, 0.45, z);      // base plinth
+      slab(T_W, H, T_W, darkMat, x, H / 2, z);                    // shaft
+      [3.6, 7.6, 11.6].forEach((ty) => slab(T_W + 0.35, 0.42, T_W + 0.35, goldMat, x, ty, z)); // gold bands
+      const pf = T_W / 2 + 0.05;                                  // F10 plaques
+      [[0, pf, 0], [0, -pf, Math.PI], [pf, 0, Math.PI / 2], [-pf, 0, -Math.PI / 2]].forEach(([ox, oz, ry]) => {
+        const pl = new THREE.Mesh(new THREE.PlaneGeometry(2.7, 2.7), plaqueMat);
+        pl.position.set(x + ox, 9.6, z + oz); pl.rotation.y = ry; rampart.add(pl);
+      });
+      slab(T_W + 0.9, 1.0, T_W + 0.9, goldMat, x, H + 0.4, z);    // crown lip
+      slab(T_W + 0.3, 1.2, T_W + 0.3, darkMat2, x, H + 1.5, z);   // crown wall
+      const o = T_W / 2;                                          // crown merlons
+      [[-o, -o], [o, -o], [-o, o], [o, o]].forEach(([ox, oz]) => slab(0.85, 1.6, 0.85, goldMat, x + ox, H + 1.5, z + oz));
+      slab(T_W - 1.8, 2.8, T_W - 1.8, goldGlowMat, x, H + 3.3, z); // glowing lantern
+      slab(T_W - 0.6, 0.7, T_W - 0.6, goldMat, x, H + 5.0, z);     // lantern cap
+      slab(0.5, 1.5, 0.5, goldMat, x, H + 6.0, z);                 // finial spike
+      const glow = new THREE.Sprite(new THREE.SpriteMaterial({ map: goldGlowTex, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, opacity: 0.95 }));
+      glow.position.set(x, H + 3.5, z); glow.scale.set(10, 10, 1); rampart.add(glow);
     });
+
+    // -- Billboard signs mounted on posts above the two far walls. `wall` is
+    //    "north" (z=-WMID, facing +z) or "west" (x=-WMID, facing +x); `along`
+    //    is the position down that wall; drawFn paints the dark, gold-framed face.
+    const panelBase = (g, W, H) => {
+      const grd = g.createLinearGradient(0, 0, 0, H);
+      grd.addColorStop(0, "#0e1a38"); grd.addColorStop(1, "#060b1c");
+      g.fillStyle = grd; g.fillRect(0, 0, W, H);
+      g.strokeStyle = "#ffc627"; g.lineWidth = Math.max(5, W * 0.014); g.strokeRect(g.lineWidth, g.lineWidth, W - 2 * g.lineWidth, H - 2 * g.lineWidth);
+      g.strokeStyle = "rgba(255,198,39,0.4)"; g.lineWidth = 2; g.strokeRect(W * 0.03, H * 0.06, W * 0.94, H * 0.88);
+    };
+    const buildSign = (wall, along, w, h, faceMat) => {
+      const grp = new THREE.Group();
+      const panel = new THREE.Mesh(new THREE.BoxGeometry(w, h, 0.5), [darkMat, darkMat, darkMat, darkMat, faceMat, darkMat]);
+      panel.castShadow = true; grp.add(panel);
+      const fz = 0.28;
+      [[w + 0.3, 0.32, 0, h / 2 - 0.04], [w + 0.3, 0.32, 0, -h / 2 + 0.04], [0.32, h + 0.3, -w / 2 + 0.04, 0], [0.32, h + 0.3, w / 2 - 0.04, 0]]
+        .forEach(([bw, bh, bx, by]) => { const b = new THREE.Mesh(new THREE.BoxGeometry(bw, bh, 0.16), goldMat); b.position.set(bx, by, fz); grp.add(b); });
+      const postH = 2.8, cy = WALL_H + postH + h / 2, pOff = w * 0.33;
+      if (wall === "north") grp.position.set(along, cy, -WMID);
+      else { grp.position.set(-WMID, cy, along); grp.rotation.y = Math.PI / 2; }
+      rampart.add(grp);
+      const py = WALL_H + postH / 2;
+      [-pOff, pOff].forEach((offs) => {
+        if (wall === "north") slab(0.7, postH + 0.5, 0.7, darkMat, along + offs, py, -WMID);
+        else slab(0.7, postH + 0.5, 0.7, darkMat, -WMID, py, along + offs);
+      });
+    };
+    const placeSign = (wall, along, w, h, drawFn) => {
+      const CW = Math.round(w * 40), CH = Math.round(h * 40);
+      const c = document.createElement("canvas"); c.width = CW; c.height = CH;
+      drawFn(c.getContext("2d"), CW, CH);
+      buildSign(wall, along, w, h, signMat(new THREE.CanvasTexture(c)));
+    };
+    // Image-faced sign (the pump.fun emblem): a dark gold-framed panel with the
+    // image (served from /pump.webp) drawn centred on top once it loads.
+    const placeImageSign = (wall, along, w, h, url) => {
+      const CW = Math.round(w * 40), CH = Math.round(h * 40);
+      const c = document.createElement("canvas"); c.width = CW; c.height = CH;
+      const g = c.getContext("2d"); panelBase(g, CW, CH);
+      const tex = new THREE.CanvasTexture(c);
+      const img = new Image();
+      img.onload = () => {
+        const pad = Math.min(CW, CH) * 0.13;
+        const scale = Math.min((CW - 2 * pad) / img.width, (CH - 2 * pad) / img.height);
+        const dw = img.width * scale, dh = img.height * scale;
+        g.drawImage(img, (CW - dw) / 2, (CH - dh) / 2, dw, dh); tex.needsUpdate = true;
+      };
+      img.src = url;
+      buildSign(wall, along, w, h, signMat(tex));
+    };
+    const drawArena = (g, W, H) => {
+      panelBase(g, W, H);
+      g.textAlign = "center"; g.textBaseline = "middle";
+      g.fillStyle = "#ffd24a"; g.font = `bold ${Math.round(H * 0.5)}px Arial`;
+      g.fillText("F10", W / 2, H * 0.54);
+    };
+    const drawTrade = (g, W, H) => {
+      panelBase(g, W, H);
+      g.textAlign = "center"; g.textBaseline = "middle";
+      g.fillStyle = "#f4f7ff"; g.font = `bold ${Math.round(H * 0.19)}px Arial`;
+      g.fillText("TRADE. FIGHT. EARN.", W / 2, H * 0.36);
+      g.fillStyle = "#ffce35"; g.font = `bold ${Math.round(H * 0.15)}px Arial`;
+      g.fillText("F10 IS THE FUTURE", W / 2, H * 0.66);
+    };
+    placeSign("west",  -1,  18, 8,   drawArena);         // F10 ARENA
+    placeSign("north", -13, 15, 7,   drawTrade);         // TRADE. FIGHT. EARN.
+    placeImageSign("north", 14, 6.6, 6.6, "/pump.webp"); // pump.fun emblem
+
+    // -- Blue crystal clusters just outside each corner tower.
+    const crystalCluster = (cx, cz) => {
+      for (let i = 0; i < 5; i++) {
+        const s = 1.0 + Math.random() * 1.8;
+        const cr = new THREE.Mesh(new THREE.ConeGeometry(s * 0.45, s * 2.4, 5), crystalMat);
+        cr.position.set(cx + (Math.random() - 0.5) * 3.4, s * 1.1, cz + (Math.random() - 0.5) * 3.4);
+        cr.rotation.set((Math.random() - 0.5) * 0.5, Math.random() * 6, (Math.random() - 0.5) * 0.5);
+        rampart.add(cr);
+      }
+      const glow = new THREE.Sprite(new THREE.SpriteMaterial({ map: blueGlowTex, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, opacity: 0.85 }));
+      glow.position.set(cx, 2.6, cz); glow.scale.set(12, 12, 1); rampart.add(glow);
+    };
+    const OC = WMID + 4.5;
+    [[-OC, -OC], [OC, -OC], [-OC, OC], [OC, OC]].forEach(([cx, cz]) => crystalCluster(cx, cz));
+
+    // -- F10 hologram hovering off the near corner, on a small gold emitter.
+    {
+      const hx = OC - 1, hz = OC - 8;
+      const holo = new THREE.Mesh(new THREE.CircleGeometry(3.6, 6),
+        new THREE.MeshBasicMaterial({ map: holoTex, transparent: true, opacity: 0.82, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide }));
+      holo.position.set(hx, 6, hz); holo.rotation.z = Math.PI / 6; holo.rotation.y = -Math.PI / 4; rampart.add(holo);
+      const base = mesh(new THREE.CylinderGeometry(1.4, 1.7, 0.6, 8), goldMat); base.position.set(hx, 0.3, hz); rampart.add(base);
+      const hg = new THREE.Sprite(new THREE.SpriteMaterial({ map: blueGlowTex, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, opacity: 0.8 }));
+      hg.position.set(hx, 6, hz); hg.scale.set(10, 10, 1); rampart.add(hg);
+    }
+
+    // -- Battlement flame lamps: flickering torches standing in the merlon gaps
+    //    along the wall top (pushed to edgeLamps so animate() flickers them).
+    {
+      // Flame sprite texture — soft radial gradient, warm core.
+      const flameCanvas = document.createElement("canvas");
+      flameCanvas.width = flameCanvas.height = 64;
+      const fx = flameCanvas.getContext("2d");
+      const fg = fx.createRadialGradient(32, 38, 2, 32, 34, 30);
+      fg.addColorStop(0.00, "rgba(255,246,214,1)");
+      fg.addColorStop(0.25, "rgba(255,208,116,0.92)");
+      fg.addColorStop(0.55, "rgba(255,138,40,0.55)");
+      fg.addColorStop(1.00, "rgba(255,90,10,0)");
+      fx.fillStyle = fg; fx.fillRect(0, 0, 64, 64);
+      const flameTex = new THREE.CanvasTexture(flameCanvas);
+      // Warm glow pool the flame throws on the walkway.
+      const glowCanvas = document.createElement("canvas");
+      glowCanvas.width = glowCanvas.height = 64;
+      const gx2 = glowCanvas.getContext("2d");
+      const gg = gx2.createRadialGradient(32, 32, 1, 32, 32, 31);
+      gg.addColorStop(0.00, "rgba(255,180,80,0.9)");
+      gg.addColorStop(0.45, "rgba(255,130,30,0.35)");
+      gg.addColorStop(1.00, "rgba(255,90,10,0)");
+      gx2.fillStyle = gg; gx2.fillRect(0, 0, 64, 64);
+      const glowTex = new THREE.CanvasTexture(glowCanvas);
+
+      const baseGeo = new THREE.CylinderGeometry(0.3, 0.38, 0.5, 10);
+      const glowGeo = new THREE.PlaneGeometry(2.2, 2.2);
+      const wallTop = WALL_H;
+      const torchAt = (x, z) => {
+        const base = mesh(baseGeo, ironMat);
+        base.scale.setScalar(PROP_SCALE);
+        base.position.set(x, wallTop + 0.25 * PROP_SCALE, z);
+        rampart.add(base);
+        const sprite = new THREE.Sprite(new THREE.SpriteMaterial({
+          map: flameTex, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false,
+        }));
+        sprite.position.set(x, wallTop + (0.5 + 0.72) * PROP_SCALE, z);
+        sprite.scale.set(1.15 * PROP_SCALE, 1.7 * PROP_SCALE, 1);
+        rampart.add(sprite);
+        const glow = new THREE.Mesh(glowGeo, new THREE.MeshBasicMaterial({
+          map: glowTex, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false,
+        }));
+        glow.scale.setScalar(PROP_SCALE);
+        glow.rotation.x = -Math.PI / 2;
+        glow.position.set(x, wallTop + 0.03, z);
+        rampart.add(glow);
+        edgeLamps.push({ sprite, glow, phase: Math.random() * Math.PI * 2 });
+      };
+      // Walk each wall top and drop a torch in every third merlon gap (gap
+      // centres sit half a step off the merlon centres), skipping the corner
+      // turrets and, on the north side, the gateway.
+      const torchLine = (fixed, axis, gateGap) => {
+        let k = 0;
+        for (let p = -WMID + M_STEP + 0.6; p <= WMID - M_STEP; p += M_STEP, k++) {
+          if (k % 3 !== 1) continue;
+          if (Math.abs(p) > WMID - T_W / 2 - 1.0) continue;        // clear of towers
+          if (gateGap && Math.abs(p) < GATE_HALF + 2.6) continue;  // clear of the gate
+          if (axis === "x") torchAt(p, fixed); else torchAt(fixed, p);
+        }
+      };
+      torchLine( WMID, "x", false); // south
+      torchLine(-WMID, "x", false); // north
+      torchLine(-WMID, "z", false); // west
+      torchLine( WMID, "z", false); // east
+    }
+
+    scene.add(rampart);
   }
 
   // -- Pixelated FIGHT10 ground decals (black pixel squares, random) --------
@@ -1874,12 +2075,8 @@ export function createArenaGame(options) {
     clearMap();
     const rng = makeRng(seedStr || "demo");
     buildRiver(rng);
-    // Four snowy watchtowers, one at each corner — always present
-    const tOff = MAP_HALF - 5;
-    [[-tOff,-tOff],[-tOff,tOff],[tOff,-tOff],[tOff,tOff]].forEach(([tx,tz]) => {
-      addTower(tx, tz);
-      addTowerSnowGrass(tx, tz, rng);
-    });
+    // The old corner watchtowers were removed — the arena is now ringed by the
+    // rampart's corner beacon towers instead.
     const scatter = (count, adder, gap) => {
       let made = 0, tries = 0;
       while (made < count && tries < count * 40) {
@@ -2807,7 +3004,7 @@ export function createArenaGame(options) {
   function applyTheme(name) {
     theme = THEMES[name] || THEMES.lobby;
     renderer.setClearColor(theme.bg, 1);
-    scene.background = new THREE.Color(theme.bg);
+    scene.background = skyTex;
     applyFog();
     if (name === "game") makeFight10Decal();
     const newTex = makeGroundTex(theme.ground);
