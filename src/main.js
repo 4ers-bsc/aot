@@ -29,8 +29,8 @@ const SIGN_IN_STATEMENT = "Sign in to FIGHT10 to play realtime PvP duels.";
 // ---------------------------------------------------------------------------
 // FIGHT10 Tokenomics constants
 // Fill in FIGHT10_TOKEN and ESCROW_WALLET after deploying the ERC-20 token on
-// Robinhood Chain + generating the escrow account. Which network (testnet or
-// mainnet) these live on is decided by the table in network.js (VITE_NETWORK).
+// Robinhood Chain mainnet + generating the escrow account (network parameters
+// live in network.js).
 // ---------------------------------------------------------------------------
 const FIGHT10_TOKEN   = import.meta.env?.VITE_FIGHT10_TOKEN?.trim()  || "<FIGHT10_TOKEN_ADDRESS>";
 const ESCROW_WALLET   = import.meta.env?.VITE_ESCROW_WALLET?.trim()  || "<ESCROW_WALLET_ADDRESS>";
