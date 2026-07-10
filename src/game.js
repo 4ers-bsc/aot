@@ -194,6 +194,13 @@ export function createArenaGame(options) {
   const LEDGE_W = 3.2;   // ledge band width beyond the map rim
   const LEDGE_H = 0.56;  // ledge thickness; top sits just above the floor
   const LEDGE_TOP = 0.06;
+  // Fortress-rampart dimensions — shared by buildArenaRampart() (which raises
+  // the wall and its corner turrets) and the battlement torches mounted on the
+  // wall top. The wall's inner face sits flush with the arena edge (±MAP_HALF),
+  // so it rises right at the play boundary and the turrets cap its corners.
+  const WALL_T = 2.6;                     // rampart thickness
+  const WALL_H = 6.6;                     // rampart height above the floor
+  const WALL_MID = MAP_HALF + WALL_T / 2; // wall centreline (inner face at the rim)
   const wallObjects = []; // tracks all wall scene objects for disposal
   // F10 cloth banner draped over the left map edge. Each entry is animated
   // per frame in animate(): an unfurl drop when built, then a continuous
@@ -380,10 +387,11 @@ export function createArenaGame(options) {
   buildArenaWalls("game");
 
 
-  // -- Edge ledge + flame lamps ----------------------------------------------
-  // A polished black ledge ring hugging the map rim, with small flickering
-  // flame lamps spaced along it — scene objects, so they stay anchored to the
-  // map edges (home backdrop and in-game alike) instead of the viewport.
+  // -- Edge ledge ------------------------------------------------------------
+  // A polished black ledge ring hugging the map rim — a foundation course that
+  // the rampart wall rises from. Scene objects, so they stay anchored to the
+  // map edges (home backdrop and in-game alike) instead of the viewport. The
+  // flame lamps that used to sit here now ride the top of the rampart wall.
   const edgeLamps = []; // { sprite, glow, phase } — flickered in animate()
   {
     const ledgeMat = new THREE.MeshStandardMaterial({
@@ -413,75 +421,21 @@ export function createArenaGame(options) {
       new THREE.LineBasicMaterial({ color: 0xffaa00, transparent: true, opacity: 0.45 })
     ));
 
-    // Flame sprite texture — soft radial gradient, warm core.
-    const flameCanvas = document.createElement("canvas");
-    flameCanvas.width = 64; flameCanvas.height = 64;
-    const fx = flameCanvas.getContext("2d");
-    const fg = fx.createRadialGradient(32, 38, 2, 32, 34, 30);
-    fg.addColorStop(0.00, "rgba(255,246,214,1)");
-    fg.addColorStop(0.25, "rgba(255,208,116,0.92)");
-    fg.addColorStop(0.55, "rgba(255,138,40,0.55)");
-    fg.addColorStop(1.00, "rgba(255,90,10,0)");
-    fx.fillStyle = fg;
-    fx.fillRect(0, 0, 64, 64);
-    const flameTex = new THREE.CanvasTexture(flameCanvas);
-
-    // Warm glow pool cast on the polished ledge under each flame.
-    const glowCanvas = document.createElement("canvas");
-    glowCanvas.width = 64; glowCanvas.height = 64;
-    const gx2 = glowCanvas.getContext("2d");
-    const gg = gx2.createRadialGradient(32, 32, 1, 32, 32, 31);
-    gg.addColorStop(0.00, "rgba(255,180,80,0.9)");
-    gg.addColorStop(0.45, "rgba(255,130,30,0.35)");
-    gg.addColorStop(1.00, "rgba(255,90,10,0)");
-    gx2.fillStyle = gg;
-    gx2.fillRect(0, 0, 64, 64);
-    const glowTex = new THREE.CanvasTexture(glowCanvas);
-
-    const baseGeo = new THREE.CylinderGeometry(0.3, 0.38, 0.5, 10);
-    const glowGeo = new THREE.PlaneGeometry(3.4, 3.4);
-    const LAMP_MID = MAP_HALF + LEDGE_W / 2; // lamp row centered on the ledge band
-    // Eight lamps total: one at each of the four corners and one at the middle
-    // of each of the four sides.
-    const lampSpots = [
-      [-LAMP_MID, -LAMP_MID], [LAMP_MID, -LAMP_MID], // corners
-      [-LAMP_MID,  LAMP_MID], [LAMP_MID,  LAMP_MID],
-      [0, -LAMP_MID], [0, LAMP_MID], [-LAMP_MID, 0], [LAMP_MID, 0], // mid-sides
-    ];
-    lampSpots.forEach(([x, z]) => {
-      // Small polished base…
-      const base = new THREE.Mesh(baseGeo, ledgeMat);
-      base.scale.setScalar(PROP_SCALE);
-      base.position.set(x, LEDGE_TOP + 0.25 * PROP_SCALE, z);
-      scene.add(base);
-      // …its flame…
-      const sprite = new THREE.Sprite(new THREE.SpriteMaterial({
-        map: flameTex, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false,
-      }));
-      sprite.position.set(x, LEDGE_TOP + (0.5 + 0.72) * PROP_SCALE, z);
-      sprite.scale.set(1.15 * PROP_SCALE, 1.7 * PROP_SCALE, 1);
-      scene.add(sprite);
-      // …and the warm pool it throws on the shiny ledge.
-      const glow = new THREE.Mesh(glowGeo, new THREE.MeshBasicMaterial({
-        map: glowTex, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false,
-      }));
-      glow.scale.setScalar(PROP_SCALE);
-      glow.rotation.x = -Math.PI / 2;
-      glow.position.set(x, LEDGE_TOP + 0.015, z);
-      scene.add(glow);
-      edgeLamps.push({ sprite, glow, phase: Math.random() * Math.PI * 2 });
-    });
+    // The flickering flame lamps that used to line this ledge now ride the top
+    // of the rampart; they are built with the wall in buildArenaRampart() so
+    // they can be dropped into the merlon gaps at the correct wall height.
   }
 
   // -- Arena rampart (static fortress wall enclosing the map) -----------------
-  // A raised frosted-stone curtain wall ringing the whole arena, just beyond
-  // the edge ledge: crenellated battlements with snow caps, four turret towers
-  // with snowy cone roofs, and a gatehouse (wooden doors + iron portcullis +
-  // F10 crest) on the far north side. Built once and parented to the scene, so
-  // it stays anchored to the map rim in both the lobby backdrop and a live
-  // match, and is released with everything else by disposeObject3D(scene) on
-  // destroy(). Placed outside the play area (map bounds are ±MAP_HALF), so it
-  // never touches fighters, projectiles or the solid-prop collision set.
+  // A raised frosted-stone curtain wall standing right on the arena edge:
+  // crenellated battlements with snow caps, four corner turrets that cap and
+  // join the wall runs, flame lamps riding the wall top, and a gatehouse
+  // (wooden doors + iron portcullis + F10 crest) on the far north side. Built
+  // once and parented to the scene, so it stays anchored to the map rim in both
+  // the lobby backdrop and a live match, and is released with everything else
+  // by disposeObject3D(scene) on destroy(). The wall's inner face sits on the
+  // play boundary (±MAP_HALF): it never overlaps the floor, so fighters,
+  // projectiles and the solid-prop collision set are untouched.
   {
     const rampart = new THREE.Group();
 
@@ -520,21 +474,18 @@ export function createArenaGame(options) {
     const towerMat  = new THREE.MeshStandardMaterial({ map: stoneTex(4, 3),    color: 0x9a9c9f, roughness: 0.95, metalness: 0.0 });
     const snowMat   = new THREE.MeshStandardMaterial({ color: 0xe4eef7, roughness: 0.9, metalness: 0.0 });
     const roofMat   = new THREE.MeshStandardMaterial({ color: 0x2b3d63, roughness: 0.7, metalness: 0.05 });
-    const woodMat   = new THREE.MeshStandardMaterial({ color: 0x4a3420, roughness: 0.9, metalness: 0.0 });
     const ironMat   = new THREE.MeshStandardMaterial({ color: 0x2c2f34, roughness: 0.45, metalness: 0.65 });
     const goldMat   = new THREE.MeshStandardMaterial({ color: 0xffc830, emissive: 0x5a3f00, emissiveIntensity: 0.6, roughness: 0.4, metalness: 0.5 });
 
     const mesh = (geo, mat) => { const m = new THREE.Mesh(geo, mat); m.castShadow = true; m.receiveShadow = true; return m; };
     const slab = (w, h, d, mat, x, y, z) => { const m = mesh(new THREE.BoxGeometry(w, h, d), mat); m.position.set(x, y, z); rampart.add(m); return m; };
 
-    // Curtain-wall dimensions. WMID is the wall centreline, set just outside the
-    // gold ledge trim (L_OUT = MAP_HALF + LEDGE_W) with a small gap.
-    const WALL_T = 2.6;    // wall thickness
-    const WALL_H = 6.6;    // curtain height above the floor
-    const WMID   = MAP_HALF + LEDGE_W + 1.2 + WALL_T / 2;
-    const SPAN   = 2 * WMID;            // corner-to-corner length of a side
+    // Curtain-wall dimensions (WALL_T/WALL_H/WALL_MID are shared with the edge
+    // lamps, defined up top). WMID is the wall centreline; its inner face sits
+    // flush with the arena edge (±MAP_HALF) so the wall rises right at the rim.
+    const WMID = WALL_MID;
     const M_W = 2.4, M_H = 1.7, M_STEP = 4.8; // merlon width / height / spacing
-    const T_R = 3.9;       // corner turret radius
+    const T_R = 3.0;       // corner turret radius — sized to cap the wall corners
     const GATE_W = 12;     // clear width of the north gateway
     const GATE_HALF = GATE_W / 2;
 
@@ -666,6 +617,72 @@ export function createArenaGame(options) {
       const crest = mesh(new THREE.BoxGeometry(2.6, 2.6, 0.3), new THREE.MeshStandardMaterial({ map: crestTex, roughness: 0.6 }));
       crest.position.set(0, lintelY + 0.1, gz - WALL_T / 2 - 0.28);
       rampart.add(crest);
+    }
+
+    // -- Battlement flame lamps: flickering torches standing in the merlon gaps
+    //    along the wall top (pushed to edgeLamps so animate() flickers them).
+    {
+      // Flame sprite texture — soft radial gradient, warm core.
+      const flameCanvas = document.createElement("canvas");
+      flameCanvas.width = flameCanvas.height = 64;
+      const fx = flameCanvas.getContext("2d");
+      const fg = fx.createRadialGradient(32, 38, 2, 32, 34, 30);
+      fg.addColorStop(0.00, "rgba(255,246,214,1)");
+      fg.addColorStop(0.25, "rgba(255,208,116,0.92)");
+      fg.addColorStop(0.55, "rgba(255,138,40,0.55)");
+      fg.addColorStop(1.00, "rgba(255,90,10,0)");
+      fx.fillStyle = fg; fx.fillRect(0, 0, 64, 64);
+      const flameTex = new THREE.CanvasTexture(flameCanvas);
+      // Warm glow pool the flame throws on the walkway.
+      const glowCanvas = document.createElement("canvas");
+      glowCanvas.width = glowCanvas.height = 64;
+      const gx2 = glowCanvas.getContext("2d");
+      const gg = gx2.createRadialGradient(32, 32, 1, 32, 32, 31);
+      gg.addColorStop(0.00, "rgba(255,180,80,0.9)");
+      gg.addColorStop(0.45, "rgba(255,130,30,0.35)");
+      gg.addColorStop(1.00, "rgba(255,90,10,0)");
+      gx2.fillStyle = gg; gx2.fillRect(0, 0, 64, 64);
+      const glowTex = new THREE.CanvasTexture(glowCanvas);
+
+      const baseGeo = new THREE.CylinderGeometry(0.3, 0.38, 0.5, 10);
+      const glowGeo = new THREE.PlaneGeometry(2.2, 2.2);
+      const wallTop = WALL_H;
+      const torchAt = (x, z) => {
+        const base = mesh(baseGeo, ironMat);
+        base.scale.setScalar(PROP_SCALE);
+        base.position.set(x, wallTop + 0.25 * PROP_SCALE, z);
+        rampart.add(base);
+        const sprite = new THREE.Sprite(new THREE.SpriteMaterial({
+          map: flameTex, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false,
+        }));
+        sprite.position.set(x, wallTop + (0.5 + 0.72) * PROP_SCALE, z);
+        sprite.scale.set(1.15 * PROP_SCALE, 1.7 * PROP_SCALE, 1);
+        rampart.add(sprite);
+        const glow = new THREE.Mesh(glowGeo, new THREE.MeshBasicMaterial({
+          map: glowTex, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false,
+        }));
+        glow.scale.setScalar(PROP_SCALE);
+        glow.rotation.x = -Math.PI / 2;
+        glow.position.set(x, wallTop + 0.03, z);
+        rampart.add(glow);
+        edgeLamps.push({ sprite, glow, phase: Math.random() * Math.PI * 2 });
+      };
+      // Walk each wall top and drop a torch in every third merlon gap (gap
+      // centres sit half a step off the merlon centres), skipping the corner
+      // turrets and, on the north side, the gateway.
+      const torchLine = (fixed, axis, gateGap) => {
+        let k = 0;
+        for (let p = -WMID + M_STEP + 0.6; p <= WMID - M_STEP; p += M_STEP, k++) {
+          if (k % 3 !== 1) continue;
+          if (Math.abs(p) > WMID - T_R - 1.0) continue;            // clear of turrets
+          if (gateGap && Math.abs(p) < GATE_HALF + 2.6) continue;  // clear of the gate
+          if (axis === "x") torchAt(p, fixed); else torchAt(fixed, p);
+        }
+      };
+      torchLine( WMID, "x", false); // south
+      torchLine(-WMID, "x", true);  // north (has the gateway)
+      torchLine(-WMID, "z", false); // west
+      torchLine( WMID, "z", false); // east
     }
 
     scene.add(rampart);
