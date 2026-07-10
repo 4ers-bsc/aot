@@ -103,7 +103,46 @@ export function createArenaGame(options) {
 
   // -- Scene ----------------------------------------------------------------
   const scene = new THREE.Scene();
-  scene.background = new THREE.Color(theme.bg);
+  // Baked moonlit night-sky backdrop (deep-blue gradient, a full moon, drifting
+  // clouds and faint far spires) so the arena reads as a fortress floating in
+  // the clouds. A fixed 2D background texture, so it never moves with the
+  // follow camera. Reused by applyTheme() instead of a flat clear colour.
+  const skyTex = (() => {
+    const c = document.createElement("canvas");
+    c.width = 1024; c.height = 512;
+    const x = c.getContext("2d");
+    const g = x.createLinearGradient(0, 0, 0, 512);
+    g.addColorStop(0.0, "#070f26"); g.addColorStop(0.55, "#0b1734"); g.addColorStop(1.0, "#173058");
+    x.fillStyle = g; x.fillRect(0, 0, 1024, 512);
+    for (let i = 0; i < 280; i++) {
+      x.fillStyle = `rgba(255,255,255,${(0.25 + Math.random() * 0.6).toFixed(2)})`;
+      const s = Math.random() < 0.12 ? 2.2 : 1.2;
+      x.fillRect(Math.random() * 1024, Math.random() * 320, s, s);
+    }
+    // Full moon with a soft halo, upper-left.
+    const halo = x.createRadialGradient(232, 118, 12, 232, 118, 96);
+    halo.addColorStop(0, "rgba(245,247,255,0.9)"); halo.addColorStop(0.55, "rgba(210,222,245,0.35)"); halo.addColorStop(1, "rgba(210,222,245,0)");
+    x.fillStyle = halo; x.beginPath(); x.arc(232, 118, 96, 0, 7); x.fill();
+    x.fillStyle = "#fbfbf2"; x.beginPath(); x.arc(232, 118, 50, 0, 7); x.fill();
+    x.fillStyle = "rgba(205,214,232,0.5)"; // faint craters
+    [[218,104,9],[250,128,7],[230,138,5]].forEach(([mx, my, mr]) => { x.beginPath(); x.arc(mx, my, mr, 0, 7); x.fill(); });
+    // Faint far spires along the horizon.
+    x.fillStyle = "rgba(120,150,205,0.16)";
+    for (let i = 0; i < 22; i++) {
+      const sx = Math.random() * 1024, sw = 6 + Math.random() * 16, sh = 40 + Math.random() * 120;
+      x.fillRect(sx, 360 - sh, sw, sh);
+      x.beginPath(); x.moveTo(sx, 360 - sh); x.lineTo(sx + sw / 2, 360 - sh - 22); x.lineTo(sx + sw, 360 - sh); x.fill();
+    }
+    // Drifting clouds.
+    for (let i = 0; i < 30; i++) {
+      const cx = Math.random() * 1024, cy = 190 + Math.random() * 300, cr = 45 + Math.random() * 110;
+      const cg = x.createRadialGradient(cx, cy, 0, cx, cy, cr);
+      cg.addColorStop(0, "rgba(96,126,182,0.22)"); cg.addColorStop(1, "rgba(96,126,182,0)");
+      x.fillStyle = cg; x.beginPath(); x.arc(cx, cy, cr, 0, 7); x.fill();
+    }
+    return new THREE.CanvasTexture(c);
+  })();
+  scene.background = skyTex;
   scene.fog = new THREE.Fog(theme.bg, RD_FOG.Far[0], RD_FOG.Far[1]);
 
   const FRUSTUM = 16;
@@ -426,198 +465,319 @@ export function createArenaGame(options) {
     // they can be dropped into the merlon gaps at the correct wall height.
   }
 
-  // -- Arena rampart (static fortress wall enclosing the map) -----------------
-  // A raised frosted-stone curtain wall standing right on the arena edge:
-  // crenellated battlements with snow caps, four corner turrets that cap and
-  // join the wall runs, flame lamps riding the wall top, and a gatehouse
-  // (wooden doors + iron portcullis + F10 crest) on the far north side. Built
-  // once and parented to the scene, so it stays anchored to the map rim in both
-  // the lobby backdrop and a live match, and is released with everything else
-  // by disposeObject3D(scene) on destroy(). The wall's inner face sits on the
-  // play boundary (±MAP_HALF): it never overlaps the floor, so fighters,
-  // projectiles and the solid-prop collision set are untouched.
+  // -- Arena rampart: the "F10 ARENA" fortress -------------------------------
+  // A dark obsidian-and-gold curtain wall standing on the arena edge, styled
+  // after the F10 splash art: gold-crowned battlements and repeated gold "F10"
+  // on the wall face, tall corner beacon towers with glowing gold lanterns,
+  // giant billboard signs (F10 ARENA / TRADE·FIGHT·EARN / LEADERBOARD / ₿), a
+  // gold-arched south gateway with a blue energy barrier, blue crystal clusters
+  // and an F10 hologram, and chains hanging into the clouds below. Flame torches
+  // ride the wall top. Built once and parented to the scene, so it stays
+  // anchored to the map rim in both the lobby backdrop and a live match, and is
+  // released with everything else by disposeObject3D(scene) on destroy(). The
+  // wall's inner face sits on the play boundary (±MAP_HALF): it never overlaps
+  // the floor, so fighters, projectiles and the solid-prop set are untouched.
   {
     const rampart = new THREE.Group();
 
-    // Speckled grey stone, matching the arena watchtowers. One canvas, cloned
-    // per surface so each can tile at its own density without smearing.
-    const stoneCanvas = document.createElement("canvas");
-    stoneCanvas.width = stoneCanvas.height = 128;
-    {
-      const scx = stoneCanvas.getContext("2d");
-      scx.fillStyle = "#7c7d80"; scx.fillRect(0, 0, 128, 128);
-      for (let i = 0; i < 2600; i++) {
-        const v = Math.random();
-        scx.fillStyle = v < 0.5
-          ? `rgba(150,152,156,${(0.15 + Math.random() * 0.3).toFixed(2)})`
-          : `rgba(70,71,74,${(0.15 + Math.random() * 0.3).toFixed(2)})`;
-        scx.fillRect(Math.random() * 128, Math.random() * 128, 1.2, 1.2);
-      }
-      // Blocky mortar courses so a long curtain wall reads as stacked stone.
-      scx.strokeStyle = "rgba(48,49,52,0.55)"; scx.lineWidth = 1.4;
-      for (let gy = 0; gy <= 128; gy += 32) { scx.beginPath(); scx.moveTo(0, gy); scx.lineTo(128, gy); scx.stroke(); }
-      for (let row = 0; row < 4; row++) {
-        const off = (row % 2) * 32; // running-bond brick offset
-        for (let gx = off; gx <= 128; gx += 64) {
-          scx.beginPath(); scx.moveTo(gx, row * 32); scx.lineTo(gx, row * 32 + 32); scx.stroke();
-        }
-      }
-    }
-    const stoneTex = (rx, ry) => {
-      const t = new THREE.CanvasTexture(stoneCanvas);
-      t.wrapS = t.wrapT = THREE.RepeatWrapping;
-      t.repeat.set(rx, ry);
+    // ---- Obsidian-navy stone with gold and blue-crystal accents -------------
+    const darkMat  = new THREE.MeshStandardMaterial({ color: 0x0c1430, emissive: 0x060a1a, emissiveIntensity: 0.5, roughness: 0.5, metalness: 0.4 });
+    const darkMat2 = new THREE.MeshStandardMaterial({ color: 0x18213c, roughness: 0.55, metalness: 0.35 });
+    const goldMat  = new THREE.MeshStandardMaterial({ color: 0xffc21a, emissive: 0x6a4300, emissiveIntensity: 0.55, roughness: 0.32, metalness: 0.85 });
+    const goldGlowMat = new THREE.MeshStandardMaterial({ color: 0xffd23a, emissive: 0xffa406, emissiveIntensity: 1.6, roughness: 0.3, metalness: 0.5 });
+    const ironMat  = new THREE.MeshStandardMaterial({ color: 0x2c2f34, roughness: 0.45, metalness: 0.65 });
+    const crystalMat = new THREE.MeshStandardMaterial({ color: 0x38b0ff, emissive: 0x1c7cff, emissiveIntensity: 1.3, roughness: 0.15, metalness: 0.1, transparent: true, opacity: 0.85 });
+    const signMat = (tex) => new THREE.MeshStandardMaterial({ map: tex, roughness: 0.55, metalness: 0.2, emissive: 0x141d38, emissiveIntensity: 0.35 });
+
+    // Dimensions. WMID is the wall centreline; its inner face sits flush with
+    // the arena edge (±MAP_HALF). WALL_T/WALL_H/WALL_MID come from up top.
+    const WMID = WALL_MID;
+    const M_W = 2.4, M_H = 1.7, M_STEP = 4.8; // merlon width / height / spacing
+    const T_W = 5.4;       // corner beacon-tower footprint
+    const GATE_W = 13, GATE_HALF = GATE_W / 2;
+
+    // Soft radial glow sprite (gold beacons, blue crystals).
+    const glowSpriteTex = (rgb) => {
+      const c = document.createElement("canvas"); c.width = c.height = 64;
+      const g = c.getContext("2d");
+      const rad = g.createRadialGradient(32, 32, 1, 32, 32, 32);
+      rad.addColorStop(0, `rgba(${rgb},0.95)`); rad.addColorStop(0.4, `rgba(${rgb},0.4)`); rad.addColorStop(1, `rgba(${rgb},0)`);
+      g.fillStyle = rad; g.fillRect(0, 0, 64, 64);
+      return new THREE.CanvasTexture(c);
+    };
+    const goldGlowTex = glowSpriteTex("255,190,70");
+    const blueGlowTex = glowSpriteTex("90,180,255");
+
+    // Wall-face texture: dark navy panel, gold rails and a gold "F10", tiled
+    // along each curtain so the mark marches down the wall.
+    const wallCanvas = (() => {
+      const c = document.createElement("canvas"); c.width = 256; c.height = 128;
+      const g = c.getContext("2d");
+      const grd = g.createLinearGradient(0, 0, 0, 128);
+      grd.addColorStop(0, "#141f42"); grd.addColorStop(0.5, "#0c1730"); grd.addColorStop(1, "#070c1c");
+      g.fillStyle = grd; g.fillRect(0, 0, 256, 128);
+      g.strokeStyle = "rgba(255,200,50,0.55)"; g.lineWidth = 3; g.strokeRect(14, 14, 228, 100);
+      g.strokeStyle = "rgba(120,150,210,0.25)"; g.lineWidth = 1; g.strokeRect(20, 20, 216, 88);
+      g.fillStyle = "#ffc627"; g.fillRect(0, 4, 256, 3); g.fillRect(0, 121, 256, 3);
+      g.fillStyle = "#ffce3a"; g.font = "bold 58px Arial"; g.textAlign = "center"; g.textBaseline = "middle";
+      g.fillText("F10", 128, 66);
+      return c;
+    })();
+    const wallTex = (rep) => {
+      const t = new THREE.CanvasTexture(wallCanvas);
+      t.wrapS = t.wrapT = THREE.RepeatWrapping; t.repeat.set(rep, 1);
       return t;
     };
-    const wallMat   = new THREE.MeshStandardMaterial({ map: stoneTex(26, 1.6), color: 0x9a9c9f, roughness: 0.95, metalness: 0.0 });
-    const merlonMat = new THREE.MeshStandardMaterial({ map: stoneTex(1, 1),    color: 0x9a9c9f, roughness: 0.95, metalness: 0.0 });
-    const towerMat  = new THREE.MeshStandardMaterial({ map: stoneTex(4, 3),    color: 0x9a9c9f, roughness: 0.95, metalness: 0.0 });
-    const snowMat   = new THREE.MeshStandardMaterial({ color: 0xe4eef7, roughness: 0.9, metalness: 0.0 });
-    const roofMat   = new THREE.MeshStandardMaterial({ color: 0x2b3d63, roughness: 0.7, metalness: 0.05 });
-    const ironMat   = new THREE.MeshStandardMaterial({ color: 0x2c2f34, roughness: 0.45, metalness: 0.65 });
-    const goldMat   = new THREE.MeshStandardMaterial({ color: 0xffc830, emissive: 0x5a3f00, emissiveIntensity: 0.6, roughness: 0.4, metalness: 0.5 });
+
+    // Gold "F10" crest, blue gate-energy streaks, and the F10 hologram face.
+    const crestTex = (() => {
+      const c = document.createElement("canvas"); c.width = c.height = 128;
+      const g = c.getContext("2d");
+      const grd = g.createLinearGradient(0, 0, 0, 128);
+      grd.addColorStop(0, "#ffd657"); grd.addColorStop(1, "#c8940a");
+      g.fillStyle = grd; g.fillRect(0, 0, 128, 128);
+      g.strokeStyle = "#3a2600"; g.lineWidth = 8; g.strokeRect(9, 9, 110, 110);
+      g.fillStyle = "#0a0c16"; g.font = "bold 52px Arial"; g.textAlign = "center"; g.textBaseline = "middle";
+      g.fillText("F10", 64, 68);
+      return new THREE.CanvasTexture(c);
+    })();
+    const plaqueMat = signMat(crestTex);
+    const energyTex = (() => {
+      const c = document.createElement("canvas"); c.width = c.height = 128;
+      const g = c.getContext("2d"); g.clearRect(0, 0, 128, 128);
+      for (let i = 0; i < 11; i++) {
+        const px = Math.random() * 128, grd = g.createLinearGradient(px - 6, 0, px + 6, 0);
+        grd.addColorStop(0, "rgba(60,160,255,0)"); grd.addColorStop(0.5, `rgba(120,200,255,${(0.3 + Math.random() * 0.4).toFixed(2)})`); grd.addColorStop(1, "rgba(60,160,255,0)");
+        g.fillStyle = grd; g.fillRect(px - 6, 0, 12, 128);
+      }
+      const hg = g.createLinearGradient(0, 0, 0, 128);
+      hg.addColorStop(0, "rgba(130,205,255,0.3)"); hg.addColorStop(0.5, "rgba(90,180,255,0.05)"); hg.addColorStop(1, "rgba(130,205,255,0.3)");
+      g.fillStyle = hg; g.fillRect(0, 0, 128, 128);
+      return new THREE.CanvasTexture(c);
+    })();
+    const holoTex = (() => {
+      const c = document.createElement("canvas"); c.width = c.height = 128;
+      const g = c.getContext("2d"); g.clearRect(0, 0, 128, 128);
+      g.strokeStyle = "rgba(120,205,255,0.9)"; g.lineWidth = 5; g.beginPath();
+      for (let i = 0; i < 6; i++) { const a = Math.PI / 6 + i * Math.PI / 3, px = 64 + 52 * Math.cos(a), py = 64 + 52 * Math.sin(a); if (i) g.lineTo(px, py); else g.moveTo(px, py); }
+      g.closePath(); g.stroke();
+      g.fillStyle = "rgba(160,220,255,0.95)"; g.font = "bold 38px Arial"; g.textAlign = "center"; g.textBaseline = "middle";
+      g.fillText("F10", 64, 66);
+      return new THREE.CanvasTexture(c);
+    })();
 
     const mesh = (geo, mat) => { const m = new THREE.Mesh(geo, mat); m.castShadow = true; m.receiveShadow = true; return m; };
     const slab = (w, h, d, mat, x, y, z) => { const m = mesh(new THREE.BoxGeometry(w, h, d), mat); m.position.set(x, y, z); rampart.add(m); return m; };
 
-    // Curtain-wall dimensions (WALL_T/WALL_H/WALL_MID are shared with the edge
-    // lamps, defined up top). WMID is the wall centreline; its inner face sits
-    // flush with the arena edge (±MAP_HALF) so the wall rises right at the rim.
-    const WMID = WALL_MID;
-    const M_W = 2.4, M_H = 1.7, M_STEP = 4.8; // merlon width / height / spacing
-    const T_R = 3.0;       // corner turret radius — sized to cap the wall corners
-    const GATE_W = 12;     // clear width of the north gateway
-    const GATE_HALF = GATE_W / 2;
-
-    // Crenellated battlement along a wall top: merlons (raised blocks) with snow
-    // caps, stepping along `axis` between ±limit, skipping the corner-turret
-    // footprints and (on the gate side) the central opening.
+    // Crenellated battlement: dark merlons with bright gold caps, stepping along
+    // `axis`, skipping the corner-tower footprints and (on the gate side) the
+    // central opening.
     const battlement = (fixed, axis, gateGap) => {
       const merlonY = WALL_H + M_H / 2;
       for (let p = -WMID + M_STEP / 2 + 0.6; p <= WMID - 0.6; p += M_STEP) {
-        if (Math.abs(p) > WMID - T_R - 0.4) continue;        // under a turret
-        if (gateGap && Math.abs(p) < GATE_HALF + 2.2) continue; // over the gateway
+        if (Math.abs(p) > WMID - T_W / 2 - 0.5) continue;        // under a tower
+        if (gateGap && Math.abs(p) < GATE_HALF + 2.2) continue;  // over the gateway
         const [x, z] = axis === "x" ? [p, fixed] : [fixed, p];
         const w = axis === "x" ? M_W : WALL_T;
         const d = axis === "x" ? WALL_T : M_W;
-        slab(w, M_H, d, merlonMat, x, merlonY, z);
-        slab(w + 0.12, 0.22, d + 0.12, snowMat, x, WALL_H + M_H + 0.11, z); // snow cap
+        slab(w, M_H, d, darkMat2, x, merlonY, z);
+        slab(w + 0.16, 0.3, d + 0.16, goldMat, x, WALL_H + M_H + 0.15, z); // gold cap
       }
     };
 
-    // One straight run of curtain wall between two x-values (north/south) or
-    // z-values (east/west), with a gold trim line capping the walkway.
+    // One straight run of curtain wall (dark F10 panels) with bright gold rails
+    // capping the top walkway and skirting the base.
     const curtain = (axis, fixed, a, b) => {
-      const len = Math.abs(b - a), mid = (a + b) / 2;
+      const len = Math.abs(b - a), mid = (a + b) / 2, rep = Math.max(1, Math.round(len / 12));
+      const m = new THREE.MeshStandardMaterial({ map: wallTex(rep), roughness: 0.55, metalness: 0.35 });
       if (axis === "x") {
-        slab(len, WALL_H, WALL_T, wallMat, mid, WALL_H / 2, fixed);
-        slab(len, 0.18, WALL_T * 0.5, goldMat, mid, WALL_H + 0.02, fixed);
+        const wall = mesh(new THREE.BoxGeometry(len, WALL_H, WALL_T), m); wall.position.set(mid, WALL_H / 2, fixed); rampart.add(wall);
+        slab(len, 0.34, WALL_T + 0.24, goldMat, mid, WALL_H - 0.05, fixed);
+        slab(len, 0.34, WALL_T + 0.24, goldMat, mid, 0.42, fixed);
       } else {
-        slab(WALL_T, WALL_H, len, wallMat, fixed, WALL_H / 2, mid);
-        slab(WALL_T * 0.5, 0.18, len, goldMat, fixed, WALL_H + 0.02, mid);
+        const wall = mesh(new THREE.BoxGeometry(WALL_T, WALL_H, len), m); wall.position.set(fixed, WALL_H / 2, mid); rampart.add(wall);
+        slab(WALL_T + 0.24, 0.34, len, goldMat, fixed, WALL_H - 0.05, mid);
+        slab(WALL_T + 0.24, 0.34, len, goldMat, fixed, 0.42, mid);
       }
     };
 
-    // East, west and south curtains run full span; the north side is split by
-    // the gateway and built as two shorter runs.
-    curtain("x",  WMID, -WMID, WMID);                 // south (near camera)
-    curtain("z", -WMID, -WMID, WMID);                 // west
-    curtain("z",  WMID, -WMID, WMID);                 // east
-    curtain("x", -WMID, -WMID, -GATE_HALF);           // north, left of gate
-    curtain("x", -WMID,  GATE_HALF, WMID);            // north, right of gate
-    battlement( WMID, "x", false);
-    battlement(-WMID, "x", true);
-    battlement(-WMID, "z", false);
-    battlement( WMID, "z", false);
+    // North/west/east curtains run full span; the south side (near the camera)
+    // is split by the gateway into two runs.
+    curtain("x", -WMID, -WMID, WMID);            // north (far)
+    curtain("z", -WMID, -WMID, WMID);            // west  (far)
+    curtain("z",  WMID, -WMID, WMID);            // east  (near)
+    curtain("x",  WMID, -WMID, -GATE_HALF);      // south, left of the gate
+    curtain("x",  WMID,  GATE_HALF, WMID);       // south, right of the gate
+    battlement(-WMID, "x", false); // north
+    battlement( WMID, "x", true);  // south (gateway)
+    battlement(-WMID, "z", false); // west
+    battlement( WMID, "z", false); // east
 
-    // -- Four corner turrets: tapered stone drum, snow-dusted parapet band, a
-    //    dark slate cone roof with a snow cap and a gold finial.
+    // -- Four corner beacon towers: a tall dark shaft banded with gold, F10
+    //    plaques on every face, a crenellated crown and a glowing gold lantern.
     [[-WMID, -WMID], [WMID, -WMID], [-WMID, WMID], [WMID, WMID]].forEach(([x, z]) => {
-      const T_H = 9.4;
-      const body = mesh(new THREE.CylinderGeometry(T_R, T_R + 0.5, T_H, 14), towerMat);
-      body.position.set(x, T_H / 2, z); rampart.add(body);
-      const band = mesh(new THREE.CylinderGeometry(T_R + 0.45, T_R + 0.45, 0.9, 14), towerMat);
-      band.position.set(x, T_H + 0.2, z); rampart.add(band);
-      const bandSnow = mesh(new THREE.CylinderGeometry(T_R + 0.5, T_R + 0.5, 0.18, 14), snowMat);
-      bandSnow.position.set(x, T_H + 0.74, z); rampart.add(bandSnow);
-      const roof = mesh(new THREE.ConeGeometry(T_R + 0.7, 4.4, 14), roofMat);
-      roof.position.set(x, T_H + 0.83 + 2.2, z); rampart.add(roof);
-      const roofSnow = mesh(new THREE.ConeGeometry((T_R + 0.7) * 0.62, 2.0, 14), snowMat);
-      roofSnow.position.set(x, T_H + 0.83 + 3.5, z); rampart.add(roofSnow);
-      const finial = mesh(new THREE.OctahedronGeometry(0.42), goldMat);
-      finial.position.set(x, T_H + 0.83 + 4.9, z); rampart.add(finial);
+      const H = 15.5;
+      slab(T_W + 0.6, 0.9, T_W + 0.6, darkMat2, x, 0.45, z);      // base plinth
+      slab(T_W, H, T_W, darkMat, x, H / 2, z);                    // shaft
+      [3.6, 7.6, 11.6].forEach((ty) => slab(T_W + 0.35, 0.42, T_W + 0.35, goldMat, x, ty, z)); // gold bands
+      const pf = T_W / 2 + 0.05;                                  // F10 plaques
+      [[0, pf, 0], [0, -pf, Math.PI], [pf, 0, Math.PI / 2], [-pf, 0, -Math.PI / 2]].forEach(([ox, oz, ry]) => {
+        const pl = new THREE.Mesh(new THREE.PlaneGeometry(2.7, 2.7), plaqueMat);
+        pl.position.set(x + ox, 9.6, z + oz); pl.rotation.y = ry; rampart.add(pl);
+      });
+      slab(T_W + 0.9, 1.0, T_W + 0.9, goldMat, x, H + 0.4, z);    // crown lip
+      slab(T_W + 0.3, 1.2, T_W + 0.3, darkMat2, x, H + 1.5, z);   // crown wall
+      const o = T_W / 2;                                          // crown merlons
+      [[-o, -o], [o, -o], [-o, o], [o, o]].forEach(([ox, oz]) => slab(0.85, 1.6, 0.85, goldMat, x + ox, H + 1.5, z + oz));
+      slab(T_W - 1.8, 2.8, T_W - 1.8, goldGlowMat, x, H + 3.3, z); // glowing lantern
+      slab(T_W - 0.6, 0.7, T_W - 0.6, goldMat, x, H + 5.0, z);     // lantern cap
+      slab(0.5, 1.5, 0.5, goldMat, x, H + 6.0, z);                 // finial spike
+      const glow = new THREE.Sprite(new THREE.SpriteMaterial({ map: goldGlowTex, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, opacity: 0.95 }));
+      glow.position.set(x, H + 3.5, z); glow.scale.set(10, 10, 1); rampart.add(glow);
     });
 
-    // -- North gatehouse: two heavy piers frame the opening, a battlemented
-    //    lintel bridges them, and the gateway is filled with studded wooden
-    //    doors behind a lowered iron portcullis, crowned with an F10 crest.
+    // -- South gateway (near the camera): dark gold-banded piers with beacons, a
+    //    gold-arched lintel, an F10 crest and a translucent blue energy barrier.
     {
-      const gz = -WMID;
-      const pierH = WALL_H + 3.4, pierW = 3.4;
+      const gz = WMID, pierW = 3.6, pierH = WALL_H + 3.6;
       [-1, 1].forEach((s) => {
         const px = s * (GATE_HALF + pierW / 2);
-        slab(pierW, pierH, WALL_T + 0.8, wallMat, px, pierH / 2, gz);
-        slab(pierW + 0.2, 0.24, WALL_T + 1.0, snowMat, px, pierH + 0.12, gz);
-        // A capstone merlon pair on each pier.
-        [-0.75, 0.75].forEach((o) => {
-          slab(1.1, 1.3, WALL_T + 0.8, merlonMat, px + o, pierH + 0.65, gz);
-          slab(1.2, 0.2, WALL_T + 0.9, snowMat, px + o, pierH + 1.4, gz);
-        });
+        slab(pierW, pierH, WALL_T + 1.0, darkMat, px, pierH / 2, gz);
+        [2.5, 5.5, 8.5].forEach((ty) => slab(pierW + 0.3, 0.34, WALL_T + 1.1, goldMat, px, ty, gz));
+        slab(pierW + 0.5, 0.9, WALL_T + 1.3, goldMat, px, pierH + 0.3, gz);
+        slab(pierW - 1.6, 1.5, pierW - 1.6, goldGlowMat, px, pierH + 1.4, gz);
       });
-      // Lintel spanning the gateway, above the opening.
-      const lintelY = WALL_H + 1.2;
-      slab(GATE_W + pierW * 2, 2.0, WALL_T + 0.5, wallMat, 0, lintelY, gz);
-      slab(GATE_W + pierW * 2 + 0.2, 0.2, WALL_T + 0.7, snowMat, 0, lintelY + 1.1, gz);
-      // Gold arch trim under the lintel.
-      slab(GATE_W + 0.6, 0.24, 0.3, goldMat, 0, WALL_H + 0.12, gz - WALL_T / 2 - 0.16);
-
-      // Wooden double doors (planked canvas) set into the inner face.
-      const doorCanvas = document.createElement("canvas");
-      doorCanvas.width = 64; doorCanvas.height = 96;
-      {
-        const dx = doorCanvas.getContext("2d");
-        dx.fillStyle = "#4a3420"; dx.fillRect(0, 0, 64, 96);
-        dx.strokeStyle = "#2e2013"; dx.lineWidth = 2;
-        for (let px = 8; px < 64; px += 12) { dx.beginPath(); dx.moveTo(px, 0); dx.lineTo(px, 96); dx.stroke(); }
-        dx.fillStyle = "#6b5636"; // horizontal iron bands
-        dx.fillRect(0, 16, 64, 5); dx.fillRect(0, 74, 64, 5);
-        dx.fillStyle = "#1c140b"; // stud rivets
-        for (let px = 5; px < 64; px += 12) { dx.fillRect(px, 17, 3, 3); dx.fillRect(px, 75, 3, 3); }
-      }
-      const doorTex = new THREE.CanvasTexture(doorCanvas);
-      const doorMat = new THREE.MeshStandardMaterial({ map: doorTex, roughness: 0.9 });
-      const doorInset = gz + WALL_T / 2 - 0.35;
-      [-1, 1].forEach((s) => {
-        const leaf = mesh(new THREE.BoxGeometry(GATE_HALF - 0.15, WALL_H - 0.4, 0.4), doorMat);
-        leaf.position.set(s * (GATE_HALF / 2), (WALL_H - 0.4) / 2, doorInset);
-        rampart.add(leaf);
-      });
-
-      // Lowered iron portcullis just outside the doors: vertical bars, two
-      // cross-rails, and spiked feet.
-      const barZ = gz - WALL_T / 2 + 0.12;
-      for (let bx = -GATE_HALF + 0.7; bx <= GATE_HALF - 0.7; bx += 1.3) {
-        slab(0.16, WALL_H - 0.2, 0.16, ironMat, bx, (WALL_H - 0.2) / 2, barZ);
-        const spike = mesh(new THREE.ConeGeometry(0.14, 0.4, 4), ironMat);
-        spike.position.set(bx, 0.0, barZ); spike.rotation.x = Math.PI; rampart.add(spike);
-      }
-      [WALL_H - 0.6, WALL_H * 0.5].forEach((ry) => slab(GATE_W - 0.6, 0.18, 0.16, ironMat, 0, ry, barZ));
-
-      // F10 crest plaque above the gate.
-      const crestCanvas = document.createElement("canvas");
-      crestCanvas.width = crestCanvas.height = 96;
-      {
-        const cc = crestCanvas.getContext("2d");
-        cc.fillStyle = "#c8940a"; cc.fillRect(0, 0, 96, 96);
-        cc.strokeStyle = "#7a5800"; cc.lineWidth = 6; cc.strokeRect(5, 5, 86, 86);
-        cc.fillStyle = "#0a0800"; cc.font = "bold 40px monospace";
-        cc.textAlign = "center"; cc.textBaseline = "middle"; cc.fillText("F10", 48, 50);
-      }
-      const crestTex = new THREE.CanvasTexture(crestCanvas);
-      const crest = mesh(new THREE.BoxGeometry(2.6, 2.6, 0.3), new THREE.MeshStandardMaterial({ map: crestTex, roughness: 0.6 }));
-      crest.position.set(0, lintelY + 0.1, gz - WALL_T / 2 - 0.28);
-      rampart.add(crest);
+      const lintelY = WALL_H + 1.4;
+      slab(GATE_W + pierW * 2, 2.2, WALL_T + 0.6, darkMat, 0, lintelY, gz);
+      slab(GATE_W + pierW * 2 + 0.2, 0.4, WALL_T + 0.85, goldMat, 0, lintelY + 1.2, gz);
+      slab(GATE_W + 0.8, 0.42, 0.5, goldMat, 0, WALL_H + 0.2, gz + WALL_T / 2 + 0.2); // gold arch
+      const barrier = new THREE.Mesh(new THREE.PlaneGeometry(GATE_W - 0.5, WALL_H - 0.3),
+        new THREE.MeshBasicMaterial({ map: energyTex, transparent: true, opacity: 0.5, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide }));
+      barrier.position.set(0, (WALL_H - 0.3) / 2, gz); rampart.add(barrier);
+      const crest = new THREE.Mesh(new THREE.PlaneGeometry(2.9, 2.9), plaqueMat);
+      crest.position.set(0, lintelY + 0.05, gz + WALL_T / 2 + 0.32); rampart.add(crest);
     }
+
+    // -- Billboard signs mounted on posts above the two far walls. `wall` is
+    //    "north" (z=-WMID, facing +z) or "west" (x=-WMID, facing +x); `along`
+    //    is the position down that wall; drawFn paints the dark, gold-framed face.
+    const panelBase = (g, W, H) => {
+      const grd = g.createLinearGradient(0, 0, 0, H);
+      grd.addColorStop(0, "#0e1a38"); grd.addColorStop(1, "#060b1c");
+      g.fillStyle = grd; g.fillRect(0, 0, W, H);
+      g.strokeStyle = "#ffc627"; g.lineWidth = Math.max(5, W * 0.014); g.strokeRect(g.lineWidth, g.lineWidth, W - 2 * g.lineWidth, H - 2 * g.lineWidth);
+      g.strokeStyle = "rgba(255,198,39,0.4)"; g.lineWidth = 2; g.strokeRect(W * 0.03, H * 0.06, W * 0.94, H * 0.88);
+    };
+    const placeSign = (wall, along, w, h, drawFn) => {
+      const CW = Math.round(w * 40), CH = Math.round(h * 40);
+      const c = document.createElement("canvas"); c.width = CW; c.height = CH;
+      drawFn(c.getContext("2d"), CW, CH);
+      const faceMat = signMat(new THREE.CanvasTexture(c));
+      const grp = new THREE.Group();
+      const panel = new THREE.Mesh(new THREE.BoxGeometry(w, h, 0.5), [darkMat, darkMat, darkMat, darkMat, faceMat, darkMat]);
+      panel.castShadow = true; grp.add(panel);
+      const fz = 0.28;
+      [[w + 0.3, 0.32, 0, h / 2 - 0.04], [w + 0.3, 0.32, 0, -h / 2 + 0.04], [0.32, h + 0.3, -w / 2 + 0.04, 0], [0.32, h + 0.3, w / 2 - 0.04, 0]]
+        .forEach(([bw, bh, bx, by]) => { const b = new THREE.Mesh(new THREE.BoxGeometry(bw, bh, 0.16), goldMat); b.position.set(bx, by, fz); grp.add(b); });
+      const postH = 2.8, cy = WALL_H + postH + h / 2, pOff = w * 0.33;
+      if (wall === "north") grp.position.set(along, cy, -WMID);
+      else { grp.position.set(-WMID, cy, along); grp.rotation.y = Math.PI / 2; }
+      rampart.add(grp);
+      const py = WALL_H + postH / 2;
+      [-pOff, pOff].forEach((offs) => {
+        if (wall === "north") slab(0.7, postH + 0.5, 0.7, darkMat, along + offs, py, -WMID);
+        else slab(0.7, postH + 0.5, 0.7, darkMat, -WMID, py, along + offs);
+      });
+    };
+    const drawArena = (g, W, H) => {
+      panelBase(g, W, H);
+      g.textAlign = "center"; g.textBaseline = "middle";
+      g.fillStyle = "#ffd24a"; g.font = `bold ${Math.round(H * 0.26)}px Arial`;
+      g.fillText("F10 ARENA", W / 2, H * 0.3);
+      g.strokeStyle = "#ffc627"; g.lineWidth = 3; g.beginPath(); g.moveTo(W * 0.14, H * 0.5); g.lineTo(W * 0.86, H * 0.5); g.stroke();
+      g.fillStyle = "#e6d59a"; g.font = `${Math.round(H * 0.11)}px Arial`;
+      g.fillText("FIGHT10 · EARN · POWER", W / 2, H * 0.63);
+      const hx = W * 0.34, hy = H * 0.82, hr = H * 0.09; // hex + F10 TOKEN
+      g.fillStyle = "#ffce35"; g.beginPath();
+      for (let i = 0; i < 6; i++) { const a = Math.PI / 6 + i * Math.PI / 3, px = hx + hr * Math.cos(a), py = hy + hr * Math.sin(a); if (i) g.lineTo(px, py); else g.moveTo(px, py); }
+      g.closePath(); g.fill();
+      g.fillStyle = "#0a0c16"; g.font = `bold ${Math.round(H * 0.07)}px Arial`; g.fillText("F10", hx, hy);
+      g.fillStyle = "#ffce35"; g.textAlign = "left"; g.font = `bold ${Math.round(H * 0.12)}px Arial`;
+      g.fillText("F10 TOKEN", hx + hr + 10, hy);
+    };
+    const drawTrade = (g, W, H) => {
+      panelBase(g, W, H);
+      g.textAlign = "center"; g.textBaseline = "middle";
+      g.fillStyle = "#f4f7ff"; g.font = `bold ${Math.round(H * 0.19)}px Arial`;
+      g.fillText("TRADE. FIGHT. EARN.", W / 2, H * 0.36);
+      g.fillStyle = "#ffce35"; g.font = `bold ${Math.round(H * 0.15)}px Arial`;
+      g.fillText("F10 IS THE FUTURE", W / 2, H * 0.66);
+    };
+    const drawLeaderboard = (g, W, H) => {
+      panelBase(g, W, H);
+      g.textAlign = "center"; g.textBaseline = "middle";
+      g.fillStyle = "#ffd24a"; g.font = `bold ${Math.round(H * 0.15)}px Arial`;
+      g.fillText("LEADERBOARD", W / 2, H * 0.16);
+      g.strokeStyle = "#ffc627"; g.lineWidth = 2; g.beginPath(); g.moveTo(W * 0.1, H * 0.28); g.lineTo(W * 0.9, H * 0.28); g.stroke();
+      const rows = [["1", "Raiders", "24"], ["2", "Raider88", "18"], ["3", "Raider#7", "15"]];
+      g.font = `${Math.round(H * 0.12)}px Arial`;
+      rows.forEach((r, i) => {
+        const y = H * (0.44 + i * 0.19);
+        g.textAlign = "left"; g.fillStyle = "#ffce35"; g.fillText(r[0], W * 0.12, y);
+        g.fillStyle = "#e7edf7"; g.fillText(r[1], W * 0.26, y);
+        g.textAlign = "right"; g.fillStyle = "#ffce35"; g.fillText(r[2], W * 0.88, y);
+      });
+    };
+    const drawBitcoin = (g, W, H) => {
+      panelBase(g, W, H);
+      g.textAlign = "center"; g.textBaseline = "middle";
+      g.fillStyle = "#ffb400"; g.font = `bold ${Math.round(H * 0.62)}px Arial`;
+      g.fillText("₿", W / 2, H * 0.56);
+    };
+    placeSign("west",  -1,  18,  8,   drawArena);       // F10 ARENA
+    placeSign("north", -13, 15,  7,   drawTrade);       // TRADE. FIGHT. EARN.
+    placeSign("north",  8,  11,  7.5, drawLeaderboard); // LEADERBOARD
+    placeSign("north",  23, 5.4, 5.4, drawBitcoin);     // ₿ emblem
+
+    // -- Blue crystal clusters just outside each corner tower.
+    const crystalCluster = (cx, cz) => {
+      for (let i = 0; i < 5; i++) {
+        const s = 1.0 + Math.random() * 1.8;
+        const cr = new THREE.Mesh(new THREE.ConeGeometry(s * 0.45, s * 2.4, 5), crystalMat);
+        cr.position.set(cx + (Math.random() - 0.5) * 3.4, s * 1.1, cz + (Math.random() - 0.5) * 3.4);
+        cr.rotation.set((Math.random() - 0.5) * 0.5, Math.random() * 6, (Math.random() - 0.5) * 0.5);
+        rampart.add(cr);
+      }
+      const glow = new THREE.Sprite(new THREE.SpriteMaterial({ map: blueGlowTex, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, opacity: 0.85 }));
+      glow.position.set(cx, 2.6, cz); glow.scale.set(12, 12, 1); rampart.add(glow);
+    };
+    const OC = WMID + 4.5;
+    [[-OC, -OC], [OC, -OC], [-OC, OC], [OC, OC]].forEach(([cx, cz]) => crystalCluster(cx, cz));
+
+    // -- F10 hologram hovering off the near corner, on a small gold emitter.
+    {
+      const hx = OC - 1, hz = OC - 8;
+      const holo = new THREE.Mesh(new THREE.CircleGeometry(3.6, 6),
+        new THREE.MeshBasicMaterial({ map: holoTex, transparent: true, opacity: 0.82, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide }));
+      holo.position.set(hx, 6, hz); holo.rotation.z = Math.PI / 6; holo.rotation.y = -Math.PI / 4; rampart.add(holo);
+      const base = mesh(new THREE.CylinderGeometry(1.4, 1.7, 0.6, 8), goldMat); base.position.set(hx, 0.3, hz); rampart.add(base);
+      const hg = new THREE.Sprite(new THREE.SpriteMaterial({ map: blueGlowTex, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, opacity: 0.8 }));
+      hg.position.set(hx, 6, hz); hg.scale.set(10, 10, 1); rampart.add(hg);
+    }
+
+    // -- Chains hanging into the clouds from the two near corners.
+    const chainStrand = (cx, cz, n) => {
+      for (let i = 0; i < n; i++) {
+        const link = new THREE.Mesh(new THREE.TorusGeometry(0.55, 0.17, 6, 10), ironMat);
+        link.position.set(cx, -0.6 - i * 0.98, cz);
+        link.rotation.x = Math.PI / 2; link.rotation.z = (i % 2) * Math.PI / 2;
+        rampart.add(link);
+      }
+      const g = new THREE.Sprite(new THREE.SpriteMaterial({ map: blueGlowTex, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, opacity: 0.7 }));
+      g.position.set(cx, -0.6 - n * 0.98, cz); g.scale.set(5, 5, 1); rampart.add(g);
+    };
+    chainStrand(WMID - 1.0, WMID + 1.6, 8);
+    chainStrand(WMID + 1.6, WMID - 1.0, 8);
 
     // -- Battlement flame lamps: flickering torches standing in the merlon gaps
     //    along the wall top (pushed to edgeLamps so animate() flickers them).
@@ -674,13 +834,13 @@ export function createArenaGame(options) {
         let k = 0;
         for (let p = -WMID + M_STEP + 0.6; p <= WMID - M_STEP; p += M_STEP, k++) {
           if (k % 3 !== 1) continue;
-          if (Math.abs(p) > WMID - T_R - 1.0) continue;            // clear of turrets
+          if (Math.abs(p) > WMID - T_W / 2 - 1.0) continue;        // clear of towers
           if (gateGap && Math.abs(p) < GATE_HALF + 2.6) continue;  // clear of the gate
           if (axis === "x") torchAt(p, fixed); else torchAt(fixed, p);
         }
       };
-      torchLine( WMID, "x", false); // south
-      torchLine(-WMID, "x", true);  // north (has the gateway)
+      torchLine( WMID, "x", true);  // south (has the gateway)
+      torchLine(-WMID, "x", false); // north
       torchLine(-WMID, "z", false); // west
       torchLine( WMID, "z", false); // east
     }
@@ -3022,7 +3182,7 @@ export function createArenaGame(options) {
   function applyTheme(name) {
     theme = THEMES[name] || THEMES.lobby;
     renderer.setClearColor(theme.bg, 1);
-    scene.background = new THREE.Color(theme.bg);
+    scene.background = skyTex;
     applyFog();
     if (name === "game") makeFight10Decal();
     const newTex = makeGroundTex(theme.ground);
