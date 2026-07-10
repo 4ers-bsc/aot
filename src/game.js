@@ -662,6 +662,78 @@ export function createArenaGame(options) {
       torchLine( WMID, "z", false); // east
     }
 
+    // -- Barbed-wire perimeter ------------------------------------------------
+    // Two concertina coils ringing the arena: one riding the current wall line
+    // (WMID) and a second pulled inward by five grid squares (5 * TILE). Each is
+    // a helical steel wire looping along all four sides, studded with crossed
+    // barbs; the inner ring stands on the floor on short iron pickets. Purely
+    // decorative — parented to `rampart` so it disposes on every theme rebuild.
+    {
+      const wireMat = new THREE.MeshStandardMaterial({ color: 0x9aa0a6, roughness: 0.4, metalness: 0.95 });
+      const barbMat = new THREE.MeshStandardMaterial({ color: 0xc2c7cc, roughness: 0.35, metalness: 0.95 });
+
+      // A short crossed-spike barb dropped onto the coil at `pos`.
+      const barbAt = (pos, spin) => {
+        const g = new THREE.Group();
+        for (let k = 0; k < 2; k++) {
+          const spike = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.05, 0.05), barbMat);
+          spike.rotation.y = k * Math.PI / 2;
+          g.add(spike);
+        }
+        g.position.copy(pos);
+        g.rotation.z = spin;
+        rampart.add(g);
+      };
+
+      // One concertina coil: a helix of radius R looping `loop` units per turn,
+      // running along `axis` from `a` to `b` at the fixed cross-axis coordinate,
+      // its centreline sitting `baseY + R` above the ground.
+      const coil = (axis, fixed, a, b, baseY, R, loop) => {
+        const len = Math.abs(b - a), dir = Math.sign(b - a) || 1;
+        const steps = Math.max(12, Math.ceil(len * 4));
+        const cY = baseY + R;
+        const pts = [];
+        for (let i = 0; i <= steps; i++) {
+          const s = (i / steps) * len, ang = (s / loop) * Math.PI * 2, along = a + dir * s;
+          const off = R * Math.cos(ang), y = cY + R * Math.sin(ang);
+          pts.push(axis === "x"
+            ? new THREE.Vector3(along, y, fixed + off)
+            : new THREE.Vector3(fixed + off, y, along));
+        }
+        const tube = mesh(new THREE.TubeGeometry(new THREE.CatmullRomCurve3(pts), steps, 0.07, 6, false), wireMat);
+        rampart.add(tube);
+        // Barbs every ~1.4 units along the run.
+        for (let s = 0.7; s < len; s += 1.4) {
+          const t = s / len, idx = Math.min(pts.length - 1, Math.round(t * steps));
+          barbAt(pts[idx], (s / loop) * Math.PI * 2);
+        }
+      };
+
+      // A ring of coils around a square of half-extent `half`, sitting at `baseY`.
+      const barbedRing = (half, baseY, R, loop) => {
+        coil("x", -half, -half, half, baseY, R, loop); // north
+        coil("x",  half, -half, half, baseY, R, loop); // south
+        coil("z", -half, -half, half, baseY, R, loop); // west
+        coil("z",  half, -half, half, baseY, R, loop); // east
+      };
+
+      // Ring 1 — the current wall line: coil crowning the rampart top.
+      barbedRing(WMID, WALL_H + M_H + 0.2, 0.65, 1.6);
+
+      // Ring 2 — pulled inward five squares onto the arena floor, on iron pickets.
+      const innerHalf = MAP_HALF - 5 * TILE;
+      const POST_H = 2.2;
+      const picket = (x, z) => {
+        const p = mesh(new THREE.CylinderGeometry(0.12, 0.14, POST_H, 6), ironMat);
+        p.position.set(x, LEDGE_TOP + POST_H / 2, z); rampart.add(p);
+      };
+      for (let p = -innerHalf; p <= innerHalf + 0.01; p += 6) {
+        picket(p, -innerHalf); picket(p, innerHalf);
+        picket(-innerHalf, p); picket(innerHalf, p);
+      }
+      barbedRing(innerHalf, LEDGE_TOP + POST_H - 0.55, 0.55, 1.5);
+    }
+
     scene.add(rampart);
   }
 
