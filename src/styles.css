@@ -151,16 +151,6 @@ textarea:focus {
   width: 100%;
   height: 100%;
   touch-action: none;
-  /* Pin the WebGL arena to its own stable, isolated compositing layer. The
-     hotbar (and other HUD) centre themselves with `transform`, which promotes
-     them to their own GPU layers. Without a dedicated layer of its own, the
-     canvas gets squashed/re-tiled around those overlapping layers, and while
-     the camera pans the seam at the overlap tears the arena — the wall behind
-     the hotbar looks sliced. Promoting + isolating the canvas lets the HUD
-     simply composite on top, no seam. */
-  transform: translateZ(0);
-  isolation: isolate;
-  will-change: transform;
 }
 
 .arena-error {

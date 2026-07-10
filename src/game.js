@@ -3034,9 +3034,36 @@ export function createArenaGame(options) {
     camera.top = FRUSTUM; camera.bottom = -FRUSTUM;
     camera.updateProjectionMatrix();
     renderer.setSize(dim.w, dim.h, false);
+    hudSafeAreaDirty = true; // the hotbar band, and its height, move with the viewport
   }
   const ro = new ResizeObserver(onResize);
   ro.observe(mount);
+
+  // -- HUD safe-area --------------------------------------------------------
+  // The hotbar (and the rest of the bottom HUD) are opaque DOM overlays pinned
+  // to the bottom-centre of the screen. When the camera pans down to the near
+  // (south/east) arena wall, that wall drops into the bottom band and the
+  // hotbar's opaque slots cut a strip out of it — the wall looks sliced. Lift
+  // the whole rendered scene up by the hotbar's on-screen height via an
+  // orthographic view offset so world content always clears the HUD. The
+  // offset shifts by an exact pixel amount and keeps scale uniform (no
+  // distortion), and Three folds it into unprojection so picking stays aligned
+  // with what's drawn. Only recomputed when the viewport or HUD visibility
+  // changes — never per frame — so it costs nothing while panning.
+  let hudSafeAreaDirty = true;
+  let lastHudVisible = null;
+  function applyHudSafeArea() {
+    let pad = 0;
+    if ((viewIsGame || homePlay) && !settings.hideHud) {
+      const r = hud.hotbar.getBoundingClientRect();
+      // Top edge of the hotbar up from the bottom of the viewport, plus a
+      // little breathing room so the wall's base sits clear of the slots.
+      if (r.height) pad = Math.max(0, dim.h - r.top + 8);
+    }
+    if (pad > 0) camera.setViewOffset(dim.w, dim.h, 0, pad, dim.w, dim.h);
+    else camera.clearViewOffset();
+    camera.updateProjectionMatrix();
+  }
   onResize();
 
   // Opponents start at random free spots (placeholders; their real positions
@@ -3188,6 +3215,16 @@ export function createArenaGame(options) {
     camCenter.z = Math.max(-MAP_HALF, Math.min(MAP_HALF, camCenter.z));
     camera.position.set(camCenter.x + CAM_OFFSET.x, CAM_OFFSET.y, camCenter.z + CAM_OFFSET.z);
     camera.lookAt(camCenter.x, 1, camCenter.z);
+
+    // Keep the arena clear of the bottom HUD. Recompute only when the viewport
+    // resized or the HUD showed/hid — the zoom handler reapplies the stored
+    // offset itself, and a steady pan needs no work here.
+    const hudVisibleNow = (viewIsGame || homePlay) && !settings.hideHud;
+    if (hudSafeAreaDirty || hudVisibleNow !== lastHudVisible) {
+      applyHudSafeArea();
+      lastHudVisible = hudVisibleNow;
+      hudSafeAreaDirty = false;
+    }
     sun.position.copy(player.group.position).add(_sunOffset);
     sun.target.position.copy(player.group.position);
 
