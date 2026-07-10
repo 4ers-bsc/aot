@@ -238,16 +238,14 @@ export function createArenaGame(options) {
   // per frame in animate(): an unfurl drop when built, then a continuous
   // fabric wave. { mesh, geo, h, phase, born }
   const clothBanners = [];
-  // Per-frame updaters for the animated arena-side effects (aurora hue-shift,
-  // snow-sparkle). Cleared and repopulated on every buildArenaWalls() call;
-  // run each frame in animate().
+  // Per-frame updaters for animated arena-side effects. Kept for compatibility
+  // with animate(); the current dark underside registers none.
   const wallFX = [];
 
-  // -- Arena side style: Frozen Aurora ---------------------------------------
-  // Frosted ice panels beneath a shimmering, hue-shifting aurora curtain with
-  // snow-sparkle drifting down the walls. Dark backing behind the panels.
-  const SIDE_BACK = 0x03060c;
-
+  // -- Arena underside --------------------------------------------------------
+  // A plain dark-navy slab below the play floor (backing walls + bottom cap +
+  // a faint gold rim), so the arena reads as a solid platform floating in the
+  // clouds beneath the fortress rampart.
   function buildArenaWalls(variant) {
     // Dispose existing wall objects via the shared traversal helper (it
     // handles shared materials, textures, and nested groups uniformly).
@@ -262,9 +260,8 @@ export function createArenaGame(options) {
     const DEPTH = 10;
     const addObj = (obj) => { scene.add(obj); wallObjects.push(obj); return obj; };
 
-    // Dark backing behind each wall
-    const backColor = SIDE_BACK;
-    const sideMat = new THREE.MeshStandardMaterial({ color: backColor, roughness: 0.98, metalness: 0.0 });
+    // Dark navy underside slab behind each wall (matches the fortress rampart).
+    const sideMat = new THREE.MeshStandardMaterial({ color: 0x0a1226, roughness: 0.92, metalness: 0.12 });
     [
       { x: 0,         z: -MAP_HALF, ry: 0 },
       { x: 0,         z:  MAP_HALF, ry: Math.PI },
@@ -286,134 +283,12 @@ export function createArenaGame(options) {
     btm.position.y = -DEPTH;
     addObj(btm);
 
-    // Shared helpers for the frozen-aurora side build below.
-    const registerFX = (fn) => wallFX.push(fn);
-    const WALL_SIDES = [
-      { x: 0,         z: -MAP_HALF, ry: 0 },
-      { x: 0,         z:  MAP_HALF, ry: Math.PI },
-      { x: -MAP_HALF, z: 0,         ry:  Math.PI / 2 },
-      { x:  MAP_HALF, z: 0,         ry: -Math.PI / 2 },
-    ];
-    // Drape one panel material across all four walls (height h, top at the rim).
-    const panelSet = (material, h = 6) => {
-      WALL_SIDES.forEach(({ x, z, ry }) => {
-        const p = new THREE.Mesh(new THREE.PlaneGeometry(MAP_WORLD, h), material);
-        p.position.set(x, -h / 2, z);
-        p.rotation.y = ry;
-        addObj(p);
-      });
-    };
-    // Twin rim outline (inner + slightly-outer glow line), returns the materials
-    // so a style can pulse them each frame.
-    const addRim = (colInner, opInner, colOuter, opOuter) => {
-      const matI = new THREE.LineBasicMaterial({ color: colInner, transparent: true, opacity: opInner });
-      addObj(new THREE.Line(new THREE.BufferGeometry().setFromPoints([
-        new THREE.Vector3(-MAP_HALF, 0.08, -MAP_HALF), new THREE.Vector3(MAP_HALF, 0.08, -MAP_HALF),
-        new THREE.Vector3( MAP_HALF, 0.08,  MAP_HALF), new THREE.Vector3(-MAP_HALF, 0.08,  MAP_HALF),
-        new THREE.Vector3(-MAP_HALF, 0.08, -MAP_HALF),
-      ]), matI));
-      const matO = new THREE.LineBasicMaterial({ color: colOuter, transparent: true, opacity: opOuter });
-      addObj(new THREE.Line(new THREE.BufferGeometry().setFromPoints([
-        new THREE.Vector3(-MAP_HALF - 0.05, 0.04, -MAP_HALF - 0.05),
-        new THREE.Vector3( MAP_HALF + 0.05, 0.04, -MAP_HALF - 0.05),
-        new THREE.Vector3( MAP_HALF + 0.05, 0.04,  MAP_HALF + 0.05),
-        new THREE.Vector3(-MAP_HALF - 0.05, 0.04,  MAP_HALF + 0.05),
-        new THREE.Vector3(-MAP_HALF - 0.05, 0.04, -MAP_HALF - 0.05),
-      ]), matO));
-      return { matI, matO };
-    };
-    // A field of soft sprites hugging the inside of the four walls, rising (or
-    // falling) and looping — embers, snow-sparkle, star motes, etc.
-    const wallField = ({ count = 140, size = 0.8, color = 0xffffff, rise = true, speed = 1, twinkle = true, opacity = 0.9 }) => {
-      const geo = new THREE.BufferGeometry();
-      const pos = new Float32Array(count * 3);
-      const spd = new Float32Array(count);
-      const yBot = -6.2, yTop = 1.6;
-      for (let i = 0; i < count; i++) {
-        const wall = i % 4, along = (Math.random() - 0.5) * MAP_WORLD, inset = 0.3 + Math.random() * 1.5;
-        let x, z;
-        if (wall === 0)      { x = along;              z = -MAP_HALF + inset; }
-        else if (wall === 1) { x = along;              z =  MAP_HALF - inset; }
-        else if (wall === 2) { x = -MAP_HALF + inset;  z = along; }
-        else                 { x =  MAP_HALF - inset;  z = along; }
-        pos[i * 3] = x; pos[i * 3 + 1] = yBot + Math.random() * (yTop - yBot); pos[i * 3 + 2] = z;
-        spd[i] = (0.5 + Math.random()) * speed;
-      }
-      geo.setAttribute("position", new THREE.BufferAttribute(pos, 3));
-      const mat = new THREE.PointsMaterial({
-        size, map: makeFlake(), color, transparent: true, depthWrite: false,
-        blending: THREE.AdditiveBlending, opacity,
-      });
-      addObj(new THREE.Points(geo, mat));
-      registerFX((t, dt) => {
-        const a = geo.attributes.position;
-        for (let i = 0; i < count; i++) {
-          let y = a.getY(i) + (rise ? spd[i] : -spd[i]) * dt;
-          if (rise && y > yTop) y = yBot;
-          else if (!rise && y < yBot) y = yTop;
-          a.setY(i, y);
-        }
-        a.needsUpdate = true;
-        if (twinkle) mat.opacity = opacity * (0.65 + 0.35 * Math.sin(t * 3));
-      });
-      return mat;
-    };
-
-    // Frosted ice panels beneath a hue-shifting aurora curtain.
-    panelSet(new THREE.MeshBasicMaterial({
-      map: makeIceTex(), transparent: true, side: THREE.DoubleSide,
-      depthWrite: false, opacity: 0.92,
-    }));
-    const auroraMat = new THREE.MeshBasicMaterial({
-      map: makeAuroraTex(), transparent: true, side: THREE.DoubleSide,
-      depthWrite: false, blending: THREE.AdditiveBlending, opacity: 0.4,
-    });
-    panelSet(auroraMat);
-    registerFX((t) => {
-      auroraMat.color.setHSL(0.5 + 0.13 * Math.sin(t * 0.45), 0.85, 0.6);
-      auroraMat.opacity = 0.3 + 0.18 * (0.5 + 0.5 * Math.sin(t * 0.8));
-    });
-    addRim(0x9fe8ff, 0.9, 0x4fb0ff, 0.5);
-    // Snow-sparkle settling down the inside of the walls.
-    wallField({ count: 130, size: 0.7, color: 0xdff4ff, rise: false, speed: 0.9, opacity: 0.85 });
-
-    // Frosted-ice panel texture — icy vertical gradient with white frost cracks.
-    function makeIceTex() {
-      const c = document.createElement("canvas");
-      c.width = c.height = 256;
-      const x = c.getContext("2d");
-      const g = x.createLinearGradient(0, 0, 0, 256);
-      g.addColorStop(0, "rgba(210,240,255,0.85)");
-      g.addColorStop(0.5, "rgba(140,200,240,0.65)");
-      g.addColorStop(1, "rgba(60,110,170,0.9)");
-      x.fillStyle = g; x.fillRect(0, 0, 256, 256);
-      x.strokeStyle = "rgba(255,255,255,0.7)"; x.lineWidth = 1;
-      for (let n = 0; n < 26; n++) {
-        x.beginPath();
-        let px = Math.random() * 256, py = Math.random() * 256;
-        x.moveTo(px, py);
-        for (let s = 0; s < 4; s++) { px += (Math.random() - 0.5) * 60; py += (Math.random() - 0.5) * 60; x.lineTo(px, py); }
-        x.stroke();
-      }
-      return new THREE.CanvasTexture(c);
-    }
-
-    // Aurora curtain overlay — soft vertical light bands, recolored each frame.
-    function makeAuroraTex() {
-      const c = document.createElement("canvas");
-      c.width = c.height = 256;
-      const x = c.getContext("2d");
-      x.clearRect(0, 0, 256, 256);
-      for (let i = 0; i < 7; i++) {
-        const cx = Math.random() * 256;
-        const g = x.createLinearGradient(cx - 30, 0, cx + 30, 0);
-        g.addColorStop(0, "rgba(80,255,180,0)");
-        g.addColorStop(0.5, `rgba(${80 + Math.random() * 60},255,${180 + Math.random() * 60},0.5)`);
-        g.addColorStop(1, "rgba(80,255,180,0)");
-        x.fillStyle = g; x.fillRect(cx - 30, 0, 60, 256);
-      }
-      return new THREE.CanvasTexture(c);
-    }
+    // A single faint gold trim line along the top rim, meeting the rampart base.
+    addObj(new THREE.Line(new THREE.BufferGeometry().setFromPoints([
+      new THREE.Vector3(-MAP_HALF, -0.02, -MAP_HALF), new THREE.Vector3(MAP_HALF, -0.02, -MAP_HALF),
+      new THREE.Vector3( MAP_HALF, -0.02,  MAP_HALF), new THREE.Vector3(-MAP_HALF, -0.02,  MAP_HALF),
+      new THREE.Vector3(-MAP_HALF, -0.02, -MAP_HALF),
+    ]), new THREE.LineBasicMaterial({ color: 0xffc21a, transparent: true, opacity: 0.3 })));
   }
 
   buildArenaWalls("game");
