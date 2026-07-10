@@ -222,18 +222,29 @@ export function createArenaGame(options) {
   scene.add(border);
 
   // -- Arena walls (disposable, theme-aware) ------------------------------------
-  // Ledge ring dimensions — shared by the edge ledge below and the cloth
-  // banner, which drapes over the ledge's outer edge.
-  const LEDGE_W = 3.2;   // ledge band width beyond the map rim
+  // The rampart is a SEPARATE OUTER RING: it stands beyond the snow floor
+  // (±MAP_HALF) on the foundation ledge below, never on the same tile area as
+  // the floor. WALL_GAP is the clear band between the snow-floor rim and the
+  // wall's inner face; the ledge fills this band and reaches out under the wall
+  // so the rampart visibly rises from its own ring rather than off the floor.
+  const WALL_T = 2.6;    // rampart thickness
+  const WALL_H = 6.6;    // rampart height above the floor
+  const WALL_GAP = 2.5;  // clear band between the snow-floor rim and the wall's inner face
+  // Ledge ring dimensions — the foundation ring under the rampart. It spans from
+  // the snow-floor rim (±MAP_HALF) out past the wall (and its corner turrets),
+  // so the whole fortress sits on this ring, separated from the floor tiles.
   const LEDGE_H = 0.56;  // ledge thickness; top sits just above the floor
   const LEDGE_TOP = 0.06;
   // Fortress-rampart dimensions — shared by buildArenaRampart() (which raises
   // the wall and its corner turrets) and the battlement torches mounted on the
-  // wall top. The wall's inner face sits flush with the arena edge (±MAP_HALF),
-  // so it rises right at the play boundary and the turrets cap its corners.
-  const WALL_T = 2.6;                     // rampart thickness
-  const WALL_H = 6.6;                     // rampart height above the floor
-  const WALL_MID = MAP_HALF + WALL_T / 2; // wall centreline (inner face at the rim)
+  // wall top. The wall's inner face sits WALL_GAP beyond the arena edge
+  // (±MAP_HALF), so it rings the play boundary from outside and the turrets cap
+  // its corners without ever intruding onto the snow floor.
+  const WALL_MID = MAP_HALF + WALL_GAP + WALL_T / 2; // wall centreline (inner face beyond the rim)
+  const T_W = 5.4;       // corner beacon-tower footprint (needed to size the ledge ring)
+  // Ledge band width beyond the map rim: reach out past the wall's turrets so
+  // the entire rampart ring stands on the ledge.
+  const LEDGE_W = WALL_GAP + WALL_T + (T_W - WALL_T) / 2 + 0.5; // = 7.0 (rim → past turrets)
   const wallObjects = []; // tracks all wall scene objects for disposal
   // F10 cloth banner draped over the left map edge. Each entry is animated
   // per frame in animate(): an unfurl drop when built, then a continuous
@@ -296,9 +307,10 @@ export function createArenaGame(options) {
 
 
   // -- Edge ledge ------------------------------------------------------------
-  // A polished black ledge ring hugging the map rim — a foundation course that
-  // the rampart wall rises from. Scene objects, so they stay anchored to the
-  // map edges (home backdrop and in-game alike) instead of the viewport. The
+  // A polished black ledge ring that starts at the snow-floor rim and reaches
+  // out under the rampart — the foundation ring the wall stands on, separating
+  // the outer wall from the floor tiles. Scene objects, so they stay anchored to
+  // the map edges (home backdrop and in-game alike) instead of the viewport. The
   // flame lamps that used to sit here now ride the top of the rampart wall.
   const edgeLamps = []; // { sprite, glow, phase } — flickered in animate()
   {
@@ -343,8 +355,9 @@ export function createArenaGame(options) {
   // ride the wall top. Built once and parented to the scene, so it stays
   // anchored to the map rim in both the lobby backdrop and a live match, and is
   // released with everything else by disposeObject3D(scene) on destroy(). The
-  // wall's inner face sits on the play boundary (±MAP_HALF): it never overlaps
-  // the floor, so fighters, projectiles and the solid-prop set are untouched.
+  // wall is a separate outer ring: its inner face sits WALL_GAP beyond the play
+  // boundary (±MAP_HALF), standing on the foundation ledge rather than on the
+  // snow floor, so fighters, projectiles and the solid-prop set are untouched.
   {
     const rampart = new THREE.Group();
 
@@ -357,11 +370,10 @@ export function createArenaGame(options) {
     const crystalMat = new THREE.MeshStandardMaterial({ color: WALL_THEME.crystal, emissive: WALL_THEME.crystalEmissive, emissiveIntensity: 1.3, roughness: 0.15, metalness: 0.1, transparent: true, opacity: 0.85 });
     const signMat = (tex) => new THREE.MeshStandardMaterial({ map: tex, roughness: 0.55, metalness: 0.2, emissive: 0x141416, emissiveIntensity: 0.35 });
 
-    // Dimensions. WMID is the wall centreline; its inner face sits flush with
-    // the arena edge (±MAP_HALF). WALL_T/WALL_H/WALL_MID come from up top.
+    // Dimensions. WMID is the wall centreline; its inner face sits WALL_GAP
+    // beyond the arena edge (±MAP_HALF). WALL_T/WALL_H/WALL_MID/T_W come from up top.
     const WMID = WALL_MID;
     const M_W = 2.4, M_H = 1.7, M_STEP = 4.8; // merlon width / height / spacing
-    const T_W = 5.4;       // corner beacon-tower footprint
     const GATE_W = 13, GATE_HALF = GATE_W / 2;
 
     // Soft radial glow sprite (gold beacons, crystals, hologram).
