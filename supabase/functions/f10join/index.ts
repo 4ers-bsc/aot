@@ -10,36 +10,27 @@
 // Because join_pvp_match is no longer granted to `authenticated`, a malicious
 // user cannot call the RPC directly with a fake hash to fill a lobby.
 //
-// Chain: Robinhood Chain (an Ethereum L2). Which network is used comes from
-// the NETWORK secret ("testnet" | "mainnet", default testnet) via the table
-// below — it must match the client's VITE_NETWORK. Verification runs on raw
-// JSON-RPC (eth_getTransactionReceipt / eth_call), no web3 library needed.
+// Chain: Robinhood Chain (an Ethereum L2). The app runs on mainnet only —
+// the network is defined below and matches the client's src/network.js.
+// Verification runs on raw JSON-RPC (eth_getTransactionReceipt / eth_call),
+// no web3 library needed.
 //
 // Required Supabase secrets: ESCROW_WALLET (0x address), FIGHT10_TOKEN
-// (ERC-20 contract 0x address), NETWORK, and optionally RPC_URL(_2, _3).
+// (ERC-20 contract 0x address), and optionally RPC_URL(_2, _3).
 // Verifying a deposit only needs the escrow's PUBLIC address — the private
 // key stays with f10treasurer, the only function that signs payouts.
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 // ---------------------------------------------------------------------------
-// Robinhood Chain network table — switch with the NETWORK secret. Kept in
-// sync with src/network.js on the client.
+// Robinhood Chain network (mainnet). Kept in sync with src/network.js on the
+// client.
 // ---------------------------------------------------------------------------
-const NETWORKS: Record<string, { name: string; chainId: number; rpcUrl: string }> = {
-  mainnet: {
-    name: "Robinhood Chain",
-    chainId: 4663,
-    rpcUrl: "https://rpc.mainnet.chain.robinhood.com",
-  },
-  testnet: {
-    name: "Robinhood Chain Testnet",
-    chainId: 46630,
-    rpcUrl: "https://rpc.testnet.chain.robinhood.com/rpc",
-  },
+const NETWORK: { name: string; chainId: number; rpcUrl: string } = {
+  name: "Robinhood Chain",
+  chainId: 4663,
+  rpcUrl: "https://rpc.mainnet.chain.robinhood.com",
 };
-const NETWORK =
-  NETWORKS[(Deno.env.get("NETWORK") ?? "testnet").trim().toLowerCase()] ?? NETWORKS.testnet;
 
 // keccak256("Transfer(address,address,uint256)") — the ERC-20 Transfer event.
 const TRANSFER_TOPIC = "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef";

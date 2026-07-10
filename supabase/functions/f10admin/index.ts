@@ -79,22 +79,13 @@ const csv = (v?: string | null) =>
 // both together if the payout math or deposit verification changes.
 // ============================================================================
 
-// Robinhood Chain network table — switch with the NETWORK secret. Kept in
-// sync with src/network.js on the client.
-const NETWORKS: Record<string, { name: string; chainId: number; rpcUrl: string }> = {
-  mainnet: {
-    name: "Robinhood Chain",
-    chainId: 4663,
-    rpcUrl: "https://rpc.mainnet.chain.robinhood.com",
-  },
-  testnet: {
-    name: "Robinhood Chain Testnet",
-    chainId: 46630,
-    rpcUrl: "https://rpc.testnet.chain.robinhood.com/rpc",
-  },
+// Robinhood Chain network (mainnet). Kept in sync with src/network.js on the
+// client.
+const NETWORK: { name: string; chainId: number; rpcUrl: string } = {
+  name: "Robinhood Chain",
+  chainId: 4663,
+  rpcUrl: "https://rpc.mainnet.chain.robinhood.com",
 };
-const NETWORK =
-  NETWORKS[(Deno.env.get("NETWORK") ?? "testnet").trim().toLowerCase()] ?? NETWORKS.testnet;
 
 // keccak256("Transfer(address,address,uint256)") — the ERC-20 Transfer event.
 const TRANSFER_TOPIC = "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef";

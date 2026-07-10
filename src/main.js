@@ -29,8 +29,8 @@ const SIGN_IN_STATEMENT = "Sign in to FIGHT10 to play realtime PvP duels.";
 // ---------------------------------------------------------------------------
 // FIGHT10 Tokenomics constants
 // Fill in FIGHT10_TOKEN and ESCROW_WALLET after deploying the ERC-20 token on
-// Robinhood Chain + generating the escrow account. Which network (testnet or
-// mainnet) these live on is decided by the table in network.js (VITE_NETWORK).
+// Robinhood Chain + generating the escrow account. The network (mainnet) these
+// live on is defined in network.js.
 // ---------------------------------------------------------------------------
 const FIGHT10_TOKEN   = import.meta.env?.VITE_FIGHT10_TOKEN?.trim()  || "<FIGHT10_TOKEN_ADDRESS>";
 const ESCROW_WALLET   = import.meta.env?.VITE_ESCROW_WALLET?.trim()  || "<ESCROW_WALLET_ADDRESS>";
@@ -802,9 +802,9 @@ async function getWalletAddress(wallet = getEthereumWallet()) {
   }
 }
 
-// Make sure the wallet is on the configured Robinhood Chain network (see the
-// NETWORKS table in network.js), prompting a switch — or a one-time add from
-// that table — when it isn't. Throws if the user declines.
+// Make sure the wallet is on the Robinhood Chain network (see the NETWORK
+// definition in network.js), prompting a switch — or a one-time add from
+// it — when it isn't. Throws if the user declines.
 async function ensureNetwork(wallet) {
   const current = await wallet.request({ method: "eth_chainId" });
   if (parseInt(current, 16) === NETWORK.chainId) return;

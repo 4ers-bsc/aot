@@ -1,9 +1,8 @@
 -- ---------------------------------------------------------------------------
 -- Migration: Solana → Ethereum (Robinhood Chain).
 --
--- The game now runs on Robinhood Chain (an Ethereum L2; testnet chain id
--- 46630, mainnet 4663 — selected by the NETWORK secret in the edge functions
--- and VITE_NETWORK in the client). $FIGHT10 is a standard ERC-20 and wallets
+-- The game now runs on Robinhood Chain (an Ethereum L2; mainnet chain id
+-- 4663). $FIGHT10 is a standard ERC-20 and wallets
 -- are 0x addresses. Two consequences for the database:
 --
 --   1. Wallet comparisons must be CASE-INSENSITIVE. Ethereum addresses come
