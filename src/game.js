@@ -189,12 +189,21 @@ export function createArenaGame(options) {
     tex.magFilter = THREE.NearestFilter;
     tex.minFilter = THREE.NearestFilter;
     tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
-    tex.repeat.set(MAP_WORLD / 24, MAP_WORLD / 24);
     return tex;
   }
+  // The play boundary is ±MAP_HALF (grid/border below), but the ground plane
+  // overscans slightly so its edge tucks under the rampart's inner base rather
+  // than terminating exactly on the rim — this hides any hairline/diagonal
+  // "cut" between floor and wall at low camera angles. The overscan (0.5) stays
+  // well inside the wall thickness (WALL_T = 2.6), so the floor can never poke
+  // past the outer wall face, at edges or corners.
+  const FLOOR_OVERSCAN = 0.5;
+  const FLOOR_SIZE = MAP_WORLD + FLOOR_OVERSCAN * 2;
+  const groundTex = makeGroundTex(theme.ground);
+  groundTex.repeat.set(FLOOR_SIZE / 24, FLOOR_SIZE / 24); // keep tile world-scale constant
   const ground = new THREE.Mesh(
-    new THREE.PlaneGeometry(MAP_WORLD, MAP_WORLD),
-    new THREE.MeshStandardMaterial({ map: makeGroundTex(theme.ground), roughness: 1, metalness: 0 })
+    new THREE.PlaneGeometry(FLOOR_SIZE, FLOOR_SIZE),
+    new THREE.MeshStandardMaterial({ map: groundTex, roughness: 1, metalness: 0 })
   );
   ground.rotation.x = -Math.PI / 2;
   ground.receiveShadow = true;
