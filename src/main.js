@@ -34,6 +34,32 @@ const SIGN_IN_STATEMENT = "Sign in to FIGHT10 to play realtime PvP duels.";
 // ---------------------------------------------------------------------------
 const FIGHT10_TOKEN   = import.meta.env?.VITE_FIGHT10_TOKEN?.trim()  || "<FIGHT10_TOKEN_ADDRESS>";
 const ESCROW_WALLET   = import.meta.env?.VITE_ESCROW_WALLET?.trim()  || "<ESCROW_WALLET_ADDRESS>";
+// An address is "ready" only when it's a real 0x…40-hex EVM address. Anything
+// else — the "<…>" placeholder before launch, or a stray non-EVM value such as
+// a base58 Solana mint left over from the pre-migration setup — must never
+// reach ethers, which would treat it as an ENS name and throw
+// UNSUPPORTED_OPERATION on Robinhood Chain (chainId 4663 has no ENS).
+const isEvmAddress = (a) => /^0x[0-9a-fA-F]{40}$/.test(a);
+const FIGHT10_TOKEN_READY = isEvmAddress(FIGHT10_TOKEN);
+const ESCROW_WALLET_READY = isEvmAddress(ESCROW_WALLET);
+
+// One-time config visibility so a misconfigured build is obvious in the console
+// (e.g. VITE_FIGHT10_TOKEN unset, or set to a non-EVM value like a Solana mint).
+// Log the length/prefix, never a secret — these are public addresses anyway.
+console.info(
+  "[config] FIGHT10_TOKEN ready=%s value=%s | ESCROW_WALLET ready=%s value=%s | chainId=%s",
+  FIGHT10_TOKEN_READY, FIGHT10_TOKEN,
+  ESCROW_WALLET_READY, ESCROW_WALLET,
+  NETWORK.chainId,
+);
+if (!FIGHT10_TOKEN_READY && !FIGHT10_TOKEN.startsWith("<")) {
+  console.warn(
+    "[config] VITE_FIGHT10_TOKEN is set but is not a valid 0x…40-hex EVM address " +
+    "(got %o). On-chain reads are disabled to avoid an ENS resolution error. " +
+    "If this looks like a Solana mint, you need the ERC-20 address on Robinhood Chain.",
+    FIGHT10_TOKEN,
+  );
+}
 const ENTRY_FEE       = 2500;         // FIGHT10 tokens per player
 const FIGHT10_DECIMALS = Number(import.meta.env?.VITE_FIGHT10_DECIMALS ?? 18); // standard ERC-20 decimals
 const ENTRY_FEE_RAW   = BigInt(ENTRY_FEE) * BigInt(10) ** BigInt(FIGHT10_DECIMALS);
@@ -1197,7 +1223,7 @@ async function startPvp() {
   // confirmed) deposit skips the check, and an unreadable balance falls
   // through to the authoritative re-check inside depositEntryFee — this gate
   // must never block a legitimate join on an RPC hiccup.
-  if (!state.pendingDepositTx && !FIGHT10_TOKEN.startsWith("<")) {
+  if (!state.pendingDepositTx && FIGHT10_TOKEN_READY) {
     const addr = await getWalletAddress();
     if (addr) {
       try {
@@ -1223,9 +1249,9 @@ async function startPvp() {
 // token address is configured, the explorer home before launch.
 const BUY_FIGHT10_URL =
   import.meta.env?.VITE_BUY_FIGHT10_URL?.trim() ||
-  (FIGHT10_TOKEN.startsWith("<")
-    ? NETWORK.explorerBase
-    : `${NETWORK.explorerBase}/token/${FIGHT10_TOKEN}`);
+  (FIGHT10_TOKEN_READY
+    ? `${NETWORK.explorerBase}/token/${FIGHT10_TOKEN}`
+    : NETWORK.explorerBase);
 
 // "Not enough $FIGHT10" popup with a buy link. haveTokens (optional) is the
 // wallet's current balance in whole tokens, shown for context.
@@ -1327,7 +1353,7 @@ async function loadStatsBoard(tab) {
 // Holdings tab — balances live on-chain, so rank client-side: one ERC-20
 // balanceOf read per wallet, all in parallel against the read provider.
 async function loadHoldingsBoard() {
-  if (FIGHT10_TOKEN.startsWith("<")) return { empty: '<div class="lb-empty">Holder rankings go live at token launch.</div>' };
+  if (!FIGHT10_TOKEN_READY) return { empty: '<div class="lb-empty">Holder rankings go live at token launch.</div>' };
   const { data, error } = await supabase.rpc("get_holdings_wallets", { p_limit: 100 });
   if (error || !Array.isArray(data)) throw error ?? new Error("bad get_holdings_wallets response");
   // wallet_address may carry a "chain:" prefix (e.g. "ethereum:0x…") —
@@ -1578,7 +1604,7 @@ async function depositEntryFee(numPlayers = 2) {
     return null;
   }
 
-  if (FIGHT10_TOKEN.startsWith("<") || ESCROW_WALLET.startsWith("<")) {
+  if (!FIGHT10_TOKEN_READY || !ESCROW_WALLET_READY) {
     setStatus("Game not configured for live deposits yet (missing token/escrow address).");
     return null;
   }
@@ -1668,10 +1694,9 @@ function updatePrizePot(numPlayers) {
 async function refreshFight10Balance() {
   const balEl = document.getElementById("fight10Balance");
   if (!balEl || !state.user) return;
-  // Before the token is deployed FIGHT10_TOKEN is a placeholder, not an
-  // address — ethers would treat it as an ENS name and blow up on Robinhood
-  // Chain, which has no ENS. Skip the on-chain read entirely until launch.
-  if (FIGHT10_TOKEN.startsWith("<")) return;
+  // Until a real 0x token address is configured, any on-chain read would make
+  // ethers ENS-resolve a non-address and throw on Robinhood Chain (no ENS).
+  if (!FIGHT10_TOKEN_READY) return;
   const addr = await getWalletAddress();
   if (!addr) return;
   try {
@@ -1696,7 +1721,7 @@ async function loadHoldings() {
     if (noteEl) noteEl.textContent = "Connect your wallet to see your holdings.";
     return;
   }
-  if (FIGHT10_TOKEN.startsWith("<")) {
+  if (!FIGHT10_TOKEN_READY) {
     amtEl.textContent = "—";
     if (noteEl) noteEl.textContent = "Live balances go on-chain at token launch.";
     return;
