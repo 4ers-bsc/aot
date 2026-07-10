@@ -10,6 +10,7 @@
 import * as THREE from "three";
 import { escapeHtml } from "./utils.js";
 import { APPEARANCE_PRESETS } from "./appearance.js";
+import { WALL_THEMES, WALL_THEME_KEY } from "./wallThemes.js";
 
 const TILE = 2;
 const MAP_TILES = 50;
@@ -333,6 +334,13 @@ export function createArenaGame(options) {
     // they can be dropped into the merlon gaps at the correct wall height.
   }
 
+  // -- Wall theme plumbing ----------------------------------------------------
+  // The rampart below registers its shared materials and the curtain-face
+  // canvas here so applyWallTheme() can restyle the fortress live from the
+  // HUD's WALL dropdown, without rebuilding any geometry.
+  const curtainTextures = []; // one CanvasTexture per curtain run, all sharing wallCanvas
+  let rampartMats = null;     // { darkMat, darkMat2, goldMat, goldGlowMat, crystalMat, wallCanvas }
+
   // -- Arena rampart: the "F10 ARENA" fortress -------------------------------
   // A dark obsidian-and-gold curtain wall standing on the arena edge, styled
   // after the F10 splash art: gold-crowned battlements and repeated gold "F10"
@@ -376,22 +384,16 @@ export function createArenaGame(options) {
     const goldGlowTex = glowSpriteTex("255,190,70");
     const blueGlowTex = glowSpriteTex("90,180,255");
 
-    // Wall-face texture: plain dark navy panel with gold rails, tiled along each
-    // curtain (the F10 mark now sits only at the middle of each side).
-    const wallCanvas = (() => {
-      const c = document.createElement("canvas"); c.width = 256; c.height = 128;
-      const g = c.getContext("2d");
-      const grd = g.createLinearGradient(0, 0, 0, 128);
-      grd.addColorStop(0, "#141f42"); grd.addColorStop(0.5, "#0c1730"); grd.addColorStop(1, "#070c1c");
-      g.fillStyle = grd; g.fillRect(0, 0, 256, 128);
-      g.strokeStyle = "rgba(255,200,50,0.55)"; g.lineWidth = 3; g.strokeRect(14, 14, 228, 100);
-      g.strokeStyle = "rgba(120,150,210,0.25)"; g.lineWidth = 1; g.strokeRect(20, 20, 216, 88);
-      g.fillStyle = "#ffc627"; g.fillRect(0, 4, 256, 3); g.fillRect(0, 121, 256, 3);
-      return c;
-    })();
+    // Wall-face texture, tiled along each curtain. Painted by the active wall
+    // theme's drawFace() (default: Royal Gold, the original navy-and-gold
+    // panels); applyWallTheme() repaints this same canvas on a theme change.
+    const wallCanvas = document.createElement("canvas");
+    wallCanvas.width = 256; wallCanvas.height = 128;
+    WALL_THEMES[0].drawFace(wallCanvas.getContext("2d"), wallCanvas.width, wallCanvas.height);
     const wallTex = (rep) => {
       const t = new THREE.CanvasTexture(wallCanvas);
       t.wrapS = t.wrapT = THREE.RepeatWrapping; t.repeat.set(rep, 1);
+      curtainTextures.push(t); // repainted in place on theme change
       return t;
     };
 
@@ -671,8 +673,43 @@ export function createArenaGame(options) {
       torchLine( WMID, "z", false); // east
     }
 
+    // Hand the shared, retintable materials to the wall-theme system. The
+    // signs/plaques keep their gold F10 branding regardless of theme.
+    rampartMats = { darkMat, darkMat2, goldMat, goldGlowMat, crystalMat, wallCanvas };
+
     scene.add(rampart);
   }
+
+  // -- Wall themes -------------------------------------------------------------
+  // Restyles the fortress rampart in place: retints the shared stone/trim/glow/
+  // crystal materials and repaints the curtain-face canvas with the theme's
+  // pattern. Driven by the WALL dropdown on the in-game HUD; the pick persists
+  // across sessions in localStorage.
+  let wallThemeId = WALL_THEMES[0].id;
+  function applyWallTheme(id) {
+    const t = WALL_THEMES.find((w) => w.id === id) || WALL_THEMES[0];
+    wallThemeId = t.id;
+    if (rampartMats) {
+      rampartMats.darkMat.color.setHex(t.stone);
+      rampartMats.darkMat.emissive.setHex(t.stoneEmissive);
+      rampartMats.darkMat2.color.setHex(t.stone2);
+      rampartMats.goldMat.color.setHex(t.trim);
+      rampartMats.goldMat.emissive.setHex(t.trimEmissive);
+      rampartMats.goldGlowMat.color.setHex(t.glow);
+      rampartMats.goldGlowMat.emissive.setHex(t.glowEmissive);
+      rampartMats.crystalMat.color.setHex(t.crystal);
+      rampartMats.crystalMat.emissive.setHex(t.crystalEmissive);
+      t.drawFace(rampartMats.wallCanvas.getContext("2d"), rampartMats.wallCanvas.width, rampartMats.wallCanvas.height);
+      curtainTextures.forEach((tex) => { tex.needsUpdate = true; });
+    }
+    try { localStorage.setItem(WALL_THEME_KEY, t.id); } catch { /* private mode */ }
+  }
+  // Restore the last-picked theme (first run / unknown value → Royal Gold,
+  // which the rampart above was already painted with).
+  try {
+    const saved = localStorage.getItem(WALL_THEME_KEY);
+    if (saved && saved !== wallThemeId && WALL_THEMES.some((w) => w.id === saved)) applyWallTheme(saved);
+  } catch { /* private mode */ }
 
   // -- Pixelated FIGHT10 ground decals (black pixel squares, random) --------
   const fight10Groups = [];
@@ -2744,6 +2781,10 @@ export function createArenaGame(options) {
     else overlay.classList.add("show");
   });
 
+  // Wall-theme dropdown: restyle the fortress rampart live and remember the pick.
+  hud.wallThemeSelect.value = wallThemeId;
+  hud.wallThemeSelect.addEventListener("change", () => applyWallTheme(hud.wallThemeSelect.value));
+
   // Separate frag cooldown — never pollutes the active weapon's cdTimer
   let fragCd = 0;
 
@@ -3674,6 +3715,13 @@ function buildHud() {
   </div>`);
   add('<button class="gear game-ui" title="Menu">&#9776;</button>');
   const gearBtn = root.querySelector(".gear");
+  // Arena wall-theme dropdown (below the gear). createArenaGame wires the
+  // change handler and sets the persisted initial value.
+  const wallThemeCtrl = add(`<div class="wall-theme-ctrl game-ui" title="Arena wall theme">
+    <span class="wt-label">WALL</span>
+    <select class="wall-theme-select" aria-label="Arena wall theme">${WALL_THEMES.map((t) => `<option value="${t.id}">${t.name}</option>`).join("")}</select>
+  </div>`);
+  const wallThemeSelect = wallThemeCtrl.querySelector(".wall-theme-select");
   const rivalsEl = add('<div class="game-rivals game-ui">--</div>');
   const fpsEl = add('<div class="game-fps game-ui">FPS --</div>');
   const pingEl = add('<div class="game-ping game-ui">-- ms</div>');
@@ -3751,7 +3799,7 @@ function buildHud() {
     });
   }
 
-  return { root, coords, matchTimerEl, matchNoEl, mmCanvas, hotbar, slots, rivalsEl, fpsEl, pingEl, overlay, renderDistBtn, bindSettings, raiderCountCtrl, raiderCountEl, scorePanel, weaponPanel, keysInfoPanel, gearBtn };
+  return { root, coords, matchTimerEl, matchNoEl, mmCanvas, hotbar, slots, rivalsEl, fpsEl, pingEl, overlay, renderDistBtn, bindSettings, raiderCountCtrl, raiderCountEl, scorePanel, weaponPanel, keysInfoPanel, gearBtn, wallThemeSelect };
 }
 
 function clamp(v, min, max) {
