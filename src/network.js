@@ -1,36 +1,20 @@
 // ---------------------------------------------------------------------------
-// Robinhood Chain network table — the single place the app decides which
-// network it talks to. Switch between testnet and mainnet with the
-// VITE_NETWORK env var ("testnet" | "mainnet"; defaults to testnet).
+// Robinhood Chain network — the single place the app defines the network it
+// talks to. The app runs on mainnet only.
 //
-// The same table drives the wallet's add/switch-chain prompts, the read-only
-// RPC provider, and every explorer link, so a network change can never be
-// half-applied. The Supabase edge functions carry a matching table selected
-// by their NETWORK secret — flip both together when moving to mainnet.
+// This drives the wallet's add/switch-chain prompts, the read-only RPC
+// provider, and every explorer link. The Supabase edge functions carry a
+// matching definition, kept in sync with this one.
 // ---------------------------------------------------------------------------
-export const NETWORKS = {
-  mainnet: {
-    key: "mainnet",
-    name: "Robinhood Chain",
-    chainId: 4663,
-    chainIdHex: "0x1237",
-    rpcUrl: "https://rpc.mainnet.chain.robinhood.com",
-    explorerBase: "https://robinhoodchain.blockscout.com",
-    nativeCurrency: { name: "Ether", symbol: "ETH", decimals: 18 },
-  },
-  testnet: {
-    key: "testnet",
-    name: "Robinhood Chain Testnet",
-    chainId: 46630,
-    chainIdHex: "0xb626",
-    rpcUrl: "https://rpc.testnet.chain.robinhood.com/rpc",
-    explorerBase: "https://explorer.testnet.chain.robinhood.com",
-    nativeCurrency: { name: "Ether", symbol: "ETH", decimals: 18 },
-  },
+export const NETWORK = {
+  key: "mainnet",
+  name: "Robinhood Chain",
+  chainId: 4663,
+  chainIdHex: "0x1237",
+  rpcUrl: "https://rpc.mainnet.chain.robinhood.com",
+  explorerBase: "https://robinhoodchain.blockscout.com",
+  nativeCurrency: { name: "Ether", symbol: "ETH", decimals: 18 },
 };
-
-export const NETWORK =
-  NETWORKS[import.meta.env?.VITE_NETWORK?.trim().toLowerCase()] ?? NETWORKS.testnet;
 
 // VITE_ROBINHOOD_RPC_URL overrides the table's public RPC endpoint (e.g. a
 // dedicated Alchemy/QuickNode key) without changing which network is selected.
