@@ -162,6 +162,45 @@ export function createArenaGame(options) {
   const camCenter = new THREE.Vector3(0, 0, 0);
   let following = true;
 
+  // -- Camera pan bounds ----------------------------------------------------
+  // The camera focus (camCenter) is clamped so the view can never scroll past
+  // the arena into the void beyond the rampart. A fixed ±MAP_HALF clamp let you
+  // pan the focus all the way to one edge, which pushed the *opposite* wall out
+  // of the (small, zoom-dependent) orthographic frustum — the near walls simply
+  // stopped being drawn. Instead we clamp so the visible ground rectangle stays
+  // inside the arena's outer footprint, computed per-frame from the live zoom.
+  //
+  // ARENA_BOUND is the outermost solid extent (corner-tower footprint, which
+  // reaches a little past the curtain walls), so the whole rampart stays framed.
+  // = MAP_HALF + LEDGE_W (3.2) + tower overhang (~2.2); inlined because LEDGE_W
+  // is declared further down in this function.
+  const ARENA_BOUND = MAP_HALF + 5.4;
+  // The isometric camera has no roll, so screen-right is horizontal on the
+  // ground while screen-up is foreshortened by the view pitch. These constants
+  // turn the camera-space frustum half-extents into ground-space world-axis
+  // half-extents (see clampCamCenter()).
+  const _camHoriz = Math.hypot(CAM_OFFSET.x, CAM_OFFSET.z);
+  const _camCosPitch = _camHoriz / CAM_OFFSET.length();
+  // |world-axis components| of the ground-projected screen-right (u) and
+  // screen-up (v) unit directions. Equal on x and z for a symmetric offset.
+  const _uAbs = { x: Math.abs(CAM_OFFSET.z) / _camHoriz, z: Math.abs(CAM_OFFSET.x) / _camHoriz };
+  const _vAbs = { x: Math.abs(CAM_OFFSET.x) / _camHoriz, z: Math.abs(CAM_OFFSET.z) / _camHoriz };
+  function clampCamCenter() {
+    // Camera-space frustum half-extents at the current zoom.
+    const halfW = (camera.right - camera.left) / 2 / camera.zoom;
+    const halfH = (camera.top - camera.bottom) / 2 / camera.zoom;
+    const groundH = halfH / _camCosPitch; // screen-up covers more ground (pitch)
+    // World-axis half-extent of the visible ground rectangle.
+    const reachX = _uAbs.x * halfW + _vAbs.x * groundH;
+    const reachZ = _uAbs.z * halfW + _vAbs.z * groundH;
+    // How far the focus may stray from centre before the view hits the rim.
+    // Never negative: once the whole arena fits on screen the focus locks to 0.
+    const limX = Math.max(0, ARENA_BOUND - reachX);
+    const limZ = Math.max(0, ARENA_BOUND - reachZ);
+    camCenter.x = Math.max(-limX, Math.min(limX, camCenter.x));
+    camCenter.z = Math.max(-limZ, Math.min(limZ, camCenter.z));
+  }
+
   scene.add(new THREE.AmbientLight(0xffffff, 0.85));
   const sun = new THREE.DirectionalLight(0xffffff, 0.65);
   sun.castShadow = true;
@@ -3184,8 +3223,7 @@ export function createArenaGame(options) {
       camCenter.x += (player.group.position.x - camCenter.x) * k;
       camCenter.z += (player.group.position.z - camCenter.z) * k;
     }
-    camCenter.x = Math.max(-MAP_HALF, Math.min(MAP_HALF, camCenter.x));
-    camCenter.z = Math.max(-MAP_HALF, Math.min(MAP_HALF, camCenter.z));
+    clampCamCenter();
     camera.position.set(camCenter.x + CAM_OFFSET.x, CAM_OFFSET.y, camCenter.z + CAM_OFFSET.z);
     camera.lookAt(camCenter.x, 1, camCenter.z);
     sun.position.copy(player.group.position).add(_sunOffset);
