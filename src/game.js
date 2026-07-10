@@ -234,6 +234,12 @@ export function createArenaGame(options) {
   const WALL_T = 2.6;                     // rampart thickness
   const WALL_H = 6.6;                     // rampart height above the floor
   const WALL_MID = MAP_HALF + WALL_T / 2; // wall centreline (inner face at the rim)
+  // How far a manual pan may push the camera focus past the play boundary. The
+  // fortress walls and their corner turrets stand just outside the floor (at
+  // ±WALL_MID) and rise well above it, so a little overscroll lets them be
+  // framed fully instead of being cut off at the screen edge when panning up
+  // toward a wall. Auto-follow keeps its tight ±MAP_HALF clamp (see animate()).
+  const WALL_PAN_MARGIN = 16;
   const wallObjects = []; // tracks all wall scene objects for disposal
   // F10 cloth banner draped over the left map edge. Each entry is animated
   // per frame in animate(): an unfurl drop when built, then a continuous
@@ -3184,8 +3190,11 @@ export function createArenaGame(options) {
       camCenter.x += (player.group.position.x - camCenter.x) * k;
       camCenter.z += (player.group.position.z - camCenter.z) * k;
     }
-    camCenter.x = Math.max(-MAP_HALF, Math.min(MAP_HALF, camCenter.x));
-    camCenter.z = Math.max(-MAP_HALF, Math.min(MAP_HALF, camCenter.z));
+    // Auto-follow stays inside the play floor; a manual pan may overscroll a
+    // little past the rim so the arena walls can be brought fully into view.
+    const panLimit = following ? MAP_HALF : MAP_HALF + WALL_PAN_MARGIN;
+    camCenter.x = Math.max(-panLimit, Math.min(panLimit, camCenter.x));
+    camCenter.z = Math.max(-panLimit, Math.min(panLimit, camCenter.z));
     camera.position.set(camCenter.x + CAM_OFFSET.x, CAM_OFFSET.y, camCenter.z + CAM_OFFSET.z);
     camera.lookAt(camCenter.x, 1, camCenter.z);
     sun.position.copy(player.group.position).add(_sunOffset);
