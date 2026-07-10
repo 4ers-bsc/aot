@@ -103,10 +103,10 @@ export function createArenaGame(options) {
 
   // -- Scene ----------------------------------------------------------------
   const scene = new THREE.Scene();
-  // Baked moonlit night-sky backdrop (deep-blue gradient, a full moon, drifting
-  // clouds and faint far spires) so the arena reads as a fortress floating in
-  // the clouds. A fixed 2D background texture, so it never moves with the
-  // follow camera. Reused by applyTheme() instead of a flat clear colour.
+  // Baked night-sky backdrop (deep-blue gradient, stars, drifting clouds and
+  // faint far spires) so the arena reads as a fortress floating in the clouds.
+  // A fixed 2D background texture, so it never moves with the follow camera.
+  // Reused by applyTheme() instead of a flat clear colour.
   const skyTex = (() => {
     const c = document.createElement("canvas");
     c.width = 1024; c.height = 512;
@@ -119,13 +119,6 @@ export function createArenaGame(options) {
       const s = Math.random() < 0.12 ? 2.2 : 1.2;
       x.fillRect(Math.random() * 1024, Math.random() * 320, s, s);
     }
-    // Full moon with a soft halo, upper-left.
-    const halo = x.createRadialGradient(232, 118, 12, 232, 118, 96);
-    halo.addColorStop(0, "rgba(245,247,255,0.9)"); halo.addColorStop(0.55, "rgba(210,222,245,0.35)"); halo.addColorStop(1, "rgba(210,222,245,0)");
-    x.fillStyle = halo; x.beginPath(); x.arc(232, 118, 96, 0, 7); x.fill();
-    x.fillStyle = "#fbfbf2"; x.beginPath(); x.arc(232, 118, 50, 0, 7); x.fill();
-    x.fillStyle = "rgba(205,214,232,0.5)"; // faint craters
-    [[218,104,9],[250,128,7],[230,138,5]].forEach(([mx, my, mr]) => { x.beginPath(); x.arc(mx, my, mr, 0, 7); x.fill(); });
     // Faint far spires along the horizon.
     x.fillStyle = "rgba(120,150,205,0.16)";
     for (let i = 0; i < 22; i++) {
@@ -668,11 +661,7 @@ export function createArenaGame(options) {
       g.strokeStyle = "#ffc627"; g.lineWidth = Math.max(5, W * 0.014); g.strokeRect(g.lineWidth, g.lineWidth, W - 2 * g.lineWidth, H - 2 * g.lineWidth);
       g.strokeStyle = "rgba(255,198,39,0.4)"; g.lineWidth = 2; g.strokeRect(W * 0.03, H * 0.06, W * 0.94, H * 0.88);
     };
-    const placeSign = (wall, along, w, h, drawFn) => {
-      const CW = Math.round(w * 40), CH = Math.round(h * 40);
-      const c = document.createElement("canvas"); c.width = CW; c.height = CH;
-      drawFn(c.getContext("2d"), CW, CH);
-      const faceMat = signMat(new THREE.CanvasTexture(c));
+    const buildSign = (wall, along, w, h, faceMat) => {
       const grp = new THREE.Group();
       const panel = new THREE.Mesh(new THREE.BoxGeometry(w, h, 0.5), [darkMat, darkMat, darkMat, darkMat, faceMat, darkMat]);
       panel.castShadow = true; grp.add(panel);
@@ -688,6 +677,29 @@ export function createArenaGame(options) {
         if (wall === "north") slab(0.7, postH + 0.5, 0.7, darkMat, along + offs, py, -WMID);
         else slab(0.7, postH + 0.5, 0.7, darkMat, -WMID, py, along + offs);
       });
+    };
+    const placeSign = (wall, along, w, h, drawFn) => {
+      const CW = Math.round(w * 40), CH = Math.round(h * 40);
+      const c = document.createElement("canvas"); c.width = CW; c.height = CH;
+      drawFn(c.getContext("2d"), CW, CH);
+      buildSign(wall, along, w, h, signMat(new THREE.CanvasTexture(c)));
+    };
+    // Image-faced sign (the pump.fun emblem): a dark gold-framed panel with the
+    // image (served from /pump.webp) drawn centred on top once it loads.
+    const placeImageSign = (wall, along, w, h, url) => {
+      const CW = Math.round(w * 40), CH = Math.round(h * 40);
+      const c = document.createElement("canvas"); c.width = CW; c.height = CH;
+      const g = c.getContext("2d"); panelBase(g, CW, CH);
+      const tex = new THREE.CanvasTexture(c);
+      const img = new Image();
+      img.onload = () => {
+        const pad = Math.min(CW, CH) * 0.13;
+        const scale = Math.min((CW - 2 * pad) / img.width, (CH - 2 * pad) / img.height);
+        const dw = img.width * scale, dh = img.height * scale;
+        g.drawImage(img, (CW - dw) / 2, (CH - dh) / 2, dw, dh); tex.needsUpdate = true;
+      };
+      img.src = url;
+      buildSign(wall, along, w, h, signMat(tex));
     };
     const drawArena = (g, W, H) => {
       panelBase(g, W, H);
@@ -713,31 +725,9 @@ export function createArenaGame(options) {
       g.fillStyle = "#ffce35"; g.font = `bold ${Math.round(H * 0.15)}px Arial`;
       g.fillText("F10 IS THE FUTURE", W / 2, H * 0.66);
     };
-    const drawLeaderboard = (g, W, H) => {
-      panelBase(g, W, H);
-      g.textAlign = "center"; g.textBaseline = "middle";
-      g.fillStyle = "#ffd24a"; g.font = `bold ${Math.round(H * 0.15)}px Arial`;
-      g.fillText("LEADERBOARD", W / 2, H * 0.16);
-      g.strokeStyle = "#ffc627"; g.lineWidth = 2; g.beginPath(); g.moveTo(W * 0.1, H * 0.28); g.lineTo(W * 0.9, H * 0.28); g.stroke();
-      const rows = [["1", "Raiders", "24"], ["2", "Raider88", "18"], ["3", "Raider#7", "15"]];
-      g.font = `${Math.round(H * 0.12)}px Arial`;
-      rows.forEach((r, i) => {
-        const y = H * (0.44 + i * 0.19);
-        g.textAlign = "left"; g.fillStyle = "#ffce35"; g.fillText(r[0], W * 0.12, y);
-        g.fillStyle = "#e7edf7"; g.fillText(r[1], W * 0.26, y);
-        g.textAlign = "right"; g.fillStyle = "#ffce35"; g.fillText(r[2], W * 0.88, y);
-      });
-    };
-    const drawBitcoin = (g, W, H) => {
-      panelBase(g, W, H);
-      g.textAlign = "center"; g.textBaseline = "middle";
-      g.fillStyle = "#ffb400"; g.font = `bold ${Math.round(H * 0.62)}px Arial`;
-      g.fillText("₿", W / 2, H * 0.56);
-    };
-    placeSign("west",  -1,  18,  8,   drawArena);       // F10 ARENA
-    placeSign("north", -13, 15,  7,   drawTrade);       // TRADE. FIGHT. EARN.
-    placeSign("north",  8,  11,  7.5, drawLeaderboard); // LEADERBOARD
-    placeSign("north",  23, 5.4, 5.4, drawBitcoin);     // ₿ emblem
+    placeSign("west",  -1,  18, 8,   drawArena);         // F10 ARENA
+    placeSign("north", -13, 15, 7,   drawTrade);         // TRADE. FIGHT. EARN.
+    placeImageSign("north", 14, 6.6, 6.6, "/pump.webp"); // pump.fun emblem
 
     // -- Blue crystal clusters just outside each corner tower.
     const crystalCluster = (cx, cz) => {
@@ -764,20 +754,6 @@ export function createArenaGame(options) {
       const hg = new THREE.Sprite(new THREE.SpriteMaterial({ map: blueGlowTex, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, opacity: 0.8 }));
       hg.position.set(hx, 6, hz); hg.scale.set(10, 10, 1); rampart.add(hg);
     }
-
-    // -- Chains hanging into the clouds from the two near corners.
-    const chainStrand = (cx, cz, n) => {
-      for (let i = 0; i < n; i++) {
-        const link = new THREE.Mesh(new THREE.TorusGeometry(0.55, 0.17, 6, 10), ironMat);
-        link.position.set(cx, -0.6 - i * 0.98, cz);
-        link.rotation.x = Math.PI / 2; link.rotation.z = (i % 2) * Math.PI / 2;
-        rampart.add(link);
-      }
-      const g = new THREE.Sprite(new THREE.SpriteMaterial({ map: blueGlowTex, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, opacity: 0.7 }));
-      g.position.set(cx, -0.6 - n * 0.98, cz); g.scale.set(5, 5, 1); rampart.add(g);
-    };
-    chainStrand(WMID - 1.0, WMID + 1.6, 8);
-    chainStrand(WMID + 1.6, WMID - 1.0, 8);
 
     // -- Battlement flame lamps: flickering torches standing in the merlon gaps
     //    along the wall top (pushed to edgeLamps so animate() flickers them).
@@ -2249,12 +2225,8 @@ export function createArenaGame(options) {
     clearMap();
     const rng = makeRng(seedStr || "demo");
     buildRiver(rng);
-    // Four snowy watchtowers, one at each corner — always present
-    const tOff = MAP_HALF - 5;
-    [[-tOff,-tOff],[-tOff,tOff],[tOff,-tOff],[tOff,tOff]].forEach(([tx,tz]) => {
-      addTower(tx, tz);
-      addTowerSnowGrass(tx, tz, rng);
-    });
+    // The old corner watchtowers were removed — the arena is now ringed by the
+    // rampart's corner beacon towers instead.
     const scatter = (count, adder, gap) => {
       let made = 0, tries = 0;
       while (made < count && tries < count * 40) {
