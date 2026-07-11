@@ -4523,7 +4523,14 @@ body.in-game .log-feed { left: 70px; }
   color: var(--gold-hi);
 }
 .admin-title span { color: rgba(233, 224, 200, 0.55); margin-left: 0.4em; }
-.admin-head-actions { display: flex; gap: 8px; }
+.admin-head-actions { display: flex; align-items: center; gap: 8px; }
+.admin-refreshed {
+  font-family: var(--font-body);
+  font-size: 0.6rem;
+  letter-spacing: 0.03em;
+  color: rgba(233, 224, 200, 0.45);
+  white-space: nowrap;
+}
 
 .admin-tabs {
   display: flex;
@@ -4810,6 +4817,45 @@ body.in-game .log-feed { left: 70px; }
   min-width: 60px;
   text-align: right;
 }
+
+/* Admin — Integrity tab: per-kind filter chips. */
+.admin-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 12px;
+}
+.admin-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border: 1px solid rgba(212, 160, 23, 0.22);
+  border-radius: 999px;
+  background: rgba(12, 10, 6, 0.6);
+  color: rgba(233, 224, 200, 0.72);
+  font-family: var(--font-body);
+  font-size: 0.6rem;
+  letter-spacing: 0.03em;
+  cursor: pointer;
+  transition: border-color 0.15s ease, color 0.15s ease, background 0.15s ease;
+}
+.admin-chip:hover { border-color: rgba(212, 160, 23, 0.55); color: #f0e8d2; }
+.admin-chip.is-active {
+  border-color: var(--gold);
+  color: var(--gold-hi);
+  background: rgba(40, 30, 10, 0.7);
+}
+.admin-chip-n {
+  min-width: 15px;
+  padding: 0 5px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.08);
+  color: rgba(233, 224, 200, 0.7);
+  font-size: 0.54rem;
+  text-align: center;
+}
+.admin-chip.is-active .admin-chip-n { background: rgba(212, 160, 23, 0.3); color: var(--gold-hi); }
 
 /* Admin — cash-flow tab: filter bar, summary cards, section headers. */
 .cf-filters {

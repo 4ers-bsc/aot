@@ -77,6 +77,7 @@ export function initAdmin(supabase) {
   let loading = false;
   let errorMsg = "";
   let query = ""; // per-tab free-text filter (searches every column)
+  let integrityKind = ""; // Integrity tab: narrow to a single signal kind ("" = all)
 
   // Cash-flow tab keeps its own state: filters are applied server-side (so the
   // totals span every row, not just the first page), fetched on demand.
@@ -96,6 +97,7 @@ export function initAdmin(supabase) {
         <header class="admin-head">
           <div class="admin-title">OPS<span>DASHBOARD</span></div>
           <div class="admin-head-actions">
+            <span class="admin-refreshed" id="adminRefreshed" title="Time of the data currently shown"></span>
             <button class="admin-btn admin-refresh" type="button" data-admin="refresh">Refresh</button>
             <button class="admin-btn admin-x" type="button" data-admin="close" aria-label="Close">✕</button>
           </div>
@@ -122,6 +124,7 @@ export function initAdmin(supabase) {
       if (t && t.dataset.tab !== activeTab) {
         activeTab = t.dataset.tab;
         query = "";
+        integrityKind = "";
         const s = root.querySelector("#adminSearch");
         if (s) s.value = "";
         // Cash flow loads lazily the first time it's opened.
@@ -295,6 +298,11 @@ export function initAdmin(supabase) {
       loadCashflow();
       return;
     }
+    if (a === "integrity_kind") {
+      integrityKind = btn.dataset.kind || "";
+      renderBody();
+      return;
+    }
     if (a === "note") {
       const note = await askText("Review note", "", { placeholder: "What did you check / decide?" });
       if (note) {
@@ -372,8 +380,27 @@ export function initAdmin(supabase) {
   // ---- Render ---------------------------------------------------------------
   function render() {
     if (!root) return;
+    renderRefreshed();
     renderTabs();
     renderBody();
+  }
+
+  // "as of …" indicator so the operator knows how fresh the queues are.
+  function renderRefreshed() {
+    const el = root.querySelector("#adminRefreshed");
+    if (!el) return;
+    if (loading)              { el.textContent = "refreshing…"; el.title = ""; return; }
+    if (!data?.generated_at)  { el.textContent = ""; el.title = ""; return; }
+    el.textContent = `as of ${ago(data.generated_at)}`;
+    el.title = fmtTime(data.generated_at);
+  }
+
+  // Rows for a tab after every active filter (shared free-text search + any
+  // per-tab structured filter) so the on-screen table and the count agree.
+  function tabRows(tab) {
+    let rows = (data?.[tab] || []).filter(rowMatches);
+    if (tab === "integrity" && integrityKind) rows = rows.filter((r) => r.kind === integrityKind);
+    return rows;
   }
 
   function renderTabs() {
@@ -413,14 +440,15 @@ export function initAdmin(supabase) {
     if (!data)            { bodyEl.innerHTML = `<div class="admin-msg">No data.</div>`; return; }
     if (countEl) {
       const total = (data[activeTab] || []).length;
-      const shown = (data[activeTab] || []).filter(rowMatches).length;
-      countEl.textContent = query ? `${shown} of ${total}` : `${total} row${total === 1 ? "" : "s"}`;
+      const shown = tabRows(activeTab).length;
+      const filtered = query || (activeTab === "integrity" && integrityKind);
+      countEl.textContent = filtered ? `${shown} of ${total}` : `${total} row${total === 1 ? "" : "s"}`;
     }
     bodyEl.innerHTML = renderTab(activeTab);
   }
 
   function renderTab(tab) {
-    const rows = (data[tab] || []).filter(rowMatches);
+    const rows = tabRows(tab);
     const meta = data.thresholds || {};
     const emptyMsg = query
       ? `<div class="admin-msg">No rows match “${escapeHtml(query)}”.</div>`
@@ -437,10 +465,25 @@ export function initAdmin(supabase) {
         : `<div class="admin-msg">${query ? `No notes match “${escapeHtml(query)}”.` : "No notes yet."}</div>`;
       return bar + table;
     }
+    // Integrity keeps its per-kind filter chips visible even when the current
+    // selection is empty, so the operator can switch kinds without clearing.
+    if (tab === "integrity") {
+      const searched = (data.integrity || []).filter(rowMatches);
+      const kinds = [...new Set(searched.map((r) => r.kind).filter(Boolean))].sort();
+      const chip = (key, label, n, active) =>
+        `<button class="admin-chip${active ? " is-active" : ""}" data-act="integrity_kind" data-kind="${escapeHtml(key)}">${escapeHtml(label)}<span class="admin-chip-n">${n}</span></button>`;
+      const chips = kinds.length > 1
+        ? `<div class="admin-chips">${chip("", "All", searched.length, !integrityKind)}${
+            kinds.map((k) => chip(k, k, searched.filter((r) => r.kind === k).length, integrityKind === k)).join("")}</div>`
+        : "";
+      const table = rows.length
+        ? `<table class="admin-table">${thead(["When", "Player", "Wallet", "Kind", "Detail", "Match"])}${rows.map(integrityRow).join("")}</tbody></table>`
+        : `<div class="admin-msg">${integrityKind ? `No “${escapeHtml(integrityKind)}” flags${query ? " match this search" : ""}.` : (query ? `No flags match “${escapeHtml(query)}”.` : "Nothing here — queue is clear. ✓")}</div>`;
+      return chips + table;
+    }
     if (rows.length === 0) return emptyMsg;
     switch (tab) {
       case "disputed":          return rows.map(disputedCard).join("");
-      case "integrity":         return `<table class="admin-table">${thead(["When", "Player", "Wallet", "Kind", "Detail", "Match"])}${rows.map(integrityRow).join("")}</tbody></table>`;
       case "payout_pending":    return `<p class="admin-note">Finished matches with a winner that have not paid out yet.</p>` + rows.map((r) => payoutCard(r, false)).join("");
       case "payout_failed":     return `<p class="admin-note">Payout reservations stuck as 'pending' for over ${meta.payout_stuck_minutes ?? 15} min — likely a payout that half-completed. Verify on-chain before acting.</p>` + rows.map((r) => payoutCard(r, true)).join("");
       case "payouts":           return `<p class="admin-note">Completed payouts (from the payouts ledger). Every column is searchable above.</p><table class="admin-table">${thead(["When", "Match", "Winner", "Wallet", "Amount", "Players", "Tx"])}${rows.map(payoutRow).join("")}</tbody></table>`;
