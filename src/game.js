@@ -524,27 +524,21 @@ export function createArenaGame(options) {
     //    rippled, swallowtailed fabric mesh slung from a gold-capped pole, with a
     //    `content` painter drawing on top of the shared woven-cloth ground.
 
-    // Shared cloth ground: dark woven fabric with a gold hem + accent bands.
+    // Shared cloth ground: golden woven fabric with a dark hem + accent bands.
     const bannerGround = (g, W, H) => {
       const grd = g.createLinearGradient(0, 0, 0, H);
-      grd.addColorStop(0, "#15151b"); grd.addColorStop(0.55, "#0e0e13"); grd.addColorStop(1, "#08080b");
+      grd.addColorStop(0, "#ffdc73"); grd.addColorStop(0.5, "#f0b52e"); grd.addColorStop(1, "#c8940a");
       g.fillStyle = grd; g.fillRect(0, 0, W, H);
-      // Faint horizontal weave.
-      g.globalAlpha = 0.05; g.strokeStyle = "#ffffff"; g.lineWidth = 1;
+      // Faint horizontal weave (dark threads on the gold cloth).
+      g.globalAlpha = 0.06; g.strokeStyle = "#000000"; g.lineWidth = 1;
       for (let y = 0; y < H; y += 3) { g.beginPath(); g.moveTo(0, y); g.lineTo(W, y); g.stroke(); }
       g.globalAlpha = 1;
-      // Gold hem around the edge + top/bottom accent bands.
-      g.strokeStyle = "#e8b23a"; g.lineWidth = Math.max(6, H * 0.03);
+      // Dark hem around the edge + top/bottom accent bands (contrast on gold).
+      g.strokeStyle = "#2a1c02"; g.lineWidth = Math.max(6, H * 0.03);
       g.strokeRect(g.lineWidth, g.lineWidth, W - 2 * g.lineWidth, H - 2 * g.lineWidth);
-      g.fillStyle = "rgba(232,178,58,0.9)";
+      g.fillStyle = "rgba(42,28,2,0.85)";
       g.fillRect(W * 0.08, H * 0.13, W * 0.84, H * 0.016);
       g.fillRect(W * 0.08, H * 0.855, W * 0.84, H * 0.016);
-    };
-    // A gold fill gradient for banner lettering.
-    const goldTextFill = (g, y0, y1) => {
-      const tg = g.createLinearGradient(0, y0, 0, y1);
-      tg.addColorStop(0, "#ffe89a"); tg.addColorStop(0.5, "#ffcf4a"); tg.addColorStop(1, "#c8940a");
-      return tg;
     };
     // A rippled, swallowtailed cloth mesh (custom grid so the fabric can wave and
     // the bottom edge can carry the banner notch). Fold count scales with width so
@@ -627,15 +621,15 @@ export function createArenaGame(options) {
     const bannerFont = (state, px) => `700 ${Math.round(px)}px ${state.fontReady ? '"Black Ops One", serif' : "Arial"}`;
     const drawF10 = (g, W, H, state) => {
       g.textAlign = "center"; g.textBaseline = "middle";
-      g.fillStyle = goldTextFill(g, H * 0.28, H * 0.72);
+      g.fillStyle = "#0a0a0a";
       g.font = bannerFont(state, H * 0.46);
       g.fillText("F10", W / 2, H * 0.52);
     };
     const drawTrade = (g, W, H, state) => {
       g.textAlign = "center"; g.textBaseline = "middle";
-      g.fillStyle = "#f4f7ff"; g.font = bannerFont(state, H * 0.26);
+      g.fillStyle = "#0a0a0a"; g.font = bannerFont(state, H * 0.26);
       g.fillText("TRADE. FIGHT. EARN.", W / 2, H * 0.4);
-      g.fillStyle = goldTextFill(g, H * 0.58, H * 0.78); g.font = bannerFont(state, H * 0.19);
+      g.font = bannerFont(state, H * 0.19);
       g.fillText("F10 IS THE FUTURE", W / 2, H * 0.68);
     };
     // Robinhood logo, contained inside the hem with its aspect ratio preserved.
