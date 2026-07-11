@@ -171,6 +171,15 @@ insert into public.match_config (max_players, duration_seconds) values
   (5,  420),   -- 7 min
   (10, 600);   -- 10 min
 
+-- Global maintenance switch. Single row (id is pinned to true). When value='y'
+-- the client shows an "under maintenance" screen and nothing else works; any
+-- other value is normal. Flip from the dashboard: update maintain set value=...
+create table public.maintain (
+  id    boolean primary key default true check (id), -- single-row guard
+  value text not null default 'n'
+);
+insert into public.maintain (id, value) values (true, 'n');
+
 -- Per-user rate limiting (anti-abuse). Touched only by enforce_rate_limit().
 create table public.rate_limits (
   user_id      uuid        not null references auth.users(id) on delete cascade,
@@ -1489,6 +1498,9 @@ alter table public.match_players enable row level security;
 alter table public.match_damage enable row level security;
 alter table public.match_kills  enable row level security;
 alter table public.match_config enable row level security;
+-- maintain is world-readable (client reads the switch before login); writes are
+-- service-role only (no write policy).
+alter table public.maintain     enable row level security;
 -- rate_limits and integrity_signals are touched only by SECURITY DEFINER
 -- functions; RLS on with no policies blocks all direct client access.
 alter table public.rate_limits       enable row level security;
@@ -1523,6 +1535,10 @@ create trigger trg_ban_forfeited
 -- Match config: world-readable (non-sensitive; clients read it to set the timer).
 create policy "match_config_select_all"
 on public.match_config for select to authenticated, anon using (true);
+
+-- Maintenance switch: world-readable (client reads it before sign-in).
+create policy "maintain_select_all"
+on public.maintain for select to authenticated, anon using (true);
 
 -- Profiles: own row only
 create policy "profiles_select_own"
@@ -1574,6 +1590,7 @@ grant select on public.match_players to authenticated;
 grant select, insert on public.match_damage to authenticated;
 grant select, insert on public.match_kills  to authenticated;
 grant select on public.match_config to authenticated, anon;
+grant select on public.maintain     to authenticated, anon;
 grant select on public.payouts      to authenticated;
 grant select on public.banned_users to authenticated;
 

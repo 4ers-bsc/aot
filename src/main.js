@@ -221,6 +221,43 @@ function loadPendingDeposit() {
   } catch (_) {}
 }
 
+// ---------------------------------------------------------------------------
+// Maintenance mode. A single-row `maintain` table gates the whole app: when its
+// `value` is 'y', the site shows an "under maintenance" screen and nothing else
+// loads or works. Flip it from the Supabase dashboard (update maintain set
+// value = 'y' / 'n'). Fails OPEN — a read error (network / Supabase hiccup) is
+// treated as "not in maintenance" so a transient outage can't black out the site.
+// ---------------------------------------------------------------------------
+async function isUnderMaintenance() {
+  try {
+    const { data, error } = await supabase.from("maintain").select("value").limit(1).maybeSingle();
+    if (error) { console.error("maintenance check failed:", error); return false; }
+    return String(data?.value ?? "").trim().toLowerCase() === "y";
+  } catch (e) {
+    console.error("maintenance check failed:", e);
+    return false;
+  }
+}
+
+// Replace the whole page with a blocking "under maintenance" notice. Sits above
+// everything (incl. the ops overlay), so no button, overlay or shortcut works.
+function showMaintenance() {
+  try { if (state.presenceChannel) supabase.removeChannel(state.presenceChannel); } catch (_) {}
+  document.getElementById("appLoading")?.remove();
+  if (document.getElementById("maintenanceOverlay")) return;
+  const el = document.createElement("div");
+  el.id = "maintenanceOverlay";
+  el.className = "maintenance-overlay";
+  el.innerHTML = `
+    <div class="maintenance-box">
+      <div class="maintenance-icon">🛠️</div>
+      <h1 class="maintenance-title">UNDER MAINTENANCE</h1>
+      <p class="maintenance-text">FIGHT10 is temporarily down for maintenance.<br>We'll be back shortly — thanks for your patience.</p>
+    </div>`;
+  document.body.appendChild(el);
+  document.body.classList.add("maintenance-on");
+}
+
 // Load per-lobby match durations from the DB so the client timer matches the
 // server's settlement deadline. Best-effort: the defaults above are used on
 // failure, and a too-short client timer can't shorten the match anyway (the
@@ -760,6 +797,8 @@ async function init() {
   }, 50);
 
   if (statusEl) statusEl.textContent = "Connecting…";
+  // Gate the whole app on the maintenance switch before anything else boots.
+  if (await isUnderMaintenance()) { clearInterval(tick); showMaintenance(); return; }
   loadMatchConfig(); // fire-and-forget; ready well before any match starts
   startOnlinePresence(); // fire-and-forget; independent of auth/login state
   supabase.auth.onAuthStateChange((_event, session) => {
