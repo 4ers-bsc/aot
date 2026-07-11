@@ -518,79 +518,142 @@ export function createArenaGame(options) {
       glow.position.set(x, H + 3.5, z); glow.scale.set(10, 10, 1); rampart.add(glow);
     });
 
-    // -- Billboard signs mounted on posts above the two far walls. `wall` is
-    //    "north" (z=-WMID, facing +z) or "west" (x=-WMID, facing +x); `along`
-    //    is the position down that wall; drawFn paints the dark, gold-framed face.
-    const panelBase = (g, W, H) => {
+    // -- Hanging cloth banners above the two far walls (they replaced the old
+    //    rigid billboards). `wall` is "north" (z=-WMID, facing +z) or "west"
+    //    (x=-WMID, facing +x); `along` is the position down that wall. Each is a
+    //    rippled, swallowtailed fabric mesh slung from a gold-capped pole, with a
+    //    `content` painter drawing on top of the shared woven-cloth ground.
+
+    // Shared cloth ground: dark woven fabric with a gold hem + accent bands.
+    const bannerGround = (g, W, H) => {
       const grd = g.createLinearGradient(0, 0, 0, H);
-      grd.addColorStop(0, "#18181d"); grd.addColorStop(1, "#08080a");
+      grd.addColorStop(0, "#15151b"); grd.addColorStop(0.55, "#0e0e13"); grd.addColorStop(1, "#08080b");
       g.fillStyle = grd; g.fillRect(0, 0, W, H);
-      g.strokeStyle = "#ffc627"; g.lineWidth = Math.max(5, W * 0.014); g.strokeRect(g.lineWidth, g.lineWidth, W - 2 * g.lineWidth, H - 2 * g.lineWidth);
-      g.strokeStyle = "rgba(255,198,39,0.4)"; g.lineWidth = 2; g.strokeRect(W * 0.03, H * 0.06, W * 0.94, H * 0.88);
+      // Faint horizontal weave.
+      g.globalAlpha = 0.05; g.strokeStyle = "#ffffff"; g.lineWidth = 1;
+      for (let y = 0; y < H; y += 3) { g.beginPath(); g.moveTo(0, y); g.lineTo(W, y); g.stroke(); }
+      g.globalAlpha = 1;
+      // Gold hem around the edge + top/bottom accent bands.
+      g.strokeStyle = "#e8b23a"; g.lineWidth = Math.max(6, H * 0.03);
+      g.strokeRect(g.lineWidth, g.lineWidth, W - 2 * g.lineWidth, H - 2 * g.lineWidth);
+      g.fillStyle = "rgba(232,178,58,0.9)";
+      g.fillRect(W * 0.08, H * 0.13, W * 0.84, H * 0.016);
+      g.fillRect(W * 0.08, H * 0.855, W * 0.84, H * 0.016);
     };
-    const buildSign = (wall, along, w, h, faceMat) => {
+    // A gold fill gradient for banner lettering.
+    const goldTextFill = (g, y0, y1) => {
+      const tg = g.createLinearGradient(0, y0, 0, y1);
+      tg.addColorStop(0, "#ffe89a"); tg.addColorStop(0.5, "#ffcf4a"); tg.addColorStop(1, "#c8940a");
+      return tg;
+    };
+    // A rippled, swallowtailed cloth mesh (custom grid so the fabric can wave and
+    // the bottom edge can carry the banner notch). Fold count scales with width so
+    // wide, horizontal banners get more drapes.
+    const makeClothBanner = (w, h) => {
+      const NX = Math.max(20, Math.round(w * 2.4)), NY = 20;
+      const tail = h * 0.16, amp = 0.5, waves = Math.max(2, Math.round(w / 4));
+      const positions = [], uvs = [], indices = [];
+      for (let j = 0; j <= NY; j++) {
+        const v = j / NY;                              // 0 top → 1 bottom
+        for (let i = 0; i <= NX; i++) {
+          const u = i / NX;
+          const notch = tail * (1 - Math.abs(2 * u - 1)); // swallowtail: centre cut up
+          const topY = h / 2, botY = -h / 2 + notch;
+          const y = topY + (botY - topY) * v;
+          // Keep the middle flat and legible: the drape curl is weighted toward
+          // the two ends (edge≈0 across the centre, rising to 1 at the edges) and
+          // eases in toward the hanging bottom.
+          const edge = Math.pow(Math.abs(2 * u - 1), 2.6); // flat centre → curled ends
+          const z = Math.sin(u * Math.PI * waves) * amp * edge * (0.45 + 0.55 * v);
+          positions.push((u - 0.5) * w, y, z);
+          uvs.push(u, 1 - v);
+        }
+      }
+      for (let j = 0; j < NY; j++) for (let i = 0; i < NX; i++) {
+        const a = j * (NX + 1) + i, b = a + 1, c2 = a + (NX + 1), d = c2 + 1;
+        indices.push(a, c2, b, b, c2, d);
+      }
+      const geo = new THREE.BufferGeometry();
+      geo.setAttribute("position", new THREE.Float32BufferAttribute(positions, 3));
+      geo.setAttribute("uv", new THREE.Float32BufferAttribute(uvs, 2));
+      geo.setIndex(indices);
+      geo.computeVertexNormals();
+      return geo;
+    };
+    // Build + hang a cloth banner. `content(g, W, H, state)` paints on the cloth
+    // ground; it is re-run (with a texture re-upload) whenever an async input
+    // arrives — the display font loading, or `state.img` becoming available.
+    const placeBanner = (wall, along, w, h, content) => {
+      const CW = Math.round(w * 56), CH = Math.round(h * 56);
+      const c = document.createElement("canvas"); c.width = CW; c.height = CH;
+      const g = c.getContext("2d");
+      const state = { fontReady: false, img: null };
+      const paint = () => { bannerGround(g, CW, CH); content(g, CW, CH, state); };
+      paint();
+      const tex = new THREE.CanvasTexture(c);
+      const repaint = () => { paint(); tex.needsUpdate = true; };
+      try { document.fonts?.load('700 100px "Black Ops One"').then(() => { state.fontReady = true; repaint(); }).catch(() => {}); } catch (_) {}
+      const clothMat = new THREE.MeshStandardMaterial({ map: tex, roughness: 0.9, metalness: 0.05, emissive: 0x161616, emissiveIntensity: 0.32, side: THREE.DoubleSide });
+
       const grp = new THREE.Group();
-      const panel = new THREE.Mesh(new THREE.BoxGeometry(w, h, 0.5), [darkMat, darkMat, darkMat, darkMat, faceMat, darkMat]);
-      panel.castShadow = true; grp.add(panel);
-      const fz = 0.28;
-      [[w + 0.3, 0.32, 0, h / 2 - 0.04], [w + 0.3, 0.32, 0, -h / 2 + 0.04], [0.32, h + 0.3, -w / 2 + 0.04, 0], [0.32, h + 0.3, w / 2 - 0.04, 0]]
-        .forEach(([bw, bh, bx, by]) => { const b = new THREE.Mesh(new THREE.BoxGeometry(bw, bh, 0.16), goldMat); b.position.set(bx, by, fz); grp.add(b); });
-      const postH = 2.8, cy = WALL_H + postH + h / 2, pOff = w * 0.33;
+      const banner = new THREE.Mesh(makeClothBanner(w, h), clothMat);
+      banner.castShadow = true; banner.receiveShadow = true; grp.add(banner);
+      // Hanging pole across the top, with gold end caps.
+      const poleY = h / 2 + 0.4;
+      const pole = mesh(new THREE.CylinderGeometry(0.26, 0.26, w + 2.4, 10), darkMat);
+      pole.rotation.z = Math.PI / 2; pole.position.set(0, poleY, 0); grp.add(pole);
+      [-1, 1].forEach((s) => {
+        const cap = mesh(new THREE.SphereGeometry(0.45, 12, 9), goldMat);
+        cap.position.set(s * (w / 2 + 1.2), poleY, 0); grp.add(cap);
+        // Bracket from each pole end.
+        const postM = mesh(new THREE.BoxGeometry(0.4, 3.0, 0.4), darkMat);
+        postM.position.set(s * (w / 2 + 0.7), poleY - 1.8, -0.1); grp.add(postM);
+      });
+      // Gold straps tying the cloth top to the pole, spaced across the width.
+      const nStrap = Math.max(2, Math.round(w / 3.2));
+      for (let k = 0; k <= nStrap; k++) {
+        const strap = mesh(new THREE.BoxGeometry(0.22, 0.9, 0.16), goldMat);
+        strap.position.set((k / nStrap - 0.5) * w * 0.82, h / 2 + 0.1, 0.12); grp.add(strap);
+      }
+
+      const cy = WALL_H + 3 + h / 2;
       if (wall === "north") grp.position.set(along, cy, -WMID);
       else { grp.position.set(-WMID, cy, along); grp.rotation.y = Math.PI / 2; }
       rampart.add(grp);
-      const py = WALL_H + postH / 2;
-      [-pOff, pOff].forEach((offs) => {
-        if (wall === "north") slab(0.7, postH + 0.5, 0.7, darkMat, along + offs, py, -WMID);
-        else slab(0.7, postH + 0.5, 0.7, darkMat, -WMID, py, along + offs);
-      });
+      return { state, repaint };
     };
-    const placeSign = (wall, along, w, h, drawFn) => {
-      const CW = Math.round(w * 40), CH = Math.round(h * 40);
-      const c = document.createElement("canvas"); c.width = CW; c.height = CH;
-      drawFn(c.getContext("2d"), CW, CH);
-      buildSign(wall, along, w, h, signMat(new THREE.CanvasTexture(c)));
-    };
-    const drawArena = (g, W, H) => {
-      panelBase(g, W, H);
+
+    // Content painters (drawn on top of the cloth ground) --------------------
+    const bannerFont = (state, px) => `700 ${Math.round(px)}px ${state.fontReady ? '"Black Ops One", serif' : "Arial"}`;
+    const drawF10 = (g, W, H, state) => {
       g.textAlign = "center"; g.textBaseline = "middle";
-      g.fillStyle = "#ffd24a"; g.font = `bold ${Math.round(H * 0.5)}px Arial`;
-      g.fillText("F10", W / 2, H * 0.54);
+      g.fillStyle = goldTextFill(g, H * 0.28, H * 0.72);
+      g.font = bannerFont(state, H * 0.46);
+      g.fillText("F10", W / 2, H * 0.52);
     };
-    const drawTrade = (g, W, H) => {
-      panelBase(g, W, H);
+    const drawTrade = (g, W, H, state) => {
       g.textAlign = "center"; g.textBaseline = "middle";
-      g.fillStyle = "#f4f7ff"; g.font = `bold ${Math.round(H * 0.19)}px Arial`;
-      g.fillText("TRADE. FIGHT. EARN.", W / 2, H * 0.36);
-      g.fillStyle = "#ffce35"; g.font = `bold ${Math.round(H * 0.15)}px Arial`;
+      g.fillStyle = goldTextFill(g, H * 0.28, H * 0.48); g.font = bannerFont(state, H * 0.17);
+      g.fillText("TRADE. FIGHT. EARN.", W / 2, H * 0.4);
+      g.fillStyle = goldTextFill(g, H * 0.6, H * 0.74); g.font = bannerFont(state, H * 0.13);
       g.fillText("F10 IS THE FUTURE", W / 2, H * 0.66);
     };
-    // Chain-branding sign: the Robinhood logo (assets/robinhood.webp, served
-    // from publicDir at /robinhood.webp) drawn onto the gold-framed panel. The
-    // image loads async, so paint the panel base first and composite the logo
-    // once it arrives, flagging the texture for a GPU re-upload.
-    const placeImageSign = (wall, along, w, h, src) => {
-      const CW = Math.round(w * 40), CH = Math.round(h * 40);
-      const c = document.createElement("canvas"); c.width = CW; c.height = CH;
-      const g = c.getContext("2d");
-      panelBase(g, CW, CH);
-      const tex = new THREE.CanvasTexture(c);
-      const img = new Image();
-      img.onload = () => {
-        // Contain the logo inside the framed area, preserving aspect ratio.
-        const pad = Math.min(CW, CH) * 0.14;
-        const availW = CW - pad * 2, availH = CH - pad * 2;
-        const scale = Math.min(availW / img.width, availH / img.height);
-        const dw = img.width * scale, dh = img.height * scale;
-        g.drawImage(img, (CW - dw) / 2, (CH - dh) / 2, dw, dh);
-        tex.needsUpdate = true;
-      };
-      img.src = src;
-      buildSign(wall, along, w, h, signMat(tex));
+    // Robinhood logo, contained inside the hem with its aspect ratio preserved.
+    const drawLogo = (g, W, H, state) => {
+      if (!state.img) return;
+      const pad = Math.min(W, H) * 0.2;
+      const availW = W - pad * 2, availH = H - pad * 2;
+      const scale = Math.min(availW / state.img.width, availH / state.img.height);
+      const dw = state.img.width * scale, dh = state.img.height * scale;
+      g.drawImage(state.img, (W - dw) / 2, (H - dh) / 2, dw, dh);
     };
-    placeSign("west",  -1,  18, 8,   drawArena);       // F10 ARENA
-    placeSign("north", -13, 15, 7,   drawTrade);       // TRADE. FIGHT. EARN.
-    placeImageSign("north", 14, 6.6, 6.6, "/robinhood.webp"); // ROBINHOOD logo
+
+    placeBanner("west",  0,  17, 8, drawF10);          // F10 cloth banner
+    placeBanner("north", -14, 17, 7, drawTrade);       // TRADE. FIGHT. EARN.
+    const rhBanner = placeBanner("north", 15, 12, 6.5, drawLogo); // ROBINHOOD logo
+    const rhImg = new Image();
+    rhImg.onload = () => { rhBanner.state.img = rhImg; rhBanner.repaint(); };
+    rhImg.src = "/robinhood.webp";
 
 
     scene.add(rampart);
