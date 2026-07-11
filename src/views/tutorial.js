@@ -39,6 +39,7 @@ export const html = `
               <div class="tut-ctrl-row"><span>Switch weapon</span><span class="k">keys 1 – 4</span></div>
               <div class="tut-ctrl-row"><span>Menu</span><span class="k">Esc</span></div>
             </div>
+            <div class="tut-step-text" style="margin-top:10px">You carry all four weapons at once — tap <span class="hs-gold">1</span> Frag, <span class="hs-gold">2</span> Sword, <span class="hs-gold">3</span> Pistol, <span class="hs-gold">4</span> Sniper (or click the hotbar) to swap mid-fight and match the range you need.</div>
           </div>
         </div>
 

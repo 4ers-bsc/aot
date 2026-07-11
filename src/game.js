@@ -31,12 +31,48 @@ const WEAPONS = {
 };
 Object.values(WEAPONS).forEach(Object.freeze);
 Object.freeze(WEAPONS);
-// AI raiders all run snipers: they hold position and take charged shots the
-// moment the player wanders into the weapon's (long) range.
+// The lead raider (aiEnemy) runs a sniper: it holds position and takes charged
+// shots the moment the player wanders into the weapon's (long) range. Extra
+// raiders spawned for the bigger demo lobbies cycle through a mixed roster so
+// the free preview shows off every play style, not a wall of identical snipers.
 const AI_WEAPON = WEAPONS.sniper;
+// Weapon roster for the *additional* demo raiders (raider #1 onward). Sniper
+// stays the lead (index 0) via AI_WEAPON; the rest alternate sword/pistol/sniper
+// so a full demo lobby mixes chargers, mid-range gunners and campers.
+const AI_WEAPON_ROSTER = [WEAPONS.sword, WEAPONS.pistol, WEAPONS.sniper];
+const aiWeaponFor = (i) => (i <= 0 ? AI_WEAPON : AI_WEAPON_ROSTER[(i - 1) % AI_WEAPON_ROSTER.length]);
+// Melee raiders run a touch faster so they can actually close the gap; ranged
+// raiders keep the steadier advance-and-plant pace.
+const aiSpeedFor = (w) => (w.ranged ? 4.6 : 5.6);
 // AI raiders have no real profile — hand them a plausible level so their name
 // tag matches the format shown for real players.
 function randomAiLevel() { return 1 + Math.floor(Math.random() * 15); }
+
+// -- Device quality tier ------------------------------------------------------
+// Phones and low-power tablets can't sustain the full desktop scene — 2K PCF
+// soft shadows, a retina pixel ratio, MSAA and the animated arena dressing — at
+// a smooth frame rate, and a dropped frame budget during a *paid* match is a
+// real complaint vector. Detect a constrained device once at load and dial the
+// GPU-heavy knobs back: smaller shadow map, cheaper shadow filter, a lower
+// pixel-ratio cap and MSAA off by default. Everything gameplay-facing (map,
+// speeds, ranges, damage, hitboxes) is untouched — this only changes how hard
+// we push the GPU, and the player can still flip MSAA back on in Settings.
+function detectLowQuality() {
+  try {
+    if (typeof window === "undefined") return false;
+    const coarse = window.matchMedia?.("(pointer: coarse)")?.matches;
+    const narrow = Math.min(window.innerWidth, window.innerHeight) <= 820;
+    const uaMobile = /Android|iPhone|iPad|iPod|Mobile|Silk|Kindle/i.test(navigator.userAgent || "");
+    const fewCores = (navigator.hardwareConcurrency || 8) <= 4;
+    // Touch-primary + small/underpowered, or an explicit mobile UA.
+    return !!(uaMobile || (coarse && (narrow || fewCores)));
+  } catch (_) {
+    return false;
+  }
+}
+const LOW_QUALITY = detectLowQuality();
+const MAX_PIXEL_RATIO = LOW_QUALITY ? 1.5 : 2; // cap devicePixelRatio on mobile
+const SHADOW_MAP_SIZE = LOW_QUALITY ? 1024 : 2048;
 
 const THEMES = {
   game: {
@@ -82,7 +118,7 @@ export function createArenaGame(options) {
   // the missing-THREE case above instead of crashing the whole app at boot.
   let renderer;
   try {
-    renderer = new THREE.WebGLRenderer({ antialias: true });
+    renderer = new THREE.WebGLRenderer({ antialias: !LOW_QUALITY });
   } catch (err) {
     console.error("WebGL unavailable:", err);
     const note = document.createElement("div");
@@ -91,9 +127,11 @@ export function createArenaGame(options) {
     mount.appendChild(note);
     return stubApi();
   }
-  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio, MAX_PIXEL_RATIO));
   renderer.shadowMap.enabled = true;
-  renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+  // Soft (PCF) shadows are pricey; on constrained devices fall back to the
+  // cheaper hard-edged PCF filter so the shadow pass stays affordable.
+  renderer.shadowMap.type = LOW_QUALITY ? THREE.PCFShadowMap : THREE.PCFSoftShadowMap;
   renderer.setClearColor(theme.bg, 1);
   renderer.domElement.classList.add("arena-canvas");
   mount.appendChild(renderer.domElement);
@@ -167,7 +205,7 @@ export function createArenaGame(options) {
   scene.add(new THREE.AmbientLight(0xffffff, 0.85));
   const sun = new THREE.DirectionalLight(0xffffff, 0.65);
   sun.castShadow = true;
-  sun.shadow.mapSize.set(2048, 2048);
+  sun.shadow.mapSize.set(SHADOW_MAP_SIZE, SHADOW_MAP_SIZE);
   sun.shadow.camera.near = 1;
   sun.shadow.camera.far = 120;
   sun.shadow.camera.left = -18; sun.shadow.camera.right = 18;
@@ -1236,10 +1274,11 @@ export function createArenaGame(options) {
 
   function makeAiRaider(i) {
     const sp = randomSpawn();
+    const w = aiWeaponFor(i);
     const f = makeFighter({
       name: `Raider ${i + 1}`, palette: theme.enemy,
       pos: new THREE.Vector3(sp.x, 0, sp.z), hp: 100,
-      weapon: AI_WEAPON, speed: 4.6, barColor: theme.enemyBar, level: randomAiLevel()
+      weapon: w, speed: aiSpeedFor(w), barColor: theme.enemyBar, level: randomAiLevel()
     });
     f.networked = false;
     f.connected = true;
@@ -2502,7 +2541,14 @@ export function createArenaGame(options) {
       const dx = player.group.position.x - e.group.position.x, dz = player.group.position.z - e.group.position.z;
       const dist = Math.hypot(dx, dz);
       e.facing = Math.atan2(dx, dz);
-      if (dist > AI_ENGAGE) {
+      // Hold distance is weapon-aware so the mixed roster all engages correctly:
+      // a sniper/pistol plants at range and snipes (never wandering closer than
+      // it must), while a melee raider chases all the way into swing range
+      // instead of freezing at the old fixed 22-unit stand-off and never hitting.
+      const holdDist = e.weapon.ranged
+        ? Math.min(AI_ENGAGE, e.weapon.range * 0.9)
+        : Math.max(e.weapon.range * 0.6, 1.4);
+      if (dist > holdDist) {
         // Too far to plant a reliable shot: chase the player down. moveStep
         // handles steering around trees, logs and the river on the way in.
         e.chargeTimer = 0;
@@ -2829,12 +2875,15 @@ export function createArenaGame(options) {
   }
 
   // Settings
-  const settings = { renderDistance: "Far", fog: false, msaa: true, animations: true, centerCamera: false, hideHud: false, fps: true, ping: true, location: false };
+  // MSAA (via a >1 pixel ratio) defaults OFF on mobile so a phone renders at 1×
+  // out of the gate; the player can re-enable it in Settings if their device
+  // can spare the fill rate.
+  const settings = { renderDistance: "Far", fog: false, msaa: !LOW_QUALITY, animations: true, centerCamera: false, hideHud: false, fps: true, ping: true, location: false };
   function applyFog() {
     if (settings.fog) { const r = RD_FOG[settings.renderDistance]; scene.fog = new THREE.Fog(theme.bg, r[0], r[1]); }
     else scene.fog = null;
   }
-  function applyMsaa() { renderer.setPixelRatio(settings.msaa ? Math.min(window.devicePixelRatio, 2) : 1); }
+  function applyMsaa() { renderer.setPixelRatio(settings.msaa ? Math.min(window.devicePixelRatio, MAX_PIXEL_RATIO) : 1); }
   function refreshHud() {
     document.body.classList.toggle("hud-hidden", settings.hideHud);
     fpsEl.style.display = settings.fps && !settings.hideHud ? "block" : "none";
@@ -3585,7 +3634,7 @@ function buildHud() {
     return el;
   };
 
-  const hint = add('<div class="hint game-ui"><span class="key">wasd</span> move &middot; <span class="key">click</span> move &middot; <span class="key">click rival</span> attack &middot; <span class="key">drag</span> pan &middot; <span class="key">scroll</span> zoom &middot; <span class="key">Esc</span> leave</div>');
+  const hint = add('<div class="hint game-ui"><span class="key">wasd</span> move &middot; <span class="key">click</span> move &middot; <span class="key">click rival</span> attack &middot; <span class="key">1&ndash;4</span> swap weapon &middot; <span class="key">drag</span> pan &middot; <span class="key">scroll</span> zoom &middot; <span class="key">Esc</span> leave</div>');
   const matchTimerEl = add('<div class="match-timer game-ui">0:00</div>');
   const matchNoEl = add('<div class="match-no game-ui"></div>');
   const coords = add('<div class="coords game-ui">x 0.0 &middot; z 0.0</div>');
