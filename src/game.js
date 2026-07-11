@@ -565,20 +565,32 @@ export function createArenaGame(options) {
       g.fillStyle = "#ffce35"; g.font = `bold ${Math.round(H * 0.15)}px Arial`;
       g.fillText("F10 IS THE FUTURE", W / 2, H * 0.66);
     };
-    // Chain-branding sign: LIVE ON ROBINHOOD CHAIN, drawn like the others so
-    // no image asset has to load.
-    const drawChain = (g, W, H) => {
-      panelBase(g, W, H);
-      g.textAlign = "center"; g.textBaseline = "middle";
-      g.fillStyle = "#f4f7ff"; g.font = `bold ${Math.round(H * 0.13)}px Arial`;
-      g.fillText("LIVE ON", W / 2, H * 0.28);
-      g.fillStyle = "#ffce35"; g.font = `bold ${Math.round(H * 0.155)}px Arial`;
-      g.fillText("ROBINHOOD", W / 2, H * 0.52);
-      g.fillText("CHAIN", W / 2, H * 0.72);
+    // Chain-branding sign: the Robinhood logo (assets/robinhood.webp, served
+    // from publicDir at /robinhood.webp) drawn onto the gold-framed panel. The
+    // image loads async, so paint the panel base first and composite the logo
+    // once it arrives, flagging the texture for a GPU re-upload.
+    const placeImageSign = (wall, along, w, h, src) => {
+      const CW = Math.round(w * 40), CH = Math.round(h * 40);
+      const c = document.createElement("canvas"); c.width = CW; c.height = CH;
+      const g = c.getContext("2d");
+      panelBase(g, CW, CH);
+      const tex = new THREE.CanvasTexture(c);
+      const img = new Image();
+      img.onload = () => {
+        // Contain the logo inside the framed area, preserving aspect ratio.
+        const pad = Math.min(CW, CH) * 0.14;
+        const availW = CW - pad * 2, availH = CH - pad * 2;
+        const scale = Math.min(availW / img.width, availH / img.height);
+        const dw = img.width * scale, dh = img.height * scale;
+        g.drawImage(img, (CW - dw) / 2, (CH - dh) / 2, dw, dh);
+        tex.needsUpdate = true;
+      };
+      img.src = src;
+      buildSign(wall, along, w, h, signMat(tex));
     };
     placeSign("west",  -1,  18, 8,   drawArena);       // F10 ARENA
     placeSign("north", -13, 15, 7,   drawTrade);       // TRADE. FIGHT. EARN.
-    placeSign("north", 14, 6.6, 6.6, drawChain);       // ROBINHOOD CHAIN
+    placeImageSign("north", 14, 6.6, 6.6, "/robinhood.webp"); // ROBINHOOD logo
 
 
     scene.add(rampart);

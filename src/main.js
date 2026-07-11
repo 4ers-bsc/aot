@@ -968,19 +968,28 @@ function fmtDuration(ms) {
   return `${m}:${String(s).padStart(2, "0")}`;
 }
 
-// Briefly show a spinning circle, then resolve — a moment of suspense before
-// the results screen appears.
-function showResultsSpinner(ms = 2000) {
+// The results overlay (spinner + settlement progress bar). Kept visible for the
+// whole settlement wait — which on a walkover (a rival who never opened the
+// match) is several seconds — so the screen never freezes with no feedback.
+function showResultsLoading(statusText = "Settling match…") {
   const el = document.getElementById("resultsLoading");
-  if (!el) return Promise.resolve();
+  if (!el) return;
+  const st = document.getElementById("resultsLoadingStatus");
+  if (st) st.textContent = statusText;
   el.classList.remove("hidden");
-  return new Promise((resolve) => setTimeout(() => {
-    el.classList.add("hidden");
-    resolve();
-  }, ms));
+}
+function hideResultsLoading() {
+  document.getElementById("resultsLoading")?.classList.add("hidden");
+}
+// Show the overlay for a minimum suspense beat, then resolve — but leave it up
+// so the settlement wait that follows keeps the progress bar on screen.
+function showResultsSuspense(ms = 2000, statusText = "Settling match…") {
+  showResultsLoading(statusText);
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 function showGameOver(result, reason, standings = [], prizeAmount = null, kills = null, timeMs = null) {
+  hideResultsLoading(); // never leave the settlement overlay covering a results card
   const win = result === "win";
   const disputed = result === "disputed";
   els.gameOverTitle.textContent = win ? "VICTORY" : disputed ? "NO CONTEST" : "DEFEAT";
@@ -2092,7 +2101,7 @@ async function reportResult(resultHint, { standings = [], finalHp = null } = {})
   // without waiting on stragglers.
   if (resultHint === "win") {
     state.channel?.send({ type: "broadcast", event: "match-over" });
-    await showResultsSpinner(2000); // suspense before the verdict
+    await showResultsSuspense(2000); // suspense before the verdict; overlay stays up
   }
 
   // A player eliminated mid-match in a bigger lobby waits for the survivors to
@@ -2103,8 +2112,15 @@ async function reportResult(resultHint, { standings = [], finalHp = null } = {})
   // re-rendered with the real verdict below once the server settles.
   const remainingMs = Math.max(0, (state.match?.endsAtMs ?? 0) - Date.now());
   if (resultHint !== "win" && remainingMs > 5000) {
+    hideResultsLoading();
     showGameOver("loss", "Eliminated — the match is still in progress. Final results when it ends.",
       standings, null, matchKills, matchTimeMs);
+  } else {
+    // Otherwise keep the settlement progress bar on screen for the whole wait.
+    // This is the walkover case (a rival who never opened the match): the server
+    // holds until their join heartbeat goes stale, which can take several
+    // seconds — the bar makes that wait visible instead of a frozen game view.
+    showResultsLoading("Settling match…");
   }
 
   // Read the authoritative verdict.
