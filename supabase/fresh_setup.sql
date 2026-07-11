@@ -1136,10 +1136,37 @@ begin
   v_deadline := coalesce(v_started, now()) + make_interval(secs => public.match_duration_seconds(v_maxp));
 
   -- Only WAIT on players who are still connected and haven't reported.
-  -- Disconnected (stale heartbeat) players never block settlement.
-  select count(*) filter (where final_hp is null and last_seen >= now() - c_dc_grace)
+  -- Disconnected (stale heartbeat) players never block settlement — and neither
+  -- does a NON-PARTICIPANT: a seat that has recorded no offense of its own yet
+  -- has already absorbed a lethal total (>=100) was never in the fight. That is
+  -- an away / never-loaded player being farmed. last_seen defaults to now() at
+  -- join, so for the first 15s such a seat still looks "connected" even though
+  -- its client never entered the match; waiting on it holds the decided match
+  -- open just long enough for that player to reconnect, land a retaliatory kill
+  -- on the winner, and turn a clean win into a corroboration 'disputed' (frozen
+  -- pot). Excluding it settles the win immediately, before the corpse can
+  -- reanimate. A cheater's victim who was actually fighting has recorded offense
+  -- of its own, so this never lets a fabricated-lethal total early-settle a
+  -- match and skip the self-report corroboration guard below.
+  select count(*) filter (
+    where mp.final_hp is null
+      and mp.last_seen >= now() - c_dc_grace
+      and not (
+        coalesce(taken.dmg_in, 0) >= 100
+        and not exists (
+          select 1 from match_damage o
+          where o.match_id = p_match_id and o.attacker = mp.user_id
+        )
+      )
+  )
     into v_unreported
-  from match_players where match_id = p_match_id;
+  from match_players mp
+  left join (
+    select victim, sum(total_damage) as dmg_in
+    from match_damage where match_id = p_match_id
+    group by victim
+  ) taken on taken.victim = mp.user_id
+  where mp.match_id = p_match_id;
 
   if not p_force and v_unreported > 0 and now() < v_deadline then
     return;
