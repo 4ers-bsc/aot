@@ -1,5 +1,5 @@
-// The arena wall style: near-black brick masonry laced with glowing neon-gold
-// grout, matching the F10 black-and-gold palette. drawFace() paints the
+// The arena wall style: near-black brick masonry laced with glowing white
+// neon grout — a black-and-white brick face. drawFace() paints the
 // 256×128 curtain-face canvas (tiled horizontally along each wall run, so it
 // must tile seamlessly left-to-right); the hex ints tint the rampart's shared
 // materials in game.js (stone shafts, gold trim, tower lanterns, corner
@@ -93,21 +93,21 @@ function neonBricks(g, W, H, { rows, cols, gap, tones }) {
   g.lineCap = "round";
 
   // Soft outer halo.
-  g.shadowColor = "rgba(255,196,30,0.95)";
+  g.shadowColor = "rgba(235,240,250,0.95)";
   g.shadowBlur = 11;
-  g.strokeStyle = "rgba(255,190,20,0.85)";
+  g.strokeStyle = "rgba(220,226,238,0.85)";
   g.lineWidth = gap;
   hSeam(); vSeams();
 
   // Brighter mid glow.
   g.shadowBlur = 6;
-  g.strokeStyle = "#ffcf2a";
+  g.strokeStyle = "#e9edf5";
   g.lineWidth = gap * 0.6;
   hSeam(); vSeams();
 
-  // Hot near-white core.
+  // Hot white core.
   g.shadowBlur = 3;
-  g.strokeStyle = "#fff2b0";
+  g.strokeStyle = "#ffffff";
   g.lineWidth = 1.6;
   hSeam(); vSeams();
 
@@ -121,7 +121,7 @@ export const WALL_THEME = {
   glow: 0xffd23a, glowEmissive: 0xffb400,
   crystal: 0xffc84a, crystalEmissive: 0xd2920a,
   drawFace(g, W, H) {
-    // Near-black bricks in a running bond, every seam a glowing gold neon line.
+    // Near-black bricks in a running bond, every seam a glowing white neon line.
     neonBricks(g, W, H, {
       rows: 4, cols: 4, gap: 6,
       tones: ["#0e0e12", "#111116", "#0b0b0e", "#141419"],
