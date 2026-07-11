@@ -43,6 +43,84 @@
   --font-body: "Black Ops One", "Iowan Old Style", serif;
 }
 
+/* ===========================================================================
+   Themes
+   The whole UI reads its accents/fills from the CSS variables above, so a
+   theme only has to re-point those variables. `data-theme` lives on <html>
+   and is set/persisted by src/theme.js (default = the gold look above).
+
+   "robinhood" — Robinhood green as the primary colour, on pure black, with
+   white text and a white wordmark (green / white / black).
+   =========================================================================== */
+:root[data-theme="robinhood"] {
+  /* Pure-black base */
+  --bg: #000000;
+  --bg-deep: #000000;
+
+  /* White text */
+  --text: #ffffff;
+  --muted: #c9c9c9;
+  --soft: #9a9a9a;
+
+  /* Accents — Robinhood green */
+  --accent: #c6f135;
+  --accent-dim: #9ad00a;
+  --accent-soft: rgba(198, 241, 53, 0.16);
+
+  /* Green ramp — replaces the gold ramp for the logo "10", buttons, badges */
+  --gold-hi: #d7fb63;
+  --gold: #c6f135;
+  --gold-lo: #8fbf12;
+  --gold-grad: linear-gradient(180deg, #d7fb63 0%, #c6f135 48%, #8fbf12 100%);
+  --gold-grad-btn: linear-gradient(180deg, #cff84a 0%, #a6da16 100%);
+  --gold-grad-vintage: linear-gradient(180deg, #b7e24a 0%, #86b41a 46%, #4f6c10 100%);
+  --gold-grad-btn-vintage: linear-gradient(180deg, #a3ce2f 0%, #6f9314 100%);
+  /* White wordmark for "FIGHT" */
+  --bone-grad: linear-gradient(180deg, #ffffff 0%, #eaeaea 52%, #cfcfcf 100%);
+}
+:root[data-theme="robinhood"] body {
+  background:
+    radial-gradient(circle at 50% -10%, rgba(198, 241, 53, 0.10), transparent 40%),
+    linear-gradient(180deg, #050505 0%, #000000 100%);
+}
+
+/* ---- Home theme picker ---------------------------------------------------- */
+.theme-switch {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  margin-top: 6px;
+  flex-wrap: wrap;
+}
+.theme-switch-label {
+  font-size: 11px;
+  letter-spacing: 0.16em;
+  color: var(--soft);
+  text-transform: uppercase;
+}
+.theme-swatches {
+  display: flex;
+  gap: 8px;
+}
+.theme-swatch {
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  border-radius: 50%;
+  border: 2px solid var(--line-strong);
+  background: var(--sw, #888);
+  transition: transform 140ms ease, box-shadow 140ms ease, border-color 140ms ease;
+}
+.theme-swatch:hover {
+  transform: translateY(-1px);
+  filter: none;
+}
+.theme-swatch.active {
+  border-color: var(--text);
+  box-shadow: 0 0 0 2px rgba(0, 0, 0, 0.6), 0 0 10px 1px var(--sw);
+}
+
 * {
   box-sizing: border-box;
 }

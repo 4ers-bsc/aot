@@ -40,6 +40,15 @@ export const html = `
       <button class="home-btn home-btn-secondary" id="homeLeaderboardBtn" type="button">LEADERBOARD</button>
       <button class="home-btn home-btn-secondary" id="whitepaperBtn" type="button">WHITEPAPER</button>
     </div>
+    <div class="theme-switch" role="group" aria-label="Change theme">
+      <span class="theme-switch-label">Theme</span>
+      <div class="theme-swatches" id="themeSwatches">
+        <button class="theme-swatch" type="button" data-theme-name="default"
+                style="--sw:#e2b23c" title="Gold (default)" aria-label="Gold theme"></button>
+        <button class="theme-swatch" type="button" data-theme-name="robinhood"
+                style="--sw:#c6f135" title="Robinhood green" aria-label="Robinhood green theme"></button>
+      </div>
+    </div>
   </div>
 
   <!-- ===== Info strip ===== -->
