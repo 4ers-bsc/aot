@@ -3212,12 +3212,47 @@ body.in-game .log-feed { left: 70px; }
   inset: 0;
   z-index: 60;
   display: flex;
+  flex-direction: column;
   align-items: center;
   justify-content: center;
+  gap: 22px;
   background: rgba(0, 0, 0, 0.92);
   backdrop-filter: blur(10px);
 }
 .results-loading.hidden { display: none; }
+
+.rl-status {
+  color: #f4f7ff;
+  font-size: 15px;
+  letter-spacing: 1.5px;
+  text-transform: uppercase;
+  opacity: 0.85;
+}
+
+/* Indeterminate settlement bar — a stripe sweeps across while the server
+   decides the winner (the wait can be several seconds on a walkover). */
+.rl-bar {
+  position: relative;
+  width: min(260px, 62vw);
+  height: 6px;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.12);
+  overflow: hidden;
+}
+.rl-bar-fill {
+  position: absolute;
+  top: 0;
+  left: 0;
+  height: 100%;
+  width: 38%;
+  border-radius: 4px;
+  background: linear-gradient(90deg, rgba(255, 214, 87, 0.2), #ffd657, rgba(255, 214, 87, 0.2));
+  animation: rl-sweep 1.15s ease-in-out infinite;
+}
+@keyframes rl-sweep {
+  0%   { left: -40%; }
+  100% { left: 100%; }
+}
 
 .rl-spinner {
   width: 88px;

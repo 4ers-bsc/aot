@@ -117,9 +117,12 @@
   <!-- GL HF FIGHT banner -->
   <div class="glhf-banner" id="glhfBanner">GL HF, FIGHT!</div>
 
-  <!-- Pre-results suspense spinner (shown briefly before the winners screen) -->
+  <!-- Pre-results suspense spinner + settlement progress (stays up while the
+       server settles, so the wait never looks like a frozen screen) -->
   <div class="results-loading hidden" id="resultsLoading">
     <div class="rl-spinner"></div>
+    <div class="rl-status" id="resultsLoadingStatus">Settling match…</div>
+    <div class="rl-bar"><div class="rl-bar-fill"></div></div>
   </div>
 
   <!-- Match-starting transition (lobby full) -->
