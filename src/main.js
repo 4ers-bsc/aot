@@ -34,12 +34,18 @@ const SIGN_IN_STATEMENT = "Sign in to FIGHT10 to play realtime PvP duels.";
 // ---------------------------------------------------------------------------
 const FIGHT10_TOKEN   = import.meta.env?.VITE_FIGHT10_TOKEN?.trim()  || "<FIGHT10_TOKEN_ADDRESS>";
 const ESCROW_WALLET   = import.meta.env?.VITE_ESCROW_WALLET?.trim()  || "<ESCROW_WALLET_ADDRESS>";
-const ENTRY_FEE       = 2500;         // FIGHT10 tokens per player
 const FIGHT10_DECIMALS = Number(import.meta.env?.VITE_FIGHT10_DECIMALS ?? 18); // standard ERC-20 decimals
-const ENTRY_FEE_RAW   = BigInt(ENTRY_FEE) * BigInt(10) ** BigInt(FIGHT10_DECIMALS);
-// Winner's share of the pot. MUST match f10treasurer's payout math
-// ((total * 900) / 1000): every place the UI promises a prize derives from this.
-const WINNER_SHARE    = 0.9;
+// Entry fee + winner share are tunables sourced from the pvp_config table via
+// pvp_settings() (loaded at boot by loadPvpConfig). These are the historical
+// literals, used until the DB read lands and as the fallback if it fails — they
+// MUST match pvp_config's defaults and the edge functions' own fallbacks.
+// ENTRY_FEE_RAW is recomputed whenever ENTRY_FEE changes.
+let ENTRY_FEE       = 2500;           // FIGHT10 tokens per player
+let ENTRY_FEE_RAW   = BigInt(ENTRY_FEE) * BigInt(10) ** BigInt(FIGHT10_DECIMALS);
+// Winner's share of the pot. MUST match the treasurer/admin payout math
+// ((total * winner_share_bps) / 10000): every place the UI promises a prize
+// derives from this.
+let WINNER_SHARE    = 0.9;
 
 // The ethers library (~350 KB) is only needed for deposits and balance
 // checks, never to reach the menu — so it is dynamically imported on first
@@ -269,6 +275,27 @@ async function loadMatchConfig() {
     for (const r of data) state.matchDurations[r.max_players] = r.duration_seconds;
   } catch (e) {
     console.error("loadMatchConfig error:", e);
+  }
+}
+
+// Load the global PvP tunables (entry fee, winner share) from the DB so the UI
+// and deposit amount track pvp_config instead of baked-in literals. Best-effort:
+// the constants above are used on failure, and join_pvp_match + the payout edge
+// functions enforce the authoritative values server-side regardless. The player
+// cap is read separately via pvp_capacity() at the pre-payment check.
+async function loadPvpConfig() {
+  try {
+    const { data, error } = await supabase.rpc("pvp_settings");
+    if (error || !data) return;
+    if (Number.isFinite(data.entry_fee_tokens) && data.entry_fee_tokens > 0) {
+      ENTRY_FEE = data.entry_fee_tokens;
+      ENTRY_FEE_RAW = BigInt(ENTRY_FEE) * BigInt(10) ** BigInt(FIGHT10_DECIMALS);
+    }
+    if (Number.isFinite(data.winner_share_bps) && data.winner_share_bps > 0) {
+      WINNER_SHARE = data.winner_share_bps / 10000;
+    }
+  } catch (e) {
+    console.error("loadPvpConfig error:", e);
   }
 }
 
@@ -800,6 +827,7 @@ async function init() {
   // Gate the whole app on the maintenance switch before anything else boots.
   if (await isUnderMaintenance()) { clearInterval(tick); showMaintenance(); return; }
   loadMatchConfig(); // fire-and-forget; ready well before any match starts
+  loadPvpConfig();   // fire-and-forget; entry fee + winner share for the UI/deposit
   startOnlinePresence(); // fire-and-forget; independent of auth/login state
   supabase.auth.onAuthStateChange((_event, session) => {
     handleSession(session).catch((error) => {
@@ -1552,7 +1580,7 @@ async function joinPvp(maxPlayers) {
       // Warn BEFORE payment — the entry fee is non-refundable once paid.
       // Uses the non-blocking confirmDialog (window.confirm freezes the render loop).
       const ok = await confirmDialog(
-        "Heads up: the 2,500 $FIGHT10 entry fee is NON-REFUNDABLE. " +
+        `Heads up: the ${ENTRY_FEE.toLocaleString()} $FIGHT10 entry fee is NON-REFUNDABLE. ` +
         "Once you pay, leaving the queue or the match will NOT refund your entry. " +
         "Continue and pay the entry fee?"
       );
@@ -1680,14 +1708,14 @@ async function depositEntryFee(numPlayers = 2) {
   }
   if (balance < ENTRY_FEE_RAW) {
     const have = Number(balance) / 10 ** FIGHT10_DECIMALS;
-    setStatus(`Insufficient $FIGHT10 balance — need 2,500, have ${have.toFixed(0)}.`);
+    setStatus(`Insufficient $FIGHT10 balance — need ${ENTRY_FEE.toLocaleString()}, have ${have.toFixed(0)}.`);
     showBuyFight10(have);
     return null;
   }
 
   try {
     updatePrizePot(numPlayers);
-    setStatus("Depositing 2,500 $FIGHT10… approve in wallet.");
+    setStatus(`Depositing ${ENTRY_FEE.toLocaleString()} $FIGHT10… approve in wallet.`);
     els.pvpLobbyStatus.textContent = "Approve deposit in your wallet…";
 
     // The deposit must land on the configured Robinhood Chain network —

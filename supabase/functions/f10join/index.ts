@@ -227,7 +227,15 @@ Deno.serve(async (req: Request) => {
 
     // ── Resolve token decimals → exact entry-fee amount ─────────────────────
     const decimals = await getTokenDecimals(rpc, tokenAddr);
-    const entryFeeRaw = BigInt(2500) * BigInt(10) ** BigInt(decimals);
+    // Entry fee is a tunable in pvp_config (single source of truth shared with
+    // the client + the payout functions). Fall back to the historical literal
+    // if the row is unreadable. The pvp_config_guard trigger blocks fee changes
+    // while matches are live, so this validates the deposit against the same fee
+    // the client just charged.
+    const { data: cfg } = await adminClient
+      .from("pvp_config").select("entry_fee_tokens").maybeSingle();
+    const entryFeeTokens = Number(cfg?.entry_fee_tokens) > 0 ? Number(cfg.entry_fee_tokens) : 2500;
+    const entryFeeRaw = BigInt(entryFeeTokens) * BigInt(10) ** BigInt(decimals);
 
     // ── Verify the deposit tx is mined and succeeded ─────────────────────────
     // A receipt only exists once the tx is included in a block; status 0x1
