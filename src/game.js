@@ -303,28 +303,34 @@ export function createArenaGame(options) {
     // drifting down the walls. Applied only to the +z and +x walls that meet at
     // the near/bottom corner (the "V" pointing at the camera); the other two
     // sides keep the plain dark slab. Registered in wallFX, run each frame.
-    const AURORA_H = 6;
+    // The panels cover the full underside height and are nudged a hair outward
+    // (along each wall's normal) so they sit in front of the near-black slab —
+    // otherwise they z-fight it and read as plain black — and span corner to
+    // corner so the effect runs all the way to the near point.
+    const AURORA_H = DEPTH;      // full underside height, top pinned at the rim
+    const AURORA_OUT = 0.18;     // outward nudge past the slab, along the normal
     const NEAR_SIDES = [
-      { x: 0,        z:  MAP_HALF, ry: Math.PI },      // front-left (+z) edge
-      { x: MAP_HALF, z:  0,        ry: -Math.PI / 2 }, // front-right (+x) edge
+      { axis: "z", x: 0,                     z: MAP_HALF + AURORA_OUT, ry: Math.PI },      // front-left (+z)
+      { axis: "x", x: MAP_HALF + AURORA_OUT, z: 0,                     ry: -Math.PI / 2 }, // front-right (+x)
     ];
     const drapeNear = (material) => {
       NEAR_SIDES.forEach(({ x, z, ry }) => {
         const p = new THREE.Mesh(new THREE.PlaneGeometry(MAP_WORLD, AURORA_H), material);
         p.position.set(x, -AURORA_H / 2, z);
         p.rotation.y = ry;
+        p.renderOrder = 2; // paint after the opaque slab
         addObj(p);
       });
     };
-    // Frosted ice base panels.
+    // Frosted ice base panels (opaque enough to hide the black slab behind).
     drapeNear(new THREE.MeshBasicMaterial({
       map: makeIceTex(), transparent: true, side: THREE.DoubleSide,
-      depthWrite: false, opacity: 0.92,
+      depthWrite: false, opacity: 0.98,
     }));
     // Shimmering aurora curtain over the ice; slowly shifts hue and breathes.
     const auroraMat = new THREE.MeshBasicMaterial({
       map: makeAuroraTex(), transparent: true, side: THREE.DoubleSide,
-      depthWrite: false, blending: THREE.AdditiveBlending, opacity: 0.4,
+      depthWrite: false, blending: THREE.AdditiveBlending, opacity: 0.5,
     });
     drapeNear(auroraMat);
     wallFX.push((t) => {
@@ -342,17 +348,17 @@ export function createArenaGame(options) {
     ));
     nearRim(0x9fe8ff, 0.9, 0.08);
     nearRim(0x4fb0ff, 0.5, 0.04);
-    // Snow-sparkle settling down the two near walls.
+    // Snow-sparkle settling down the two near walls (full underside height).
     {
-      const count = 90, yBot = -6.2, yTop = 1.6;
+      const count = 110, yBot = -DEPTH + 0.4, yTop = 1.6;
       const geo = new THREE.BufferGeometry();
       const pos = new Float32Array(count * 3);
       const spd = new Float32Array(count);
       for (let i = 0; i < count; i++) {
         const near = NEAR_SIDES[i % 2], along = (Math.random() - 0.5) * MAP_WORLD, inset = 0.3 + Math.random() * 1.5;
         let x, z;
-        if (near.z === MAP_HALF) { x = along;             z = MAP_HALF - inset; }
-        else                     { x = MAP_HALF - inset;  z = along; }
+        if (near.axis === "z") { x = along;             z = MAP_HALF - inset; }
+        else                   { x = MAP_HALF - inset;  z = along; }
         pos[i * 3] = x; pos[i * 3 + 1] = yBot + Math.random() * (yTop - yBot); pos[i * 3 + 2] = z;
         spd[i] = (0.5 + Math.random()) * 0.9;
       }
