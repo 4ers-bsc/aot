@@ -167,13 +167,11 @@ export function initHomeAnimations() {
   }
 
   // -- Replay when the home screen comes back --------------------------------
-  // A match (body.in-game) and landing free-play (body.home-free-play) both
-  // display:none the home chrome; replay the entrance when either ends so the
-  // return to the menu feels as staged as the first load.
+  // A match (body.in-game) display:none's the home chrome; replay the entrance
+  // when it ends so the return to the menu feels as staged as the first load.
   let homeHidden = false;
   const bodyWatch = new MutationObserver(() => {
-    const hidden = document.body.classList.contains("in-game") ||
-                   document.body.classList.contains("home-free-play");
+    const hidden = document.body.classList.contains("in-game");
     if (hidden && !homeHidden) { entranceAt = 0; resetSweep(); }
     if (!hidden && homeHidden) startSweep();
     homeHidden = hidden;
