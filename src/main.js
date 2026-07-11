@@ -40,7 +40,7 @@ const FIGHT10_DECIMALS = Number(import.meta.env?.VITE_FIGHT10_DECIMALS ?? 18); /
 // literals, used until the DB read lands and as the fallback if it fails — they
 // MUST match pvp_config's defaults and the edge functions' own fallbacks.
 // ENTRY_FEE_RAW is recomputed whenever ENTRY_FEE changes.
-let ENTRY_FEE       = 2500;           // FIGHT10 tokens per player
+let ENTRY_FEE       = 10000;          // FIGHT10 tokens per player
 let ENTRY_FEE_RAW   = BigInt(ENTRY_FEE) * BigInt(10) ** BigInt(FIGHT10_DECIMALS);
 // Winner's share of the pot. MUST match the treasurer/admin payout math
 // ((total * winner_share_bps) / 10000): every place the UI promises a prize
@@ -197,7 +197,7 @@ const state = {
 // Pending-deposit persistence. A confirmed on-chain deposit that hasn't bought
 // a seat yet must survive reloads/crashes — the fee is non-refundable, and
 // before this the signature lived only in memory: a reload between "deposit
-// confirmed" and "seat taken" stranded 2,500 $FIGHT10 in escrow with no way to
+// confirmed" and "seat taken" stranded 10,000 $FIGHT10 in escrow with no way to
 // retry. Keyed per user so one wallet's deposit can never leak to another.
 // ---------------------------------------------------------------------------
 function pendingDepositKey() {
@@ -1305,7 +1305,7 @@ function hideGameOver() {
 
 async function startPvp() {
   if (!state.user) { signIn(); return; }
-  // Balance gate BEFORE the lobby-size picker: entering PvP costs 2,500
+  // Balance gate BEFORE the lobby-size picker: entering PvP costs 10,000
   // $FIGHT10, so a wallet that can't cover it gets the buy prompt right away
   // instead of a payment flow that would only fail later. A held (already
   // confirmed) deposit skips the check, and an unreadable balance falls
@@ -1676,7 +1676,7 @@ async function pollTxConfirmation(provider, txHash, timeoutMs = 90000) {
   throw e;
 }
 
-// Transfers 2500 FIGHT10 to the escrow on-chain and waits for confirmation.
+// Transfers 10000 FIGHT10 to the escrow on-chain and waits for confirmation.
 // Returns the confirmed tx signature on success, or null if cancelled/failed.
 // Does NOT record the deposit in the DB — that happens inside join_pvp_match().
 async function depositEntryFee(numPlayers = 2) {

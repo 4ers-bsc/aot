@@ -24,7 +24,7 @@ export const html = `
             <svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="5" width="20" height="14" rx="2"/><path d="M16 12h.01"/><path d="M2 10h20"/></svg>
           </div>
           <div class="tut-step-title">CONNECT &amp; STAKE</div>
-          <div class="tut-step-text">Link your Ethereum wallet — MetaMask, Rabby, or Brave — and stake <span class="hs-gold">2,500 $FIGHT10</span> to claim your seat. Your entry is verified on-chain before the match begins.</div>
+          <div class="tut-step-text">Link your Ethereum wallet — MetaMask, Rabby, or Brave — and stake <span class="hs-gold">10,000 $FIGHT10</span> to claim your seat. Your entry is verified on-chain before the match begins.</div>
         </div>
 
         <div class="tut-step" data-tut-step="2">

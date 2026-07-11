@@ -13,7 +13,7 @@ export const html = `
       <h2 class="hero-subtitle">LAST ONE STANDING</h2>
       <div class="hero-stats">
         <div class="hero-stat">
-          <div class="hero-stat-value">2,500</div>
+          <div class="hero-stat-value">10,000</div>
           <div class="hero-stat-label">$FIGHT10 Entry</div>
         </div>
         <div class="hero-stat-divider"></div>
@@ -64,7 +64,7 @@ export const html = `
       <div class="info-tile-desc">Climb the leaderboard.<br>Prove yourself.</div>
     </div>
     <div class="info-tile info-tile-multiplier">
-      <div class="info-tile-multi">2,500 $FIGHT10</div>
+      <div class="info-tile-multi">10,000 $FIGHT10</div>
       <div class="info-tile-label">ENTRY PER PLAYER</div>
       <div class="info-tile-desc">Last one standing<br>takes 90% of the pot.</div>
     </div>
@@ -92,7 +92,7 @@ export const html = `
         <div class="hs-card">
           <div class="hs-card-num">02</div>
           <div class="hs-card-label">STAKE</div>
-          <div class="hs-card-desc">Put 2,500 $FIGHT10 into the match escrow. Your seat is granted only after the stake is verified on-chain.</div>
+          <div class="hs-card-desc">Put 10,000 $FIGHT10 into the match escrow. Your seat is granted only after the stake is verified on-chain.</div>
         </div>
         <div class="hs-card">
           <div class="hs-card-num">03</div>
@@ -122,23 +122,23 @@ export const html = `
         <div class="hs-card hs-mode">
           <div class="hs-mode-name">DUEL</div>
           <div class="hs-mode-sub">2 Players · 5 Min</div>
-          <div class="hs-mode-row"><span>Entry</span><span>2,500</span></div>
-          <div class="hs-mode-row"><span>Pot</span><span>5,000</span></div>
-          <div class="hs-mode-row"><span>Winner takes</span><span class="hs-gold">4,500</span></div>
+          <div class="hs-mode-row"><span>Entry</span><span>10,000</span></div>
+          <div class="hs-mode-row"><span>Pot</span><span>20,000</span></div>
+          <div class="hs-mode-row"><span>Winner takes</span><span class="hs-gold">18,000</span></div>
         </div>
         <div class="hs-card hs-mode">
           <div class="hs-mode-name">5-PLAYER FFA</div>
           <div class="hs-mode-sub">Free-For-All · 7 Min</div>
-          <div class="hs-mode-row"><span>Entry</span><span>2,500</span></div>
-          <div class="hs-mode-row"><span>Pot</span><span>12,500</span></div>
-          <div class="hs-mode-row"><span>Winner takes</span><span class="hs-gold">11,250</span></div>
+          <div class="hs-mode-row"><span>Entry</span><span>10,000</span></div>
+          <div class="hs-mode-row"><span>Pot</span><span>50,000</span></div>
+          <div class="hs-mode-row"><span>Winner takes</span><span class="hs-gold">45,000</span></div>
         </div>
         <div class="hs-card hs-mode">
           <div class="hs-mode-name">10-PLAYER FFA</div>
           <div class="hs-mode-sub">Free-For-All · 10 Min</div>
-          <div class="hs-mode-row"><span>Entry</span><span>2,500</span></div>
-          <div class="hs-mode-row"><span>Pot</span><span>25,000</span></div>
-          <div class="hs-mode-row"><span>Winner takes</span><span class="hs-gold">22,500</span></div>
+          <div class="hs-mode-row"><span>Entry</span><span>10,000</span></div>
+          <div class="hs-mode-row"><span>Pot</span><span>100,000</span></div>
+          <div class="hs-mode-row"><span>Winner takes</span><span class="hs-gold">90,000</span></div>
         </div>
       </div>
       <p class="hs-footnote">All amounts in <span class="hs-gold">$FIGHT10</span>. If the timer runs out, the survivor with the highest HP takes the win. A <span class="hs-gold">10% protocol fee</span> keeps the arena running.</p>
@@ -228,7 +228,7 @@ export const html = `
     <!-- Final CTA -->
     <section class="hs-block hs-cta">
       <h2 class="hs-cta-title">Ready to Fight?</h2>
-      <p class="hs-cta-sub">2,500 $FIGHT10 buys your seat. Skill pays the rest.</p>
+      <p class="hs-cta-sub">10,000 $FIGHT10 buys your seat. Skill pays the rest.</p>
       <div class="hs-cta-actions">
         <button class="home-btn home-btn-hero hs-cta-play" id="secPlayBtn" type="button">PLAY PVP</button>
         <button class="home-btn home-btn-secondary" id="secHowToBtn" type="button">HOW TO PLAY</button>
