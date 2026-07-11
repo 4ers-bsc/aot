@@ -633,10 +633,10 @@ export function createArenaGame(options) {
     };
     const drawTrade = (g, W, H, state) => {
       g.textAlign = "center"; g.textBaseline = "middle";
-      g.fillStyle = goldTextFill(g, H * 0.22, H * 0.5); g.font = bannerFont(state, H * 0.26);
+      g.fillStyle = goldTextFill(g, H * 0.28, H * 0.48); g.font = bannerFont(state, H * 0.17);
       g.fillText("TRADE. FIGHT. EARN.", W / 2, H * 0.4);
-      g.fillStyle = goldTextFill(g, H * 0.58, H * 0.78); g.font = bannerFont(state, H * 0.19);
-      g.fillText("F10 IS THE FUTURE", W / 2, H * 0.68);
+      g.fillStyle = goldTextFill(g, H * 0.6, H * 0.74); g.font = bannerFont(state, H * 0.13);
+      g.fillText("F10 IS THE FUTURE", W / 2, H * 0.66);
     };
     // Robinhood logo, contained inside the hem with its aspect ratio preserved.
     const drawLogo = (g, W, H, state) => {
