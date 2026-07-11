@@ -980,6 +980,7 @@ function startSettleCountdown() {
   const countEl = document.getElementById("resultsLoadingCount");
   const barEl   = document.getElementById("resultsLoadingBar");
   const stEl    = document.getElementById("resultsLoadingStatus");
+  const subEl   = document.getElementById("resultsLoadingSub");
   const start = Date.now();
   const tick = () => {
     const elapsed = (Date.now() - start) / 1000;
@@ -987,9 +988,15 @@ function startSettleCountdown() {
     if (countEl) countEl.textContent = Math.ceil(remain) + "s";
     if (barEl) barEl.style.width = Math.min(100, (elapsed / SETTLE_COOLDOWN_S) * 100).toFixed(1) + "%";
     if (remain <= 0) {
-      // Grace elapsed but the verdict is still landing — hold at a full bar.
-      if (stEl) stEl.textContent = "Finalizing result…";
-      if (countEl) { countEl.textContent = "0s"; countEl.classList.add("rl-count-done"); }
+      // Grace elapsed and the verdict still hasn't landed — the rival never
+      // reconnected, so the server is replaying the match to settle it. That
+      // takes a while, so drop the ticking clock and ask the player to hold on.
+      if (stEl) stEl.textContent = "Opponent disconnected";
+      if (countEl) { countEl.textContent = ""; countEl.classList.add("hidden"); }
+      if (subEl) {
+        subEl.textContent = "Replaying the match to settle it — this can take a moment. Hang tight…";
+        subEl.classList.remove("hidden");
+      }
       clearInterval(_settleTimer); _settleTimer = null;
     }
   };
@@ -1002,7 +1009,9 @@ function showResultsLoading(statusText = "Settling match…") {
   const st = document.getElementById("resultsLoadingStatus");
   if (st) st.textContent = statusText;
   const countEl = document.getElementById("resultsLoadingCount");
-  if (countEl) countEl.classList.remove("rl-count-done");
+  if (countEl) { countEl.classList.remove("rl-count-done"); countEl.classList.remove("hidden"); }
+  const subEl = document.getElementById("resultsLoadingSub");
+  if (subEl) { subEl.textContent = ""; subEl.classList.add("hidden"); }
   el.classList.remove("hidden");
   startSettleCountdown();
 }
