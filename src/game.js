@@ -347,8 +347,7 @@ export function createArenaGame(options) {
   // strung with crossed-barb strands, canted inward on top arms), anchored at
   // its corners by black-brick-and-gold beacon towers with glowing gold
   // lanterns (palette from WALL_THEME), giant billboard signs (F10 ARENA /
-  // TRADE·FIGHT·EARN / ROBINHOOD CHAIN), gold crystal clusters and an F10
-  // hologram.
+  // TRADE·FIGHT·EARN / ROBINHOOD CHAIN) and gold crystal clusters.
   // Flame lamps ride the top of the fence. Built once and parented to the
   // scene, so it stays anchored to the map rim in both the lobby backdrop and a
   // live match, and is released with everything else by disposeObject3D(scene)
@@ -394,25 +393,15 @@ export function createArenaGame(options) {
       return new THREE.CanvasTexture(c);
     })();
     const plaqueMat = signMat(crestTex);
-    const holoTex = (() => {
-      const c = document.createElement("canvas"); c.width = c.height = 128;
-      const g = c.getContext("2d"); g.clearRect(0, 0, 128, 128);
-      g.strokeStyle = "rgba(255,205,90,0.9)"; g.lineWidth = 5; g.beginPath();
-      for (let i = 0; i < 6; i++) { const a = Math.PI / 6 + i * Math.PI / 3, px = 64 + 52 * Math.cos(a), py = 64 + 52 * Math.sin(a); if (i) g.lineTo(px, py); else g.moveTo(px, py); }
-      g.closePath(); g.stroke();
-      g.fillStyle = "rgba(255,225,150,0.95)"; g.font = "bold 38px Arial"; g.textAlign = "center"; g.textBaseline = "middle";
-      g.fillText("F10", 64, 66);
-      return new THREE.CanvasTexture(c);
-    })();
 
     const mesh = (geo, mat) => { const m = new THREE.Mesh(geo, mat); m.castShadow = true; m.receiveShadow = true; return m; };
     const slab = (w, h, d, mat, x, y, z) => { const m = mesh(new THREE.BoxGeometry(w, h, d), mat); m.position.set(x, y, z); rampart.add(m); return m; };
 
     // -- Black-and-gold brick curtain wall the barbed wire is mounted on -------
     //    A solid masonry base rings all four sides at the arena rim; the steel
-    //    posts and barbed strands rise from its gold-capped top so the fence
-    //    reads as barbed wire atop a proper wall. Painted with the shared
-    //    WALL_THEME brick face (near-black courses banded with gold). Cosmetic
+    //    posts and barbed strands rise from its top so the fence reads as
+    //    barbed wire atop a proper wall. Painted with the shared WALL_THEME
+    //    brick face (near-black courses laced with glowing white grout). Cosmetic
     //    only — it sits on the wire line (±WMID), outside the play boundary.
     const WALL_LOW = 2.8;                       // brick wall height at the rim
     const RUN = 2 * WMID;                        // corner-to-corner span
@@ -426,16 +415,21 @@ export function createArenaGame(options) {
     })();
     const brickWallMat = new THREE.MeshStandardMaterial({
       map: brickFaceTex, roughness: 0.6, metalness: 0.35,
-      emissive: 0x120d03, emissiveIntensity: 0.35,
+      emissive: 0x0b0b0e, emissiveIntensity: 0.35,
     });
+    // Brick texture only on the four upright faces; the top and bottom get the
+    // plain dark stone so the wall's top edge doesn't show a grey textured strip.
+    // BoxGeometry face order: +x, -x, +y(top), -y(bottom), +z, -z.
+    const wallMats = [brickWallMat, brickWallMat, darkMat, darkMat, brickWallMat, brickWallMat];
     [
       { w: RUN,    d: WALL_T, x: 0,     z: -WMID }, // north
       { w: RUN,    d: WALL_T, x: 0,     z:  WMID }, // south
       { w: WALL_T, d: RUN,    x: -WMID, z: 0     }, // west
       { w: WALL_T, d: RUN,    x:  WMID, z: 0     }, // east
     ].forEach(({ w, d, x, z }) => {
-      slab(w, WALL_LOW, d, brickWallMat, x, WALL_LOW / 2, z);          // brick wall
-      slab(w + 0.3, 0.32, d + 0.3, goldMat, x, WALL_LOW + 0.06, z);    // gold cap
+      const wall = mesh(new THREE.BoxGeometry(w, WALL_LOW, d), wallMats); // brick wall
+      wall.position.set(x, WALL_LOW / 2, z);
+      rampart.add(wall);
     });
 
     // -- Barbed-wire perimeter fence (replaces the solid curtain walls). Tall
@@ -586,17 +580,6 @@ export function createArenaGame(options) {
     placeSign("north", -13, 15, 7,   drawTrade);       // TRADE. FIGHT. EARN.
     placeSign("north", 14, 6.6, 6.6, drawChain);       // ROBINHOOD CHAIN
 
-    // -- F10 hologram hovering off the near corner, on a small gold emitter.
-    {
-      const OC = WMID + 4.5;
-      const hx = OC - 1, hz = OC - 8;
-      const holo = new THREE.Mesh(new THREE.CircleGeometry(3.6, 6),
-        new THREE.MeshBasicMaterial({ map: holoTex, transparent: true, opacity: 0.82, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide }));
-      holo.position.set(hx, 6, hz); holo.rotation.z = Math.PI / 6; holo.rotation.y = -Math.PI / 4; rampart.add(holo);
-      const base = mesh(new THREE.CylinderGeometry(1.4, 1.7, 0.6, 8), goldMat); base.position.set(hx, 0.3, hz); rampart.add(base);
-      const hg = new THREE.Sprite(new THREE.SpriteMaterial({ map: goldGlowTex, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, opacity: 0.8 }));
-      hg.position.set(hx, 6, hz); hg.scale.set(10, 10, 1); rampart.add(hg);
-    }
 
     scene.add(rampart);
   }
