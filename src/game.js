@@ -551,7 +551,7 @@ export function createArenaGame(options) {
     // wide, horizontal banners get more drapes.
     const makeClothBanner = (w, h) => {
       const NX = Math.max(20, Math.round(w * 2.4)), NY = 20;
-      const tail = h * 0.16, amp = 0.5, waves = Math.max(3, Math.round(w / 2.6));
+      const tail = h * 0.16, amp = 0.5, waves = Math.max(2, Math.round(w / 4));
       const positions = [], uvs = [], indices = [];
       for (let j = 0; j <= NY; j++) {
         const v = j / NY;                              // 0 top → 1 bottom
@@ -560,9 +560,11 @@ export function createArenaGame(options) {
           const notch = tail * (1 - Math.abs(2 * u - 1)); // swallowtail: centre cut up
           const topY = h / 2, botY = -h / 2 + notch;
           const y = topY + (botY - topY) * v;
-          // Vertical drape folds, freer (larger) toward the hanging bottom.
-          const z = Math.sin(u * Math.PI * waves) * amp * (0.35 + 0.65 * v)
-                  + Math.sin(v * Math.PI * 1.5) * amp * 0.3;
+          // Keep the middle flat and legible: the drape curl is weighted toward
+          // the two ends (edge≈0 across the centre, rising to 1 at the edges) and
+          // eases in toward the hanging bottom.
+          const edge = Math.pow(Math.abs(2 * u - 1), 2.6); // flat centre → curled ends
+          const z = Math.sin(u * Math.PI * waves) * amp * edge * (0.45 + 0.55 * v);
           positions.push((u - 0.5) * w, y, z);
           uvs.push(u, 1 - v);
         }
