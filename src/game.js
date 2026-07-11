@@ -104,35 +104,31 @@ export function createArenaGame(options) {
 
   // -- Scene ----------------------------------------------------------------
   const scene = new THREE.Scene();
-  // Baked night-sky backdrop (deep-blue gradient, stars, drifting clouds and
-  // faint far spires) so the arena reads as a fortress floating in the clouds.
-  // A fixed 2D background texture, so it never moves with the follow camera.
-  // Reused by applyTheme() instead of a flat clear colour.
+  // Baked night-sky backdrop: a profound black field scattered with golden
+  // stars, so the arena reads as a fortress floating in the void. No skyline
+  // silhouettes — just the starfield. A fixed 2D background texture, so it
+  // never moves with the follow camera. Reused by applyTheme() instead of a
+  // flat clear colour.
   const skyTex = (() => {
     const c = document.createElement("canvas");
     c.width = 1024; c.height = 512;
     const x = c.getContext("2d");
     const g = x.createLinearGradient(0, 0, 0, 512);
-    g.addColorStop(0.0, "#070f26"); g.addColorStop(0.55, "#0b1734"); g.addColorStop(1.0, "#173058");
+    g.addColorStop(0.0, "#000000"); g.addColorStop(0.6, "#050403"); g.addColorStop(1.0, "#0a0805");
     x.fillStyle = g; x.fillRect(0, 0, 1024, 512);
-    for (let i = 0; i < 280; i++) {
-      x.fillStyle = `rgba(255,255,255,${(0.25 + Math.random() * 0.6).toFixed(2)})`;
-      const s = Math.random() < 0.12 ? 2.2 : 1.2;
-      x.fillRect(Math.random() * 1024, Math.random() * 320, s, s);
-    }
-    // Faint far spires along the horizon.
-    x.fillStyle = "rgba(120,150,205,0.16)";
-    for (let i = 0; i < 22; i++) {
-      const sx = Math.random() * 1024, sw = 6 + Math.random() * 16, sh = 40 + Math.random() * 120;
-      x.fillRect(sx, 360 - sh, sw, sh);
-      x.beginPath(); x.moveTo(sx, 360 - sh); x.lineTo(sx + sw / 2, 360 - sh - 22); x.lineTo(sx + sw, 360 - sh); x.fill();
-    }
-    // Drifting clouds.
-    for (let i = 0; i < 30; i++) {
-      const cx = Math.random() * 1024, cy = 190 + Math.random() * 300, cr = 45 + Math.random() * 110;
-      const cg = x.createRadialGradient(cx, cy, 0, cx, cy, cr);
-      cg.addColorStop(0, "rgba(96,126,182,0.22)"); cg.addColorStop(1, "rgba(96,126,182,0)");
-      x.fillStyle = cg; x.beginPath(); x.arc(cx, cy, cr, 0, 7); x.fill();
+    // Golden stars, spread across the whole field with a few brighter ones
+    // wearing a soft gold halo.
+    for (let i = 0; i < 320; i++) {
+      const px = Math.random() * 1024, py = Math.random() * 512;
+      const bright = Math.random() < 0.12;
+      const s = bright ? 2.4 : 1.2;
+      if (bright) {
+        const halo = x.createRadialGradient(px, py, 0, px, py, 6);
+        halo.addColorStop(0, "rgba(255,205,80,0.5)"); halo.addColorStop(1, "rgba(255,205,80,0)");
+        x.fillStyle = halo; x.fillRect(px - 6, py - 6, 12, 12);
+      }
+      x.fillStyle = `rgba(255,${(190 + Math.random() * 50) | 0},${(70 + Math.random() * 60) | 0},${(0.35 + Math.random() * 0.6).toFixed(2)})`;
+      x.fillRect(px, py, s, s);
     }
     return new THREE.CanvasTexture(c);
   })();
@@ -268,8 +264,41 @@ export function createArenaGame(options) {
     const DEPTH = 10;
     const addObj = (obj) => { scene.add(obj); wallObjects.push(obj); return obj; };
 
-    // Near-black underside slab behind each wall (matches the fortress rampart).
-    const sideMat = new THREE.MeshStandardMaterial({ color: 0x0b0b0e, roughness: 0.92, metalness: 0.12 });
+    // Profound black-and-gold brick masonry wrapping the underside — the area
+    // between the barbed-wire fence above and the aurora curtain below. Deep
+    // black bricks laid in offset courses, each ringed by a glowing gold border
+    // (the mortar), so the drop below the rim reads as a proper bricked wall.
+    const makeBrickTex = () => {
+      const c = document.createElement("canvas");
+      c.width = c.height = 256;
+      const g = c.getContext("2d");
+      const cols = 6, rows = 8, bw = 256 / cols, bh = 256 / rows;
+      const tones = ["#080809", "#0c0c10", "#050506", "#101015"];
+      g.fillStyle = "#020203"; g.fillRect(0, 0, 256, 256); // deep mortar backing
+      for (let r = 0; r < rows; r++) {
+        const off = r % 2 ? bw / 2 : 0;
+        for (let cc = -1; cc < cols; cc++) {
+          const bx = cc * bw + off, by = r * bh;
+          const t = tones[Math.abs((r * 31 + cc * 17 + 7) * 2654435761) % tones.length];
+          // Brick face, inset from the mortar gap.
+          g.fillStyle = t;
+          g.fillRect(bx + 2, by + 2, bw - 4, bh - 4);
+          // Gold bricked border around every brick.
+          g.strokeStyle = "rgba(255,198,39,0.55)"; g.lineWidth = 1.4;
+          g.strokeRect(bx + 2, by + 2, bw - 4, bh - 4);
+        }
+      }
+      const tex = new THREE.CanvasTexture(c);
+      tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+      tex.repeat.set(Math.round(MAP_WORLD / 12), Math.round(DEPTH / 6));
+      return tex;
+    };
+    const brickTex = makeBrickTex();
+    const sideMat = new THREE.MeshStandardMaterial({
+      map: brickTex, color: 0xffffff,
+      emissiveMap: brickTex, emissive: 0xffffff, emissiveIntensity: 0.6,
+      roughness: 0.72, metalness: 0.35,
+    });
     [
       { x: 0,         z: -MAP_HALF, ry: 0 },
       { x: 0,         z:  MAP_HALF, ry: Math.PI },
