@@ -1573,7 +1573,13 @@ async function joinPvp(maxPlayers) {
       try {
         const { data: capacity } = await supabase.rpc("pvp_capacity");
         if (capacity && capacity.active >= capacity.cap) {
-          setStatus(`Servers are full (${capacity.active}/${capacity.cap} players online). Try again in a few minutes.`);
+          const msg = `Servers are full (${capacity.active}/${capacity.cap} players online). Try again in a few minutes.`;
+          setStatus(msg);
+          // Surface it as a pop-up with a Retry button so the player can
+          // re-attempt without navigating away. Retry re-runs the whole join
+          // (nothing has been paid yet at this point, so this is safe).
+          const retry = await retryDialog("Servers are full", msg);
+          if (retry) { joinPvp(size); }
           return;
         }
       } catch (_) { /* best-effort; server-side join_pvp_match is authoritative */ }
@@ -2602,6 +2608,46 @@ function confirmDialog(message) {
     backdrop.appendChild(box);
     document.body.appendChild(backdrop);
     btnCancel.focus();
+  });
+}
+
+// Pop-up notification with a Retry button. Resolves true when the player
+// clicks Retry, false when they dismiss it. Mirrors confirmDialog's styling so
+// the whole app shares one modal look.
+function retryDialog(title, message) {
+  return new Promise((resolve) => {
+    const backdrop = document.createElement("div");
+    backdrop.style.cssText =
+      "position:fixed;inset:0;background:rgba(0,0,0,.72);display:flex;align-items:center;" +
+      "justify-content:center;z-index:9999;font-family:var(--font-body)";
+    const box = document.createElement("div");
+    box.style.cssText =
+      "background:#111;border:1px solid rgba(255,255,255,.18);border-radius:8px;" +
+      "padding:28px 32px;max-width:380px;text-align:center;color:#f3f3f3;line-height:1.5";
+    const heading = document.createElement("h3");
+    heading.style.cssText = "margin:0 0 12px;font-size:16px;";
+    heading.textContent = title;
+    const msg = document.createElement("p");
+    msg.style.cssText = "margin:0 0 20px;font-size:14px;";
+    msg.textContent = message;
+    const row = document.createElement("div");
+    row.style.cssText = "display:flex;gap:10px;justify-content:center;";
+    const btnRetry = document.createElement("button");
+    btnRetry.textContent = "Retry";
+    btnRetry.style.cssText =
+      "padding:8px 22px;background:#c8940a;color:#000;border:none;border-radius:5px;cursor:pointer;font-size:13px;";
+    const btnCancel = document.createElement("button");
+    btnCancel.textContent = "Close";
+    btnCancel.style.cssText =
+      "padding:8px 22px;background:rgba(255,255,255,.12);color:#f3f3f3;border:1px solid rgba(255,255,255,.2);border-radius:5px;cursor:pointer;font-size:13px;";
+    const close = (result) => { document.body.removeChild(backdrop); resolve(result); };
+    btnRetry.addEventListener("click", () => close(true));
+    btnCancel.addEventListener("click", () => close(false));
+    row.append(btnRetry, btnCancel);
+    box.append(heading, msg, row);
+    backdrop.appendChild(box);
+    document.body.appendChild(backdrop);
+    btnRetry.focus();
   });
 }
 
