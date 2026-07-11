@@ -264,44 +264,8 @@ export function createArenaGame(options) {
     const DEPTH = 10;
     const addObj = (obj) => { scene.add(obj); wallObjects.push(obj); return obj; };
 
-    // Profound black-and-gold brick masonry wrapping the underside — the area
-    // between the barbed-wire fence above and the aurora curtain below. Deep
-    // black bricks laid in offset courses, each ringed by a glowing gold border
-    // (the mortar), so the drop below the rim reads as a proper bricked wall.
-    const makeBrickTex = () => {
-      const c = document.createElement("canvas");
-      c.width = c.height = 256;
-      const g = c.getContext("2d");
-      const cols = 6, rows = 8, bw = 256 / cols, bh = 256 / rows;
-      const tones = ["#16161c", "#1d1d25", "#111117", "#24242e"];
-      g.fillStyle = "#3a2c08"; g.fillRect(0, 0, 256, 256); // gold-lit mortar backing
-      for (let r = 0; r < rows; r++) {
-        const off = r % 2 ? bw / 2 : 0;
-        for (let cc = -1; cc < cols; cc++) {
-          const bx = cc * bw + off, by = r * bh;
-          const t = tones[Math.abs((r * 31 + cc * 17 + 7) * 2654435761) % tones.length];
-          // Brick face, inset from the mortar gap.
-          g.fillStyle = t;
-          g.fillRect(bx + 2, by + 2, bw - 4, bh - 4);
-          // Bright gold bricked border around every brick, with a soft inner
-          // sheen so each brick reads as gold-edged black against the void.
-          g.strokeStyle = "rgba(255,205,60,0.92)"; g.lineWidth = 2.2;
-          g.strokeRect(bx + 2, by + 2, bw - 4, bh - 4);
-          g.strokeStyle = "rgba(255,170,20,0.35)"; g.lineWidth = 1;
-          g.strokeRect(bx + 4, by + 4, bw - 8, bh - 8);
-        }
-      }
-      const tex = new THREE.CanvasTexture(c);
-      tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
-      tex.repeat.set(Math.round(MAP_WORLD / 12), Math.round(DEPTH / 6));
-      return tex;
-    };
-    const brickTex = makeBrickTex();
-    const sideMat = new THREE.MeshStandardMaterial({
-      map: brickTex, color: 0xffffff,
-      emissiveMap: brickTex, emissive: 0xffffff, emissiveIntensity: 1.9,
-      roughness: 0.7, metalness: 0.4,
-    });
+    // Near-black underside slab behind each wall (matches the fortress rampart).
+    const sideMat = new THREE.MeshStandardMaterial({ color: 0x0b0b0e, roughness: 0.92, metalness: 0.12 });
     [
       { x: 0,         z: -MAP_HALF, ry: 0 },
       { x: 0,         z:  MAP_HALF, ry: Math.PI },
@@ -335,15 +299,12 @@ export function createArenaGame(options) {
     // drifting down the walls. Applied only to the +z and +x walls that meet at
     // the near/bottom corner (the "V" pointing at the camera); the other two
     // sides keep the plain dark slab. Registered in wallFX, run each frame.
-    // The panels are nudged a hair outward (along each wall's normal) so they
-    // sit in front of the brick slab — otherwise they z-fight it — and span
-    // corner to corner so the effect runs all the way to the near point. They
-    // start a band below the rim (BRICK_BAND) rather than at the rim itself, so
-    // the black-and-gold brick masonry stays visible directly under the wire
-    // fence and the aurora curtain reads as glacier below it.
-    const BRICK_BAND = 6.6;              // brick strip left showing below the rim
-    const AURORA_H = DEPTH - BRICK_BAND; // aurora occupies the lower wall
-    const AURORA_OUT = 0.18;             // outward nudge past the slab, along the normal
+    // The panels cover the full underside height and are nudged a hair outward
+    // (along each wall's normal) so they sit in front of the near-black slab —
+    // otherwise they z-fight it and read as plain black — and span corner to
+    // corner so the effect runs all the way to the near point.
+    const AURORA_H = DEPTH;      // full underside height, top pinned at the rim
+    const AURORA_OUT = 0.18;     // outward nudge past the slab, along the normal
     const NEAR_SIDES = [
       { axis: "z", x: 0,                     z: MAP_HALF + AURORA_OUT, ry: Math.PI },      // front-left (+z)
       { axis: "x", x: MAP_HALF + AURORA_OUT, z: 0,                     ry: -Math.PI / 2 }, // front-right (+x)
@@ -351,7 +312,7 @@ export function createArenaGame(options) {
     const drapeNear = (material) => {
       NEAR_SIDES.forEach(({ x, z, ry }) => {
         const p = new THREE.Mesh(new THREE.PlaneGeometry(MAP_WORLD, AURORA_H), material);
-        p.position.set(x, -BRICK_BAND - AURORA_H / 2, z);
+        p.position.set(x, -AURORA_H / 2, z);
         p.rotation.y = ry;
         p.renderOrder = 2; // paint after the opaque slab
         addObj(p);
@@ -383,14 +344,9 @@ export function createArenaGame(options) {
     ));
     nearRim(0x9fe8ff, 0.9, 0.08);
     nearRim(0x4fb0ff, 0.5, 0.04);
-    // Gold borders bracketing the brick band: one just under the rim (top of the
-    // masonry, under the wire) and one where the brick meets the aurora below.
-    nearRim(0xffd23a, 0.95, -0.18);
-    nearRim(0xffd23a, 0.9, -BRICK_BAND);
-    // Snow-sparkle settling down the aurora band of the two near walls (kept
-    // below the brick strip so the masonry stays clean and legible).
+    // Snow-sparkle settling down the two near walls (full underside height).
     {
-      const count = 110, yBot = -DEPTH + 0.4, yTop = -BRICK_BAND;
+      const count = 110, yBot = -DEPTH + 0.4, yTop = 1.6;
       const geo = new THREE.BufferGeometry();
       const pos = new Float32Array(count * 3);
       const spd = new Float32Array(count);
@@ -565,6 +521,36 @@ export function createArenaGame(options) {
 
     const mesh = (geo, mat) => { const m = new THREE.Mesh(geo, mat); m.castShadow = true; m.receiveShadow = true; return m; };
     const slab = (w, h, d, mat, x, y, z) => { const m = mesh(new THREE.BoxGeometry(w, h, d), mat); m.position.set(x, y, z); rampart.add(m); return m; };
+
+    // -- Black-and-gold brick curtain wall the barbed wire is mounted on -------
+    //    A solid masonry base rings all four sides at the arena rim; the steel
+    //    posts and barbed strands rise from its gold-capped top so the fence
+    //    reads as barbed wire atop a proper wall. Painted with the shared
+    //    WALL_THEME brick face (near-black courses banded with gold). Cosmetic
+    //    only — it sits on the wire line (±WMID), outside the play boundary.
+    const WALL_LOW = 2.8;                       // brick wall height at the rim
+    const RUN = 2 * WMID;                        // corner-to-corner span
+    const brickFaceTex = (() => {
+      const c = document.createElement("canvas"); c.width = 256; c.height = 128;
+      WALL_THEME.drawFace(c.getContext("2d"), 256, 128);
+      const t = new THREE.CanvasTexture(c);
+      t.wrapS = t.wrapT = THREE.RepeatWrapping;
+      t.repeat.set(Math.max(1, Math.round(RUN / 10)), 1); // ~2-unit bricks along the run
+      return t;
+    })();
+    const brickWallMat = new THREE.MeshStandardMaterial({
+      map: brickFaceTex, roughness: 0.6, metalness: 0.35,
+      emissive: 0x120d03, emissiveIntensity: 0.35,
+    });
+    [
+      { w: RUN,    d: WALL_T, x: 0,     z: -WMID }, // north
+      { w: RUN,    d: WALL_T, x: 0,     z:  WMID }, // south
+      { w: WALL_T, d: RUN,    x: -WMID, z: 0     }, // west
+      { w: WALL_T, d: RUN,    x:  WMID, z: 0     }, // east
+    ].forEach(({ w, d, x, z }) => {
+      slab(w, WALL_LOW, d, brickWallMat, x, WALL_LOW / 2, z);          // brick wall
+      slab(w + 0.3, 0.32, d + 0.3, goldMat, x, WALL_LOW + 0.06, z);    // gold cap
+    });
 
     // -- Barbed-wire perimeter fence (replaces the solid curtain walls). Tall
     //    dark-steel posts strung with horizontal barbed strands run between the
