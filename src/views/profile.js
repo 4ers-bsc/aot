@@ -48,6 +48,8 @@ export const html = `
           <div class="holdings-note" id="holdingsNote"></div>
         </div>
 
+        <a class="buyf10-btn" id="holdingsBuyLink" href="https://dexscreener.com" target="_blank" rel="noopener noreferrer">BUY $FIGHT10</a>
+
         <div class="section">HOLDER PERKS</div>
         <div class="perks-card">
           <button class="perk-row perk-row-unlocked" id="perkPlayPvpBtn" type="button">

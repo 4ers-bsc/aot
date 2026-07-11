@@ -1341,6 +1341,15 @@ const BUY_FIGHT10_URL =
     ? NETWORK.explorerBase
     : `${NETWORK.explorerBase}/token/${FIGHT10_TOKEN}`);
 
+// DEX Screener page for $FIGHT10 — override with VITE_DEXSCREENER_URL; defaults
+// to the token's DEX Screener page once the token address is configured, the
+// DEX Screener home before launch.
+const DEXSCREENER_URL =
+  import.meta.env?.VITE_DEXSCREENER_URL?.trim() ||
+  (FIGHT10_TOKEN.startsWith("<")
+    ? "https://dexscreener.com"
+    : `https://dexscreener.com/robinhood/${FIGHT10_TOKEN}`);
+
 // "Not enough $FIGHT10" popup with a buy link. haveTokens (optional) is the
 // wallet's current balance in whole tokens, shown for context.
 function showBuyFight10(haveTokens = null) {
@@ -1804,6 +1813,8 @@ async function loadHoldings() {
   const amtEl    = document.getElementById("holdingsAmount");
   const walletEl = document.getElementById("holdingsWallet");
   const noteEl   = document.getElementById("holdingsNote");
+  const buyEl    = document.getElementById("holdingsBuyLink");
+  if (buyEl) buyEl.href = DEXSCREENER_URL;
   if (!amtEl) return;
   const addr = await getWalletAddress();
   if (walletEl) walletEl.textContent = addr ? `${addr.slice(0, 6)}…${addr.slice(-4)}` : "";
