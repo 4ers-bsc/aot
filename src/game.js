@@ -104,35 +104,31 @@ export function createArenaGame(options) {
 
   // -- Scene ----------------------------------------------------------------
   const scene = new THREE.Scene();
-  // Baked night-sky backdrop (deep-blue gradient, stars, drifting clouds and
-  // faint far spires) so the arena reads as a fortress floating in the clouds.
-  // A fixed 2D background texture, so it never moves with the follow camera.
-  // Reused by applyTheme() instead of a flat clear colour.
+  // Baked night-sky backdrop: a profound black field scattered with golden
+  // stars, so the arena reads as a fortress floating in the void. No skyline
+  // silhouettes — just the starfield. A fixed 2D background texture, so it
+  // never moves with the follow camera. Reused by applyTheme() instead of a
+  // flat clear colour.
   const skyTex = (() => {
     const c = document.createElement("canvas");
     c.width = 1024; c.height = 512;
     const x = c.getContext("2d");
     const g = x.createLinearGradient(0, 0, 0, 512);
-    g.addColorStop(0.0, "#070f26"); g.addColorStop(0.55, "#0b1734"); g.addColorStop(1.0, "#173058");
+    g.addColorStop(0.0, "#000000"); g.addColorStop(0.6, "#050403"); g.addColorStop(1.0, "#0a0805");
     x.fillStyle = g; x.fillRect(0, 0, 1024, 512);
-    for (let i = 0; i < 280; i++) {
-      x.fillStyle = `rgba(255,255,255,${(0.25 + Math.random() * 0.6).toFixed(2)})`;
-      const s = Math.random() < 0.12 ? 2.2 : 1.2;
-      x.fillRect(Math.random() * 1024, Math.random() * 320, s, s);
-    }
-    // Faint far spires along the horizon.
-    x.fillStyle = "rgba(120,150,205,0.16)";
-    for (let i = 0; i < 22; i++) {
-      const sx = Math.random() * 1024, sw = 6 + Math.random() * 16, sh = 40 + Math.random() * 120;
-      x.fillRect(sx, 360 - sh, sw, sh);
-      x.beginPath(); x.moveTo(sx, 360 - sh); x.lineTo(sx + sw / 2, 360 - sh - 22); x.lineTo(sx + sw, 360 - sh); x.fill();
-    }
-    // Drifting clouds.
-    for (let i = 0; i < 30; i++) {
-      const cx = Math.random() * 1024, cy = 190 + Math.random() * 300, cr = 45 + Math.random() * 110;
-      const cg = x.createRadialGradient(cx, cy, 0, cx, cy, cr);
-      cg.addColorStop(0, "rgba(96,126,182,0.22)"); cg.addColorStop(1, "rgba(96,126,182,0)");
-      x.fillStyle = cg; x.beginPath(); x.arc(cx, cy, cr, 0, 7); x.fill();
+    // Golden stars, spread across the whole field with a few brighter ones
+    // wearing a soft gold halo.
+    for (let i = 0; i < 320; i++) {
+      const px = Math.random() * 1024, py = Math.random() * 512;
+      const bright = Math.random() < 0.12;
+      const s = bright ? 2.4 : 1.2;
+      if (bright) {
+        const halo = x.createRadialGradient(px, py, 0, px, py, 6);
+        halo.addColorStop(0, "rgba(255,205,80,0.5)"); halo.addColorStop(1, "rgba(255,205,80,0)");
+        x.fillStyle = halo; x.fillRect(px - 6, py - 6, 12, 12);
+      }
+      x.fillStyle = `rgba(255,${(190 + Math.random() * 50) | 0},${(70 + Math.random() * 60) | 0},${(0.35 + Math.random() * 0.6).toFixed(2)})`;
+      x.fillRect(px, py, s, s);
     }
     return new THREE.CanvasTexture(c);
   })();
@@ -298,124 +294,10 @@ export function createArenaGame(options) {
       new THREE.Vector3(-MAP_HALF, -0.02, -MAP_HALF),
     ]), new THREE.LineBasicMaterial({ color: 0xffc21a, transparent: true, opacity: 0.3 })));
 
-    // -- Frozen Aurora on the two near (camera-facing) edges ------------------
-    // Frosted-ice panels under a hue-shifting aurora curtain, with snow-sparkle
-    // drifting down the walls. Applied only to the +z and +x walls that meet at
-    // the near/bottom corner (the "V" pointing at the camera); the other two
-    // sides keep the plain dark slab. Registered in wallFX, run each frame.
-    // The panels cover the full underside height and are nudged a hair outward
-    // (along each wall's normal) so they sit in front of the near-black slab —
-    // otherwise they z-fight it and read as plain black — and span corner to
-    // corner so the effect runs all the way to the near point.
-    const AURORA_H = DEPTH;      // full underside height, top pinned at the rim
-    const AURORA_OUT = 0.18;     // outward nudge past the slab, along the normal
-    const NEAR_SIDES = [
-      { axis: "z", x: 0,                     z: MAP_HALF + AURORA_OUT, ry: Math.PI },      // front-left (+z)
-      { axis: "x", x: MAP_HALF + AURORA_OUT, z: 0,                     ry: -Math.PI / 2 }, // front-right (+x)
-    ];
-    const drapeNear = (material) => {
-      NEAR_SIDES.forEach(({ x, z, ry }) => {
-        const p = new THREE.Mesh(new THREE.PlaneGeometry(MAP_WORLD, AURORA_H), material);
-        p.position.set(x, -AURORA_H / 2, z);
-        p.rotation.y = ry;
-        p.renderOrder = 2; // paint after the opaque slab
-        addObj(p);
-      });
-    };
-    // Frosted ice base panels (opaque enough to hide the black slab behind).
-    drapeNear(new THREE.MeshBasicMaterial({
-      map: makeIceTex(), transparent: true, side: THREE.DoubleSide,
-      depthWrite: false, opacity: 0.98,
-    }));
-    // Shimmering aurora curtain over the ice; slowly shifts hue and breathes.
-    const auroraMat = new THREE.MeshBasicMaterial({
-      map: makeAuroraTex(), transparent: true, side: THREE.DoubleSide,
-      depthWrite: false, blending: THREE.AdditiveBlending, opacity: 0.5,
-    });
-    drapeNear(auroraMat);
-    wallFX.push((t) => {
-      auroraMat.color.setHSL(0.5 + 0.13 * Math.sin(t * 0.45), 0.85, 0.6);
-      auroraMat.opacity = 0.3 + 0.18 * (0.5 + 0.5 * Math.sin(t * 0.8));
-    });
-    // Icy rim glow tracing the two near edges (inner bright + outer softer).
-    const nearRim = (col, op, y) => addObj(new THREE.Line(
-      new THREE.BufferGeometry().setFromPoints([
-        new THREE.Vector3( MAP_HALF, y, -MAP_HALF),
-        new THREE.Vector3( MAP_HALF, y,  MAP_HALF),
-        new THREE.Vector3(-MAP_HALF, y,  MAP_HALF),
-      ]),
-      new THREE.LineBasicMaterial({ color: col, transparent: true, opacity: op })
-    ));
-    nearRim(0x9fe8ff, 0.9, 0.08);
-    nearRim(0x4fb0ff, 0.5, 0.04);
-    // Snow-sparkle settling down the two near walls (full underside height).
-    {
-      const count = 110, yBot = -DEPTH + 0.4, yTop = 1.6;
-      const geo = new THREE.BufferGeometry();
-      const pos = new Float32Array(count * 3);
-      const spd = new Float32Array(count);
-      for (let i = 0; i < count; i++) {
-        const near = NEAR_SIDES[i % 2], along = (Math.random() - 0.5) * MAP_WORLD, inset = 0.3 + Math.random() * 1.5;
-        let x, z;
-        if (near.axis === "z") { x = along;             z = MAP_HALF - inset; }
-        else                   { x = MAP_HALF - inset;  z = along; }
-        pos[i * 3] = x; pos[i * 3 + 1] = yBot + Math.random() * (yTop - yBot); pos[i * 3 + 2] = z;
-        spd[i] = (0.5 + Math.random()) * 0.9;
-      }
-      geo.setAttribute("position", new THREE.BufferAttribute(pos, 3));
-      const mat = new THREE.PointsMaterial({
-        size: 0.7, map: makeFlake(), color: 0xdff4ff, transparent: true,
-        depthWrite: false, blending: THREE.AdditiveBlending, opacity: 0.85,
-      });
-      addObj(new THREE.Points(geo, mat));
-      wallFX.push((t, dt) => {
-        const a = geo.attributes.position;
-        for (let i = 0; i < count; i++) {
-          let y = a.getY(i) - spd[i] * dt;
-          if (y < yBot) y = yTop;
-          a.setY(i, y);
-        }
-        a.needsUpdate = true;
-        mat.opacity = 0.85 * (0.65 + 0.35 * Math.sin(t * 3));
-      });
-    }
-
-    // Frozen-aurora canvas textures — frosted ice with frost fractures, and a
-    // set of soft vertical light curtains for the aurora overlay.
-    function makeIceTex() {
-      const c = document.createElement("canvas");
-      c.width = c.height = 256;
-      const x = c.getContext("2d");
-      const g = x.createLinearGradient(0, 0, 0, 256);
-      g.addColorStop(0, "rgba(210,240,255,0.85)");
-      g.addColorStop(0.5, "rgba(140,200,240,0.65)");
-      g.addColorStop(1, "rgba(60,110,170,0.9)");
-      x.fillStyle = g; x.fillRect(0, 0, 256, 256);
-      x.strokeStyle = "rgba(255,255,255,0.7)"; x.lineWidth = 1; // frost fractures
-      for (let n = 0; n < 26; n++) {
-        x.beginPath();
-        let px = Math.random() * 256, py = Math.random() * 256;
-        x.moveTo(px, py);
-        for (let s = 0; s < 4; s++) { px += (Math.random() - 0.5) * 60; py += (Math.random() - 0.5) * 60; x.lineTo(px, py); }
-        x.stroke();
-      }
-      return new THREE.CanvasTexture(c);
-    }
-    function makeAuroraTex() {
-      const c = document.createElement("canvas");
-      c.width = c.height = 256;
-      const x = c.getContext("2d");
-      x.clearRect(0, 0, 256, 256);
-      for (let i = 0; i < 7; i++) { // soft vertical light curtains
-        const cx = Math.random() * 256;
-        const g = x.createLinearGradient(cx - 30, 0, cx + 30, 0);
-        g.addColorStop(0, "rgba(80,255,180,0)");
-        g.addColorStop(0.5, `rgba(${80 + Math.random() * 60},255,${180 + Math.random() * 60},0.5)`);
-        g.addColorStop(1, "rgba(80,255,180,0)");
-        x.fillStyle = g; x.fillRect(cx - 30, 0, 60, 256);
-      }
-      return new THREE.CanvasTexture(c);
-    }
+    // The near (camera-facing) underside edges keep the same plain near-black
+    // slab as the far sides — the arena reads as a solid platform floating in
+    // the void beneath the gold-capped brick rampart, with no frozen-aurora
+    // curtain on the front walls.
   }
 
   buildArenaWalls("game");
@@ -525,6 +407,36 @@ export function createArenaGame(options) {
 
     const mesh = (geo, mat) => { const m = new THREE.Mesh(geo, mat); m.castShadow = true; m.receiveShadow = true; return m; };
     const slab = (w, h, d, mat, x, y, z) => { const m = mesh(new THREE.BoxGeometry(w, h, d), mat); m.position.set(x, y, z); rampart.add(m); return m; };
+
+    // -- Black-and-gold brick curtain wall the barbed wire is mounted on -------
+    //    A solid masonry base rings all four sides at the arena rim; the steel
+    //    posts and barbed strands rise from its gold-capped top so the fence
+    //    reads as barbed wire atop a proper wall. Painted with the shared
+    //    WALL_THEME brick face (near-black courses banded with gold). Cosmetic
+    //    only — it sits on the wire line (±WMID), outside the play boundary.
+    const WALL_LOW = 2.8;                       // brick wall height at the rim
+    const RUN = 2 * WMID;                        // corner-to-corner span
+    const brickFaceTex = (() => {
+      const c = document.createElement("canvas"); c.width = 256; c.height = 128;
+      WALL_THEME.drawFace(c.getContext("2d"), 256, 128);
+      const t = new THREE.CanvasTexture(c);
+      t.wrapS = t.wrapT = THREE.RepeatWrapping;
+      t.repeat.set(Math.max(1, Math.round(RUN / 10)), 1); // ~2-unit bricks along the run
+      return t;
+    })();
+    const brickWallMat = new THREE.MeshStandardMaterial({
+      map: brickFaceTex, roughness: 0.6, metalness: 0.35,
+      emissive: 0x120d03, emissiveIntensity: 0.35,
+    });
+    [
+      { w: RUN,    d: WALL_T, x: 0,     z: -WMID }, // north
+      { w: RUN,    d: WALL_T, x: 0,     z:  WMID }, // south
+      { w: WALL_T, d: RUN,    x: -WMID, z: 0     }, // west
+      { w: WALL_T, d: RUN,    x:  WMID, z: 0     }, // east
+    ].forEach(({ w, d, x, z }) => {
+      slab(w, WALL_LOW, d, brickWallMat, x, WALL_LOW / 2, z);          // brick wall
+      slab(w + 0.3, 0.32, d + 0.3, goldMat, x, WALL_LOW + 0.06, z);    // gold cap
+    });
 
     // -- Barbed-wire perimeter fence (replaces the solid curtain walls). Tall
     //    dark-steel posts strung with horizontal barbed strands run between the
