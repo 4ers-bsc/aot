@@ -8,11 +8,17 @@ export const html = `
         <div class="row"><span>Attack / shoot</span><span class="k">click the rival</span></div>
         <div class="row"><span>Pan camera</span><span class="k">click + drag</span></div>
         <div class="row"><span>Zoom</span><span class="k">mouse wheel</span></div>
-        <div class="row"><span>Switch weapon</span><span class="k">keys 1 – 4</span></div>
+        <div class="row"><span>Switch weapon</span><span class="k">press 1 – 4 (or click the hotbar)</span></div>
         <div class="row"><span>Menu</span><span class="k">Esc</span></div>
         <div class="divider"></div>
+        <div class="section">WEAPONS — SWAP ANYTIME WITH 1 – 4</div>
+        <div class="row"><span>1 · Frag</span><span class="k">lobbed AoE grenade — clears clustered rivals</span></div>
+        <div class="row"><span>2 · Sword</span><span class="k">fast melee — highest damage, must close in</span></div>
+        <div class="row"><span>3 · Pistol</span><span class="k">quick mid-range shots — no charge-up</span></div>
+        <div class="row"><span>4 · Sniper</span><span class="k">long-range — hold still to charge, then fire</span></div>
+        <div class="divider"></div>
         <div class="section">RULES</div>
-        <div class="row"><span>Loadout</span><span class="k">everyone starts equal — same HP, attack &amp; weapons</span></div>
+        <div class="row"><span>Loadout</span><span class="k">everyone carries all 4 weapons — same HP &amp; stats</span></div>
         <div class="row"><span>Win</span><span class="k">last one standing · winner takes 90% of the pot</span></div>
         <div class="row"><span>Protocol fee</span><span class="k">10% of the pot funds the arena</span></div>
         <div class="divider"></div>
