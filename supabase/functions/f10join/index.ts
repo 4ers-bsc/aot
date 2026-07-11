@@ -158,6 +158,16 @@ Deno.serve(async (req: Request) => {
     const { data: alreadyBanned } = await adminClient.rpc("is_banned", { p_user_id: user.id });
     if (alreadyBanned === true) return fail("This account is banned from play.");
 
+    // Maintenance gate: refuse new joins while the game is under maintenance,
+    // BEFORE any on-chain work, so a client that stripped the maintenance
+    // overlay still can't enter. The join_pvp_match seat trigger is the hard
+    // guarantee; this is the clean, early message (and skips RPC/chain calls).
+    const { data: maint } = await adminClient
+      .from("maintain").select("value").limit(1).maybeSingle();
+    if (String(maint?.value ?? "").trim().toLowerCase() === "y") {
+      return fail("The game is under maintenance — please try again later.");
+    }
+
     // Non-browser / direct (curl) request detection. A genuine browser fetch to
     // this cross-origin function normally sends an Origin header, but privacy
     // extensions, proxies and some webviews strip it — so a missing Origin is

@@ -180,6 +180,35 @@ create table public.maintain (
 );
 insert into public.maintain (id, value) values (true, 'n');
 
+-- Is the game under maintenance? (Reads the single-row switch above.) The client
+-- reads `maintain` for its overlay, but that overlay is just DOM — the trigger
+-- below is what actually blocks play server-side (see §11 triggers).
+create or replace function public.is_maintenance()
+returns boolean
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select coalesce((select lower(trim(value)) = 'y' from public.maintain limit 1), false);
+$$;
+revoke all on function public.is_maintenance() from public;
+grant execute on function public.is_maintenance() to authenticated, anon, service_role;
+
+create or replace function public.block_join_during_maintenance()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  if public.is_maintenance() then
+    raise exception 'maintenance: the game is under maintenance — please try again later';
+  end if;
+  return new;
+end;
+$$;
+
 -- Per-user rate limiting (anti-abuse). Touched only by enforce_rate_limit().
 create table public.rate_limits (
   user_id      uuid        not null references auth.users(id) on delete cascade,
@@ -1523,6 +1552,14 @@ using (winner_user_id = auth.uid());
 create policy "banned_select_own"
 on public.banned_users for select to authenticated
 using (user_id = auth.uid());
+
+-- Maintenance gate: no new seat may be created while the switch is on. Every
+-- PvP join inserts into match_players, so this blocks all new matches
+-- server-side regardless of the client (the overlay alone is bypassable).
+drop trigger if exists trg_block_join_maintenance on public.match_players;
+create trigger trg_block_join_maintenance
+  before insert on public.match_players
+  for each row execute function public.block_join_during_maintenance();
 
 drop trigger if exists trg_ban_forfeited on public.matches;
 create trigger trg_ban_forfeited
