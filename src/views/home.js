@@ -228,7 +228,7 @@ export const html = `
 
     <!-- Final CTA -->
     <section class="hs-block hs-cta">
-      <h2 class="hs-cta-title">Ready to Fight?</h2>
+      <h2 class="hs-cta-title">GL, HF!</h2>
       <p class="hs-cta-sub">10,000 $FIGHT10 buys your seat. Skill pays the rest.</p>
       <div class="hs-cta-actions">
         <button class="home-btn home-btn-hero hs-cta-play" id="secPlayBtn" type="button">PLAY PVP</button>
