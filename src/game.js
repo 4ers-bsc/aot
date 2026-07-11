@@ -297,6 +297,125 @@ export function createArenaGame(options) {
       new THREE.Vector3( MAP_HALF, -0.02,  MAP_HALF), new THREE.Vector3(-MAP_HALF, -0.02,  MAP_HALF),
       new THREE.Vector3(-MAP_HALF, -0.02, -MAP_HALF),
     ]), new THREE.LineBasicMaterial({ color: 0xffc21a, transparent: true, opacity: 0.3 })));
+
+    // -- Frozen Aurora on the two near (camera-facing) edges ------------------
+    // Frosted-ice panels under a hue-shifting aurora curtain, with snow-sparkle
+    // drifting down the walls. Applied only to the +z and +x walls that meet at
+    // the near/bottom corner (the "V" pointing at the camera); the other two
+    // sides keep the plain dark slab. Registered in wallFX, run each frame.
+    // The panels cover the full underside height and are nudged a hair outward
+    // (along each wall's normal) so they sit in front of the near-black slab —
+    // otherwise they z-fight it and read as plain black — and span corner to
+    // corner so the effect runs all the way to the near point.
+    const AURORA_H = DEPTH;      // full underside height, top pinned at the rim
+    const AURORA_OUT = 0.18;     // outward nudge past the slab, along the normal
+    const NEAR_SIDES = [
+      { axis: "z", x: 0,                     z: MAP_HALF + AURORA_OUT, ry: Math.PI },      // front-left (+z)
+      { axis: "x", x: MAP_HALF + AURORA_OUT, z: 0,                     ry: -Math.PI / 2 }, // front-right (+x)
+    ];
+    const drapeNear = (material) => {
+      NEAR_SIDES.forEach(({ x, z, ry }) => {
+        const p = new THREE.Mesh(new THREE.PlaneGeometry(MAP_WORLD, AURORA_H), material);
+        p.position.set(x, -AURORA_H / 2, z);
+        p.rotation.y = ry;
+        p.renderOrder = 2; // paint after the opaque slab
+        addObj(p);
+      });
+    };
+    // Frosted ice base panels (opaque enough to hide the black slab behind).
+    drapeNear(new THREE.MeshBasicMaterial({
+      map: makeIceTex(), transparent: true, side: THREE.DoubleSide,
+      depthWrite: false, opacity: 0.98,
+    }));
+    // Shimmering aurora curtain over the ice; slowly shifts hue and breathes.
+    const auroraMat = new THREE.MeshBasicMaterial({
+      map: makeAuroraTex(), transparent: true, side: THREE.DoubleSide,
+      depthWrite: false, blending: THREE.AdditiveBlending, opacity: 0.5,
+    });
+    drapeNear(auroraMat);
+    wallFX.push((t) => {
+      auroraMat.color.setHSL(0.5 + 0.13 * Math.sin(t * 0.45), 0.85, 0.6);
+      auroraMat.opacity = 0.3 + 0.18 * (0.5 + 0.5 * Math.sin(t * 0.8));
+    });
+    // Icy rim glow tracing the two near edges (inner bright + outer softer).
+    const nearRim = (col, op, y) => addObj(new THREE.Line(
+      new THREE.BufferGeometry().setFromPoints([
+        new THREE.Vector3( MAP_HALF, y, -MAP_HALF),
+        new THREE.Vector3( MAP_HALF, y,  MAP_HALF),
+        new THREE.Vector3(-MAP_HALF, y,  MAP_HALF),
+      ]),
+      new THREE.LineBasicMaterial({ color: col, transparent: true, opacity: op })
+    ));
+    nearRim(0x9fe8ff, 0.9, 0.08);
+    nearRim(0x4fb0ff, 0.5, 0.04);
+    // Snow-sparkle settling down the two near walls (full underside height).
+    {
+      const count = 110, yBot = -DEPTH + 0.4, yTop = 1.6;
+      const geo = new THREE.BufferGeometry();
+      const pos = new Float32Array(count * 3);
+      const spd = new Float32Array(count);
+      for (let i = 0; i < count; i++) {
+        const near = NEAR_SIDES[i % 2], along = (Math.random() - 0.5) * MAP_WORLD, inset = 0.3 + Math.random() * 1.5;
+        let x, z;
+        if (near.axis === "z") { x = along;             z = MAP_HALF - inset; }
+        else                   { x = MAP_HALF - inset;  z = along; }
+        pos[i * 3] = x; pos[i * 3 + 1] = yBot + Math.random() * (yTop - yBot); pos[i * 3 + 2] = z;
+        spd[i] = (0.5 + Math.random()) * 0.9;
+      }
+      geo.setAttribute("position", new THREE.BufferAttribute(pos, 3));
+      const mat = new THREE.PointsMaterial({
+        size: 0.7, map: makeFlake(), color: 0xdff4ff, transparent: true,
+        depthWrite: false, blending: THREE.AdditiveBlending, opacity: 0.85,
+      });
+      addObj(new THREE.Points(geo, mat));
+      wallFX.push((t, dt) => {
+        const a = geo.attributes.position;
+        for (let i = 0; i < count; i++) {
+          let y = a.getY(i) - spd[i] * dt;
+          if (y < yBot) y = yTop;
+          a.setY(i, y);
+        }
+        a.needsUpdate = true;
+        mat.opacity = 0.85 * (0.65 + 0.35 * Math.sin(t * 3));
+      });
+    }
+
+    // Frozen-aurora canvas textures — frosted ice with frost fractures, and a
+    // set of soft vertical light curtains for the aurora overlay.
+    function makeIceTex() {
+      const c = document.createElement("canvas");
+      c.width = c.height = 256;
+      const x = c.getContext("2d");
+      const g = x.createLinearGradient(0, 0, 0, 256);
+      g.addColorStop(0, "rgba(210,240,255,0.85)");
+      g.addColorStop(0.5, "rgba(140,200,240,0.65)");
+      g.addColorStop(1, "rgba(60,110,170,0.9)");
+      x.fillStyle = g; x.fillRect(0, 0, 256, 256);
+      x.strokeStyle = "rgba(255,255,255,0.7)"; x.lineWidth = 1; // frost fractures
+      for (let n = 0; n < 26; n++) {
+        x.beginPath();
+        let px = Math.random() * 256, py = Math.random() * 256;
+        x.moveTo(px, py);
+        for (let s = 0; s < 4; s++) { px += (Math.random() - 0.5) * 60; py += (Math.random() - 0.5) * 60; x.lineTo(px, py); }
+        x.stroke();
+      }
+      return new THREE.CanvasTexture(c);
+    }
+    function makeAuroraTex() {
+      const c = document.createElement("canvas");
+      c.width = c.height = 256;
+      const x = c.getContext("2d");
+      x.clearRect(0, 0, 256, 256);
+      for (let i = 0; i < 7; i++) { // soft vertical light curtains
+        const cx = Math.random() * 256;
+        const g = x.createLinearGradient(cx - 30, 0, cx + 30, 0);
+        g.addColorStop(0, "rgba(80,255,180,0)");
+        g.addColorStop(0.5, `rgba(${80 + Math.random() * 60},255,${180 + Math.random() * 60},0.5)`);
+        g.addColorStop(1, "rgba(80,255,180,0)");
+        x.fillStyle = g; x.fillRect(cx - 30, 0, 60, 256);
+      }
+      return new THREE.CanvasTexture(c);
+    }
   }
 
   buildArenaWalls("game");
