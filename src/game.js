@@ -273,8 +273,8 @@ export function createArenaGame(options) {
       c.width = c.height = 256;
       const g = c.getContext("2d");
       const cols = 6, rows = 8, bw = 256 / cols, bh = 256 / rows;
-      const tones = ["#080809", "#0c0c10", "#050506", "#101015"];
-      g.fillStyle = "#020203"; g.fillRect(0, 0, 256, 256); // deep mortar backing
+      const tones = ["#16161c", "#1d1d25", "#111117", "#24242e"];
+      g.fillStyle = "#3a2c08"; g.fillRect(0, 0, 256, 256); // gold-lit mortar backing
       for (let r = 0; r < rows; r++) {
         const off = r % 2 ? bw / 2 : 0;
         for (let cc = -1; cc < cols; cc++) {
@@ -283,9 +283,12 @@ export function createArenaGame(options) {
           // Brick face, inset from the mortar gap.
           g.fillStyle = t;
           g.fillRect(bx + 2, by + 2, bw - 4, bh - 4);
-          // Gold bricked border around every brick.
-          g.strokeStyle = "rgba(255,198,39,0.55)"; g.lineWidth = 1.4;
+          // Bright gold bricked border around every brick, with a soft inner
+          // sheen so each brick reads as gold-edged black against the void.
+          g.strokeStyle = "rgba(255,205,60,0.92)"; g.lineWidth = 2.2;
           g.strokeRect(bx + 2, by + 2, bw - 4, bh - 4);
+          g.strokeStyle = "rgba(255,170,20,0.35)"; g.lineWidth = 1;
+          g.strokeRect(bx + 4, by + 4, bw - 8, bh - 8);
         }
       }
       const tex = new THREE.CanvasTexture(c);
@@ -296,8 +299,8 @@ export function createArenaGame(options) {
     const brickTex = makeBrickTex();
     const sideMat = new THREE.MeshStandardMaterial({
       map: brickTex, color: 0xffffff,
-      emissiveMap: brickTex, emissive: 0xffffff, emissiveIntensity: 0.6,
-      roughness: 0.72, metalness: 0.35,
+      emissiveMap: brickTex, emissive: 0xffffff, emissiveIntensity: 1.9,
+      roughness: 0.7, metalness: 0.4,
     });
     [
       { x: 0,         z: -MAP_HALF, ry: 0 },
@@ -332,12 +335,15 @@ export function createArenaGame(options) {
     // drifting down the walls. Applied only to the +z and +x walls that meet at
     // the near/bottom corner (the "V" pointing at the camera); the other two
     // sides keep the plain dark slab. Registered in wallFX, run each frame.
-    // The panels cover the full underside height and are nudged a hair outward
-    // (along each wall's normal) so they sit in front of the near-black slab —
-    // otherwise they z-fight it and read as plain black — and span corner to
-    // corner so the effect runs all the way to the near point.
-    const AURORA_H = DEPTH;      // full underside height, top pinned at the rim
-    const AURORA_OUT = 0.18;     // outward nudge past the slab, along the normal
+    // The panels are nudged a hair outward (along each wall's normal) so they
+    // sit in front of the brick slab — otherwise they z-fight it — and span
+    // corner to corner so the effect runs all the way to the near point. They
+    // start a band below the rim (BRICK_BAND) rather than at the rim itself, so
+    // the black-and-gold brick masonry stays visible directly under the wire
+    // fence and the aurora curtain reads as glacier below it.
+    const BRICK_BAND = 6.6;              // brick strip left showing below the rim
+    const AURORA_H = DEPTH - BRICK_BAND; // aurora occupies the lower wall
+    const AURORA_OUT = 0.18;             // outward nudge past the slab, along the normal
     const NEAR_SIDES = [
       { axis: "z", x: 0,                     z: MAP_HALF + AURORA_OUT, ry: Math.PI },      // front-left (+z)
       { axis: "x", x: MAP_HALF + AURORA_OUT, z: 0,                     ry: -Math.PI / 2 }, // front-right (+x)
@@ -345,7 +351,7 @@ export function createArenaGame(options) {
     const drapeNear = (material) => {
       NEAR_SIDES.forEach(({ x, z, ry }) => {
         const p = new THREE.Mesh(new THREE.PlaneGeometry(MAP_WORLD, AURORA_H), material);
-        p.position.set(x, -AURORA_H / 2, z);
+        p.position.set(x, -BRICK_BAND - AURORA_H / 2, z);
         p.rotation.y = ry;
         p.renderOrder = 2; // paint after the opaque slab
         addObj(p);
@@ -377,9 +383,14 @@ export function createArenaGame(options) {
     ));
     nearRim(0x9fe8ff, 0.9, 0.08);
     nearRim(0x4fb0ff, 0.5, 0.04);
-    // Snow-sparkle settling down the two near walls (full underside height).
+    // Gold borders bracketing the brick band: one just under the rim (top of the
+    // masonry, under the wire) and one where the brick meets the aurora below.
+    nearRim(0xffd23a, 0.95, -0.18);
+    nearRim(0xffd23a, 0.9, -BRICK_BAND);
+    // Snow-sparkle settling down the aurora band of the two near walls (kept
+    // below the brick strip so the masonry stays clean and legible).
     {
-      const count = 110, yBot = -DEPTH + 0.4, yTop = 1.6;
+      const count = 110, yBot = -DEPTH + 0.4, yTop = -BRICK_BAND;
       const geo = new THREE.BufferGeometry();
       const pos = new Float32Array(count * 3);
       const spd = new Float32Array(count);
