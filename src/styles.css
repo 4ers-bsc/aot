@@ -4936,6 +4936,38 @@ body.in-game .log-feed { left: 70px; }
   .cf-summary { grid-template-columns: 1fr; }
 }
 
+/* ===== Maintenance mode ===== */
+.maintenance-on { overflow: hidden; }
+.maintenance-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 100000; /* above every other overlay, incl. the ops dashboard */
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  text-align: center;
+  background: radial-gradient(circle at 50% 32%, rgba(24, 18, 8, 0.98), rgba(4, 3, 2, 0.99));
+  -webkit-backdrop-filter: blur(4px);
+  backdrop-filter: blur(4px);
+}
+.maintenance-box { max-width: 460px; }
+.maintenance-icon { font-size: 46px; margin-bottom: 18px; line-height: 1; }
+.maintenance-title {
+  font-family: var(--font-head, var(--font-display));
+  font-size: clamp(1.4rem, 5vw, 2rem);
+  letter-spacing: 0.14em;
+  color: var(--gold-hi);
+  margin: 0 0 14px;
+}
+.maintenance-text {
+  font-family: var(--font-body);
+  font-size: 0.9rem;
+  line-height: 1.6;
+  color: rgba(233, 224, 200, 0.7);
+  margin: 0;
+}
+
 /* ===== First-visit tutorial ===== */
 .tutorial-overlay { z-index: 40; } /* above the home chrome, below in-match UI */
 
