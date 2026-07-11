@@ -8,6 +8,7 @@ export const html = `
     <div class="hero-title-block">
       <div class="hero-big-fight">FIGHT</div>
       <div class="hero-big-10">10</div>
+      <div class="hero-beta">BETA</div>
     </div>
     <div class="hero-tagline">
       <h2 class="hero-subtitle">LAST ONE STANDING</h2>
