@@ -104,45 +104,55 @@ export function createArenaGame(options) {
 
   // -- Scene ----------------------------------------------------------------
   const scene = new THREE.Scene();
-  // Baked night-sky backdrop (deep-blue gradient, stars, drifting clouds and
-  // faint far spires) so the arena reads as a fortress floating in the clouds.
-  // A fixed 2D background texture, so it never moves with the follow camera.
-  // Reused by applyTheme() instead of a flat clear colour.
-  const skyTex = (() => {
-    const c = document.createElement("canvas");
-    c.width = 1024; c.height = 512;
-    const x = c.getContext("2d");
-    const g = x.createLinearGradient(0, 0, 0, 512);
-    g.addColorStop(0.0, "#070f26"); g.addColorStop(0.55, "#0b1734"); g.addColorStop(1.0, "#173058");
-    x.fillStyle = g; x.fillRect(0, 0, 1024, 512);
-    for (let i = 0; i < 280; i++) {
-      x.fillStyle = `rgba(255,255,255,${(0.25 + Math.random() * 0.6).toFixed(2)})`;
-      const s = Math.random() < 0.12 ? 2.2 : 1.2;
-      x.fillRect(Math.random() * 1024, Math.random() * 320, s, s);
-    }
-    // Faint far spires along the horizon.
-    x.fillStyle = "rgba(120,150,205,0.16)";
-    for (let i = 0; i < 22; i++) {
-      const sx = Math.random() * 1024, sw = 6 + Math.random() * 16, sh = 40 + Math.random() * 120;
-      x.fillRect(sx, 360 - sh, sw, sh);
-      x.beginPath(); x.moveTo(sx, 360 - sh); x.lineTo(sx + sw / 2, 360 - sh - 22); x.lineTo(sx + sw, 360 - sh); x.fill();
-    }
-    // Drifting clouds.
-    for (let i = 0; i < 30; i++) {
-      const cx = Math.random() * 1024, cy = 190 + Math.random() * 300, cr = 45 + Math.random() * 110;
-      const cg = x.createRadialGradient(cx, cy, 0, cx, cy, cr);
-      cg.addColorStop(0, "rgba(96,126,182,0.22)"); cg.addColorStop(1, "rgba(96,126,182,0)");
-      x.fillStyle = cg; x.beginPath(); x.arc(cx, cy, cr, 0, 7); x.fill();
-    }
-    return new THREE.CanvasTexture(c);
-  })();
+  // Pinned arena backdrop: the blgo.png key art — a full isometric arena drawn
+  // with an empty plaza at its centre. Assigned to scene.background so it stays
+  // fixed to the viewport (it never pans or zooms with the follow camera — this
+  // is what "pins" it). fitBackgroundCover() crops it to a centred "cover" fit
+  // so it fills any aspect ratio without distortion. The live play floor is
+  // framed (see BG_ZOOM below) to sit inside the drawn plaza, so the artwork's
+  // walls, towers and torches read as the arena surround. Reused by applyTheme()
+  // instead of a flat clear colour.
+  const skyTex = new THREE.TextureLoader().load("/blgo.png", fitBackgroundCover);
+  function fitBackgroundCover() {
+    if (!skyTex.image) return;
+    const ia = skyTex.image.width / skyTex.image.height;
+    const s = size();
+    const va = s.w / s.h;
+    let sx = 1, sy = 1;
+    if (va > ia) sy = ia / va; else sx = va / ia;
+    skyTex.repeat.set(sx, sy);
+    skyTex.offset.set((1 - sx) / 2, (1 - sy) / 2);
+  }
   scene.background = skyTex;
   scene.fog = new THREE.Fog(theme.bg, RD_FOG.Far[0], RD_FOG.Far[1]);
+
+  // The blgo.png backdrop already draws the arena's walls, corner towers and
+  // torches, so the scene's own 3D fortress surround (underside slab, edge
+  // ledge and the tall rampart / barbed-wire fence) is parented here and kept
+  // hidden — it would otherwise rise up and clash with the drawn walls. The
+  // live play floor, grid, fighters and battlefield props stay visible inside
+  // the drawn plaza.
+  const arenaSurround = new THREE.Group();
+  arenaSurround.visible = false;
+  scene.add(arenaSurround);
 
   const FRUSTUM = 16;
   // Zoom bounds (orthographic: lower zoom = more zoomed out). Declared here so the
   // camera can start at the fully zoomed-out limit on the home page and at match start.
   const ZOOM_MIN = 0.4, ZOOM_MAX = 3.2;
+  // Idle-showcase framing. At this zoom (centred on the origin) the 100×100 play
+  // floor projects as a diamond that lands exactly inside the empty plaza drawn
+  // in the blgo.png backdrop, so the artwork's walls frame the live floor. The
+  // base value is tuned for the backdrop's native 16:9 aspect; when the viewport
+  // is wider than that the backdrop's "cover" fit magnifies its plaza, so the
+  // floor is grown in step to keep the two aligned. showcaseZoom() is used for
+  // the home/lobby idle view; live matches keep their own follow-camera zoom.
+  const BG_ZOOM = 0.24;
+  const BG_ASPECT = 1672 / 941;
+  function showcaseZoom() {
+    const s = size();
+    return BG_ZOOM * Math.max(1, (s.w / s.h) / BG_ASPECT);
+  }
 
   // Uniform visual upscale of everything that lives on the battlefield.
   // CHAR_SCALE grows the fighters (player, AI raiders, PvP opponents) and the
@@ -162,7 +172,7 @@ export function createArenaGame(options) {
   // through the near walls. A negative near keeps that whole corner in view;
   // ortho depth is linear so the wider range costs no meaningful precision.
   const camera = new THREE.OrthographicCamera(-FRUSTUM * aspect, FRUSTUM * aspect, FRUSTUM, -FRUSTUM, -300, 1000);
-  camera.zoom = ZOOM_MIN;            // start fully zoomed out
+  camera.zoom = showcaseZoom();      // frame the idle arena inside the backdrop plaza
   camera.updateProjectionMatrix();
   const CAM_OFFSET = new THREE.Vector3(28, 34, 28);
   const camCenter = new THREE.Vector3(0, 0, 0);
@@ -258,7 +268,7 @@ export function createArenaGame(options) {
     // Dispose existing wall objects via the shared traversal helper (it
     // handles shared materials, textures, and nested groups uniformly).
     wallObjects.forEach((obj) => {
-      scene.remove(obj);
+      arenaSurround.remove(obj);
       disposeObject3D(obj);
     });
     wallObjects.length = 0;
@@ -266,7 +276,7 @@ export function createArenaGame(options) {
     wallFX.length = 0;       // animated updaters, rebuilt below per style
 
     const DEPTH = 10;
-    const addObj = (obj) => { scene.add(obj); wallObjects.push(obj); return obj; };
+    const addObj = (obj) => { arenaSurround.add(obj); wallObjects.push(obj); return obj; };
 
     // Near-black underside slab behind each wall (matches the fortress rampart).
     const sideMat = new THREE.MeshStandardMaterial({ color: 0x0b0b0e, roughness: 0.92, metalness: 0.12 });
@@ -324,10 +334,10 @@ export function createArenaGame(options) {
       const band = new THREE.Mesh(new THREE.BoxGeometry(w, LEDGE_H, d), ledgeMat);
       band.position.set(x, ledgeCY, z);
       band.receiveShadow = true;
-      scene.add(band);
+      arenaSurround.add(band);
     });
     // Gold trim line along the ledge's outer edge (matches the arena rim lines).
-    scene.add(new THREE.Line(
+    arenaSurround.add(new THREE.Line(
       new THREE.BufferGeometry().setFromPoints([
         new THREE.Vector3(-L_OUT, LEDGE_TOP + 0.02, -L_OUT), new THREE.Vector3(L_OUT, LEDGE_TOP + 0.02, -L_OUT),
         new THREE.Vector3( L_OUT, LEDGE_TOP + 0.02,  L_OUT), new THREE.Vector3(-L_OUT, LEDGE_TOP + 0.02,  L_OUT),
@@ -567,7 +577,7 @@ export function createArenaGame(options) {
       hg.position.set(hx, 6, hz); hg.scale.set(10, 10, 1); rampart.add(hg);
     }
 
-    scene.add(rampart);
+    arenaSurround.add(rampart);
   }
 
   // -- Pixelated FIGHT10 ground decals (black pixel squares, random) --------
@@ -2771,6 +2781,8 @@ export function createArenaGame(options) {
     reviveFighter(aiEnemy, 12, -4);
     camCenter.set(0, 0, 0);
     following = false;
+    camera.zoom = showcaseZoom(); // re-frame the floor inside the backdrop plaza
+    camera.updateProjectionMatrix();
     options.onHomePlay?.(false);
   }
 
@@ -2929,6 +2941,12 @@ export function createArenaGame(options) {
     generateMap("home-showcase");
     makeFight10Decal();
     buildMinimapStatic();
+    // Frame the idle floor inside the drawn backdrop plaza: centred on the
+    // origin, zoomed so the play floor lands in the artwork's empty centre.
+    camCenter.set(0, 0, 0);
+    following = false;
+    camera.zoom = showcaseZoom();
+    camera.updateProjectionMatrix();
   }
 
   // -- Resize ---------------------------------------------------------------
@@ -2937,8 +2955,12 @@ export function createArenaGame(options) {
     aspect = dim.w / dim.h;
     camera.left = -FRUSTUM * aspect; camera.right = FRUSTUM * aspect;
     camera.top = FRUSTUM; camera.bottom = -FRUSTUM;
+    // Keep the idle-showcase framing aligned with the backdrop as the viewport
+    // changes shape (live matches drive their own follow-camera zoom).
+    if (!viewIsGame && !homePlay) camera.zoom = showcaseZoom();
     camera.updateProjectionMatrix();
     renderer.setSize(dim.w, dim.h, false);
+    fitBackgroundCover();
   }
   const ro = new ResizeObserver(onResize);
   ro.observe(mount);
