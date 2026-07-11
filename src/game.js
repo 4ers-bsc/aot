@@ -417,13 +417,19 @@ export function createArenaGame(options) {
       map: brickFaceTex, roughness: 0.6, metalness: 0.35,
       emissive: 0x0b0b0e, emissiveIntensity: 0.35,
     });
+    // Brick texture only on the four upright faces; the top and bottom get the
+    // plain dark stone so the wall's top edge doesn't show a grey textured strip.
+    // BoxGeometry face order: +x, -x, +y(top), -y(bottom), +z, -z.
+    const wallMats = [brickWallMat, brickWallMat, darkMat, darkMat, brickWallMat, brickWallMat];
     [
       { w: RUN,    d: WALL_T, x: 0,     z: -WMID }, // north
       { w: RUN,    d: WALL_T, x: 0,     z:  WMID }, // south
       { w: WALL_T, d: RUN,    x: -WMID, z: 0     }, // west
       { w: WALL_T, d: RUN,    x:  WMID, z: 0     }, // east
     ].forEach(({ w, d, x, z }) => {
-      slab(w, WALL_LOW, d, brickWallMat, x, WALL_LOW / 2, z);          // brick wall
+      const wall = mesh(new THREE.BoxGeometry(w, WALL_LOW, d), wallMats); // brick wall
+      wall.position.set(x, WALL_LOW / 2, z);
+      rampart.add(wall);
     });
 
     // -- Barbed-wire perimeter fence (replaces the solid curtain walls). Tall
