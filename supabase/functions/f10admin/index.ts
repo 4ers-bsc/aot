@@ -65,7 +65,12 @@ const CASHFLOW_SUM_CAP = 5000;  // max payout rows summed for the outgoing total
 // the contract's decimals() on-chain). Standard ERC-20 tokens use 18; override
 // with the FIGHT10_DECIMALS secret if the deployed token differs.
 const TOKEN_DECIMALS = Number(Deno.env.get("FIGHT10_DECIMALS") ?? "18");
-const ENTRY_FEE_RAW  = 2500n * 10n ** BigInt(TOKEN_DECIMALS); // matches join_pvp_match
+// Fixed historical entry fee for the cashflow/treasury ESTIMATE only (incoming
+// totals across past seats). Deliberately NOT sourced from pvp_config: seats
+// settled at whatever fee applied then, so a mutable current value would skew
+// historical rows. The live deposit-validation + payout paths below read the
+// entry fee from pvp_config per request.
+const ENTRY_FEE_RAW  = 2500n * 10n ** BigInt(TOKEN_DECIMALS);
 
 const norm = (w?: string | null) => ((w ?? "").split(":").pop() ?? "").trim().toLowerCase();
 const csv = (v?: string | null) =>
@@ -172,7 +177,15 @@ async function payoutWinner(admin: any, matchId: string) {
   const rpc = createRpcPool();
 
   const decimals = Number(await rpc.run((p) => new Contract(tokenAddr, ERC20_ABI, p).decimals()));
-  const entryFeeRaw = BigInt(2500) * BigInt(10) ** BigInt(decimals);
+  // Entry fee + winner share are tunables in pvp_config (single source of truth
+  // shared with the client + f10join/f10treasurer). Fall back to the historical
+  // literals if the row is unreadable so a DB blip never strands a payout. The
+  // pvp_config_guard trigger blocks fee changes while matches are live.
+  const { data: cfg } = await admin
+    .from("pvp_config").select("entry_fee_tokens, winner_share_bps").maybeSingle();
+  const entryFeeTokens = Number(cfg?.entry_fee_tokens) > 0 ? Number(cfg.entry_fee_tokens) : 2500;
+  const winnerShareBps = Number(cfg?.winner_share_bps) > 0 ? Number(cfg.winner_share_bps) : 9000;
+  const entryFeeRaw = BigInt(entryFeeTokens) * BigInt(10) ** BigInt(decimals);
 
   // Receipts are queryable for the chain's full history (no status-cache
   // window like Solana's), and the Transfer log proves token contract,
@@ -209,7 +222,7 @@ async function payoutWinner(admin: any, matchId: string) {
   let payoutConfirmed = false;
   try {
     const totalRaw = BigInt(players.length) * entryFeeRaw;
-    const winnerAmountRaw = (totalRaw * BigInt(900)) / BigInt(1000);
+    const winnerAmountRaw = (totalRaw * BigInt(winnerShareBps)) / BigInt(10000);
 
     // Lease one provider for the whole send + confirm sequence so the tx is
     // broadcast and polled on a single endpoint.

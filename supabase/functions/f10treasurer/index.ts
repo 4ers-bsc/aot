@@ -197,7 +197,16 @@ Deno.serve(async (req: Request) => {
     // and the payout transfer.
     const decimals = Number(await rpc.run((p) =>
       new Contract(tokenAddr, ERC20_ABI, p).decimals()));
-    const entryFeeRaw = BigInt(2500) * BigInt(10) ** BigInt(decimals);
+    // Entry fee + winner share are tunables in pvp_config (single source of
+    // truth shared with the client + f10join/f10admin). Fall back to the
+    // historical literals if the row is unreadable so a DB blip never strands a
+    // payout. The pvp_config_guard trigger blocks fee changes while matches are
+    // live, so the fee here always matches what the player deposited.
+    const { data: cfg } = await adminClient
+      .from("pvp_config").select("entry_fee_tokens, winner_share_bps").maybeSingle();
+    const entryFeeTokens = Number(cfg?.entry_fee_tokens) > 0 ? Number(cfg.entry_fee_tokens) : 2500;
+    const winnerShareBps = Number(cfg?.winner_share_bps) > 0 ? Number(cfg.winner_share_bps) : 9000;
+    const entryFeeRaw = BigInt(entryFeeTokens) * BigInt(10) ** BigInt(decimals);
 
     // ── Verify each deposit tx is mined, succeeded, and paid escrow ──────────
     // Receipts are queryable for the chain's full history (no status-cache
@@ -248,7 +257,7 @@ Deno.serve(async (req: Request) => {
 
     // ── On-chain token transfer ───────────────────────────────────────────────
     const totalRaw        = BigInt(players.length) * entryFeeRaw;
-    const winnerAmountRaw = (totalRaw * BigInt(900)) / BigInt(1000);
+    const winnerAmountRaw = (totalRaw * BigInt(winnerShareBps)) / BigInt(10000);
 
     // Lease one provider for the whole send + confirm sequence so the tx is
     // broadcast and polled on a single endpoint (round-robin across the keys).

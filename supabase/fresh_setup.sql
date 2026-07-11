@@ -23,6 +23,7 @@ drop function if exists public.join_pvp_match(smallint, text, text, text);
 drop function if exists public.join_pvp_match(smallint, text, text);
 drop function if exists public.join_pvp_match(smallint, text);
 drop function if exists public.pvp_capacity();
+drop function if exists public.pvp_settings();
 drop function if exists public.leave_my_matches();
 drop function if exists public.level_for_points(integer);
 drop function if exists public.get_leaderboard(integer);
@@ -36,6 +37,7 @@ drop function if exists public.report_integrity_signal(uuid, text, jsonb);
 drop function if exists public.is_banned(uuid);
 drop function if exists public.ban_user(uuid, text);
 drop function if exists public.ban_forfeited() cascade;
+drop function if exists public.pvp_config_guard() cascade;
 drop function if exists public.validate_match_damage() cascade;
 drop function if exists public.validate_match_kills() cascade;
 
@@ -46,6 +48,7 @@ drop table if exists public.payouts          cascade;
 drop table if exists public.integrity_signals cascade;
 drop table if exists public.rate_limits      cascade;
 drop table if exists public.match_config   cascade;
+drop table if exists public.pvp_config     cascade;
 drop table if exists public.match_damage   cascade;
 drop table if exists public.match_kills    cascade;
 drop table if exists public.match_players cascade;
@@ -179,6 +182,21 @@ create table public.maintain (
   value text not null default 'n'
 );
 insert into public.maintain (id, value) values (true, 'n');
+
+-- Single source of truth for global PvP tunables: the concurrent-player cap
+-- (read by pvp_capacity_cap), the entry fee (read by the client + the deposit-
+-- validating edge functions), and the winner's share in basis points (read by
+-- the client UI + the treasurer/admin payout math). Edit a value from the
+-- dashboard: update pvp_config set winner_share_bps=... The entry fee is guarded
+-- (see §11 triggers) — it can't change while any match is waiting/active,
+-- because in-flight deposits were validated against the old fee.
+create table public.pvp_config (
+  id                boolean primary key default true check (id), -- single-row guard
+  player_cap        int not null default 150  check (player_cap between 1 and 100000),
+  entry_fee_tokens  int not null default 2500 check (entry_fee_tokens between 1 and 100000000),
+  winner_share_bps  int not null default 9000 check (winner_share_bps between 0 and 10000)
+);
+insert into public.pvp_config (id) values (true);
 
 -- Is the game under maintenance? (Reads the single-row switch above.) The client
 -- reads `maintain` for its overlay, but that overlay is just DOM — the trigger
@@ -784,16 +802,37 @@ $$;
 
 -- ---------------------------------------------------------------------------
 -- 4b. pvp_capacity / pvp_capacity_cap — global concurrent-player cap.
---     The cap lives in one place (this function) so join_pvp_match's
---     authoritative check and the client's pre-payment check can't drift.
---     Bump the constant here to change the cap; no other code references it.
+--     The cap lives in the pvp_config table (single source of truth) so
+--     join_pvp_match's authoritative check and the client's pre-payment check
+--     can't drift. Change it from the dashboard: update pvp_config set
+--     player_cap=... security definer so a direct anon call still sees the real
+--     value; falls back to 150 if the row is missing.
 -- ---------------------------------------------------------------------------
 create or replace function public.pvp_capacity_cap()
 returns int
 language sql
-immutable
+stable
+security definer
+set search_path = public
 as $$
-  select 150;
+  select coalesce((select player_cap from public.pvp_config where id), 150);
+$$;
+
+-- Public read of all three PvP tunables in one call. The browser loads this at
+-- boot for the balance gate + prize-pot display; security definer so it works
+-- for anon before sign-in, same as pvp_capacity().
+create or replace function public.pvp_settings()
+returns jsonb
+language sql
+security definer
+set search_path = public
+stable
+as $$
+  select jsonb_build_object(
+    'player_cap',       public.pvp_capacity_cap(),
+    'entry_fee_tokens', coalesce((select entry_fee_tokens from public.pvp_config where id), 2500),
+    'winner_share_bps', coalesce((select winner_share_bps from public.pvp_config where id), 9000)
+  );
 $$;
 
 -- Public, RLS-free read of how many wallets currently hold a live match seat.
@@ -1554,6 +1593,9 @@ alter table public.match_players enable row level security;
 alter table public.match_damage enable row level security;
 alter table public.match_kills  enable row level security;
 alter table public.match_config enable row level security;
+-- pvp_config is world-readable (client reads the tunables); writes are
+-- service-role/dashboard only (no write policy).
+alter table public.pvp_config   enable row level security;
 -- maintain is world-readable (client reads the switch before login); writes are
 -- service-role only (no write policy).
 alter table public.maintain     enable row level security;
@@ -1596,9 +1638,36 @@ create trigger trg_ban_forfeited
         and coalesce(array_length(new.forfeited_user_ids, 1), 0) > 0)
   execute function public.ban_forfeited();
 
+-- The entry fee gates on-chain deposit validation (f10join / f10treasurer /
+-- f10admin reject any transfer that isn't exactly entry_fee_tokens). Changing
+-- it while matches are live would strand deposits paid at the old fee, so block
+-- that change until the board is clear.
+create or replace function public.pvp_config_guard()
+returns trigger
+language plpgsql
+as $$
+begin
+  if new.entry_fee_tokens is distinct from old.entry_fee_tokens
+     and exists (select 1 from public.matches where status in ('waiting', 'active')) then
+    raise exception
+      'entry_fee_locked: cannot change the entry fee while matches are waiting or active';
+  end if;
+  return new;
+end;
+$$;
+
+drop trigger if exists pvp_config_guard on public.pvp_config;
+create trigger pvp_config_guard
+  before update on public.pvp_config
+  for each row execute function public.pvp_config_guard();
+
 -- Match config: world-readable (non-sensitive; clients read it to set the timer).
 create policy "match_config_select_all"
 on public.match_config for select to authenticated, anon using (true);
+
+-- PvP config: world-readable (non-sensitive tunables; also exposed via pvp_settings()).
+create policy "pvp_config_select_all"
+on public.pvp_config for select to authenticated, anon using (true);
 
 -- Maintenance switch: world-readable (client reads it before sign-in).
 create policy "maintain_select_all"
@@ -1654,6 +1723,7 @@ grant select on public.match_players to authenticated;
 grant select, insert on public.match_damage to authenticated;
 grant select, insert on public.match_kills  to authenticated;
 grant select on public.match_config to authenticated, anon;
+grant select on public.pvp_config   to authenticated, anon;
 grant select on public.maintain     to authenticated, anon;
 grant select on public.payouts      to authenticated;
 grant select on public.banned_users to authenticated;
@@ -1683,6 +1753,7 @@ grant execute on function public.get_holdings_wallets(integer)         to authen
 grant execute on function public.match_duration_seconds(smallint)      to authenticated, service_role, anon;
 grant execute on function public.pvp_capacity()                        to authenticated, anon;
 grant execute on function public.pvp_capacity_cap()                    to authenticated, anon;
+grant execute on function public.pvp_settings()                        to authenticated, anon;
 
 -- apply_match_result, finalize_match and close_stale_matches are internal:
 -- finalize_match is only ever called from finish_match (a security-definer
