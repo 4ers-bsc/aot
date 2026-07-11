@@ -47,6 +47,8 @@ export const html = `
                 style="--sw:#e2b23c" title="Gold (default)" aria-label="Gold theme"></button>
         <button class="theme-swatch" type="button" data-theme-name="robinhood"
                 style="--sw:#c6f135" title="Robinhood green" aria-label="Robinhood green theme"></button>
+        <button class="theme-swatch theme-swatch-mono" type="button" data-theme-name="mono"
+                style="--sw:#ffffff" title="Black &amp; white" aria-label="Black and white theme"></button>
       </div>
     </div>
   </div>

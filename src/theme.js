@@ -8,7 +8,7 @@
 // swatches are wired, so there's no flash of the wrong palette.
 
 const THEME_KEY = "f10_theme";
-const THEMES = ["default", "robinhood"];
+const THEMES = ["default", "robinhood", "mono"];
 
 function normalize(name) {
   return THEMES.includes(name) ? name : "default";
