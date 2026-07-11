@@ -3229,8 +3229,17 @@ body.in-game .log-feed { left: 70px; }
   opacity: 0.85;
 }
 
-/* Indeterminate settlement bar — a stripe sweeps across while the server
-   decides the winner (the wait can be several seconds on a walkover). */
+/* Settlement countdown — a 15s cooldown (the server's disconnect grace) ticks
+   down while the winner is decided; the bar fills as the seconds elapse. */
+.rl-count {
+  font-size: 40px;
+  font-weight: 700;
+  color: #ffd657;
+  letter-spacing: 1px;
+  text-shadow: 0 0 24px rgba(255, 214, 87, 0.4);
+  font-variant-numeric: tabular-nums;
+}
+.rl-count.rl-count-done { color: #f4f7ff; text-shadow: none; }
 .rl-bar {
   position: relative;
   width: min(260px, 62vw);
@@ -3240,18 +3249,11 @@ body.in-game .log-feed { left: 70px; }
   overflow: hidden;
 }
 .rl-bar-fill {
-  position: absolute;
-  top: 0;
-  left: 0;
   height: 100%;
-  width: 38%;
+  width: 0;
   border-radius: 4px;
-  background: linear-gradient(90deg, rgba(255, 214, 87, 0.2), #ffd657, rgba(255, 214, 87, 0.2));
-  animation: rl-sweep 1.15s ease-in-out infinite;
-}
-@keyframes rl-sweep {
-  0%   { left: -40%; }
-  100% { left: 100%; }
+  background: linear-gradient(90deg, #c8940a, #ffd657);
+  transition: width 0.2s linear;
 }
 
 .rl-spinner {

@@ -968,17 +968,46 @@ function fmtDuration(ms) {
   return `${m}:${String(s).padStart(2, "0")}`;
 }
 
-// The results overlay (spinner + settlement progress bar). Kept visible for the
+// The results overlay (spinner + settlement countdown). Kept visible for the
 // whole settlement wait — which on a walkover (a rival who never opened the
 // match) is several seconds — so the screen never freezes with no feedback.
+// The countdown mirrors the server's 15s disconnect-grace window: once it
+// lapses the match can settle, so the timer gives the wait a concrete horizon.
+const SETTLE_COOLDOWN_S = 15;
+let _settleTimer = null;
+function startSettleCountdown() {
+  if (_settleTimer) return; // already ticking for this match — don't restart
+  const countEl = document.getElementById("resultsLoadingCount");
+  const barEl   = document.getElementById("resultsLoadingBar");
+  const stEl    = document.getElementById("resultsLoadingStatus");
+  const start = Date.now();
+  const tick = () => {
+    const elapsed = (Date.now() - start) / 1000;
+    const remain = Math.max(0, SETTLE_COOLDOWN_S - elapsed);
+    if (countEl) countEl.textContent = Math.ceil(remain) + "s";
+    if (barEl) barEl.style.width = Math.min(100, (elapsed / SETTLE_COOLDOWN_S) * 100).toFixed(1) + "%";
+    if (remain <= 0) {
+      // Grace elapsed but the verdict is still landing — hold at a full bar.
+      if (stEl) stEl.textContent = "Finalizing result…";
+      if (countEl) { countEl.textContent = "0s"; countEl.classList.add("rl-count-done"); }
+      clearInterval(_settleTimer); _settleTimer = null;
+    }
+  };
+  tick();
+  _settleTimer = setInterval(tick, 200);
+}
 function showResultsLoading(statusText = "Settling match…") {
   const el = document.getElementById("resultsLoading");
   if (!el) return;
   const st = document.getElementById("resultsLoadingStatus");
   if (st) st.textContent = statusText;
+  const countEl = document.getElementById("resultsLoadingCount");
+  if (countEl) countEl.classList.remove("rl-count-done");
   el.classList.remove("hidden");
+  startSettleCountdown();
 }
 function hideResultsLoading() {
+  if (_settleTimer) { clearInterval(_settleTimer); _settleTimer = null; }
   document.getElementById("resultsLoading")?.classList.add("hidden");
 }
 // Show the overlay for a minimum suspense beat, then resolve — but leave it up
