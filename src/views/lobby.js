@@ -14,7 +14,7 @@ export const html = `
       </div>
       <div class="lobby-players" id="lobbyPlayers"></div>
       <div class="pvp-lobby-warning hidden" id="pvpLobbyWarning">
-        ⚠ Entry fee paid. Leaving the queue will NOT refund your 2,500 $FIGHT10.
+        ⚠ Entry fee paid. Leaving the queue will NOT refund your 10,000 $FIGHT10.
       </div>
       <button class="pvp-lobby-cancel" id="pvpCancelBtn" type="button">Cancel</button>
     </div>
