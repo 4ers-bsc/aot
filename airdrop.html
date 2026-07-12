@@ -1,0 +1,190 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<meta name="robots" content="noindex, nofollow" />
+<title>FIGHT10 — Airdrop</title>
+<link rel="icon" type="image/png" href="/logo.png" />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Black+Ops+One&family=Oswald:wght@400;500;600;700&family=Rajdhani:wght@500;600;700&display=swap" rel="stylesheet" />
+<link rel="stylesheet" href="./src/styles.css" />
+<style>
+  /* Airdrop page — a standalone ops tool, styled to match the FIGHT10 theme
+     but self-contained (it does not mount the 3D arena or game views). */
+  .ad-page {
+    min-height: 100vh;
+    display: flex;
+    justify-content: center;
+    padding: 40px 18px 80px;
+  }
+  .ad-card {
+    width: 100%;
+    max-width: 720px;
+    background: var(--surface-strong);
+    border: 1px solid var(--line);
+    border-radius: 14px;
+    box-shadow: var(--shadow);
+    padding: 28px 26px 32px;
+  }
+  .ad-head { display: flex; align-items: center; gap: 12px; margin-bottom: 6px; }
+  .ad-head img { height: 34px; width: auto; }
+  .ad-title { font-family: var(--font-head); font-size: 22px; letter-spacing: 0.06em; margin: 0; }
+  .ad-sub { color: var(--muted); font-size: 13px; line-height: 1.5; margin: 4px 0 20px; letter-spacing: 0.02em; }
+  .ad-net {
+    display: inline-flex; align-items: center; gap: 7px;
+    font-size: 12px; color: var(--soft); margin-bottom: 22px;
+    padding: 5px 11px; border: 1px solid var(--line); border-radius: 999px;
+  }
+  .ad-net .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--accent); }
+  .ad-field { margin-bottom: 18px; }
+  .ad-field label { display: block; font-size: 12px; letter-spacing: 0.08em; color: var(--muted); text-transform: uppercase; margin-bottom: 7px; }
+  .ad-field .hint { font-size: 11px; color: var(--soft); margin-top: 6px; line-height: 1.45; letter-spacing: 0.01em; }
+  .ad-input, .ad-textarea {
+    width: 100%;
+    background: rgba(0,0,0,0.4);
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    color: var(--text);
+    font-family: "Oswald", var(--font-body);
+    font-size: 14px;
+    padding: 11px 12px;
+    letter-spacing: 0.02em;
+  }
+  .ad-input:focus, .ad-textarea:focus { outline: none; border-color: var(--accent-dim); }
+  .ad-textarea { resize: vertical; min-height: 120px; font-family: ui-monospace, "SFMono-Regular", Menlo, monospace; font-size: 13px; line-height: 1.6; }
+  .ad-row { display: flex; gap: 14px; }
+  .ad-row .ad-field { flex: 1; }
+  .ad-pk-wrap { position: relative; }
+  .ad-pk-toggle {
+    position: absolute; right: 8px; top: 50%; transform: translateY(-50%);
+    background: none; border: none; color: var(--soft); font-size: 11px;
+    letter-spacing: 0.06em; cursor: pointer; padding: 4px 6px; text-transform: uppercase;
+  }
+  .ad-warn {
+    display: flex; gap: 10px; align-items: flex-start;
+    background: rgba(216, 60, 60, 0.08);
+    border: 1px solid rgba(216, 60, 60, 0.32);
+    border-radius: 9px; padding: 12px 14px; margin-bottom: 22px;
+    font-size: 12px; line-height: 1.55; color: #e9c3c3; letter-spacing: 0.01em;
+  }
+  .ad-warn strong { color: #f4d3d3; }
+  .ad-btn {
+    width: 100%;
+    background: var(--gold-grad-btn);
+    color: #1a1400;
+    border: none;
+    border-radius: 9px;
+    font-family: var(--font-head);
+    font-size: 15px;
+    letter-spacing: 0.06em;
+    padding: 14px;
+    cursor: pointer;
+    transition: filter 0.15s ease, opacity 0.15s ease;
+  }
+  .ad-btn:hover:not(:disabled) { filter: brightness(1.08); }
+  .ad-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+  .ad-summary {
+    display: flex; justify-content: space-between; flex-wrap: wrap; gap: 8px;
+    font-size: 12px; color: var(--muted); margin: 14px 2px 6px; letter-spacing: 0.02em;
+  }
+  .ad-summary b { color: var(--text); }
+  .ad-status { margin-top: 18px; font-size: 13px; color: var(--muted); min-height: 18px; letter-spacing: 0.02em; }
+  .ad-status.err { color: #e98a8a; }
+  .ad-status.ok { color: #8fd18f; }
+  .ad-log { margin-top: 16px; display: none; flex-direction: column; gap: 6px; }
+  .ad-log.show { display: flex; }
+  .ad-log-row {
+    display: flex; align-items: center; gap: 10px;
+    font-size: 12px; padding: 9px 11px; border-radius: 7px;
+    background: rgba(0,0,0,0.3); border: 1px solid var(--line);
+    font-family: ui-monospace, "SFMono-Regular", Menlo, monospace;
+  }
+  .ad-log-row .addr { flex: 1; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .ad-log-row .state { font-size: 11px; letter-spacing: 0.04em; text-transform: uppercase; white-space: nowrap; }
+  .ad-log-row.pending .state { color: var(--soft); }
+  .ad-log-row.sent .state { color: var(--accent); }
+  .ad-log-row.done { border-color: rgba(143, 209, 143, 0.3); }
+  .ad-log-row.done .state { color: #8fd18f; }
+  .ad-log-row.fail { border-color: rgba(216, 60, 60, 0.35); }
+  .ad-log-row.fail .state { color: #e98a8a; }
+  .ad-log-row a { color: var(--accent); text-decoration: none; }
+  .ad-log-row a:hover { text-decoration: underline; }
+</style>
+</head>
+<body>
+  <div class="ad-page">
+    <main class="ad-card">
+      <div class="ad-head">
+        <img src="/logo.png" alt="FIGHT10" />
+        <h1 class="ad-title">Token Airdrop</h1>
+      </div>
+      <p class="ad-sub">
+        Send an ERC-20 token from a single source wallet to a list of recipient
+        wallets, one transfer per address. Runs entirely in your browser against
+        the Robinhood Chain RPC.
+      </p>
+
+      <div class="ad-net"><span class="dot"></span><span id="adNetwork">Robinhood Chain</span></div>
+
+      <div class="ad-warn">
+        <span>⚠️</span>
+        <span>
+          <strong>Private-key safety.</strong> The sender key you paste is used
+          only in this browser tab to sign transfers and is <strong>never sent
+          to any server</strong>. Only run this on a machine you trust, prefer a
+          dedicated airdrop wallet, and clear the field when you're done.
+        </span>
+      </div>
+
+      <div class="ad-field">
+        <label for="adToken">Token contract address (CA)</label>
+        <input class="ad-input" id="adToken" type="text" spellcheck="false"
+               autocomplete="off" placeholder="0x…" />
+        <div class="hint">The ERC-20 token to airdrop.</div>
+      </div>
+
+      <div class="ad-field">
+        <label for="adPrivateKey">Source wallet private key</label>
+        <div class="ad-pk-wrap">
+          <input class="ad-input" id="adPrivateKey" type="password" spellcheck="false"
+                 autocomplete="off" placeholder="0x… (64 hex chars)" />
+          <button class="ad-pk-toggle" id="adPkToggle" type="button">Show</button>
+        </div>
+        <div class="hint">Exported from MetaMask (Account details → Show private key). Signs and pays for every transfer.</div>
+      </div>
+
+      <div class="ad-field">
+        <label for="adFromAddress">Source wallet address</label>
+        <input class="ad-input" id="adFromAddress" type="text" spellcheck="false"
+               autocomplete="off" placeholder="0x…" />
+        <div class="hint">The address the tokens are sent <em>from</em>. Must match the private key above — it's checked before anything is sent.</div>
+      </div>
+
+      <div class="ad-field">
+        <label for="adAmount">Amount per wallet</label>
+        <input class="ad-input" id="adAmount" type="text" inputmode="decimal"
+               autocomplete="off" placeholder="e.g. 100" />
+        <div class="hint">Token amount each recipient receives (in whole tokens; decimals read from the contract).</div>
+      </div>
+
+      <div class="ad-field">
+        <label for="adWallets">Recipient wallets</label>
+        <textarea class="ad-textarea" id="adWallets" spellcheck="false"
+                  placeholder="0xabc…&#10;0xdef…&#10;One address per line (commas, spaces or new lines all work)."></textarea>
+        <div class="hint">One address per line. Duplicates and blank lines are ignored; invalid addresses are flagged before sending.</div>
+      </div>
+
+      <div class="ad-summary" id="adSummary"></div>
+
+      <button class="ad-btn" id="adSubmit" type="button">Review &amp; Airdrop</button>
+
+      <div class="ad-status" id="adStatus"></div>
+      <div class="ad-log" id="adLog"></div>
+    </main>
+  </div>
+
+  <script type="module" src="./src/airdrop.js"></script>
+</body>
+</html>

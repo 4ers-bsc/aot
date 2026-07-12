@@ -1,4 +1,5 @@
 import { defineConfig } from "vite";
+import { resolve } from "node:path";
 import obfuscatorPlugin from "vite-plugin-javascript-obfuscator";
 
 export default defineConfig({
@@ -42,6 +43,12 @@ export default defineConfig({
   publicDir: "assets",
   build: {
     rollupOptions: {
+      // Multi-page app: the game (index.html) plus the standalone airdrop ops
+      // tool (airdrop.html, served at /airdrop.html). Each gets its own entry.
+      input: {
+        main: resolve(__dirname, "index.html"),
+        airdrop: resolve(__dirname, "airdrop.html"),
+      },
       output: {
         // three.js is large and pinned — keep it in its own chunk so app-code
         // changes don't invalidate its browser cache entry.
