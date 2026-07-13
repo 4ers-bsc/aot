@@ -594,6 +594,51 @@ Deno.serve(async (req: Request) => {
           });
         }
 
+        case "matches": {
+          // Paginated browse of every match, newest first (25 per page). Optional
+          // search: a bare number (or "#123") matches an exact match_no; anything
+          // else is treated as a status filter (waiting / active / finished /
+          // disputed …). Server-side paging so the list scales past LIST_LIMIT.
+          const pageSize = 25;
+          const page = Math.max(0, Math.trunc(Number(body?.page ?? 0)) || 0);
+          const searchRaw = String(body?.search ?? "").trim();
+          const searchNo = searchRaw.replace(/^#/, "");
+
+          let q = admin.from("matches")
+            .select(
+              "id, match_no, status, max_players, winner_user_id, created_by, created_at, started_at, ended_at, pot_tokens, payout_tx",
+              { count: "exact" },
+            )
+            .order("match_no", { ascending: false })
+            .range(page * pageSize, page * pageSize + pageSize - 1);
+
+          if (searchNo && /^\d+$/.test(searchNo)) {
+            q = q.eq("match_no", Number(searchNo));
+          } else if (searchRaw) {
+            q = q.ilike("status", `%${searchRaw}%`);
+          }
+
+          const { data: mrows, count, error: mErr } = await q;
+          if (mErr) return fail(`Query failed: ${mErr.message}`, 500);
+
+          const names = await resolveNames([
+            ...(mrows ?? []).map((r: any) => r.winner_user_id),
+            ...(mrows ?? []).map((r: any) => r.created_by),
+          ]);
+
+          return json({
+            ok: true,
+            page,
+            page_size: pageSize,
+            total: count ?? (mrows?.length ?? 0),
+            rows: (mrows ?? []).map((r: any) => ({
+              ...r,
+              winner_name: r.winner_user_id ? names.get(r.winner_user_id)?.name ?? null : null,
+              creator_name: r.created_by ? names.get(r.created_by)?.name ?? null : null,
+            })),
+          });
+        }
+
         case "match_detail": {
           // Full drill-down for one match: the row itself (incl. the economics
           // snapshot), every seat with its deposit, the payout ledger row, the
