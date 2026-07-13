@@ -5013,6 +5013,12 @@ body.in-game .log-feed { left: 70px; }
 }
 .tut-btn-primary:hover { filter: brightness(1.06); }
 
+/* First step has no BACK button — drop it from the layout and centre the lone
+   NEXT button instead of leaving it stranded in the right half of the row. */
+.tut-nav:has(.tut-btn-ghost.is-hidden) { justify-content: center; }
+.tut-nav:has(.tut-btn-ghost.is-hidden) .tut-btn-ghost { display: none; }
+.tut-nav:has(.tut-btn-ghost.is-hidden) .tut-btn-primary { flex: 0 1 260px; }
+
 .tut-dontshow {
   display: flex;
   align-items: center;
