@@ -1163,6 +1163,9 @@ function updateGameOverPrize(prizeAmount, payoutTx = null, failReason = null) {
   if (!prizeEl || !prizeAmt) return;
   if (prizeAmount !== null) {
     prizeAmt.textContent = prizeAmount.toLocaleString(undefined, { maximumFractionDigits: 0 }) + " $FIGHT10";
+    // Big gold-number styling for a real prize; drop any error styling from a
+    // previous failed attempt.
+    prizeAmt.classList.remove("go-prize-amount--error");
     retryBtn?.classList.add("hidden");
     setGameOverTxLink(payoutTx);
   } else {
@@ -1171,6 +1174,9 @@ function updateGameOverPrize(prizeAmount, payoutTx = null, failReason = null) {
     prizeAmt.textContent = failReason
       ? `Payout failed: ${failReason} — tap Retry or contact support`
       : "Payout failed — tap Retry or contact support";
+    // A failure is a full sentence, not a short number — render it small,
+    // wrapping and non-gradient instead of at the 2rem prize size (#font-fix).
+    prizeAmt.classList.add("go-prize-amount--error");
     retryBtn?.classList.remove("hidden");
     setGameOverTxLink(null);
   }

@@ -261,7 +261,8 @@ async function payoutWinner(admin: any, matchId: string) {
     // Nonce consumed + tx broadcast — release the escrow lock for other matches.
     if (escrowLocked) {
       escrowLocked = false;
-      await admin.rpc("end_escrow_payout", { p_holder: escrowLockHolder }).catch(() => {});
+      try { await admin.rpc("end_escrow_payout", { p_holder: escrowLockHolder }); }
+      catch (_) { /* best-effort; the lock's TTL frees it anyway */ }
     }
 
     // #5: persist the REAL hash immediately, BEFORE waiting for the receipt, so a
@@ -291,8 +292,10 @@ async function payoutWinner(admin: any, matchId: string) {
     }
 
     if (reverted) {
-      await admin.from("matches").update({ payout_tx: null, payout_claimed_at: null })
-        .eq("id", matchId).eq("payout_tx", payoutSig).catch(() => {});
+      try {
+        await admin.from("matches").update({ payout_tx: null, payout_claimed_at: null })
+          .eq("id", matchId).eq("payout_tx", payoutSig);
+      } catch (_) { /* best-effort */ }
       throw new Error("Payout tx reverted on-chain: " + payoutSig);
     }
 

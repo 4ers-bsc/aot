@@ -3740,6 +3740,23 @@ body.in-game .log-feed { left: 70px; }
   line-height: 1.15;
 }
 
+/* Failure state: the prize slot holds a full error sentence, not a short gold
+   number. Shrink it, drop the gradient/letter-spacing, wrap long text, and tint
+   it amber so it reads as a warning on every screen size. */
+.go-prize-amount.go-prize-amount--error {
+  font-family: var(--font-head);
+  font-size: clamp(0.82rem, 3.2vw, 0.98rem);
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  line-height: 1.4;
+  background: none;
+  -webkit-text-fill-color: currentColor;
+  color: #e8b48f;
+  filter: none;
+  max-width: 32ch;
+  overflow-wrap: anywhere;
+}
+
 .go-prize-tx {
   margin-top: 4px;
   font-family: var(--font-head);
