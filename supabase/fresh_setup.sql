@@ -1812,11 +1812,15 @@ begin
   from pg_stat_activity
   where datname = current_database();
 
+  -- Restricted to 'client backend' so long-lived background connections
+  -- (Realtime walsender, pg_cron, autovacuum) that sit in state='active' for
+  -- hours don't masquerade as a stuck client query.
   select coalesce(max(extract(epoch from (now() - query_start))), 0)
     into v_oldest_secs
   from pg_stat_activity
   where datname = current_database()
     and state = 'active'
+    and backend_type = 'client backend'
     and query_start is not null
     and pid <> pg_backend_pid();
 
