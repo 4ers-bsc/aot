@@ -153,7 +153,9 @@ function createRpcPool() {
 // the slot as 'pending'.
 async function payoutWinner(admin: any, matchId: string) {
   const { data: matchRow, error: matchErr } = await admin
-    .from("matches").select("id, status, winner_user_id, payout_tx").eq("id", matchId).maybeSingle();
+    .from("matches")
+    .select("id, status, winner_user_id, payout_tx, entry_fee_tokens, winner_share_bps")
+    .eq("id", matchId).maybeSingle();
   if (matchErr || !matchRow) throw new Error("Match not found");
   if (matchRow.status !== "finished") throw new Error(`Match is '${matchRow.status}', not finished`);
   if (!matchRow.winner_user_id) throw new Error("Match has no winner");
@@ -185,14 +187,17 @@ async function payoutWinner(admin: any, matchId: string) {
   const rpc = createRpcPool();
 
   const decimals = Number(await rpc.run((p) => new Contract(tokenAddr, ERC20_ABI, p).decimals()));
-  // Entry fee + winner share are tunables in pvp_config (single source of truth
-  // shared with the client + f10join/f10treasurer). Fall back to the historical
-  // literals if the row is unreadable so a DB blip never strands a payout. The
-  // pvp_config_guard trigger blocks fee changes while matches are live.
+  // Entry fee + winner share are frozen onto the match at creation
+  // (join_pvp_match snapshots pvp_config), so a later config edit can't change
+  // how THIS match's deposits verify or its prize computes (#4). Prefer that
+  // snapshot; fall back to live pvp_config for pre-snapshot matches, then to the
+  // historical literals so a DB blip never strands a payout.
   const { data: cfg } = await admin
     .from("pvp_config").select("entry_fee_tokens, winner_share_bps").maybeSingle();
-  const entryFeeTokens = Number(cfg?.entry_fee_tokens) > 0 ? Number(cfg.entry_fee_tokens) : 2500;
-  const winnerShareBps = Number(cfg?.winner_share_bps) > 0 ? Number(cfg.winner_share_bps) : 9000;
+  const entryFeeTokens = Number(matchRow.entry_fee_tokens) > 0 ? Number(matchRow.entry_fee_tokens)
+    : Number(cfg?.entry_fee_tokens) > 0 ? Number(cfg.entry_fee_tokens) : 2500;
+  const winnerShareBps = Number(matchRow.winner_share_bps) > 0 ? Number(matchRow.winner_share_bps)
+    : Number(cfg?.winner_share_bps) > 0 ? Number(cfg.winner_share_bps) : 9000;
   const entryFeeRaw = BigInt(entryFeeTokens) * BigInt(10) ** BigInt(decimals);
 
   // Receipts are queryable for the chain's full history (no status-cache
@@ -227,8 +232,20 @@ async function payoutWinner(admin: any, matchId: string) {
   if (reserveErr) throw new Error("Could not reserve payout slot");
   if (!reserved || reserved.length === 0) throw new Error("Payout already in progress or completed");
 
-  let payoutConfirmed = false;
+  let broadcast = false;   // transfer broadcast (nonce spent)
+  let escrowLocked = false;
+  const escrowLockHolder = `${matchId}:${crypto.randomUUID()}`;
   try {
+    // Serialise escrow usage across matches (#6): hold the single-flight lock
+    // across nonce assignment + broadcast so two concurrent payouts can't grab
+    // the same nonce, then release it once the tx is in the mempool.
+    for (let attempt = 0; ; attempt++) {
+      const { data: got } = await admin.rpc("begin_escrow_payout", { p_holder: escrowLockHolder, p_ttl_seconds: 90 });
+      if (got === true) { escrowLocked = true; break; }
+      if (attempt >= 20) throw new Error("Another payout is in progress — retry in a moment");
+      await new Promise((r) => setTimeout(r, 1500));
+    }
+
     const totalRaw = BigInt(players.length) * entryFeeRaw;
     const winnerAmountRaw = (totalRaw * BigInt(winnerShareBps)) / BigInt(10000);
 
@@ -238,31 +255,51 @@ async function payoutWinner(admin: any, matchId: string) {
     const signer = escrowWallet.connect(payProvider);
     const token = new Contract(tokenAddr, ERC20_ABI, signer);
     const sentTx = await token.transfer(winnerAddr, winnerAmountRaw);
-    const payoutSig: string = sentTx.hash;
+    const payoutSig: string = String(sentTx.hash).toLowerCase(); // #7 normalise
+    broadcast = true;
 
+    // Nonce consumed + tx broadcast — release the escrow lock for other matches.
+    if (escrowLocked) {
+      escrowLocked = false;
+      await admin.rpc("end_escrow_payout", { p_holder: escrowLockHolder }).catch(() => {});
+    }
+
+    // #5: persist the REAL hash immediately, BEFORE waiting for the receipt, so a
+    // retry can never send a second transfer even if confirmation is slow.
+    let hashWritten = false;
+    for (let attempt = 0; attempt < 5; attempt++) {
+      if (attempt > 0) await new Promise((r) => setTimeout(r, 1000 * attempt));
+      const { error: writeErr } = await admin.from("matches").update({ payout_tx: payoutSig }).eq("id", matchId);
+      if (!writeErr) { hashWritten = true; break; }
+      console.error(`[f10admin payout] DB hash write attempt ${attempt + 1} failed:`, writeErr);
+    }
+
+    // Poll for confirmation. REVERT ⇒ definitive failure (no tokens moved) — clear
+    // the recorded hash and surface it. TIMEOUT ⇒ not definitive — keep the hash
+    // and report pending rather than risk a double transfer.
     const deadline = Date.now() + 90000;
     let confirmed = false;
+    let reverted = false;
     while (Date.now() < deadline) {
       const receipt = await payProvider.getTransactionReceipt(payoutSig).catch(() => null);
       if (receipt) {
-        if (receipt.status !== 1) throw new Error("Payout tx reverted on-chain: " + payoutSig);
+        if (receipt.status !== 1) { reverted = true; break; }
         confirmed = true;
         break;
       }
       await new Promise((r) => setTimeout(r, 2000));
     }
-    if (!confirmed) throw new Error(`Payout tx not confirmed after 90s — hash: ${payoutSig}`);
-    payoutConfirmed = true;
 
-    let dbWritten = false;
-    for (let attempt = 0; attempt < 5; attempt++) {
-      if (attempt > 0) await new Promise((r) => setTimeout(r, 1000 * attempt));
-      const { error: writeErr } = await admin.from("matches").update({ payout_tx: payoutSig }).eq("id", matchId);
-      if (!writeErr) { dbWritten = true; break; }
-      console.error(`[f10admin payout] DB write attempt ${attempt + 1} failed:`, writeErr);
+    if (reverted) {
+      await admin.from("matches").update({ payout_tx: null, payout_claimed_at: null })
+        .eq("id", matchId).eq("payout_tx", payoutSig).catch(() => {});
+      throw new Error("Payout tx reverted on-chain: " + payoutSig);
     }
-    if (!dbWritten) {
-      console.error(`[f10admin payout] CRITICAL: tx ${payoutSig} confirmed but DB update failed for match ${matchId}. Manual resolution required.`);
+
+    if (!hashWritten) {
+      // Broadcast but the hash could not be recorded. Leave the slot 'pending'
+      // (NOT cleared) so a retry can't double-send; set payout_tx manually.
+      console.error(`[f10admin payout] CRITICAL: tx ${payoutSig} broadcast but DB update failed for match ${matchId}. Manual resolution required.`);
       throw new Error(`Payout sent on-chain (${payoutSig}) but internal record failed. Set payout_tx manually.`);
     }
 
@@ -274,10 +311,16 @@ async function payoutWinner(admin: any, matchId: string) {
     }, { onConflict: "match_id" });
     if (ledgerErr) console.error("[f10admin payout] payouts insert failed (non-fatal):", ledgerErr);
 
-    console.log(`[f10admin payout] paid match=${matchId} tx=${payoutSig} amount=${winnerAmountRaw.toString()} players=${players.length}`);
-    return { payout_tx: payoutSig, winner_amount: winnerAmountRaw.toString(), num_players: players.length, decimals };
+    console.log(`[f10admin payout] paid match=${matchId} tx=${payoutSig} amount=${winnerAmountRaw.toString()} players=${players.length} confirmed=${confirmed}`);
+    return { payout_tx: payoutSig, winner_amount: winnerAmountRaw.toString(), num_players: players.length, decimals, confirmed };
   } catch (err) {
-    if (!payoutConfirmed) {
+    // Release the escrow lock if still held (error before/around broadcast).
+    if (escrowLocked) {
+      try { await admin.rpc("end_escrow_payout", { p_holder: escrowLockHolder }); } catch (_) { /* TTL frees it */ }
+    }
+    // Only release the slot if the tx was NOT broadcast — clearing after a
+    // broadcast could double-pay on retry.
+    if (!broadcast) {
       try {
         await admin.from("matches").update({ payout_tx: null, payout_claimed_at: null })
           .eq("id", matchId).eq("payout_tx", "pending");
@@ -639,10 +682,12 @@ Deno.serve(async (req: Request) => {
           // FIGHT10 transfer from escrow to the winner for at least the winner's
           // share, so an arbitrary/typo'd string can never mark a match paid.
           const matchId = String(body?.match_id ?? "");
-          const tx = String(body?.payout_tx ?? "").trim();
+          // Normalise to lowercase (#7) so the stored payout hash matches the
+          // casing every other path writes, keeping the column consistent.
+          const tx = String(body?.payout_tx ?? "").trim().toLowerCase();
           const note = String(body?.note ?? "").trim();
           if (!matchId || !tx) return fail("match_id and payout_tx are required");
-          if (!/^0x[0-9a-fA-F]{64}$/.test(tx)) return fail("payout_tx is not a valid transaction hash");
+          if (!/^0x[0-9a-f]{64}$/.test(tx)) return fail("payout_tx is not a valid transaction hash");
           const { data: m } = await admin
             .from("matches").select("payout_tx, status, winner_user_id, max_players").eq("id", matchId).maybeSingle();
           if (!m) return fail("Match not found");

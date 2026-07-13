@@ -2071,8 +2071,371 @@ grant execute on function public.admin_snapshot()                to service_role
 grant execute on function public.admin_truncate_table(text)      to service_role;
 grant execute on function public.admin_truncate_all()            to service_role;
 
+-- ============================================================================
+-- 15. Security & reliability hardening. Mirrors migrations
+--     20260725_privilege_and_economics_hardening.sql and
+--     20260726_join_pvp_match_hardening.sql so a fresh install is fully patched.
+--     All statements are idempotent and supersede the earlier definitions.
+-- ============================================================================
+
+-- #2  Revoke inherited PUBLIC execute on every privileged SECURITY DEFINER
+--     function (they were only ever granted to service_role), then re-grant to
+--     service_role. These run as their owner, so revoking PUBLIC does not break
+--     the internal call chains that invoke them from other definer functions.
+revoke all on function public.admin_resolve_dispute(uuid, uuid) from public, anon, authenticated;
+revoke all on function public.ban_user(uuid, text)             from public, anon, authenticated;
+revoke all on function public.apply_match_result(uuid, uuid)   from public, anon, authenticated;
+revoke all on function public.finalize_match(uuid, boolean)    from public, anon, authenticated;
+revoke all on function public.close_stale_matches()            from public, anon, authenticated;
+grant execute on function public.admin_resolve_dispute(uuid, uuid) to service_role;
+grant execute on function public.ban_user(uuid, text)             to service_role;
+grant execute on function public.apply_match_result(uuid, uuid)   to service_role;
+grant execute on function public.finalize_match(uuid, boolean)    to service_role;
+grant execute on function public.close_stale_matches()            to service_role;
+
+-- Never auto-grant EXECUTE to PUBLIC on functions created from now on. Must run
+-- as the role that creates subsequent functions (postgres / supabase_admin).
+alter default privileges in schema public revoke execute on functions from public;
+
+-- #2 (defense in depth) Caller assertion on admin_resolve_dispute — the only
+--     privileged entrypoint with no internal callers. Body identical to §7's
+--     with only the service_role guard prepended.
+create or replace function public.admin_resolve_dispute(p_match_id uuid, p_winner_id uuid)
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_status text;
+  v_role   text;
+begin
+  v_role := nullif(current_setting('request.jwt.claims', true), '')::jsonb ->> 'role';
+  if v_role is not null and v_role <> 'service_role' then
+    raise exception 'forbidden: admin only';
+  end if;
+
+  select status into v_status from matches where id = p_match_id for update;
+  if v_status is null then
+    raise exception 'match_not_found';
+  end if;
+  if v_status <> 'disputed' then
+    raise exception 'not_disputed:%', v_status;
+  end if;
+  if not exists (
+    select 1 from match_players where match_id = p_match_id and user_id = p_winner_id
+  ) then
+    raise exception 'winner_not_participant';
+  end if;
+
+  update matches
+  set status = 'finished', winner_user_id = p_winner_id,
+      shadow_winner = p_winner_id, ended_at = now()
+  where id = p_match_id and status = 'disputed';
+
+  perform public.apply_match_result(p_match_id, p_winner_id);
+end;
+$$;
+revoke all on function public.admin_resolve_dispute(uuid, uuid) from public, anon, authenticated;
+grant execute on function public.admin_resolve_dispute(uuid, uuid) to service_role;
+
+-- #7  Case-insensitive deposit replay protection (EVM tx hashes are
+--     case-insensitive; the join RPC + edge functions store them lowercased).
+create unique index if not exists consumed_deposits_tx_lower_unique
+  on public.consumed_deposits (lower(deposit_tx));
+create unique index if not exists match_players_deposit_tx_lower_unique
+  on public.match_players (lower(deposit_tx))
+  where deposit_tx is not null;
+
+-- #4  Immutable match economics — snapshot the mutable tunables onto each match
+--     at creation so payouts verify against the values that applied at deposit.
+alter table public.matches
+  add column if not exists entry_fee_tokens  int,
+  add column if not exists winner_share_bps  int,
+  add column if not exists duration_seconds  int,
+  add column if not exists economics_version int not null default 1;
+
+-- #6  Durable escrow single-flight lock — held by the payout edge functions
+--     across nonce assignment + broadcast so concurrent payouts can't collide
+--     on the shared escrow wallet's nonce.
+create table if not exists public.escrow_payout_lock (
+  id           boolean primary key default true check (id),
+  holder       text,
+  locked_at    timestamptz,
+  locked_until timestamptz
+);
+insert into public.escrow_payout_lock (id) values (true) on conflict (id) do nothing;
+alter table public.escrow_payout_lock enable row level security;
+
+create or replace function public.begin_escrow_payout(p_holder text, p_ttl_seconds int default 60)
+returns boolean
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  if p_holder is null or length(trim(p_holder)) = 0 then
+    raise exception 'holder_required';
+  end if;
+  update public.escrow_payout_lock
+  set holder       = p_holder,
+      locked_at    = now(),
+      locked_until = now() + make_interval(secs => greatest(5, p_ttl_seconds))
+  where id = true
+    and (locked_until is null or locked_until < now());
+  return found;
+end;
+$$;
+
+create or replace function public.end_escrow_payout(p_holder text)
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  update public.escrow_payout_lock
+  set holder = null, locked_at = null, locked_until = null
+  where id = true and holder = p_holder;
+end;
+$$;
+
+revoke all on function public.begin_escrow_payout(text, int) from public, anon, authenticated;
+revoke all on function public.end_escrow_payout(text)        from public, anon, authenticated;
+grant execute on function public.begin_escrow_payout(text, int) to service_role;
+grant execute on function public.end_escrow_payout(text)        to service_role;
+
+-- #8 + #7 + #4  Hardened join_pvp_match: per-user advisory lock before the
+--     membership check (no double-seat race), lowercased deposit hash, and the
+--     economics snapshot on new-match creation. Supersedes §4's definition.
+create or replace function public.join_pvp_match(
+  p_user_id        uuid,
+  p_max_players    smallint default 2,
+  p_deposit_tx     text     default null,
+  p_display_name   text     default null,
+  p_deposit_wallet text     default null
+)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public, auth
+as $$
+declare
+  v_uid          uuid     := p_user_id;
+  v_name         text;
+  v_requested    text;
+  v_login_wallet text;
+  v_size         smallint := coalesce(p_max_players, 2);
+  v_match_id     uuid;
+  v_seat         smallint;
+  v_count        smallint;
+  v_status       text;
+  v_existing     record;
+  v_deposit_tx   text;
+  v_fee          int;
+  v_share        int;
+  v_dur          int;
+  c_entry_fee    constant bigint := 2500;
+begin
+  if v_uid is null then
+    raise exception 'not_authenticated';
+  end if;
+
+  if public.is_banned(v_uid) then
+    raise exception 'banned: this account is banned from play';
+  end if;
+
+  if p_deposit_tx is null or trim(p_deposit_tx) = '' then
+    raise exception 'deposit_tx_required';
+  end if;
+
+  if p_deposit_wallet is null or trim(p_deposit_wallet) = '' then
+    raise exception 'deposit_wallet_required';
+  end if;
+
+  if v_size not in (2, 5, 10) then
+    raise exception 'invalid_max_players: must be 2, 5, or 10';
+  end if;
+
+  v_deposit_tx := lower(trim(p_deposit_tx));  -- #7
+
+  -- #8: serialise this user's concurrent joins before the membership check.
+  perform pg_advisory_xact_lock(hashtext('fight10_join_user:' || v_uid::text));
+
+  v_requested := nullif(trim(p_display_name), '');
+  if v_requested is not null and exists (
+       select 1 from public.profiles
+       where lower(display_name) = lower(v_requested) and user_id <> v_uid
+     ) then
+    v_requested := null;
+  end if;
+
+  begin
+    insert into public.profiles as p (user_id, display_name, wallet_address)
+    values (
+      v_uid,
+      coalesce(v_requested, public.generate_unique_username()),
+      (select provider_id from auth.identities
+         where user_id = v_uid
+         order by coalesce(last_sign_in_at, created_at) desc
+         limit 1)
+    )
+    on conflict (user_id) do update
+    set display_name   = coalesce(v_requested, p.display_name),
+        wallet_address = coalesce(excluded.wallet_address, p.wallet_address)
+    where p.user_id = v_uid
+    returning display_name, wallet_address into v_name, v_login_wallet;
+  exception when unique_violation then
+    insert into public.profiles as p (user_id, display_name, wallet_address)
+    values (
+      v_uid,
+      public.generate_unique_username(),
+      (select provider_id from auth.identities
+         where user_id = v_uid
+         order by coalesce(last_sign_in_at, created_at) desc
+         limit 1)
+    )
+    on conflict (user_id) do update
+    set wallet_address = coalesce(excluded.wallet_address, p.wallet_address)
+    where p.user_id = v_uid
+    returning display_name, wallet_address into v_name, v_login_wallet;
+  end;
+
+  if v_login_wallet is null
+     or lower(regexp_replace(trim(v_login_wallet),  '^.*:', ''))
+      <> lower(regexp_replace(trim(p_deposit_wallet), '^.*:', '')) then
+    raise exception 'deposit_wallet_mismatch: deposit must come from your signed-in wallet';
+  end if;
+
+  select mp.match_id, mp.seat, m.status, m.max_players, m.started_at
+  into   v_existing
+  from   public.match_players mp
+  join   public.matches m on m.id = mp.match_id
+  where  mp.user_id = v_uid
+    and  m.status in ('waiting', 'active')
+  limit 1;
+
+  if found and v_existing.status = 'active' then
+    perform public.finalize_match(
+      v_existing.match_id,
+      v_existing.started_at is not null
+        and now() >= v_existing.started_at
+                     + make_interval(secs => public.match_duration_seconds(v_existing.max_players))
+    );
+
+    select mp.match_id, mp.seat, m.status, m.max_players, m.started_at
+    into   v_existing
+    from   public.match_players mp
+    join   public.matches m on m.id = mp.match_id
+    where  mp.user_id = v_uid
+      and  m.status in ('waiting', 'active')
+    limit 1;
+  end if;
+
+  if found then
+    return jsonb_build_object(
+      'match_id',    v_existing.match_id,
+      'seat',        v_existing.seat,
+      'status',      v_existing.status,
+      'max_players', v_existing.max_players,
+      'rejoining',   true
+    );
+  end if;
+
+  if exists (select 1 from public.consumed_deposits where lower(deposit_tx) = v_deposit_tx) then
+    raise exception 'deposit_already_used: this deposit was already spent on a match entry';
+  end if;
+
+  perform pg_advisory_xact_lock(hashtext('fight10_pvp_capacity'));
+  if (select count(*) from public.match_players mp
+      join public.matches m on m.id = mp.match_id
+      where m.status in ('waiting', 'active')) >= public.pvp_capacity_cap() then
+    raise exception 'servers_full: % player cap reached, try again shortly', public.pvp_capacity_cap();
+  end if;
+
+  select m.id into v_match_id
+  from   public.matches m
+  where  m.status      = 'waiting'
+    and  m.max_players = v_size
+    and  (select count(*) from public.match_players mp where mp.match_id = m.id) < m.max_players
+  order  by m.created_at
+  for update of m skip locked
+  limit  1;
+
+  if found then
+    select min(s) into v_seat
+    from   generate_series(1, v_size) s
+    where  s not in (select seat from public.match_players where match_id = v_match_id);
+
+    insert into public.match_players (match_id, user_id, seat, display_name, deposit_tx, deposit_wallet)
+    values (v_match_id, v_uid, v_seat, v_name, v_deposit_tx, trim(p_deposit_wallet));
+
+    insert into public.consumed_deposits (deposit_tx, user_id, match_id)
+    values (v_deposit_tx, v_uid, v_match_id);
+
+    update public.matches
+    set pot_tokens = pot_tokens + c_entry_fee
+    where id = v_match_id;
+
+    select count(*) into v_count from public.match_players where match_id = v_match_id;
+    if v_count >= v_size then
+      update public.matches
+      set status = 'active', started_at = timezone('utc', now())
+      where id = v_match_id;
+      v_status := 'active';
+    else
+      v_status := 'waiting';
+    end if;
+
+    return jsonb_build_object(
+      'match_id',    v_match_id,
+      'seat',        v_seat,
+      'status',      v_status,
+      'max_players', v_size
+    );
+  end if;
+
+  -- #4: snapshot the economics that apply right now onto the new match.
+  select entry_fee_tokens, winner_share_bps into v_fee, v_share
+  from public.pvp_config limit 1;
+  select duration_seconds into v_dur
+  from public.match_config where max_players = v_size;
+
+  insert into public.matches (
+    status, max_players, created_by,
+    entry_fee_tokens, winner_share_bps, duration_seconds
+  )
+  values (
+    'waiting', v_size, v_uid,
+    coalesce(v_fee, 2500), coalesce(v_share, 9000), v_dur
+  )
+  returning id into v_match_id;
+
+  v_seat := 1;
+  insert into public.match_players (match_id, user_id, seat, display_name, deposit_tx, deposit_wallet)
+  values (v_match_id, v_uid, v_seat, v_name, v_deposit_tx, trim(p_deposit_wallet));
+
+  insert into public.consumed_deposits (deposit_tx, user_id, match_id)
+  values (v_deposit_tx, v_uid, v_match_id);
+
+  update public.matches
+  set pot_tokens = pot_tokens + c_entry_fee
+  where id = v_match_id;
+
+  return jsonb_build_object(
+    'match_id',    v_match_id,
+    'seat',        v_seat,
+    'status',      'waiting',
+    'max_players', v_size
+  );
+end;
+$$;
+
+revoke all on function public.join_pvp_match(uuid, smallint, text, text, text) from public, anon, authenticated;
+grant execute on function public.join_pvp_match(uuid, smallint, text, text, text) to service_role;
+
 -- ---------------------------------------------------------------------------
--- 14. pg_cron — backstop sweeper. Runs every minute so an abandoned match
+-- 16. pg_cron — backstop sweeper. Runs every minute so an abandoned match
 --     settles within ~1 min of its hard 5-minute cap. Strongly recommended:
 --     without it, a match where every client vanished never settles.
 --     Run this separately ONLY if pg_cron is enabled on your Supabase project.

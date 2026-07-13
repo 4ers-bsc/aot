@@ -46,6 +46,12 @@ let ENTRY_FEE_RAW   = BigInt(ENTRY_FEE) * BigInt(10) ** BigInt(FIGHT10_DECIMALS)
 // ((total * winner_share_bps) / 10000): every place the UI promises a prize
 // derives from this.
 let WINNER_SHARE    = 0.9;
+// Whether the authoritative entry fee + winner share have been loaded from the
+// DB this session. The literals above are for DISPLAY ONLY until this is true —
+// no money-moving action (deposit/join) may run against a guessed fee, because
+// the server verifies the deposit against the exact pvp_config value and a
+// mismatch means the player pays but cannot enter. Gated in startPvp(). (#3)
+let pvpConfigReady = false;
 
 // The ethers library (~350 KB) is only needed for deposits and balance
 // checks, never to reach the menu — so it is dynamically imported on first
@@ -285,17 +291,28 @@ async function loadMatchConfig() {
 async function loadPvpConfig() {
   try {
     const { data, error } = await supabase.rpc("pvp_settings");
-    if (error || !data) return;
-    if (Number.isFinite(data.entry_fee_tokens) && data.entry_fee_tokens > 0) {
-      ENTRY_FEE = data.entry_fee_tokens;
-      ENTRY_FEE_RAW = BigInt(ENTRY_FEE) * BigInt(10) ** BigInt(FIGHT10_DECIMALS);
-    }
-    if (Number.isFinite(data.winner_share_bps) && data.winner_share_bps > 0) {
-      WINNER_SHARE = data.winner_share_bps / 10000;
-    }
+    if (error || !data) return false;
+    const feeOk   = Number.isFinite(data.entry_fee_tokens) && data.entry_fee_tokens > 0;
+    const shareOk = Number.isFinite(data.winner_share_bps) && data.winner_share_bps > 0;
+    // A partial/garbage config is treated as NOT ready — we never move money
+    // against a half-loaded fee. Both fields must be present and sane.
+    if (!feeOk || !shareOk) return false;
+    ENTRY_FEE = data.entry_fee_tokens;
+    ENTRY_FEE_RAW = BigInt(ENTRY_FEE) * BigInt(10) ** BigInt(FIGHT10_DECIMALS);
+    WINNER_SHARE = data.winner_share_bps / 10000;
+    pvpConfigReady = true;
+    return true;
   } catch (e) {
     console.error("loadPvpConfig error:", e);
+    return false;
   }
+}
+
+// Ensure the authoritative entry fee/share are loaded before any paid action.
+// Retries the load once if the boot fire-and-forget hasn't landed (or failed).
+async function ensurePvpConfigReady() {
+  if (pvpConfigReady) return true;
+  return await loadPvpConfig();
 }
 
 // ---------------------------------------------------------------------------
@@ -1279,6 +1296,15 @@ function hideGameOver() {
 
 async function startPvp() {
   if (!state.user) { signIn(); return; }
+  // Paid-config gate (#3): the entry fee and winner share MUST be the exact
+  // pvp_config values the server will verify the deposit against — never a
+  // baked-in guess. If they haven't loaded (slow/failed boot read), try once
+  // more here, and refuse to open the paid flow if still unavailable rather
+  // than let the player deposit a wrong amount and get stuck.
+  if (!(await ensurePvpConfigReady())) {
+    setStatus("Paid matches are temporarily unavailable — please try again in a moment.");
+    return;
+  }
   // Balance gate BEFORE the lobby-size picker: entering PvP costs 10,000
   // $FIGHT10, so a wallet that can't cover it gets the buy prompt right away
   // instead of a payment flow that would only fail later. A held (already
@@ -1673,6 +1699,14 @@ async function depositEntryFee(numPlayers = 2) {
 
   if (FIGHT10_TOKEN.startsWith("<") || ESCROW_WALLET.startsWith("<")) {
     setStatus("Game not configured for live deposits yet (missing token/escrow address).");
+    return null;
+  }
+
+  // Final money-movement guard (#3): never transfer against a fee that isn't the
+  // authoritative DB value. startPvp() already gates on this, but re-check here
+  // so no future call path can reach an on-chain transfer with a guessed fee.
+  if (!(await ensurePvpConfigReady())) {
+    setStatus("Paid matches are temporarily unavailable — please try again in a moment.");
     return null;
   }
 

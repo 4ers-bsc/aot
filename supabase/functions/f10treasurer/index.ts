@@ -158,7 +158,9 @@ Deno.serve(async (req: Request) => {
 
   let matchId = "";
   let slotClaimed = false;   // tracks whether we set payout_tx = 'pending'
-  let payoutConfirmed = false; // tracks whether the on-chain tx was confirmed
+  let broadcast = false;     // tracks whether the transfer was broadcast (nonce spent)
+  let escrowLocked = false;  // tracks whether we hold the global escrow lock
+  let escrowLockHolder = ""; // our unique holder token for that lock
 
   try {
     const authHeader = req.headers.get("Authorization");
@@ -178,7 +180,9 @@ Deno.serve(async (req: Request) => {
 
     // ── Validate match state ─────────────────────────────────────────────────
     const { data: matchRow, error: matchErr } = await adminClient
-      .from("matches").select("id, status, winner_user_id, payout_tx").eq("id", matchId).maybeSingle();
+      .from("matches")
+      .select("id, status, winner_user_id, payout_tx, entry_fee_tokens, winner_share_bps")
+      .eq("id", matchId).maybeSingle();
     if (matchErr || !matchRow) return errorResponse("Match not found", 404);
     if (matchRow.status !== "finished") return errorResponse("Match is not finished", 400);
     if (matchRow.winner_user_id !== user.id) return errorResponse("Only the winner may claim", 403);
@@ -224,15 +228,18 @@ Deno.serve(async (req: Request) => {
     // and the payout transfer.
     const decimals = Number(await rpc.run((p) =>
       new Contract(tokenAddr, ERC20_ABI, p).decimals()));
-    // Entry fee + winner share are tunables in pvp_config (single source of
-    // truth shared with the client + f10join/f10admin). Fall back to the
-    // historical literals if the row is unreadable so a DB blip never strands a
-    // payout. The pvp_config_guard trigger blocks fee changes while matches are
-    // live, so the fee here always matches what the player deposited.
+    // Entry fee + winner share are frozen onto the match when it is created
+    // (join_pvp_match snapshots pvp_config), so a later admin config edit can
+    // never change how THIS match's deposits are verified or its prize is
+    // computed (#4). Prefer that snapshot; fall back to live pvp_config for
+    // matches created before the snapshot columns existed, then to the
+    // historical literals so a DB blip never strands a payout.
     const { data: cfg } = await adminClient
       .from("pvp_config").select("entry_fee_tokens, winner_share_bps").maybeSingle();
-    const entryFeeTokens = Number(cfg?.entry_fee_tokens) > 0 ? Number(cfg.entry_fee_tokens) : 2500;
-    const winnerShareBps = Number(cfg?.winner_share_bps) > 0 ? Number(cfg.winner_share_bps) : 9000;
+    const entryFeeTokens = Number(matchRow.entry_fee_tokens) > 0 ? Number(matchRow.entry_fee_tokens)
+      : Number(cfg?.entry_fee_tokens) > 0 ? Number(cfg.entry_fee_tokens) : 2500;
+    const winnerShareBps = Number(matchRow.winner_share_bps) > 0 ? Number(matchRow.winner_share_bps)
+      : Number(cfg?.winner_share_bps) > 0 ? Number(cfg.winner_share_bps) : 9000;
     const entryFeeRaw = BigInt(entryFeeTokens) * BigInt(10) ** BigInt(decimals);
 
     // ── Verify each deposit tx is mined, succeeded, and paid escrow ──────────
@@ -282,6 +289,29 @@ Deno.serve(async (req: Request) => {
     if (!slotOk) return errorResponse("Prize already claimed", 409);
     slotClaimed = true;
 
+    // ── Serialise escrow usage across matches (#6) ───────────────────────────
+    // Every invocation builds its own escrow wallet, so two concurrent payouts
+    // would read the same pending nonce and one tx would replace/invalidate the
+    // other. Hold a durable single-flight lock across nonce assignment +
+    // broadcast, then release it the instant the tx is in the mempool (distinct
+    // nonces from then on). The lock's TTL lets a crashed holder self-heal.
+    escrowLockHolder = `${matchId}:${crypto.randomUUID()}`;
+    for (let attempt = 0; ; attempt++) {
+      const { data: got } = await adminClient.rpc("begin_escrow_payout", { p_holder: escrowLockHolder, p_ttl_seconds: 90 });
+      if (got === true) { escrowLocked = true; break; }
+      if (attempt >= 20) {
+        // Couldn't get the escrow lock and nothing was broadcast — release our
+        // reservation so the winner can retry cleanly instead of waiting out the
+        // 10-minute stale-'pending' window.
+        await adminClient.from("matches")
+          .update({ payout_tx: null, payout_claimed_at: null })
+          .eq("id", matchId).eq("payout_tx", "pending").catch(() => {});
+        slotClaimed = false;
+        return errorResponse("Another payout is in progress — please retry in a moment", 503, matchId);
+      }
+      await new Promise((r) => setTimeout(r, 1500));
+    }
+
     // ── On-chain token transfer ───────────────────────────────────────────────
     const totalRaw        = BigInt(players.length) * entryFeeRaw;
     const winnerAmountRaw = (totalRaw * BigInt(winnerShareBps)) / BigInt(10000);
@@ -292,56 +322,72 @@ Deno.serve(async (req: Request) => {
     const signer = escrowWallet.connect(payProvider);
     const token = new Contract(tokenAddr, ERC20_ABI, signer);
     const sentTx = await token.transfer(winnerAddr, winnerAmountRaw);
-    const payoutSig: string = sentTx.hash;
+    const payoutSig: string = String(sentTx.hash).toLowerCase(); // #7 normalise
+    broadcast = true;
 
-    // Fix 2 (partial): Poll for on-chain confirmation; throw explicitly on timeout
-    // so the catch block correctly releases the slot (tx never landed).
+    // Nonce consumed + tx broadcast — release the escrow lock so other matches
+    // can proceed in parallel. The confirm poll below does not need it.
+    if (escrowLocked) {
+      escrowLocked = false;
+      await adminClient.rpc("end_escrow_payout", { p_holder: escrowLockHolder }).catch(() => {});
+    }
+
+    // #5: persist the REAL tx hash immediately, BEFORE waiting for the receipt.
+    // Once broadcast, a retry must never send a second transfer, so the slot has
+    // to hold the real hash even if the receipt is slow. A receipt TIMEOUT must
+    // leave the payout recorded-as-sent, not cleared back to unpaid (double-pay).
+    let hashWritten = false;
+    for (let attempt = 0; attempt < 5; attempt++) {
+      if (attempt > 0) await new Promise((r) => setTimeout(r, 1000 * attempt));
+      const { error: writeErr } = await adminClient
+        .from("matches").update({ payout_tx: payoutSig }).eq("id", matchId);
+      if (!writeErr) { hashWritten = true; break; }
+      console.error(`DB hash write attempt ${attempt + 1} failed:`, writeErr);
+    }
+    if (hashWritten) slotClaimed = false; // slot now holds the real hash, not 'pending'
+
+    // Poll for on-chain confirmation. A REVERT is definitive (no tokens moved),
+    // so we clear the recorded hash and let the winner retry. A TIMEOUT is NOT
+    // definitive — the tx may still confirm — so we keep the hash and report it
+    // as sent-but-pending rather than risk a double transfer.
     const deadline = Date.now() + 90000;
     let confirmed = false;
+    let reverted = false;
     while (Date.now() < deadline) {
       const receipt = await payProvider.getTransactionReceipt(payoutSig).catch(() => null);
       if (receipt) {
-        if (receipt.status !== 1) throw new Error("Payout tx reverted on-chain: " + payoutSig);
+        if (receipt.status !== 1) { reverted = true; break; }
         confirmed = true;
         break;
       }
       await new Promise((r) => setTimeout(r, 2000));
     }
-    if (!confirmed) throw new Error(`Payout tx not confirmed after 90s — hash: ${payoutSig}`);
 
-    // Fix 4: Mark tx as confirmed before writing to DB. Retry the DB write up to 5 times
-    // so a transient DB failure after a confirmed on-chain tx does not clear the payout
-    // slot and risk a second transfer on winner retry.
-    payoutConfirmed = true;
-    let dbWritten = false;
-    for (let attempt = 0; attempt < 5; attempt++) {
-      if (attempt > 0) await new Promise((r) => setTimeout(r, 1000 * attempt));
-      const { error: writeErr } = await adminClient
-        .from("matches")
-        .update({ payout_tx: payoutSig })
-        .eq("id", matchId);
-      if (!writeErr) { dbWritten = true; break; }
-      console.error(`DB write attempt ${attempt + 1} failed:`, writeErr);
+    if (reverted) {
+      // Only clear the slot we actually recorded, and only because the revert is
+      // proof no tokens moved. Guarded on the exact hash so we never wipe an
+      // unrelated later claim.
+      await adminClient.from("matches")
+        .update({ payout_tx: null, payout_claimed_at: null })
+        .eq("id", matchId).eq("payout_tx", payoutSig).catch(() => {});
+      return errorResponse("Payout tx reverted on-chain: " + payoutSig, 502, matchId);
     }
 
-    if (!dbWritten) {
-      // Tx confirmed on-chain but DB record could not be updated after 5 attempts.
-      // Leave payout_tx = 'pending' so the slot is NOT released — prevents a retry
-      // from sending a second transfer. Admin must manually set payout_tx = payoutSig.
-      console.error(`CRITICAL: payout tx ${payoutSig} confirmed on-chain but DB update failed for match ${matchId}. Manual resolution required.`);
-      slotClaimed = false; // prevent catch from clearing the slot
+    if (!hashWritten) {
+      // Broadcast but the hash could not be recorded after retries. Leave the
+      // slot as 'pending' (NOT cleared) so a retry can't double-send; admin must
+      // set payout_tx to the real hash manually.
+      console.error(`CRITICAL: payout tx ${payoutSig} broadcast but DB update failed for match ${matchId}. Manual resolution required.`);
       return errorResponse(
         `Payout sent on-chain (${payoutSig}) but internal record failed. Contact support with this transaction ID.`,
-        500,
+        500, matchId,
       );
     }
-
-    slotClaimed = false; // slot replaced with real hash — no rollback needed
 
     // Record a durable payout row (audit trail + the explorer link the client
     // shows in the victory screen and match history). Best-effort and idempotent
     // (upsert on match_id) — matches.payout_tx remains the source of truth, so a
-    // failure here must not fail an already-confirmed payout.
+    // failure here must not fail an already-broadcast payout.
     // supabase-js reports failures via the returned error, not by throwing —
     // check it explicitly or a failed ledger write vanishes without a trace.
     const { error: ledgerErr } = await adminClient.from("payouts").upsert({
@@ -354,19 +400,26 @@ Deno.serve(async (req: Request) => {
     }, { onConflict: "match_id" });
     if (ledgerErr) console.error("payouts insert failed (non-fatal):", ledgerErr);
 
-    console.log(`[f10treasurer] paid match=${matchId} tx=${payoutSig} amount=${winnerAmountRaw.toString()} players=${players.length}`);
+    console.log(`[f10treasurer] paid match=${matchId} tx=${payoutSig} amount=${winnerAmountRaw.toString()} players=${players.length} confirmed=${confirmed}`);
     return new Response(
-      JSON.stringify({ ok: true, payout_tx: payoutSig, winner_amount: winnerAmountRaw.toString(), num_players: players.length, decimals }),
+      JSON.stringify({ ok: true, payout_tx: payoutSig, winner_amount: winnerAmountRaw.toString(), num_players: players.length, decimals, confirmed }),
       { headers: { "Content-Type": "application/json", ...corsHeaders } },
     );
   } catch (err) {
     console.error("Payout error:", err);
 
-    // Fix 4: Only release the payout slot if the on-chain tx was NOT confirmed.
-    // If payoutConfirmed=true, the transfer already landed — releasing the slot
-    // would allow a retry that sends a second transfer (double-pay).
-    // In that case the slot stays 'pending' and requires manual admin resolution.
-    if (slotClaimed && !payoutConfirmed && matchId) {
+    // Release the escrow lock if we still hold it (error before/around broadcast).
+    if (escrowLocked && escrowLockHolder) {
+      try {
+        const a = createClient(supabaseUrl, supabaseServiceKey);
+        await a.rpc("end_escrow_payout", { p_holder: escrowLockHolder });
+      } catch (_) { /* best-effort; the TTL will free it anyway */ }
+    }
+
+    // Only release the payout slot if the tx was NOT broadcast. Once broadcast,
+    // clearing the slot would let a retry send a SECOND transfer (double-pay);
+    // that case keeps the slot and requires manual admin resolution.
+    if (slotClaimed && !broadcast && matchId) {
       try {
         const adminClient = createClient(supabaseUrl, supabaseServiceKey);
         await adminClient.from("matches")
