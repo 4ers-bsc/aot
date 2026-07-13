@@ -4666,6 +4666,7 @@ body.in-game .log-feed { left: 70px; }
   font-size: 0.72rem;
   color: #f0e8d2;
   line-height: 1.4;
+  white-space: pre-line; /* preserve intentional line breaks in confirm text */
 }
 .admin-input {
   width: 100%;
@@ -4899,6 +4900,30 @@ body.in-game .log-feed { left: 70px; }
 .mon-sub { font-family: var(--font-body); font-size: 0.6rem; color: rgba(233, 224, 200, 0.5); }
 .mon-table td:not(:first-child) { font-variant-numeric: tabular-nums; }
 .db-toolbar { display: flex; flex-wrap: wrap; gap: 10px; margin: 14px 0 4px; }
+.db-legend {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 10px;
+  margin: 10px 0 2px;
+  font-family: var(--font-body);
+  font-size: 0.6rem;
+  color: rgba(233, 224, 200, 0.5);
+}
+.tbl-badge {
+  display: inline-block;
+  padding: 2px 7px;
+  border-radius: 999px;
+  border: 1px solid transparent;
+  font-family: var(--font-body);
+  font-size: 0.58rem;
+  white-space: nowrap;
+  cursor: help;
+}
+.tbl-safe   { color: #9fe0a0; border-color: rgba(90, 170, 90, 0.4);  background: rgba(90, 170, 90, 0.12); }
+.tbl-prune  { color: #f0c088; border-color: rgba(198, 120, 42, 0.45); background: rgba(198, 120, 42, 0.12); }
+.tbl-danger { color: #f2b8ac; border-color: rgba(198, 64, 42, 0.6);  background: rgba(198, 64, 42, 0.14); }
+.tbl-unknown{ color: rgba(233, 224, 200, 0.6); border-color: rgba(255, 255, 255, 0.15); }
 
 /* Edge-function health cards */
 .fn-card {

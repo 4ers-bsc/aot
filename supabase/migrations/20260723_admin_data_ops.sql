@@ -84,9 +84,11 @@ end;
 $$;
 
 -- Wipe ONE public table. Returns how many rows were removed. RESTART IDENTITY
--- resets serial counters; CASCADE also empties tables whose rows reference this
--- one (a plain TRUNCATE would error on an FK) — so wiping a parent clears its
--- children too. IRREVERSIBLE.
+-- resets serial counters. Deliberately NO CASCADE: if another table's foreign
+-- key points at this one, the wipe is REFUSED with the list of referencing
+-- tables — a CASCADE here would silently empty those children too (e.g. wiping
+-- `matches` would also blow away the `consumed_deposits` replay ledger). Wipe
+-- the children first, or use admin_truncate_all() for a full reset. IRREVERSIBLE.
 create or replace function public.admin_truncate_table(p_table text)
 returns bigint
 language plpgsql
@@ -95,10 +97,22 @@ set search_path = public, pg_catalog
 as $$
 declare
   v_count bigint;
+  v_refs  text;
 begin
   perform public.admin_assert_public_table(p_table);
+
+  select string_agg(distinct c.conrelid::regclass::text, ', ' order by c.conrelid::regclass::text)
+    into v_refs
+  from pg_constraint c
+  where c.contype = 'f'
+    and c.confrelid = ('public.' || quote_ident(p_table))::regclass
+    and c.conrelid <> c.confrelid;          -- ignore self-references
+  if v_refs is not null then
+    raise exception 'has_references: % is referenced by: % — wipe those first, or use "Wipe ALL".', p_table, v_refs;
+  end if;
+
   execute format('select count(*) from public.%I', p_table) into v_count;
-  execute format('truncate table public.%I restart identity cascade', p_table);
+  execute format('truncate table public.%I restart identity', p_table);
   return v_count;
 end;
 $$;

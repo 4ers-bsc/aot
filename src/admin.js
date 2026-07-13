@@ -41,6 +41,37 @@ const INFO_TABS = new Set(["payouts", "consumed_deposits", "notes"]);
 // keeps its own loading / error state.
 const CUSTOM_TABS = new Set(["cashflow", "db", "functions", "constants"]);
 
+// Wipe-safety classification for the Database tab. Purely advisory — the backend
+// still gates every wipe behind a typed confirmation and refuses to cascade — but
+// it tells the operator at a glance what's safe to clear vs. what would destroy
+// financial / security / identity / config state.
+//   safe   — transient, regenerates on its own; fine to wipe anytime
+//   prune  — historical logs; only clear OLD/finished rows, never live
+//   danger — money / replay-protection / identity / config; do not wipe on prod
+const TABLE_SAFETY = {
+  rate_limits:       ["safe",   "Transient throttle windows — regenerate instantly. Safe to wipe anytime."],
+  match_damage:      ["prune",  "Combat ledger (read by settlement). Only prune OLD finished matches — wiping live matches breaks their settlement."],
+  match_kills:       ["prune",  "Combat ledger. Only prune OLD finished matches — never wipe while games are live."],
+  integrity_signals: ["prune",  "Anticheat audit trail — grows slowly; prune old entries if needed."],
+  review_notes:      ["prune",  "Admin audit notes — historical."],
+  matches:           ["danger", "Payout source of truth. Wiping destroys payout + deposit history."],
+  match_players:     ["danger", "Holds the paid deposit tx / wallet for each seat."],
+  consumed_deposits: ["danger", "Deposit replay-protection ledger — NEVER wipe on prod (enables replaying spent deposits)."],
+  payouts:           ["danger", "Payout / cash-flow ledger."],
+  profiles:          ["danger", "User identity, wallet and stats."],
+  banned_users:      ["danger", "Wiping this unbans everyone."],
+  pvp_config:        ["danger", "Global PvP tunables (config)."],
+  match_config:      ["danger", "Per-lobby match durations (config)."],
+  maintain:          ["danger", "Maintenance switch (config)."],
+};
+const safetyOf = (name) => TABLE_SAFETY[name] || ["unknown", "Unclassified — treat as sensitive; wipe only if you're sure."];
+const SAFETY_META = {
+  safe:    ["🟢", "Safe"],
+  prune:   ["🟡", "Prune-only"],
+  danger:  ["🔴", "Do not wipe"],
+  unknown: ["⚪", "Unknown"],
+};
+
 // Raw on-chain units → whole $FIGHT10. ERC-20 default is 18 decimals
 // (override with VITE_FIGHT10_DECIMALS); pass decimals 0 for values already
 // stored in whole tokens (matches.pot_tokens).
@@ -469,8 +500,12 @@ export function initAdmin(supabase) {
     if (a === "db_wipe") {
       const t = btn.dataset.table;
       const n = Number(btn.dataset.rows || 0);
+      const [cls, why] = safetyOf(t);
+      const warn = cls === "danger" ? `🔴 PROTECTED TABLE — ${why}\n\n`
+                 : cls === "prune"  ? `🟡 ${why}\n\n`
+                 : "";
       if (await askExact(
-        `Permanently delete every row in “${t}”${n ? ` (~${fmtInt(n)} rows)` : ""}? This TRUNCATEs the table (CASCADE — rows referencing it go too) and cannot be undone. Type the table name to confirm.`,
+        `${warn}Permanently delete every row in “${t}”${n ? ` (~${fmtInt(n)} rows)` : ""}? This TRUNCATEs the table (no cascade — refused if another table references it) and cannot be undone. Type the table name to confirm.`,
         t, "Wipe table", t)) {
         dbWipe(t, t);
       }
@@ -822,6 +857,12 @@ export function initAdmin(supabase) {
   }
 
   // ---- Database monitoring --------------------------------------------------
+  function safetyBadge(name) {
+    const [cls, why] = safetyOf(name);
+    const [icon, label] = SAFETY_META[cls] || SAFETY_META.unknown;
+    return `<span class="tbl-badge tbl-${cls}" title="${escapeHtml(why)}">${icon} ${label}</span>`;
+  }
+
   function renderDbStats() {
     if (dbstatsLoading && !dbstats) return `<div class="admin-msg">Loading…</div>`;
     if (dbstatsError)              return `<div class="admin-msg admin-err">${escapeHtml(dbstatsError)}</div>`;
@@ -861,6 +902,7 @@ export function initAdmin(supabase) {
 
     const rows = (dbstats.tables || []).map((t) => `<tr>
       <td>${escapeHtml(t.name)}</td>
+      <td>${safetyBadge(t.name)}</td>
       <td class="admin-nowrap admin-right-txt">${fmtInt(t.rows)}</td>
       <td class="admin-nowrap admin-right-txt">${t.dead_rows ? fmtInt(t.dead_rows) : "—"}</td>
       <td class="admin-nowrap admin-right-txt">${fmtBytes(t.total_bytes)}</td>
@@ -872,7 +914,7 @@ export function initAdmin(supabase) {
     </tr>`).join("");
 
     const table = rows
-      ? `<table class="admin-table mon-table">${thead(["Table", "Rows (est.)", "Dead", "Size", "Analyzed", "Actions"])}${rows}</tbody></table>`
+      ? `<table class="admin-table mon-table">${thead(["Table", "Wipe safety", "Rows (est.)", "Dead", "Size", "Analyzed", "Actions"])}${rows}</tbody></table>`
       : `<div class="admin-msg">No user tables reported.</div>`;
 
     // Snapshot / wipe toolbar. Downloads run client-side from the returned JSON;
@@ -882,8 +924,14 @@ export function initAdmin(supabase) {
       <button class="admin-btn admin-btn-sm admin-danger" data-act="db_wipe_all">⚠ Wipe ALL tables</button>
     </div>`;
 
-    return cards + toolbar +
-      `<p class="admin-note">Row counts are the planner's live estimates (refreshed by autovacuum/analyze). A high dead-row count or a low cache-hit ratio can indicate a table that needs vacuuming. <b>Wipe</b> permanently deletes every row (TRUNCATE … CASCADE) — snapshot first.</p>` +
+    const legend = `<div class="db-legend">
+      <span class="tbl-badge tbl-safe">🟢 Safe</span> regenerates on its own ·
+      <span class="tbl-badge tbl-prune">🟡 Prune-only</span> clear old / finished rows, not live ·
+      <span class="tbl-badge tbl-danger">🔴 Do not wipe</span> money / security / identity / config
+    </div>`;
+
+    return cards + toolbar + legend +
+      `<p class="admin-note">Row counts are the planner's live estimates (refreshed by autovacuum/analyze); a high dead-row count or low cache-hit ratio can mean a table needs vacuuming. <b>Wipe</b> permanently deletes every row (TRUNCATE, no cascade — refused if another table references it). <b>Wipe ALL</b> empties every table together. Snapshot first — this can't be undone.</p>` +
       table;
   }
 

@@ -1917,6 +1917,8 @@ begin
 end;
 $$;
 
+-- No CASCADE: refuse to wipe a table that others reference (avoids silently
+-- emptying children like consumed_deposits). Use admin_truncate_all for a reset.
 create or replace function public.admin_truncate_table(p_table text)
 returns bigint
 language plpgsql
@@ -1925,10 +1927,22 @@ set search_path = public, pg_catalog
 as $$
 declare
   v_count bigint;
+  v_refs  text;
 begin
   perform public.admin_assert_public_table(p_table);
+
+  select string_agg(distinct c.conrelid::regclass::text, ', ' order by c.conrelid::regclass::text)
+    into v_refs
+  from pg_constraint c
+  where c.contype = 'f'
+    and c.confrelid = ('public.' || quote_ident(p_table))::regclass
+    and c.conrelid <> c.confrelid;
+  if v_refs is not null then
+    raise exception 'has_references: % is referenced by: % — wipe those first, or use "Wipe ALL".', p_table, v_refs;
+  end if;
+
   execute format('select count(*) from public.%I', p_table) into v_count;
-  execute format('truncate table public.%I restart identity cascade', p_table);
+  execute format('truncate table public.%I restart identity', p_table);
   return v_count;
 end;
 $$;

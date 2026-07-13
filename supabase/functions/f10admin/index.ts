@@ -725,8 +725,12 @@ Deno.serve(async (req: Request) => {
             if (confirm !== table) return fail(`Confirmation mismatch — type the exact table name ('${table}') to wipe it.`);
             const { data, error } = await admin.rpc("admin_truncate_table", { p_table: table });
             if (error) {
-              if ((error.message || "").includes("unknown_table")) return fail(`Unknown table '${table}'`);
-              return fail(`Wipe failed: ${error.message}`, 500);
+              const m = error.message || "";
+              if (m.includes("unknown_table")) return fail(`Unknown table '${table}'`);
+              // Refused because other tables' FKs reference this one — surface
+              // the referencing tables so the operator knows what to wipe first.
+              if (m.includes("has_references")) return fail(m.replace(/^.*has_references:\s*/, "").trim());
+              return fail(`Wipe failed: ${m}`, 500);
             }
             await logNote("general", table, `WIPED table ${table} (${data ?? 0} rows removed)`, "db_wipe");
             return json({ ok: true, table, rows_removed: data ?? 0 });
