@@ -4805,6 +4805,65 @@ body.in-game .log-feed { left: 70px; }
 .admin-input:focus { outline: none; border-color: var(--gold); }
 .admin-modal-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 14px; }
 
+/* Clickable match reference (id / number) → opens the match-detail modal. */
+.admin-linkish {
+  appearance: none;
+  background: none;
+  border: none;
+  padding: 0;
+  margin: 0;
+  cursor: pointer;
+  font: inherit;
+  color: var(--gold-hi);
+  border-bottom: 1px dotted rgba(212, 160, 23, 0.5);
+  transition: border-color 0.12s ease, color 0.12s ease;
+}
+.admin-linkish:hover { border-bottom-style: solid; color: #ffd76a; }
+.admin-linkish:focus-visible { outline: 2px solid var(--gold); outline-offset: 2px; }
+.admin-linkish--head { font-weight: 700; font-size: 0.9rem; color: #f4ecd6; border-bottom-color: rgba(212, 160, 23, 0.35); }
+.admin-linkish--head:hover { color: #ffe08a; }
+
+/* Match-detail modal: wider than the input modals, scrolls if tall. */
+.admin-modal-wide {
+  width: min(720px, 100%);
+  max-height: 84vh;
+  overflow-y: auto;
+}
+.admin-detail-head {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-bottom: 12px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid rgba(212, 160, 23, 0.25);
+}
+.admin-detail-title { font-family: var(--font-head, var(--font-body)); font-weight: 700; font-size: 1rem; color: #f4ecd6; }
+.admin-detail-section {
+  margin: 16px 0 8px;
+  font-size: 0.6rem;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: rgba(212, 160, 23, 0.75);
+}
+.admin-detail-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(210px, 1fr));
+  gap: 6px 18px;
+}
+.admin-detail-kv { display: flex; justify-content: space-between; gap: 10px; font-size: 0.72rem; padding: 3px 0; border-bottom: 1px solid rgba(255, 255, 255, 0.05); }
+.admin-detail-k { color: rgba(240, 232, 210, 0.5); }
+.admin-detail-v { color: #f0e8d2; text-align: right; overflow-wrap: anywhere; }
+.admin-detail-table { margin-top: 4px; font-size: 0.68rem; }
+.admin-detail-notes { display: flex; flex-direction: column; gap: 8px; }
+.admin-detail-notes .admin-note { font-size: 0.72rem; color: #e8dfc6; }
+.admin-detail-err { font-size: 0.75rem; color: #f2b8ac; line-height: 1.45; }
+
+@media (max-width: 640px) {
+  .admin-detail-grid { grid-template-columns: 1fr; }
+  .admin-modal-wide { max-height: 90vh; }
+}
+
 .admin-toast {
   position: absolute;
   left: 50%;

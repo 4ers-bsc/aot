@@ -558,6 +558,58 @@ Deno.serve(async (req: Request) => {
           });
         }
 
+        case "match_detail": {
+          // Full drill-down for one match: the row itself (incl. the economics
+          // snapshot), every seat with its deposit, the payout ledger row, the
+          // review notes filed against it, and the combat ledger totals. Powers
+          // the dashboard's clickable match-id detail modal. Read-only.
+          const matchId = String(body?.match_id ?? "");
+          if (!matchId) return fail("match_id is required");
+          const [mRes, seatsRes, payRes, notesRes, dmgRes, killRes] = await Promise.all([
+            admin.from("matches")
+              .select("id, match_no, status, max_players, created_by, winner_user_id, created_at, started_at, ended_at, pot_tokens, payout_tx, payout_claimed_at, stats_applied, entry_fee_tokens, winner_share_bps, duration_seconds, economics_version, forfeited_user_ids")
+              .eq("id", matchId).maybeSingle(),
+            admin.from("match_players")
+              .select("user_id, seat, display_name, joined_at, deposit_tx, deposit_wallet, final_hp, last_seen")
+              .eq("match_id", matchId).order("seat", { ascending: true }),
+            admin.from("payouts")
+              .select("payout_tx, amount_raw, decimals, num_players, winner_user_id, created_at")
+              .eq("match_id", matchId).maybeSingle(),
+            admin.from("review_notes")
+              .select("id, subject_type, note, action, author_id, created_at")
+              .eq("subject_id", matchId).order("created_at", { ascending: false }).limit(50),
+            admin.from("match_damage")
+              .select("attacker, victim, total_damage, hit_count").eq("match_id", matchId),
+            admin.from("match_kills")
+              .select("attacker, victim, t_ms").eq("match_id", matchId),
+          ]);
+          const dErr = [mRes, seatsRes, payRes, notesRes, dmgRes, killRes].find((r: any) => r.error)?.error;
+          if (dErr) return fail(`match_detail failed: ${dErr.message}`, 500);
+          if (!mRes.data) return fail("Match not found", 404);
+
+          const seats = seatsRes.data ?? [];
+          const nameMap = await resolveNames([
+            mRes.data.winner_user_id, mRes.data.created_by,
+            ...seats.map((s: any) => s.user_id),
+            ...(notesRes.data ?? []).map((n: any) => n.author_id),
+          ]);
+          const nm = (id?: string | null) => (id ? nameMap.get(id)?.name ?? null : null);
+          const wl = (id?: string | null) => (id ? nameMap.get(id)?.wallet ?? null : null);
+
+          return json({
+            ok: true,
+            match: mRes.data,
+            created_by_name: nm(mRes.data.created_by),
+            winner_name: nm(mRes.data.winner_user_id),
+            winner_wallet: wl(mRes.data.winner_user_id),
+            players: seats.map((s: any) => ({ ...s, name: nm(s.user_id) })),
+            payout: payRes.data ?? null,
+            notes: (notesRes.data ?? []).map((n: any) => ({ ...n, author_name: nm(n.author_id) })),
+            damage: dmgRes.data ?? [],
+            kills: killRes.data ?? [],
+          });
+        }
+
         case "add_note": {
           const subject_type = String(body?.subject_type ?? "general");
           const subject_id = body?.subject_id != null ? String(body.subject_id) : null;

@@ -125,6 +125,14 @@ const fmtDuration = (secs) => {
 };
 const player = (p) => escapeHtml(p?.display_name || p?.name || shortId(p?.user_id));
 
+// A clickable match reference. Rendered everywhere a match id / number is shown
+// so the operator can click through to the match-detail modal. `cls` lets a
+// header render bolder than an inline table cell.
+const matchRef = (id, label, cls = "") =>
+  id
+    ? `<button type="button" class="admin-linkish ${cls}" data-act="match_detail" data-match="${id}" title="View match details">${escapeHtml(label ?? shortId(id))}</button>`
+    : escapeHtml(label ?? "—");
+
 // Blockscout explorer links (network-aware via network.js) so the operator
 // can review a transaction / address on-chain.
 const txLink = (sig, label) =>
@@ -508,12 +516,131 @@ export function initAdmin(supabase) {
   const askExact = (label, expected, okText = "Confirm", placeholder = "") =>
     modal({ label, placeholder, okText }).then((v) => v != null && String(v).trim() === expected);
 
+  // ---- Match-detail drill-down ---------------------------------------------
+  // Clicking any match id/number opens this read-only modal with the full match
+  // record: economics snapshot, every seat + deposit, payout state, combat
+  // totals, and notes. Fetched on demand from the f10admin `match_detail` action.
+  function detailHost() { return root.querySelector("#adminModalHost"); }
+  function closeDetail() { const h = detailHost(); if (h) h.innerHTML = ""; }
+  function wireDetail(host) {
+    const back = host.querySelector(".admin-modal-back");
+    const closeBtn = host.querySelector('[data-md="close"]');
+    closeBtn.onclick = closeDetail;
+    back.onclick = (e) => { if (e.target.classList.contains("admin-modal-back")) closeDetail(); };
+    back.addEventListener("keydown", (e) => { if (e.key === "Escape") { e.preventDefault(); closeDetail(); } });
+    closeBtn.focus();
+  }
+  function detailShell(inner) {
+    return `<div class="admin-modal-back"><div class="admin-modal admin-modal-wide" role="dialog" aria-modal="true" aria-label="Match details">
+      ${inner}
+      <div class="admin-modal-actions"><button class="admin-btn admin-btn-sm admin-primary" data-md="close">Close</button></div>
+    </div></div>`;
+  }
+  async function showMatchDetail(matchId) {
+    if (!matchId) return;
+    const host = detailHost();
+    if (!host) return;
+    host.innerHTML = detailShell(`<div class="admin-modal-label">Loading match…</div>`);
+    wireDetail(host);
+    try {
+      const { data: resp, error } = await supabase.functions.invoke("f10admin", {
+        body: { action: "match_detail", match_id: matchId },
+      });
+      if (error) {
+        let reason = error.message || "request failed";
+        try { const b = await error.context?.json?.(); if (b?.error) reason = b.error; } catch (_) {}
+        throw new Error(reason);
+      }
+      if (!resp?.ok) throw new Error(resp?.error || "request failed");
+      host.innerHTML = detailShell(renderMatchDetail(resp));
+    } catch (err) {
+      host.innerHTML = detailShell(`<div class="admin-modal-label">Match details</div>
+        <div class="admin-detail-err">Could not load match: ${escapeHtml(String(err?.message || err))}</div>`);
+    }
+    wireDetail(host);
+  }
+
+  function renderMatchDetail(d) {
+    const m = d.match || {};
+    const kv = (k, v) => `<div class="admin-detail-kv"><span class="admin-detail-k">${escapeHtml(k)}</span><span class="admin-detail-v">${v}</span></div>`;
+    const statusFlag = `<span class="admin-flag">${escapeHtml(m.status || "—")}</span>`;
+
+    // Payout state, read from matches.payout_tx (the source of truth).
+    const payTx = m.payout_tx;
+    const payState = !payTx ? "unclaimed"
+      : payTx === "pending" ? `pending${m.payout_claimed_at ? ` since ${ago(m.payout_claimed_at)}` : ""}`
+      : "paid";
+    const payTxHtml = payTx && payTx !== "pending" ? txLink(payTx) : escapeHtml(payState);
+    const ledger = d.payout
+      ? `${(Number(d.payout.amount_raw) / 10 ** (d.payout.decimals ?? TOKEN_DECIMALS)).toLocaleString(undefined, { maximumFractionDigits: 0 })} $FIGHT10 · ${d.payout.num_players ?? "—"} players`
+      : "—";
+
+    const overview = `<div class="admin-detail-grid">
+      ${kv("Status", statusFlag)}
+      ${kv("Lobby size", `${m.max_players ?? "—"}-player`)}
+      ${kv("Pot (bookkeeping)", fmtTokens(m.pot_tokens, 0) + " $FIGHT10")}
+      ${kv("Entry fee (snapshot)", m.entry_fee_tokens != null ? `${fmtInt(m.entry_fee_tokens)} $FIGHT10` : "— (pre-snapshot)")}
+      ${kv("Winner share (snapshot)", m.winner_share_bps != null ? `${m.winner_share_bps} bps (${(m.winner_share_bps / 100).toFixed(0)}%)` : "— (pre-snapshot)")}
+      ${kv("Duration (snapshot)", m.duration_seconds != null ? fmtDuration(m.duration_seconds) : "— (live match_config)")}
+      ${kv("Economics ver.", m.economics_version ?? "—")}
+      ${kv("Stats applied", m.stats_applied ? "yes" : "no")}
+      ${kv("Created", `${fmtTime(m.created_at)} (${ago(m.created_at)})`)}
+      ${kv("Started", m.started_at ? `${fmtTime(m.started_at)} (${ago(m.started_at)})` : "—")}
+      ${kv("Ended", m.ended_at ? `${fmtTime(m.ended_at)} (${ago(m.ended_at)})` : "—")}
+      ${kv("Created by", escapeHtml(d.created_by_name || shortId(m.created_by)))}
+    </div>`;
+
+    const winnerBlock = `<div class="admin-detail-grid">
+      ${kv("Winner", m.winner_user_id ? `${escapeHtml(d.winner_name || shortId(m.winner_user_id))}${d.winner_wallet ? ` · <span class="admin-mono">${addrLink(d.winner_wallet)}</span>` : ""}` : "—")}
+      ${kv("Payout", payTxHtml)}
+      ${kv("Payout ledger", ledger)}
+    </div>`;
+
+    // Per-seat deposits — the money side the operator most often needs.
+    const dmgBy = {};
+    for (const r of (d.damage || [])) dmgBy[r.attacker] = (dmgBy[r.attacker] || 0) + Number(r.total_damage || 0);
+    const killsBy = {};
+    for (const k of (d.kills || [])) killsBy[k.attacker] = (killsBy[k.attacker] || 0) + 1;
+    const players = (d.players || []).map((p) => `<tr>
+      <td class="admin-nowrap">#${p.seat}</td>
+      <td>${escapeHtml(p.name || shortId(p.user_id))}</td>
+      <td class="admin-mono">${p.deposit_wallet ? addrLink(p.deposit_wallet) : "—"}</td>
+      <td class="admin-mono">${p.deposit_tx ? txLink(p.deposit_tx) : `<span class="admin-flag admin-flag-red">no deposit</span>`}</td>
+      <td class="admin-nowrap">${p.final_hp ?? "—"}</td>
+      <td class="admin-nowrap">${fmtInt(dmgBy[p.user_id] || 0)}</td>
+      <td class="admin-nowrap">${killsBy[p.user_id] || 0}</td>
+      <td class="admin-nowrap" title="${fmtTime(p.last_seen)}">${p.last_seen ? ago(p.last_seen) : "—"}</td>
+    </tr>`).join("");
+    const playersTable = `<table class="admin-table admin-detail-table">
+      <thead><tr><th>Seat</th><th>Player</th><th>Deposit wallet</th><th>Deposit tx</th><th>Final HP</th><th>Dmg</th><th>Kills</th><th>Last seen</th></tr></thead>
+      <tbody>${players || `<tr><td colspan="8" class="admin-dim">No seats recorded.</td></tr>`}</tbody></table>`;
+
+    const notes = (d.notes || []).length
+      ? `<div class="admin-detail-notes">${d.notes.map((n) => `<div class="admin-note">
+          <span class="admin-dim">${fmtTime(n.created_at)} · ${escapeHtml(n.action || "note")} · ${escapeHtml(n.author_name || shortId(n.author_id))}</span>
+          <div>${escapeHtml(n.note)}</div></div>`).join("")}</div>`
+      : `<div class="admin-dim">No notes.</div>`;
+
+    return `<div class="admin-detail-head">
+        <span class="admin-detail-title">Match #${m.match_no ?? shortId(m.id)}</span>
+        <span class="admin-mono admin-dim">${escapeHtml(m.id || "")}</span>
+      </div>
+      ${overview}
+      <div class="admin-detail-section">Winner &amp; payout</div>${winnerBlock}
+      <div class="admin-detail-section">Seats &amp; deposits</div>${playersTable}
+      <div class="admin-detail-section">Notes</div>${notes}`;
+  }
+
   // ---- Row action handler ---------------------------------------------------
   async function onAction(e) {
     const btn = e.target.closest("[data-act]");
     if (!btn) return;
     const { act: a, match, user } = btn.dataset;
 
+    if (a === "match_detail") {
+      showMatchDetail(match);
+      return;
+    }
     if (a === "cf_apply") {
       cashflowFilters = {
         from:   root.querySelector("#cfFrom")?.value.trim() || "",
@@ -813,7 +940,7 @@ export function initAdmin(supabase) {
       ? `${r.amount.toLocaleString(undefined, { maximumFractionDigits: 0 })} $FIGHT10` : "—";
     return `<tr>
       <td class="admin-nowrap" title="${fmtTime(r.created_at)}">${ago(r.created_at)}</td>
-      <td class="admin-nowrap">#${r.match_no ?? shortId(r.match_id)}</td>
+      <td class="admin-nowrap">${matchRef(r.match_id, `#${r.match_no ?? shortId(r.match_id)}`)}</td>
       <td>${escapeHtml(r.winner_name || shortId(r.winner_user_id))}</td>
       <td class="admin-mono">${r.winner_wallet ? addrLink(r.winner_wallet) : "—"}</td>
       <td class="admin-nowrap">${amt}</td>
@@ -1227,7 +1354,7 @@ export function initAdmin(supabase) {
     }).join("");
     return `<div class="admin-card">
       <div class="admin-card-head">
-        <b>Match #${m.match_no ?? shortId(m.id)}</b>
+        ${matchRef(m.id, `Match #${m.match_no ?? shortId(m.id)}`, "admin-linkish--head")}
         <span class="admin-dim">${m.max_players}-player · pot ${fmtTokens(m.pot_tokens, 0)} · reason: ${reason}</span>
         <span class="admin-dim admin-right">${fmtTime(m.ended_at)} (${ago(m.ended_at)})</span>
       </div>
@@ -1247,7 +1374,7 @@ export function initAdmin(supabase) {
       : `<span class="admin-flag">unclaimed</span>`;
     return `<div class="admin-card">
       <div class="admin-card-head">
-        <b>Match #${m.match_no ?? shortId(m.id)}</b>
+        ${matchRef(m.id, `Match #${m.match_no ?? shortId(m.id)}`, "admin-linkish--head")}
         <span class="admin-dim">winner ${escapeHtml(m.winner_name || shortId(m.winner_user_id))}${m.winner_wallet ? ` · <span class="admin-mono">${addrLink(m.winner_wallet)}</span>` : ""} · pot ${fmtTokens(m.pot_tokens, 0)}</span>
         ${status}
         <span class="admin-dim admin-right">${fmtTime(m.ended_at)} (${ago(m.ended_at)})</span>
@@ -1267,7 +1394,7 @@ export function initAdmin(supabase) {
       `#${p.seat} ${player(p)}${p.deposit_wallet ? ` <span class="admin-mono">${addrLink(p.deposit_wallet)}</span>` : ""}`).join(", ");
     return `<div class="admin-card">
       <div class="admin-card-head">
-        <b>Match #${m.match_no ?? shortId(m.id)}</b>
+        ${matchRef(m.id, `Match #${m.match_no ?? shortId(m.id)}`, "admin-linkish--head")}
         <span class="admin-dim">${m.seats_filled}/${m.max_players} seats · open ${m.open_minutes}m · pot ${fmtTokens(m.pot_tokens, 0)}</span>
         <span class="admin-dim admin-right">${fmtTime(m.created_at)}</span>
       </div>
@@ -1288,7 +1415,7 @@ export function initAdmin(supabase) {
       <td><span class="admin-flag">${escapeHtml(r.kind || "—")}</span></td>
       <td class="admin-detail">${escapeHtml(r.detail ? JSON.stringify(r.detail) : "—")}</td>
       <td class="admin-nowrap">
-        ${shortId(r.match_id)}
+        ${matchRef(r.match_id, shortId(r.match_id))}
         ${r.user_id ? `<button class="admin-btn admin-btn-xs" data-act="ban" data-user="${r.user_id}">Ban</button>` : ""}
       </td>
     </tr>`;
@@ -1300,7 +1427,7 @@ export function initAdmin(supabase) {
       <td>${escapeHtml(r.user_name || shortId(r.user_id))}</td>
       <td class="admin-mono">${r.user_wallet ? addrLink(r.user_wallet) : "—"}</td>
       <td class="admin-mono">${txLink(r.deposit_tx)}</td>
-      <td class="admin-nowrap">${shortId(r.match_id)}</td>
+      <td class="admin-nowrap">${matchRef(r.match_id, shortId(r.match_id))}</td>
     </tr>`;
   }
 
