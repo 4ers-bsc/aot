@@ -20,6 +20,8 @@
 //   • functions_health  pings each edge function's ?health=1 probe
 //   • get_config        reads pvp_config / match_config / maintain
 //   • set_config        edits those static constants (audited via review_notes)
+//   • db_export         JSON snapshot of one table / the whole schema (download)
+//   • db_wipe           TRUNCATE one table / every table (typed confirmation)
 //
 // Auth model: mirrors f10join / f10treasurer. The caller's JWT is verified
 // (userClient.auth.getUser()); the user id is then checked against the
@@ -690,6 +692,59 @@ Deno.serve(async (req: Request) => {
           return json({ ok: true, ...data });
         }
 
+        case "db_export": {
+          // Snapshot for download. With `table`, returns that table's rows;
+          // without it, returns a full { table -> rows } snapshot of every
+          // public table. Read-only (service role).
+          const table = body?.table != null ? String(body.table) : "";
+          try {
+            if (table) {
+              const { data, error } = await admin.rpc("admin_export_table", { p_table: table });
+              if (error) {
+                if ((error.message || "").includes("unknown_table")) return fail(`Unknown table '${table}'`);
+                return fail(`Export failed: ${error.message}`, 500);
+              }
+              return json({ ok: true, table, generated_at: new Date().toISOString(), rows: data ?? [] });
+            }
+            const { data, error } = await admin.rpc("admin_snapshot");
+            if (error) return fail(`Snapshot failed: ${error.message}`, 500);
+            return json({ ok: true, generated_at: new Date().toISOString(), tables: data ?? {} });
+          } catch (err) {
+            return fail(String(err?.message ?? err), 500);
+          }
+        }
+
+        case "db_wipe": {
+          // DESTRUCTIVE: TRUNCATE one table (or every public table). Requires a
+          // typed confirmation that must match exactly, as a guard against an
+          // accidental click — the table name for a single table, or the phrase
+          // "WIPE ALL" for the whole schema.
+          const table = body?.table != null ? String(body.table) : "";
+          const confirm = String(body?.confirm ?? "");
+          if (table) {
+            if (confirm !== table) return fail(`Confirmation mismatch — type the exact table name ('${table}') to wipe it.`);
+            const { data, error } = await admin.rpc("admin_truncate_table", { p_table: table });
+            if (error) {
+              const m = error.message || "";
+              if (m.includes("unknown_table")) return fail(`Unknown table '${table}'`);
+              // Refused because other tables' FKs reference this one — surface
+              // the referencing tables so the operator knows what to wipe first.
+              if (m.includes("has_references")) return fail(m.replace(/^.*has_references:\s*/, "").trim());
+              return fail(`Wipe failed: ${m}`, 500);
+            }
+            await logNote("general", table, `WIPED table ${table} (${data ?? 0} rows removed)`, "db_wipe");
+            return json({ ok: true, table, rows_removed: data ?? 0 });
+          }
+          if (confirm !== "WIPE ALL") return fail(`Confirmation mismatch — type "WIPE ALL" to empty every table.`);
+          const { data, error } = await admin.rpc("admin_truncate_all");
+          if (error) return fail(`Wipe failed: ${error.message}`, 500);
+          const tables = data?.tables ?? [];
+          const rows = data?.rows ?? 0;
+          // Written after the truncate, so the audit note survives the wipe.
+          await logNote("general", null, `WIPED ALL TABLES — ${tables.length} tables, ${rows} rows removed`, "db_wipe_all");
+          return json({ ok: true, tables, rows_removed: rows });
+        }
+
         case "functions_health": {
           // Edge-function monitoring: ping every function's unauthenticated
           // health probe and report reachability, latency and (non-sensitive)
@@ -784,7 +839,10 @@ Deno.serve(async (req: Request) => {
               patch.winner_share_bps = n; label.push(`winner_share_bps=${n}`);
             }
             if (Object.keys(patch).length === 0) return fail("No pvp_config fields to update");
-            const { error } = await admin.from("pvp_config").update(patch).eq("id", true);
+            // Upsert (not update) so the editor still works if the singleton row
+            // is missing — e.g. after a table wipe. Column defaults fill any
+            // field not being set on insert.
+            const { error } = await admin.from("pvp_config").upsert({ id: true, ...patch }, { onConflict: "id" });
             if (error) {
               // The pvp_config_guard trigger blocks entry-fee changes while
               // matches are live — surface that as a friendly message.
@@ -820,7 +878,8 @@ Deno.serve(async (req: Request) => {
           if (target === "maintain") {
             const value = String(body?.value ?? "").trim().toLowerCase();
             if (value !== "y" && value !== "n") return fail("maintain value must be 'y' or 'n'");
-            const { error } = await admin.from("maintain").update({ value }).eq("id", true);
+            // Upsert so a missing singleton row (e.g. after a wipe) is recreated.
+            const { error } = await admin.from("maintain").upsert({ id: true, value }, { onConflict: "id" });
             if (error) return fail(error.message);
             await logNote("general", "maintain",
               value === "y" ? "Maintenance mode turned ON" : "Maintenance mode turned OFF", "set_config");

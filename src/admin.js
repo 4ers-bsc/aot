@@ -41,6 +41,37 @@ const INFO_TABS = new Set(["payouts", "consumed_deposits", "notes"]);
 // keeps its own loading / error state.
 const CUSTOM_TABS = new Set(["cashflow", "db", "functions", "constants"]);
 
+// Wipe-safety classification for the Database tab. Purely advisory — the backend
+// still gates every wipe behind a typed confirmation and refuses to cascade — but
+// it tells the operator at a glance what's safe to clear vs. what would destroy
+// financial / security / identity / config state.
+//   safe   — transient, regenerates on its own; fine to wipe anytime
+//   prune  — historical logs; only clear OLD/finished rows, never live
+//   danger — money / replay-protection / identity / config; do not wipe on prod
+const TABLE_SAFETY = {
+  rate_limits:       ["safe",   "Transient throttle windows — regenerate instantly. Safe to wipe anytime."],
+  match_damage:      ["prune",  "Combat ledger (read by settlement). Only prune OLD finished matches — wiping live matches breaks their settlement."],
+  match_kills:       ["prune",  "Combat ledger. Only prune OLD finished matches — never wipe while games are live."],
+  integrity_signals: ["prune",  "Anticheat audit trail — grows slowly; prune old entries if needed."],
+  review_notes:      ["prune",  "Admin audit notes — historical."],
+  matches:           ["danger", "Payout source of truth. Wiping destroys payout + deposit history."],
+  match_players:     ["danger", "Holds the paid deposit tx / wallet for each seat."],
+  consumed_deposits: ["danger", "Deposit replay-protection ledger — NEVER wipe on prod (enables replaying spent deposits)."],
+  payouts:           ["danger", "Payout / cash-flow ledger."],
+  profiles:          ["danger", "User identity, wallet and stats."],
+  banned_users:      ["danger", "Wiping this unbans everyone."],
+  pvp_config:        ["danger", "Global PvP tunables (config)."],
+  match_config:      ["danger", "Per-lobby match durations (config)."],
+  maintain:          ["danger", "Maintenance switch (config)."],
+};
+const safetyOf = (name) => TABLE_SAFETY[name] || ["unknown", "Unclassified — treat as sensitive; wipe only if you're sure."];
+const SAFETY_META = {
+  safe:    ["🟢", "Safe"],
+  prune:   ["🟡", "Prune-only"],
+  danger:  ["🔴", "Do not wipe"],
+  unknown: ["⚪", "Unknown"],
+};
+
 // Raw on-chain units → whole $FIGHT10. ERC-20 default is 18 decimals
 // (override with VITE_FIGHT10_DECIMALS); pass decimals 0 for values already
 // stored in whole tokens (matches.pot_tokens).
@@ -301,6 +332,67 @@ export function initAdmin(supabase) {
     }
   }
 
+  // Trigger a client-side download of a JS object as a pretty-printed .json file.
+  function downloadJson(filename, obj) {
+    const blob = new Blob([JSON.stringify(obj, null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  }
+  const stamp = () => new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19);
+
+  // Export one table (or the whole schema when `table` is null) and download it.
+  async function dbExport(table) {
+    toast(table ? `Exporting ${table}…` : "Building snapshot…");
+    try {
+      const { data: resp, error } = await supabase.functions.invoke("f10admin", {
+        body: { action: "db_export", ...(table ? { table } : {}) },
+      });
+      if (error) throw new Error(error.message || "request failed");
+      if (!resp?.ok) throw new Error(resp?.error || "request failed");
+      if (table) {
+        downloadJson(`${table}-${stamp()}.json`,
+          { table, generated_at: resp.generated_at, rows: resp.rows });
+        toast(`Downloaded ${table} (${(resp.rows || []).length} rows) ✓`);
+      } else {
+        const tables = resp.tables || {};
+        const total = Object.values(tables).reduce((n, r) => n + (r?.length || 0), 0);
+        downloadJson(`fight10-snapshot-${stamp()}.json`,
+          { generated_at: resp.generated_at, tables });
+        toast(`Downloaded snapshot — ${Object.keys(tables).length} tables, ${total} rows ✓`);
+      }
+    } catch (err) {
+      toast(`Export failed: ${err?.message || err}`, true);
+    }
+  }
+
+  // Wipe one table (or every table when `table` is null). `confirm` is the typed
+  // phrase the backend re-checks before truncating.
+  async function dbWipe(table, confirm) {
+    try {
+      const { data: resp, error } = await supabase.functions.invoke("f10admin", {
+        body: { action: "db_wipe", confirm, ...(table ? { table } : {}) },
+      });
+      if (error) {
+        let reason = error.message || "request failed";
+        try { const b = await error.context?.json?.(); if (b?.error) reason = b.error; } catch (_) {}
+        throw new Error(reason);
+      }
+      if (!resp?.ok) throw new Error(resp?.error || "request failed");
+      toast(table
+        ? `Wiped ${table} (${resp.rows_removed} rows removed) ✓`
+        : `Wiped ${resp.tables?.length ?? 0} tables (${resp.rows_removed} rows removed) ✓`);
+      await loadDbStats();
+    } catch (err) {
+      toast(`Wipe failed: ${err?.message || err}`, true);
+    }
+  }
+
   // Non-blocking toast (window.alert can be suppressed the same way prompt is).
   function toast(msg, isError = false) {
     const host = root?.querySelector("#adminModalHost");
@@ -368,6 +460,9 @@ export function initAdmin(supabase) {
     modal({ label, initial, multiline: true, ...opts }).then((v) => (v == null ? null : String(v).trim()));
   const askConfirm = (label, okText = "Confirm") =>
     modal({ label, showInput: false, okText }).then((v) => v === true);
+  // Destructive-action guard: the operator must type `expected` verbatim.
+  const askExact = (label, expected, okText = "Confirm", placeholder = "") =>
+    modal({ label, placeholder, okText }).then((v) => v != null && String(v).trim() === expected);
 
   // ---- Row action handler ---------------------------------------------------
   async function onAction(e) {
@@ -392,6 +487,36 @@ export function initAdmin(supabase) {
     if (a === "integrity_kind") {
       integrityKind = btn.dataset.kind || "";
       renderBody();
+      return;
+    }
+    if (a === "db_download") {
+      dbExport(btn.dataset.table);
+      return;
+    }
+    if (a === "db_download_all") {
+      dbExport(null);
+      return;
+    }
+    if (a === "db_wipe") {
+      const t = btn.dataset.table;
+      const n = Number(btn.dataset.rows || 0);
+      const [cls, why] = safetyOf(t);
+      const warn = cls === "danger" ? `🔴 PROTECTED TABLE — ${why}\n\n`
+                 : cls === "prune"  ? `🟡 ${why}\n\n`
+                 : "";
+      if (await askExact(
+        `${warn}Permanently delete every row in “${t}”${n ? ` (~${fmtInt(n)} rows)` : ""}? This TRUNCATEs the table (no cascade — refused if another table references it) and cannot be undone. Type the table name to confirm.`,
+        t, "Wipe table", t)) {
+        dbWipe(t, t);
+      }
+      return;
+    }
+    if (a === "db_wipe_all") {
+      if (await askExact(
+        `⚠ DELETE EVERY ROW IN EVERY TABLE. This empties the entire database (matches, payouts, deposits, profiles, config — everything) and cannot be undone. Download a snapshot first. Type WIPE ALL to confirm.`,
+        "WIPE ALL", "Wipe everything", "WIPE ALL")) {
+        dbWipe(null, "WIPE ALL");
+      }
       return;
     }
     if (a === "cfg_save_pvp") {
@@ -732,6 +857,12 @@ export function initAdmin(supabase) {
   }
 
   // ---- Database monitoring --------------------------------------------------
+  function safetyBadge(name) {
+    const [cls, why] = safetyOf(name);
+    const [icon, label] = SAFETY_META[cls] || SAFETY_META.unknown;
+    return `<span class="tbl-badge tbl-${cls}" title="${escapeHtml(why)}">${icon} ${label}</span>`;
+  }
+
   function renderDbStats() {
     if (dbstatsLoading && !dbstats) return `<div class="admin-msg">Loading…</div>`;
     if (dbstatsError)              return `<div class="admin-msg admin-err">${escapeHtml(dbstatsError)}</div>`;
@@ -771,18 +902,36 @@ export function initAdmin(supabase) {
 
     const rows = (dbstats.tables || []).map((t) => `<tr>
       <td>${escapeHtml(t.name)}</td>
+      <td>${safetyBadge(t.name)}</td>
       <td class="admin-nowrap admin-right-txt">${fmtInt(t.rows)}</td>
       <td class="admin-nowrap admin-right-txt">${t.dead_rows ? fmtInt(t.dead_rows) : "—"}</td>
       <td class="admin-nowrap admin-right-txt">${fmtBytes(t.total_bytes)}</td>
       <td class="admin-nowrap">${t.last_analyze ? ago(t.last_analyze) : "—"}</td>
+      <td class="admin-nowrap">
+        <button class="admin-btn admin-btn-xs" data-act="db_download" data-table="${escapeHtml(t.name)}" title="Download this table as JSON">⬇ JSON</button>
+        <button class="admin-btn admin-btn-xs admin-danger" data-act="db_wipe" data-table="${escapeHtml(t.name)}" data-rows="${t.rows ?? 0}" title="Delete every row in this table">Wipe</button>
+      </td>
     </tr>`).join("");
 
     const table = rows
-      ? `<table class="admin-table mon-table">${thead(["Table", "Rows (est.)", "Dead", "Size", "Analyzed"])}${rows}</tbody></table>`
+      ? `<table class="admin-table mon-table">${thead(["Table", "Wipe safety", "Rows (est.)", "Dead", "Size", "Analyzed", "Actions"])}${rows}</tbody></table>`
       : `<div class="admin-msg">No user tables reported.</div>`;
 
-    return cards +
-      `<p class="admin-note">Row counts are the planner's live estimates (refreshed by autovacuum/analyze). A high dead-row count or a low cache-hit ratio can indicate a table that needs vacuuming.</p>` +
+    // Snapshot / wipe toolbar. Downloads run client-side from the returned JSON;
+    // wipes require a typed confirmation (handled in onAction).
+    const toolbar = `<div class="db-toolbar">
+      <button class="admin-btn admin-btn-sm admin-primary" data-act="db_download_all">⬇ Download snapshot (all tables)</button>
+      <button class="admin-btn admin-btn-sm admin-danger" data-act="db_wipe_all">⚠ Wipe ALL tables</button>
+    </div>`;
+
+    const legend = `<div class="db-legend">
+      <span class="tbl-badge tbl-safe">🟢 Safe</span> regenerates on its own ·
+      <span class="tbl-badge tbl-prune">🟡 Prune-only</span> clear old / finished rows, not live ·
+      <span class="tbl-badge tbl-danger">🔴 Do not wipe</span> money / security / identity / config
+    </div>`;
+
+    return cards + toolbar + legend +
+      `<p class="admin-note">Row counts are the planner's live estimates (refreshed by autovacuum/analyze); a high dead-row count or low cache-hit ratio can mean a table needs vacuuming. <b>Wipe</b> permanently deletes every row (TRUNCATE, no cascade — refused if another table references it). <b>Wipe ALL</b> empties every table together. Snapshot first — this can't be undone.</p>` +
       table;
   }
 
