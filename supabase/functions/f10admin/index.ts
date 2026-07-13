@@ -38,10 +38,7 @@
 // ============================================================================
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-import {
-  createRpcPool, escrowPublicAddress, getRpcUrls, isAddress, loadEscrowConfig,
-  normAddr as norm, payoutWinner, resolveEconomics, verifyEscrowPayout,
-} from "../_shared/payout.ts";
+import { Contract, JsonRpcProvider, Wallet } from "npm:ethers@6.13.0";
 
 const appOrigin = Deno.env.get("APP_ORIGIN");
 if (!appOrigin) {
@@ -83,17 +80,212 @@ const TOKEN_DECIMALS = Number(Deno.env.get("FIGHT10_DECIMALS") ?? "18");
 // entry fee from pvp_config per request.
 const ENTRY_FEE_RAW  = 2500n * 10n ** BigInt(TOKEN_DECIMALS);
 
-// norm() is imported from ../_shared/payout.ts (normAddr) — the same wallet
-// normalisation the payout path uses.
+const norm = (w?: string | null) => ((w ?? "").split(":").pop() ?? "").trim().toLowerCase();
 const csv = (v?: string | null) =>
   (v ?? "").split(",").map((s) => s.trim()).filter(Boolean);
 
 // ============================================================================
-// Escrow-signed winner payout + on-chain payout verification now live in
-// ../_shared/payout.ts — the single module shared with f10treasurer, so the
-// private-key signing exists in exactly one place. payoutWinner(), loadEscrow-
-// Config(), resolveEconomics() and verifyEscrowPayout() are imported at the top.
+// Verified escrow-signed winner payout. Same on-chain logic f10treasurer runs
+// on a winner claim, inlined here (Supabase deploys a function's own folder, so
+// a shared sibling import can't be bundled) so f10admin can pay a winner who
+// never claimed. Kept behaviourally in sync with f10treasurer/index.ts — edit
+// both together if the payout math or deposit verification changes.
 // ============================================================================
+
+// Robinhood Chain network (mainnet). Kept in sync with src/network.js on the
+// client.
+const NETWORK: { name: string; chainId: number; rpcUrl: string } = {
+  name: "Robinhood Chain",
+  chainId: 4663,
+  rpcUrl: "https://rpc.mainnet.chain.robinhood.com",
+};
+
+// keccak256("Transfer(address,address,uint256)") — the ERC-20 Transfer event.
+const TRANSFER_TOPIC = "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef";
+
+const ERC20_ABI = [
+  "function transfer(address to, uint256 amount) returns (bool)",
+  "function decimals() view returns (uint8)",
+];
+
+const isAddress = (a: string) => /^0x[0-9a-f]{40}$/.test(a);
+// An indexed address event topic is the address left-padded to 32 bytes.
+const topicToAddr = (t?: string) => (t ? "0x" + t.slice(-40).toLowerCase() : "");
+
+// Does this receipt contain the exact entry-fee Transfer from the player's
+// wallet to escrow, emitted by OUR token contract?
+function receiptHasDeposit(receipt: any, tokenAddr: string, sender: string, escrow: string, amount: bigint): boolean {
+  return (receipt?.logs ?? []).some((log: any) =>
+    (log.address ?? "").toLowerCase() === tokenAddr &&
+    (log.topics?.[0] ?? "") === TRANSFER_TOPIC &&
+    topicToAddr(log.topics?.[1]) === sender &&
+    topicToAddr(log.topics?.[2]) === escrow &&
+    BigInt(log.data ?? "0x0") === amount
+  );
+}
+
+function getRpcUrls(): string[] {
+  const urls = [Deno.env.get("RPC_URL"), Deno.env.get("RPC_URL_2"), Deno.env.get("RPC_URL_3")]
+    .map((u) => u?.trim()).filter((u): u is string => !!u);
+  const unique = [...new Set(urls)];
+  return unique.length ? unique : [NETWORK.rpcUrl];
+}
+function createRpcPool() {
+  const providers = getRpcUrls().map((u) =>
+    new JsonRpcProvider(u, NETWORK.chainId, { staticNetwork: true }));
+  let idx = Math.floor(Math.random() * providers.length);
+  const next = () => { const p = providers[idx]; idx = (idx + 1) % providers.length; return p; };
+  return {
+    lease: () => next(),
+    async run<T>(fn: (p: JsonRpcProvider) => Promise<T>): Promise<T> {
+      let lastErr: unknown;
+      for (let i = 0; i < providers.length; i++) {
+        try { return await fn(next()); } catch (err) { lastErr = err; }
+      }
+      throw lastErr;
+    },
+  };
+}
+
+// payoutWinner — pay the recorded winner of a finished match from escrow.
+// `admin` must be a SERVICE-ROLE client. Throws Error(<reason>) on any failure.
+// Slot reservation + rollback mirror f10treasurer so a failed send never strands
+// the slot as 'pending'.
+async function payoutWinner(admin: any, matchId: string) {
+  const { data: matchRow, error: matchErr } = await admin
+    .from("matches").select("id, status, winner_user_id, payout_tx").eq("id", matchId).maybeSingle();
+  if (matchErr || !matchRow) throw new Error("Match not found");
+  if (matchRow.status !== "finished") throw new Error(`Match is '${matchRow.status}', not finished`);
+  if (!matchRow.winner_user_id) throw new Error("Match has no winner");
+  if (matchRow.payout_tx && matchRow.payout_tx !== "pending") throw new Error(`Already paid (${matchRow.payout_tx})`);
+  const winnerId = matchRow.winner_user_id as string;
+
+  const { data: players, error: playersErr } = await admin
+    .from("match_players").select("user_id, deposit_tx, deposit_wallet").eq("match_id", matchId);
+  if (playersErr || !players || players.length === 0) throw new Error("Could not fetch match players");
+  const missing = players.filter((p: any) => !p.deposit_tx);
+  if (missing.length > 0) throw new Error(`${missing.length} player(s) have no recorded deposit`);
+
+  const walletByUser = new Map<string, string>(
+    players.map((p: any) => [p.user_id, norm(p.deposit_wallet)]),
+  );
+
+  const { data: profile } = await admin
+    .from("profiles").select("wallet_address").eq("user_id", winnerId).maybeSingle();
+  if (!profile?.wallet_address) throw new Error("Winner wallet address not found");
+
+  const escrowKey = (Deno.env.get("ESCROW_PRIVATE_KEY") ?? "").trim();
+  const tokenAddr = norm(Deno.env.get("FIGHT10_TOKEN"));
+  if (!escrowKey || !isAddress(tokenAddr)) throw new Error("Escrow configuration missing (ESCROW_PRIVATE_KEY / FIGHT10_TOKEN)");
+
+  const escrowWallet = new Wallet(escrowKey.startsWith("0x") ? escrowKey : "0x" + escrowKey);
+  const escrowAddr = escrowWallet.address.toLowerCase();
+  const winnerAddr = norm(profile.wallet_address);
+  if (!isAddress(winnerAddr)) throw new Error("Winner wallet address invalid");
+  const rpc = createRpcPool();
+
+  const decimals = Number(await rpc.run((p) => new Contract(tokenAddr, ERC20_ABI, p).decimals()));
+  // Entry fee + winner share are tunables in pvp_config (single source of truth
+  // shared with the client + f10join/f10treasurer). Fall back to the historical
+  // literals if the row is unreadable so a DB blip never strands a payout. The
+  // pvp_config_guard trigger blocks fee changes while matches are live.
+  const { data: cfg } = await admin
+    .from("pvp_config").select("entry_fee_tokens, winner_share_bps").maybeSingle();
+  const entryFeeTokens = Number(cfg?.entry_fee_tokens) > 0 ? Number(cfg.entry_fee_tokens) : 2500;
+  const winnerShareBps = Number(cfg?.winner_share_bps) > 0 ? Number(cfg.winner_share_bps) : 9000;
+  const entryFeeRaw = BigInt(entryFeeTokens) * BigInt(10) ** BigInt(decimals);
+
+  // Receipts are queryable for the chain's full history (no status-cache
+  // window like Solana's), and the Transfer log proves token contract,
+  // sender, destination, and exact amount — a confirmed-but-unrelated tx
+  // hash cannot pass.
+  const depositTxs = players.map((p: any) => p.deposit_tx as string);
+  const receipts = await Promise.all(
+    depositTxs.map((tx) => rpc.run((p) => p.getTransactionReceipt(tx))),
+  );
+  for (let i = 0; i < depositTxs.length; i++) {
+    const receipt = receipts[i];
+    if (!receipt) throw new Error(`Deposit ${i + 1} not found on-chain`);
+    if (receipt.status !== 1) throw new Error(`Deposit ${i + 1} failed on-chain`);
+    const expectedSender = walletByUser.get(players[i].user_id) ?? "";
+    if (!isAddress(expectedSender)) throw new Error(`Deposit ${i + 1}: depositing wallet was not recorded at join time`);
+    if (!receiptHasDeposit(receipt, tokenAddr, expectedSender, escrowAddr, entryFeeRaw)) {
+      throw new Error(`Deposit ${i + 1} does not contain a valid FIGHT10 transfer from the player to escrow`);
+    }
+  }
+
+  // Reserve the slot atomically (service role; no winner JWT). Replicates
+  // claim_payout_slot()'s guard: claim only when unpaid or a prior 'pending'
+  // reservation is >10 min stale. 0 rows ⇒ someone else holds it / already paid.
+  const staleCutoff = new Date(Date.now() - 10 * 60_000).toISOString();
+  const { data: reserved, error: reserveErr } = await admin
+    .from("matches")
+    .update({ payout_tx: "pending", payout_claimed_at: new Date().toISOString() })
+    .eq("id", matchId).eq("status", "finished").eq("winner_user_id", winnerId)
+    .or(`payout_tx.is.null,and(payout_tx.eq.pending,payout_claimed_at.lt.${staleCutoff})`)
+    .select("id");
+  if (reserveErr) throw new Error("Could not reserve payout slot");
+  if (!reserved || reserved.length === 0) throw new Error("Payout already in progress or completed");
+
+  let payoutConfirmed = false;
+  try {
+    const totalRaw = BigInt(players.length) * entryFeeRaw;
+    const winnerAmountRaw = (totalRaw * BigInt(winnerShareBps)) / BigInt(10000);
+
+    // Lease one provider for the whole send + confirm sequence so the tx is
+    // broadcast and polled on a single endpoint.
+    const payProvider = rpc.lease();
+    const signer = escrowWallet.connect(payProvider);
+    const token = new Contract(tokenAddr, ERC20_ABI, signer);
+    const sentTx = await token.transfer(winnerAddr, winnerAmountRaw);
+    const payoutSig: string = sentTx.hash;
+
+    const deadline = Date.now() + 90000;
+    let confirmed = false;
+    while (Date.now() < deadline) {
+      const receipt = await payProvider.getTransactionReceipt(payoutSig).catch(() => null);
+      if (receipt) {
+        if (receipt.status !== 1) throw new Error("Payout tx reverted on-chain: " + payoutSig);
+        confirmed = true;
+        break;
+      }
+      await new Promise((r) => setTimeout(r, 2000));
+    }
+    if (!confirmed) throw new Error(`Payout tx not confirmed after 90s — hash: ${payoutSig}`);
+    payoutConfirmed = true;
+
+    let dbWritten = false;
+    for (let attempt = 0; attempt < 5; attempt++) {
+      if (attempt > 0) await new Promise((r) => setTimeout(r, 1000 * attempt));
+      const { error: writeErr } = await admin.from("matches").update({ payout_tx: payoutSig }).eq("id", matchId);
+      if (!writeErr) { dbWritten = true; break; }
+      console.error(`[f10admin payout] DB write attempt ${attempt + 1} failed:`, writeErr);
+    }
+    if (!dbWritten) {
+      console.error(`[f10admin payout] CRITICAL: tx ${payoutSig} confirmed but DB update failed for match ${matchId}. Manual resolution required.`);
+      throw new Error(`Payout sent on-chain (${payoutSig}) but internal record failed. Set payout_tx manually.`);
+    }
+
+    // supabase-js reports failures via the returned error, not by throwing —
+    // check it explicitly or a failed ledger write vanishes without a trace.
+    const { error: ledgerErr } = await admin.from("payouts").upsert({
+      match_id: matchId, winner_user_id: winnerId, payout_tx: payoutSig,
+      amount_raw: winnerAmountRaw.toString(), decimals, num_players: players.length,
+    }, { onConflict: "match_id" });
+    if (ledgerErr) console.error("[f10admin payout] payouts insert failed (non-fatal):", ledgerErr);
+
+    console.log(`[f10admin payout] paid match=${matchId} tx=${payoutSig} amount=${winnerAmountRaw.toString()} players=${players.length}`);
+    return { payout_tx: payoutSig, winner_amount: winnerAmountRaw.toString(), num_players: players.length, decimals };
+  } catch (err) {
+    if (!payoutConfirmed) {
+      try {
+        await admin.from("matches").update({ payout_tx: null, payout_claimed_at: null })
+          .eq("id", matchId).eq("payout_tx", "pending");
+      } catch (_) { /* best-effort */ }
+    }
+    throw err;
+  }
+}
 
 Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") {
@@ -104,13 +296,20 @@ Deno.serve(async (req: Request) => {
   // "Edge functions" tab report this function's own reachability + config the
   // same way it does for the others. Booleans / public addresses only.
   if (new URL(req.url).searchParams.has("health")) {
-    const escrowAddr = escrowPublicAddress();
+    let escrowAddr: string | null = null;
+    const escrowKey = (Deno.env.get("ESCROW_PRIVATE_KEY") ?? "").trim();
+    if (escrowKey) {
+      try {
+        escrowAddr = new Wallet(escrowKey.startsWith("0x") ? escrowKey : "0x" + escrowKey)
+          .address.toLowerCase();
+      } catch (_) { /* malformed key */ }
+    }
     return json({
       ok: true,
       service: "f10admin",
       time: new Date().toISOString(),
       config: {
-        escrow_key_set: !!(Deno.env.get("ESCROW_PRIVATE_KEY") ?? "").trim(),
+        escrow_key_set: !!escrowKey,
         escrow_wallet:  escrowAddr,
         token:          norm(Deno.env.get("FIGHT10_TOKEN")) || null,
         rpc_endpoints:  getRpcUrls().length,
@@ -443,6 +642,7 @@ Deno.serve(async (req: Request) => {
           const tx = String(body?.payout_tx ?? "").trim();
           const note = String(body?.note ?? "").trim();
           if (!matchId || !tx) return fail("match_id and payout_tx are required");
+          if (!/^0x[0-9a-fA-F]{64}$/.test(tx)) return fail("payout_tx is not a valid transaction hash");
           const { data: m } = await admin
             .from("matches").select("payout_tx, status, winner_user_id, max_players").eq("id", matchId).maybeSingle();
           if (!m) return fail("Match not found");
@@ -454,7 +654,8 @@ Deno.serve(async (req: Request) => {
           }
 
           // Resolve the winner wallet + expected minimum payout, then verify the
-          // hash actually moved that from escrow to the winner on-chain.
+          // hash actually moved that from escrow to the winner on-chain. Reuses
+          // the same inline chain helpers as payoutWinner (above).
           try {
             const { data: prof } = await admin
               .from("profiles").select("wallet_address").eq("user_id", m.winner_user_id).maybeSingle();
@@ -466,12 +667,33 @@ Deno.serve(async (req: Request) => {
             const numPlayers = seats?.length ?? m.max_players ?? 0;
             if (numPlayers <= 0) return fail("Could not determine the match's player count.");
 
-            const { escrowAddr, tokenAddr } = loadEscrowConfig();
+            const escrowKey = (Deno.env.get("ESCROW_PRIVATE_KEY") ?? "").trim();
+            const tokenAddr = norm(Deno.env.get("FIGHT10_TOKEN"));
+            if (!escrowKey || !isAddress(tokenAddr)) return fail("Escrow configuration missing (ESCROW_PRIVATE_KEY / FIGHT10_TOKEN)");
+            const escrowAddr = new Wallet(escrowKey.startsWith("0x") ? escrowKey : "0x" + escrowKey).address.toLowerCase();
+
             const rpc = createRpcPool();
-            const { winnerShareBps, entryFeeRaw } = await resolveEconomics(admin, rpc, tokenAddr);
+            const decimals = Number(await rpc.run((p) => new Contract(tokenAddr, ERC20_ABI, p).decimals()));
+            const { data: cfg } = await admin
+              .from("pvp_config").select("entry_fee_tokens, winner_share_bps").maybeSingle();
+            const entryFeeTokens = Number(cfg?.entry_fee_tokens) > 0 ? Number(cfg.entry_fee_tokens) : 2500;
+            const winnerShareBps = Number(cfg?.winner_share_bps) > 0 ? Number(cfg.winner_share_bps) : 9000;
+            const entryFeeRaw = BigInt(entryFeeTokens) * BigInt(10) ** BigInt(decimals);
             const expectedRaw = (BigInt(numPlayers) * entryFeeRaw * BigInt(winnerShareBps)) / BigInt(10000);
 
-            await verifyEscrowPayout(rpc, tokenAddr, tx, escrowAddr, winnerAddr, expectedRaw);
+            const receipt = await rpc.run((p) => p.getTransactionReceipt(tx));
+            if (!receipt) return fail("On-chain verification failed: transaction not found");
+            if (receipt.status !== 1) return fail("On-chain verification failed: transaction failed on-chain");
+            const transfer = (receipt.logs ?? []).find((log: any) =>
+              (log.address ?? "").toLowerCase() === tokenAddr &&
+              (log.topics?.[0] ?? "") === TRANSFER_TOPIC &&
+              topicToAddr(log.topics?.[1]) === escrowAddr &&
+              topicToAddr(log.topics?.[2]) === winnerAddr
+            );
+            if (!transfer) return fail("On-chain verification failed: not a FIGHT10 transfer from escrow to the winner");
+            if (BigInt(transfer.data ?? "0x0") < expectedRaw) {
+              return fail(`On-chain verification failed: transfer amount is below the expected payout (${expectedRaw})`);
+            }
           } catch (err) {
             return fail(`On-chain verification failed: ${String(err?.message ?? err)}`);
           }
