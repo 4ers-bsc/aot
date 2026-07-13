@@ -1179,12 +1179,12 @@ export function initAdmin(supabase) {
 
     const inTable = inc.rows.length
       ? `<h3 class="cf-h">Incoming deposits <span class="admin-dim">showing ${inc.rows.length} of ${Number(inc.count).toLocaleString()}</span></h3>
-         <table class="admin-table">${thead(["When", "Player", "Wallet", "Amount", "Deposit tx"])}${inc.rows.map(cfInRow).join("")}</tbody></table>`
+         <table class="admin-table">${thead(["When", "Match", "Player", "Wallet", "Amount", "Deposit tx"])}${inc.rows.map(cfInRow).join("")}</tbody></table>`
       : `<h3 class="cf-h">Incoming deposits</h3><div class="admin-msg">No deposits match these filters.</div>`;
 
     const outTable = out.rows.length
       ? `<h3 class="cf-h">Outgoing payouts <span class="admin-dim">showing ${out.rows.length} of ${Number(out.count).toLocaleString()}</span></h3>
-         <table class="admin-table">${thead(["When", "Winner", "Wallet", "Players", "Amount", "Payout tx"])}${out.rows.map(cfOutRow).join("")}</tbody></table>`
+         <table class="admin-table">${thead(["When", "Match", "Winner", "Wallet", "Players", "Amount", "Payout tx"])}${out.rows.map(cfOutRow).join("")}</tbody></table>`
       : `<h3 class="cf-h">Outgoing payouts</h3><div class="admin-msg">No payouts match these filters.</div>`;
 
     return cards + inTable + outTable;
@@ -1193,6 +1193,7 @@ export function initAdmin(supabase) {
   function cfInRow(r) {
     return `<tr>
       <td class="admin-nowrap" title="${fmtTime(r.joined_at)}">${ago(r.joined_at)}</td>
+      <td class="admin-nowrap">${matchRef(r.match_id, r.match_no ? `#${r.match_no}` : shortId(r.match_id))}</td>
       <td>${escapeHtml(r.display_name || shortId(r.user_id))}</td>
       <td class="admin-mono">${r.deposit_wallet ? addrLink(r.deposit_wallet) : "—"}</td>
       <td class="admin-nowrap">${fmtTokens(r.amount_raw)}</td>
@@ -1203,6 +1204,7 @@ export function initAdmin(supabase) {
   function cfOutRow(r) {
     return `<tr>
       <td class="admin-nowrap" title="${fmtTime(r.created_at)}">${ago(r.created_at)}</td>
+      <td class="admin-nowrap">${matchRef(r.match_id, r.match_no ? `#${r.match_no}` : shortId(r.match_id))}</td>
       <td>${escapeHtml(r.winner_name || shortId(r.winner_user_id))}</td>
       <td class="admin-mono">${r.winner_wallet ? addrLink(r.winner_wallet) : "—"}</td>
       <td class="admin-nowrap">${r.num_players ?? "—"}</td>
