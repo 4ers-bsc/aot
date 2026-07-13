@@ -4859,6 +4859,18 @@ body.in-game .log-feed { left: 70px; }
 .admin-detail-notes .admin-note { font-size: 0.72rem; color: #e8dfc6; }
 .admin-detail-err { font-size: 0.75rem; color: #f2b8ac; line-height: 1.45; }
 
+/* "Protected" tag shown in place of a Wipe button for constant/config tables. */
+.admin-lock-tag {
+  display: inline-block;
+  font-size: 0.62rem;
+  letter-spacing: 0.02em;
+  color: rgba(240, 232, 210, 0.7);
+  border: 1px solid rgba(212, 160, 23, 0.35);
+  border-radius: 4px;
+  padding: 2px 6px;
+  white-space: nowrap;
+}
+
 @media (max-width: 640px) {
   .admin-detail-grid { grid-template-columns: 1fr; }
   .admin-modal-wide { max-height: 90vh; }

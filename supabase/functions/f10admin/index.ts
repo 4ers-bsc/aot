@@ -676,16 +676,17 @@ Deno.serve(async (req: Request) => {
         }
 
         case "close_waiting_room": {
-          // Close a stale waiting lobby so it stops showing as open.
+          // Close a stale waiting lobby so it stops showing as open. Routes
+          // through settle_abandoned_lobby so every paid seat is also filed for
+          // refund review (same as an auto-timeout), instead of silently losing
+          // the forfeited entries.
           const matchId = String(body?.match_id ?? "");
           const note = String(body?.note ?? "").trim();
           if (!matchId) return fail("match_id is required");
-          const { data: rows, error } = await admin.from("matches").update({
-            status: "finished", ended_at: new Date().toISOString(),
-          }).eq("id", matchId).eq("status", "waiting").select("id");
+          const { data: closed, error } = await admin.rpc("settle_abandoned_lobby", { p_match_id: matchId });
           if (error) return fail(error.message);
-          if (!rows || rows.length === 0) return fail("This match is no longer waiting — nothing to close.");
-          await logNote("waiting", matchId, note || "Stale waiting room closed.", "close_waiting_room");
+          if (closed !== true) return fail("This match is no longer waiting — nothing to close.");
+          await logNote("waiting", matchId, note || "Stale waiting room closed (paid seats flagged for refund review).", "close_waiting_room");
           return json({ ok: true });
         }
 

@@ -1947,8 +1947,16 @@ async function loadRoster(matchId) {
           clearInterval(state.depositPollTimer);
           state.depositPollTimer = null;
           hidePvpLobby();
-          setStatus("Lobby timed out — not enough players joined. Please try again.");
-          leaveMatch({ silent: true });
+          setStatus("Lobby timed out — not enough players joined. Your paid entry has been flagged for a refund review.");
+          // Close the stale lobby server-side (flags each paid seat for refund
+          // review) so the entry isn't silently lost — then tear down the UI.
+          // The match becomes 'finished', so it can't be rejoined and the spent
+          // deposit stays single-use; a fresh game needs a new payment.
+          (async () => {
+            try { await supabase.rpc("abandon_stale_lobby", { p_match_id: matchId }); }
+            catch (e) { console.error("[abandon_stale_lobby]", e); }
+            await leaveMatch({ silent: true });
+          })();
           return;
         }
         loadRoster(matchId).catch(console.error);

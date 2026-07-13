@@ -57,7 +57,8 @@ const CUSTOM_TABS = new Set(["home", "cashflow", "db", "functions", "constants"]
 // financial / security / identity / config state.
 //   safe   — transient, regenerates on its own; fine to wipe anytime
 //   prune  — historical logs; only clear OLD/finished rows, never live
-//   danger — money / replay-protection / identity / config; do not wipe on prod
+//   danger — money / replay-protection / identity; do not wipe on prod
+//   locked — constant config / static locks; NEVER wipeable (server refuses too)
 const TABLE_SAFETY = {
   rate_limits:       ["safe",   "Transient throttle windows — regenerate instantly. Safe to wipe anytime."],
   match_damage:      ["prune",  "Combat ledger (read by settlement). Only prune OLD finished matches — wiping live matches breaks their settlement."],
@@ -70,15 +71,21 @@ const TABLE_SAFETY = {
   payouts:           ["danger", "Payout / cash-flow ledger."],
   profiles:          ["danger", "User identity, wallet and stats."],
   banned_users:      ["danger", "Wiping this unbans everyone."],
-  pvp_config:        ["danger", "Global PvP tunables (config)."],
-  match_config:      ["danger", "Per-lobby match durations (config)."],
-  maintain:          ["danger", "Maintenance switch (config)."],
+  // Constant configuration + static single-row locks — protected. The server
+  // (admin_truncate_table / admin_truncate_all) refuses/skips these too, so the
+  // constant values can never be lost to a wipe.
+  pvp_config:        ["locked", "Global PvP tunables (entry fee, winner share, cap). Constant config — never wiped."],
+  match_config:      ["locked", "Per-lobby match durations. Constant config — never wiped."],
+  maintain:          ["locked", "Maintenance switch. Constant config — never wiped."],
+  escrow_payout_lock:["locked", "Escrow payout single-flight lock (static). Never wiped."],
 };
 const safetyOf = (name) => TABLE_SAFETY[name] || ["unknown", "Unclassified — treat as sensitive; wipe only if you're sure."];
+const isLockedTable = (name) => safetyOf(name)[0] === "locked";
 const SAFETY_META = {
   safe:    ["🟢", "Safe"],
   prune:   ["🟡", "Prune-only"],
   danger:  ["🔴", "Do not wipe"],
+  locked:  ["🔒", "Protected — never wipe"],
   unknown: ["⚪", "Unknown"],
 };
 
@@ -680,6 +687,12 @@ export function initAdmin(supabase) {
       const t = btn.dataset.table;
       const n = Number(btn.dataset.rows || 0);
       const [cls, why] = safetyOf(t);
+      // Constant config / static tables are never wipeable (the server refuses
+      // them too); the button is normally hidden, this is defense in depth.
+      if (cls === "locked") {
+        toast(`🔒 “${t}” holds constant config and cannot be wiped.`, true);
+        return;
+      }
       const warn = cls === "danger" ? `🔴 PROTECTED TABLE — ${why}\n\n`
                  : cls === "prune"  ? `🟡 ${why}\n\n`
                  : "";
@@ -692,7 +705,7 @@ export function initAdmin(supabase) {
     }
     if (a === "db_wipe_all") {
       if (await askExact(
-        `⚠ DELETE EVERY ROW IN EVERY TABLE. This empties the entire database (matches, payouts, deposits, profiles, config — everything) and cannot be undone. Download a snapshot first. Type WIPE ALL to confirm.`,
+        `⚠ DELETE EVERY ROW IN EVERY TABLE. This empties the database (matches, payouts, deposits, profiles — everything) EXCEPT the protected config tables (pvp_config, match_config, maintain, escrow_payout_lock), which are preserved. Cannot be undone. Download a snapshot first. Type WIPE ALL to confirm.`,
         "WIPE ALL", "Wipe everything", "WIPE ALL")) {
         dbWipe(null, "WIPE ALL");
       }
@@ -1192,7 +1205,9 @@ export function initAdmin(supabase) {
       <td class="admin-nowrap">${t.last_analyze ? ago(t.last_analyze) : "—"}</td>
       <td class="admin-nowrap">
         <button class="admin-btn admin-btn-xs" data-act="db_download" data-table="${escapeHtml(t.name)}" title="Download this table as JSON">⬇ JSON</button>
-        <button class="admin-btn admin-btn-xs admin-danger" data-act="db_wipe" data-table="${escapeHtml(t.name)}" data-rows="${t.rows ?? 0}" title="Delete every row in this table">Wipe</button>
+        ${isLockedTable(t.name)
+          ? `<span class="admin-lock-tag" title="Constant config / static — protected from wipes">🔒 Protected</span>`
+          : `<button class="admin-btn admin-btn-xs admin-danger" data-act="db_wipe" data-table="${escapeHtml(t.name)}" data-rows="${t.rows ?? 0}" title="Delete every row in this table">Wipe</button>`}
       </td>
     </tr>`).join("");
 

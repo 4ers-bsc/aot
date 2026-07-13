@@ -2434,8 +2434,137 @@ $$;
 revoke all on function public.join_pvp_match(uuid, smallint, text, text, text) from public, anon, authenticated;
 grant execute on function public.join_pvp_match(uuid, smallint, text, text, text) to service_role;
 
+-- ============================================================================
+-- 17. Config-table wipe guard + timed-out lobby refund review. Mirrors
+--     migration 20260727_lobby_refund_review_and_wipe_guard.sql. Idempotent;
+--     supersedes the §13 admin_truncate_* and §15 close_stale_matches defs.
+-- ============================================================================
+
+create or replace function public.admin_is_protected_table(p_table text)
+returns boolean language sql immutable set search_path = public as $$
+  select p_table in ('pvp_config', 'match_config', 'maintain', 'escrow_payout_lock');
+$$;
+
+create or replace function public.admin_truncate_table(p_table text)
+returns bigint language plpgsql security definer set search_path = public, pg_catalog as $$
+declare v_count bigint; v_refs text;
+begin
+  perform public.admin_assert_public_table(p_table);
+  if public.admin_is_protected_table(p_table) then
+    raise exception 'protected_table: % holds constant configuration and cannot be wiped', p_table;
+  end if;
+  select string_agg(distinct c.conrelid::regclass::text, ', ' order by c.conrelid::regclass::text)
+    into v_refs
+  from pg_constraint c
+  where c.contype = 'f'
+    and c.confrelid = ('public.' || quote_ident(p_table))::regclass
+    and c.conrelid <> c.confrelid;
+  if v_refs is not null then
+    raise exception 'has_references: % is referenced by: % — wipe those first, or use "Wipe ALL".', p_table, v_refs;
+  end if;
+  execute format('select count(*) from public.%I', p_table) into v_count;
+  execute format('truncate table public.%I restart identity', p_table);
+  return v_count;
+end;
+$$;
+
+create or replace function public.admin_truncate_all()
+returns jsonb language plpgsql security definer set search_path = public, pg_catalog as $$
+declare v_list text; v_names text[]; v_total bigint := 0; v_count bigint;
+begin
+  select array_agg(table_name order by table_name) into v_names
+  from information_schema.tables
+  where table_schema = 'public' and table_type = 'BASE TABLE'
+    and not public.admin_is_protected_table(table_name);
+  if v_names is null or array_length(v_names, 1) is null then
+    return jsonb_build_object('tables', '[]'::jsonb, 'rows', 0, 'preserved', to_jsonb(array['pvp_config','match_config','maintain','escrow_payout_lock']));
+  end if;
+  foreach v_list in array v_names loop
+    execute format('select count(*) from public.%I', v_list) into v_count;
+    v_total := v_total + v_count;
+  end loop;
+  select string_agg(format('public.%I', table_name), ', ') into v_list
+  from information_schema.tables
+  where table_schema = 'public' and table_type = 'BASE TABLE'
+    and not public.admin_is_protected_table(table_name);
+  execute 'truncate table ' || v_list || ' restart identity cascade';
+  return jsonb_build_object('tables', to_jsonb(v_names), 'rows', v_total,
+    'preserved', to_jsonb(array['pvp_config','match_config','maintain','escrow_payout_lock']));
+end;
+$$;
+
+revoke all on function public.admin_is_protected_table(text) from public, anon, authenticated;
+grant execute on function public.admin_is_protected_table(text) to service_role;
+
+create or replace function public.settle_abandoned_lobby(p_match_id uuid)
+returns boolean language plpgsql security definer set search_path = public as $$
+declare v_status text; v_maxp smallint; v_filled int;
+begin
+  select status, max_players into v_status, v_maxp from public.matches where id = p_match_id for update;
+  if not found or v_status <> 'waiting' then return false; end if;
+  select count(*) into v_filled from public.match_players where match_id = p_match_id;
+  insert into public.review_notes (subject_type, subject_id, note, action, author_id)
+  select 'waiting', p_match_id::text,
+         format('Lobby timed out under-filled (%s/%s seats). %s paid the entry fee (wallet %s, deposit %s) but the match never started — review for refund.',
+                v_filled, v_maxp, coalesce(mp.display_name, 'player'), coalesce(mp.deposit_wallet, '?'), mp.deposit_tx),
+         'lobby_timeout_refund', null
+  from public.match_players mp where mp.match_id = p_match_id and mp.deposit_tx is not null;
+  update public.matches set status = 'finished', ended_at = timezone('utc', now())
+  where id = p_match_id and status = 'waiting';
+  return true;
+end;
+$$;
+
+create or replace function public.abandon_stale_lobby(p_match_id uuid)
+returns boolean language plpgsql security definer set search_path = public, auth as $$
+declare v_uid uuid := auth.uid(); v_created timestamptz; v_status text;
+begin
+  if v_uid is null then raise exception 'not_authenticated'; end if;
+  if not exists (select 1 from public.match_players where match_id = p_match_id and user_id = v_uid) then
+    raise exception 'not_a_participant';
+  end if;
+  select created_at, status into v_created, v_status from public.matches where id = p_match_id;
+  if not found or v_status <> 'waiting' then return false; end if;
+  if v_created > now() - interval '10 minutes' then
+    raise exception 'lobby_not_stale: lobby is not old enough to abandon';
+  end if;
+  return public.settle_abandoned_lobby(p_match_id);
+end;
+$$;
+
+revoke all on function public.settle_abandoned_lobby(uuid) from public, anon, authenticated;
+grant execute on function public.settle_abandoned_lobby(uuid) to service_role;
+revoke all on function public.abandon_stale_lobby(uuid) from public, anon;
+grant execute on function public.abandon_stale_lobby(uuid) to authenticated, service_role;
+
+create or replace function public.close_stale_matches()
+returns int language plpgsql security definer set search_path = public as $$
+declare v_closed int := 0; r record;
+begin
+  for r in
+    select m.id from matches m
+    where m.status = 'active' and m.started_at is not null
+      and m.started_at < now() - make_interval(secs => public.match_duration_seconds(m.max_players))
+    for update of m skip locked
+  loop
+    perform public.finalize_match(r.id, true);
+    v_closed := v_closed + 1;
+  end loop;
+  for r in
+    select m.id from matches m
+    where m.status = 'waiting' and m.created_at < now() - interval '15 minutes'
+    for update of m skip locked
+  loop
+    if public.settle_abandoned_lobby(r.id) then v_closed := v_closed + 1; end if;
+  end loop;
+  return v_closed;
+end;
+$$;
+revoke all on function public.close_stale_matches() from public, anon, authenticated;
+grant execute on function public.close_stale_matches() to service_role;
+
 -- ---------------------------------------------------------------------------
--- 16. pg_cron — backstop sweeper. Runs every minute so an abandoned match
+-- 18. pg_cron — backstop sweeper. Runs every minute so an abandoned match
 --     settles within ~1 min of its hard 5-minute cap. Strongly recommended:
 --     without it, a match where every client vanished never settles.
 --     Run this separately ONLY if pg_cron is enabled on your Supabase project.
