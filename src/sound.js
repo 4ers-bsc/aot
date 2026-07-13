@@ -17,6 +17,11 @@ const FILES = {
   dead:   "/sounds/dead.mp3",   // a fighter is killed
 };
 
+// The water splash is a sustained loop (played while wading), not a one-shot,
+// so it gets its own dedicated element rather than a pool.
+const WATER_SRC = "/sounds/water.mp3";
+const WATER_VOLUME = 0.4;
+
 // Per-clip mix so the loud ones (frag, sniper) don't drown the game.
 const VOLUME = {
   pistol: 0.5,
@@ -31,6 +36,9 @@ const POOL_SIZE = 4;
 let enabled = true;
 let initialized = false;
 const pools = {};
+
+let waterEl = null;   // looping wade sound
+let waterOn = false;  // is the loop currently meant to be playing
 
 // Build the Audio pool for one clip. The first element loads the resource; the
 // rest are clones so they share the buffer without extra network requests.
@@ -50,6 +58,10 @@ export function initSfx() {
   initialized = true;
   try {
     for (const key in FILES) pools[key] = makePool(FILES[key]);
+    waterEl = new Audio(WATER_SRC);
+    waterEl.preload = "auto";
+    waterEl.loop = true;
+    waterEl.volume = WATER_VOLUME;
   } catch {
     // Audio unavailable (very old / headless environment) — stay silent.
   }
@@ -57,6 +69,28 @@ export function initSfx() {
 
 export function setSfxEnabled(on) {
   enabled = !!on;
+  // Muting must silence the sustained water loop too, not just future one-shots.
+  if (!enabled && waterEl) { try { waterEl.pause(); } catch {} }
+  else if (enabled && waterOn) setWaterLoop(true);
+}
+
+// Start or stop the looping wade sound. Called every frame with the current
+// "player is moving through water" state; guarded so it only touches the
+// element on an actual transition.
+export function setWaterLoop(active) {
+  active = !!active;
+  waterOn = active;
+  if (!initialized || !waterEl) return;
+  if (active && enabled) {
+    if (waterEl.paused) {
+      try {
+        const r = waterEl.play();
+        if (r && typeof r.catch === "function") r.catch(() => {});
+      } catch {}
+    }
+  } else if (!waterEl.paused) {
+    try { waterEl.pause(); } catch {}
+  }
 }
 
 // Play a clip by key. No-op when muted, uninitialized, or the key is unknown.

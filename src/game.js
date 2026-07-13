@@ -11,7 +11,7 @@ import * as THREE from "three";
 import { escapeHtml } from "./utils.js";
 import { APPEARANCE_PRESETS } from "./appearance.js";
 import { WALL_THEME } from "./wallThemes.js";
-import { initSfx, setSfxEnabled, playSfx } from "./sound.js";
+import { initSfx, setSfxEnabled, playSfx, setWaterLoop } from "./sound.js";
 
 const TILE = 2;
 const MAP_TILES = 50;
@@ -2265,6 +2265,7 @@ export function createArenaGame(options) {
   function fireBullet(att, def, dmg, deal, weapon, impact = null) {
     // One choke point for every ranged shot — player, AI raider, or a
     // network opponent's mirrored attack — so gun audio lives in a single spot.
+    // Each gun gets its own report: pistol → pistol, sniper → sniper.
     playSfx(weapon?.id === "sniper" ? "sniper" : "pistol");
     const bulletSize  = weapon?.bulletSize  ?? 0.13;
     const bulletSpeed = weapon?.bulletSpeed ?? 46;
@@ -2766,7 +2767,7 @@ export function createArenaGame(options) {
 
   // -- HUD (attached reference set) -----------------------------------------
   const hud = buildHud();
-  const { coords, mmCanvas, hotbar, slots, rivalsEl, fpsEl, pingEl, overlay, renderDistBtn, matchTimerEl, matchNoEl, raiderCountCtrl, raiderCountEl, scorePanel, weaponPanel, keysInfoPanel } = hud;
+  const { coords, mmCanvas, hotbar, slots, rivalsEl, fpsEl, pingEl, overlay, renderDistBtn, matchTimerEl, matchNoEl, raiderCountCtrl, raiderCountEl, scorePanel, weaponPanel, keysInfoPanel, muteBtn } = hud;
 
   // Top-right menu button: open the app's in-game menu (resume / how to play /
   // settings / leave) rather than jumping straight into settings — on touch
@@ -2899,12 +2900,27 @@ export function createArenaGame(options) {
     pingEl.style.display = settings.ping && !settings.hideHud ? "block" : "none";
     coords.style.display = settings.location && !settings.hideHud ? "block" : "none";
   }
+  // Single source of truth for the sound on/off state: drives the audio
+  // engine, the on-screen mute button, and the Settings-menu toggle together so
+  // flipping any one control keeps the others in sync.
+  const soundToggleEl = overlay.querySelector('[data-setting="sound"]');
+  function applySound(on) {
+    settings.sound = !!on;
+    setSfxEnabled(settings.sound);
+    muteBtn.classList.toggle("muted", !settings.sound);
+    muteBtn.innerHTML = settings.sound ? "&#128266;" : "&#128263;"; // 🔊 / 🔇
+    muteBtn.title = settings.sound ? "Mute sound" : "Unmute sound";
+    muteBtn.setAttribute("aria-pressed", String(!settings.sound));
+    if (soundToggleEl) soundToggleEl.classList.toggle("on", settings.sound);
+  }
+  muteBtn.addEventListener("click", () => applySound(!settings.sound));
+
   hud.bindSettings({
-    settings, applyFog, applyMsaa, refreshHud,
+    settings, applyFog, applyMsaa, refreshHud, onSound: applySound,
     onCenter: () => { if (settings.centerCamera) following = true; },
   });
   applyFog(); applyMsaa(); refreshHud();
-  initSfx(); setSfxEnabled(settings.sound);
+  initSfx(); applySound(settings.sound);
 
   // Raider count control (demo only)
   raiderCountCtrl.querySelector(".rc-minus").addEventListener("click", () => {
@@ -3170,6 +3186,12 @@ export function createArenaGame(options) {
     updateBullets(dt);
     updateGrenades(dt);
     updateExplosions(dt);
+
+    // Splash loop while the local player wades through the river.
+    setWaterLoop(
+      perspective === "player" && !player.dead && player.moving &&
+      inRiver(player.group.position.x, player.group.position.z)
+    );
 
     // Tick frag's independent cooldown
     if (fragCd > 0) fragCd = Math.max(0, fragCd - dt);
@@ -3600,6 +3622,7 @@ export function createArenaGame(options) {
     openSettings() { overlay.classList.add("show"); },
     destroy() {
       destroyed = true;
+      setWaterLoop(false); // silence the wade loop when the arena tears down
       clearInterval(_timerFallback);
       ro.disconnect();
       canvas.removeEventListener("pointerdown", _onPointerDown);
@@ -3678,6 +3701,7 @@ function buildHud() {
   </div>`);
   add('<button class="gear game-ui" title="Menu">&#9776;</button>');
   const gearBtn = root.querySelector(".gear");
+  const muteBtn = add('<button class="mute-btn game-ui" title="Mute sound" aria-pressed="false">&#128266;</button>');
   const rivalsEl = add('<div class="game-rivals game-ui">--</div>');
   const fpsEl = add('<div class="game-fps game-ui">FPS --</div>');
   const pingEl = add('<div class="game-ping game-ui">-- ms</div>');
@@ -3745,7 +3769,7 @@ function buildHud() {
         if (key === "fog") ctx.applyFog();
         else if (key === "msaa") ctx.applyMsaa();
         else if (key === "centerCamera") ctx.onCenter();
-        else if (key === "sound") setSfxEnabled(ctx.settings.sound);
+        else if (key === "sound") ctx.onSound(ctx.settings.sound);
         else ctx.refreshHud();
       });
     });
@@ -3757,7 +3781,7 @@ function buildHud() {
     });
   }
 
-  return { root, coords, matchTimerEl, matchNoEl, mmCanvas, hotbar, slots, rivalsEl, fpsEl, pingEl, overlay, renderDistBtn, bindSettings, raiderCountCtrl, raiderCountEl, scorePanel, weaponPanel, keysInfoPanel, gearBtn };
+  return { root, coords, matchTimerEl, matchNoEl, mmCanvas, hotbar, slots, rivalsEl, fpsEl, pingEl, overlay, renderDistBtn, bindSettings, raiderCountCtrl, raiderCountEl, scorePanel, weaponPanel, keysInfoPanel, gearBtn, muteBtn };
 }
 
 function clamp(v, min, max) {
