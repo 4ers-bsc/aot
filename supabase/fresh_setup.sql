@@ -2674,7 +2674,7 @@ declare
   v_dur          int;
   v_token        text := lower(regexp_replace(coalesce(trim(p_token_address), ''), '^.*:', ''));
   v_escrow       text := lower(regexp_replace(coalesce(trim(p_escrow_wallet),  ''), '^.*:', ''));
-  c_entry_fee    constant bigint := 2500;
+  c_entry_fee    constant bigint := 10000; -- whole tokens; see 20260728_entry_fee_10000.sql
 begin
   if v_uid is null then
     raise exception 'not_authenticated';
@@ -2848,7 +2848,7 @@ begin
   )
   values (
     'waiting', v_size, v_uid,
-    coalesce(v_fee, 2500), coalesce(v_share, 9000), v_dur,
+    coalesce(v_fee, 10000), coalesce(v_share, 9000), v_dur,
     nullif(v_token, ''), p_chain_id, nullif(v_escrow, '')
   )
   returning id into v_match_id;

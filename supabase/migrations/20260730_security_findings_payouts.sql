@@ -45,6 +45,29 @@ alter table public.matches
   add column if not exists payout_nonce  int;
 
 -- ---------------------------------------------------------------------------
+-- Display fix: recompute pot_tokens from the authoritative per-match entry fee
+-- × seat count. Earlier join_pvp_match revisions incremented pot_tokens with a
+-- stale 2,500 constant after the fee moved to 10,000 (20260728), so the ops
+-- dashboard under-reported the pot (e.g. a 2-player match showed 5,000 instead
+-- of 20,000). pot_tokens is display-only bookkeeping — payouts derive the prize
+-- from entry_fee_tokens, so this touches no money — but it should be truthful.
+-- ---------------------------------------------------------------------------
+update public.matches m
+set pot_tokens = seats.n * coalesce(
+      nullif(m.entry_fee_tokens, 0),
+      (select entry_fee_tokens from public.pvp_config limit 1),
+      10000)
+from (
+  select match_id, count(*)::bigint as n
+  from public.match_players group by match_id
+) seats
+where seats.match_id = m.id
+  and m.pot_tokens is distinct from seats.n * coalesce(
+        nullif(m.entry_fee_tokens, 0),
+        (select entry_fee_tokens from public.pvp_config limit 1),
+        10000);
+
+-- ---------------------------------------------------------------------------
 -- P0  Realtime authorization for the private `match-<id>` topic.
 --     A helper parses the match UUID out of the topic; the RLS policies then
 --     admit only an authenticated user who holds a seat in that match. These
@@ -142,7 +165,9 @@ declare
   -- P1: economic-identity snapshot, normalised to a bare lowercase 0x address.
   v_token        text := lower(regexp_replace(coalesce(trim(p_token_address), ''), '^.*:', ''));
   v_escrow       text := lower(regexp_replace(coalesce(trim(p_escrow_wallet),  ''), '^.*:', ''));
-  c_entry_fee    constant bigint := 2500;
+  -- Whole tokens; matches the 10,000 fee set in 20260728_entry_fee_10000.sql.
+  -- (Do NOT drop back to 2500 — that under-counts pot_tokens in the dashboard.)
+  c_entry_fee    constant bigint := 10000;
 begin
   if v_uid is null then
     raise exception 'not_authenticated';
@@ -320,7 +345,7 @@ begin
   )
   values (
     'waiting', v_size, v_uid,
-    coalesce(v_fee, 2500), coalesce(v_share, 9000), v_dur,
+    coalesce(v_fee, 10000), coalesce(v_share, 9000), v_dur,
     nullif(v_token, ''), p_chain_id, nullif(v_escrow, '')
   )
   returning id into v_match_id;
