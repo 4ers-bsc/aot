@@ -220,7 +220,11 @@ Deno.serve(async (req: Request) => {
 
     const body = await req.json().catch(() => null);
     const maxPlayers    = Number(body?.max_players);
-    const depositTx     = String(body?.deposit_tx ?? "").trim();
+    // EVM tx hashes are case-insensitive, but the DB compares deposit_tx as an
+    // exact string and the consumed-deposit ledger is keyed on it — normalise to
+    // lowercase so a re-cased hash can't pass replay protection as a new deposit
+    // (matches join_pvp_match + the lower(deposit_tx) unique indexes). #7
+    const depositTx     = String(body?.deposit_tx ?? "").trim().toLowerCase();
     const depositWallet = String(body?.deposit_wallet ?? "").trim();
     const displayName   = body?.display_name ?? null;
 
