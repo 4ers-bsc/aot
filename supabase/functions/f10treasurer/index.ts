@@ -237,7 +237,7 @@ Deno.serve(async (req: Request) => {
     const { data: cfg } = await adminClient
       .from("pvp_config").select("entry_fee_tokens, winner_share_bps").maybeSingle();
     const entryFeeTokens = Number(matchRow.entry_fee_tokens) > 0 ? Number(matchRow.entry_fee_tokens)
-      : Number(cfg?.entry_fee_tokens) > 0 ? Number(cfg.entry_fee_tokens) : 2500;
+      : Number(cfg?.entry_fee_tokens) > 0 ? Number(cfg.entry_fee_tokens) : 10000;
     const winnerShareBps = Number(matchRow.winner_share_bps) > 0 ? Number(matchRow.winner_share_bps)
       : Number(cfg?.winner_share_bps) > 0 ? Number(cfg.winner_share_bps) : 9000;
     const entryFeeRaw = BigInt(entryFeeTokens) * BigInt(10) ** BigInt(decimals);

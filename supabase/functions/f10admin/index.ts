@@ -78,7 +78,7 @@ const TOKEN_DECIMALS = Number(Deno.env.get("FIGHT10_DECIMALS") ?? "18");
 // settled at whatever fee applied then, so a mutable current value would skew
 // historical rows. The live deposit-validation + payout paths below read the
 // entry fee from pvp_config per request.
-const ENTRY_FEE_RAW  = 2500n * 10n ** BigInt(TOKEN_DECIMALS);
+const ENTRY_FEE_RAW  = 10000n * 10n ** BigInt(TOKEN_DECIMALS);
 
 const norm = (w?: string | null) => ((w ?? "").split(":").pop() ?? "").trim().toLowerCase();
 const csv = (v?: string | null) =>
@@ -195,7 +195,7 @@ async function payoutWinner(admin: any, matchId: string) {
   const { data: cfg } = await admin
     .from("pvp_config").select("entry_fee_tokens, winner_share_bps").maybeSingle();
   const entryFeeTokens = Number(matchRow.entry_fee_tokens) > 0 ? Number(matchRow.entry_fee_tokens)
-    : Number(cfg?.entry_fee_tokens) > 0 ? Number(cfg.entry_fee_tokens) : 2500;
+    : Number(cfg?.entry_fee_tokens) > 0 ? Number(cfg.entry_fee_tokens) : 10000;
   const winnerShareBps = Number(matchRow.winner_share_bps) > 0 ? Number(matchRow.winner_share_bps)
     : Number(cfg?.winner_share_bps) > 0 ? Number(cfg.winner_share_bps) : 9000;
   const entryFeeRaw = BigInt(entryFeeTokens) * BigInt(10) ** BigInt(decimals);
@@ -777,7 +777,7 @@ Deno.serve(async (req: Request) => {
             const decimals = Number(await rpc.run((p) => new Contract(tokenAddr, ERC20_ABI, p).decimals()));
             const { data: cfg } = await admin
               .from("pvp_config").select("entry_fee_tokens, winner_share_bps").maybeSingle();
-            const entryFeeTokens = Number(cfg?.entry_fee_tokens) > 0 ? Number(cfg.entry_fee_tokens) : 2500;
+            const entryFeeTokens = Number(cfg?.entry_fee_tokens) > 0 ? Number(cfg.entry_fee_tokens) : 10000;
             const winnerShareBps = Number(cfg?.winner_share_bps) > 0 ? Number(cfg.winner_share_bps) : 9000;
             const entryFeeRaw = BigInt(entryFeeTokens) * BigInt(10) ** BigInt(decimals);
             const expectedRaw = (BigInt(numPlayers) * entryFeeRaw * BigInt(winnerShareBps)) / BigInt(10000);

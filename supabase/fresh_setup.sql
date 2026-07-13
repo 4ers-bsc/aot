@@ -199,7 +199,7 @@ insert into public.maintain (id, value) values (true, 'n');
 create table public.pvp_config (
   id                boolean primary key default true check (id), -- single-row guard
   player_cap        int not null default 150  check (player_cap between 1 and 100000),
-  entry_fee_tokens  int not null default 2500 check (entry_fee_tokens between 1 and 100000000),
+  entry_fee_tokens  int not null default 10000 check (entry_fee_tokens between 1 and 100000000),
   winner_share_bps  int not null default 9000 check (winner_share_bps between 0 and 10000)
 );
 insert into public.pvp_config (id) values (true);
@@ -582,10 +582,10 @@ declare
   v_count        smallint;
   v_status       text;
   v_existing     record;
-  -- WHOLE tokens, not raw units: 2500 × 10^18 raw (18-decimal ERC-20 on
+  -- WHOLE tokens, not raw units: 10000 × 10^18 raw (18-decimal ERC-20 on
   -- Robinhood Chain) would overflow bigint. Display layers know pot_tokens
   -- needs no decimals shift.
-  c_entry_fee    constant bigint := 2500;
+  c_entry_fee    constant bigint := 10000;
 begin
   -- p_user_id is supplied by the edge function from the verified JWT. This RPC
   -- is service-role only, so v_uid is trusted.
@@ -836,7 +836,7 @@ stable
 as $$
   select jsonb_build_object(
     'player_cap',       public.pvp_capacity_cap(),
-    'entry_fee_tokens', coalesce((select entry_fee_tokens from public.pvp_config where id), 2500),
+    'entry_fee_tokens', coalesce((select entry_fee_tokens from public.pvp_config where id), 10000),
     'winner_share_bps', coalesce((select winner_share_bps from public.pvp_config where id), 9000)
   );
 $$;
@@ -938,7 +938,7 @@ declare
   r             record;
   v_remaining   integer;
   v_had_deposit boolean;
-  c_entry_fee   constant bigint := 2500; -- whole tokens; see join_pvp_match
+  c_entry_fee   constant bigint := 10000; -- whole tokens; see join_pvp_match
 begin
   if v_uid is null then
     raise exception 'not_authenticated';
@@ -2235,7 +2235,7 @@ declare
   v_fee          int;
   v_share        int;
   v_dur          int;
-  c_entry_fee    constant bigint := 2500;
+  c_entry_fee    constant bigint := 10000;
 begin
   if v_uid is null then
     raise exception 'not_authenticated';
@@ -2407,7 +2407,7 @@ begin
   )
   values (
     'waiting', v_size, v_uid,
-    coalesce(v_fee, 2500), coalesce(v_share, 9000), v_dur
+    coalesce(v_fee, 10000), coalesce(v_share, 9000), v_dur
   )
   returning id into v_match_id;
 
