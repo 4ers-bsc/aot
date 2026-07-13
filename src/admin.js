@@ -301,6 +301,67 @@ export function initAdmin(supabase) {
     }
   }
 
+  // Trigger a client-side download of a JS object as a pretty-printed .json file.
+  function downloadJson(filename, obj) {
+    const blob = new Blob([JSON.stringify(obj, null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  }
+  const stamp = () => new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19);
+
+  // Export one table (or the whole schema when `table` is null) and download it.
+  async function dbExport(table) {
+    toast(table ? `Exporting ${table}…` : "Building snapshot…");
+    try {
+      const { data: resp, error } = await supabase.functions.invoke("f10admin", {
+        body: { action: "db_export", ...(table ? { table } : {}) },
+      });
+      if (error) throw new Error(error.message || "request failed");
+      if (!resp?.ok) throw new Error(resp?.error || "request failed");
+      if (table) {
+        downloadJson(`${table}-${stamp()}.json`,
+          { table, generated_at: resp.generated_at, rows: resp.rows });
+        toast(`Downloaded ${table} (${(resp.rows || []).length} rows) ✓`);
+      } else {
+        const tables = resp.tables || {};
+        const total = Object.values(tables).reduce((n, r) => n + (r?.length || 0), 0);
+        downloadJson(`fight10-snapshot-${stamp()}.json`,
+          { generated_at: resp.generated_at, tables });
+        toast(`Downloaded snapshot — ${Object.keys(tables).length} tables, ${total} rows ✓`);
+      }
+    } catch (err) {
+      toast(`Export failed: ${err?.message || err}`, true);
+    }
+  }
+
+  // Wipe one table (or every table when `table` is null). `confirm` is the typed
+  // phrase the backend re-checks before truncating.
+  async function dbWipe(table, confirm) {
+    try {
+      const { data: resp, error } = await supabase.functions.invoke("f10admin", {
+        body: { action: "db_wipe", confirm, ...(table ? { table } : {}) },
+      });
+      if (error) {
+        let reason = error.message || "request failed";
+        try { const b = await error.context?.json?.(); if (b?.error) reason = b.error; } catch (_) {}
+        throw new Error(reason);
+      }
+      if (!resp?.ok) throw new Error(resp?.error || "request failed");
+      toast(table
+        ? `Wiped ${table} (${resp.rows_removed} rows removed) ✓`
+        : `Wiped ${resp.tables?.length ?? 0} tables (${resp.rows_removed} rows removed) ✓`);
+      await loadDbStats();
+    } catch (err) {
+      toast(`Wipe failed: ${err?.message || err}`, true);
+    }
+  }
+
   // Non-blocking toast (window.alert can be suppressed the same way prompt is).
   function toast(msg, isError = false) {
     const host = root?.querySelector("#adminModalHost");
@@ -368,6 +429,9 @@ export function initAdmin(supabase) {
     modal({ label, initial, multiline: true, ...opts }).then((v) => (v == null ? null : String(v).trim()));
   const askConfirm = (label, okText = "Confirm") =>
     modal({ label, showInput: false, okText }).then((v) => v === true);
+  // Destructive-action guard: the operator must type `expected` verbatim.
+  const askExact = (label, expected, okText = "Confirm", placeholder = "") =>
+    modal({ label, placeholder, okText }).then((v) => v != null && String(v).trim() === expected);
 
   // ---- Row action handler ---------------------------------------------------
   async function onAction(e) {
@@ -392,6 +456,32 @@ export function initAdmin(supabase) {
     if (a === "integrity_kind") {
       integrityKind = btn.dataset.kind || "";
       renderBody();
+      return;
+    }
+    if (a === "db_download") {
+      dbExport(btn.dataset.table);
+      return;
+    }
+    if (a === "db_download_all") {
+      dbExport(null);
+      return;
+    }
+    if (a === "db_wipe") {
+      const t = btn.dataset.table;
+      const n = Number(btn.dataset.rows || 0);
+      if (await askExact(
+        `Permanently delete every row in “${t}”${n ? ` (~${fmtInt(n)} rows)` : ""}? This TRUNCATEs the table (CASCADE — rows referencing it go too) and cannot be undone. Type the table name to confirm.`,
+        t, "Wipe table", t)) {
+        dbWipe(t, t);
+      }
+      return;
+    }
+    if (a === "db_wipe_all") {
+      if (await askExact(
+        `⚠ DELETE EVERY ROW IN EVERY TABLE. This empties the entire database (matches, payouts, deposits, profiles, config — everything) and cannot be undone. Download a snapshot first. Type WIPE ALL to confirm.`,
+        "WIPE ALL", "Wipe everything", "WIPE ALL")) {
+        dbWipe(null, "WIPE ALL");
+      }
       return;
     }
     if (a === "cfg_save_pvp") {
@@ -775,14 +865,25 @@ export function initAdmin(supabase) {
       <td class="admin-nowrap admin-right-txt">${t.dead_rows ? fmtInt(t.dead_rows) : "—"}</td>
       <td class="admin-nowrap admin-right-txt">${fmtBytes(t.total_bytes)}</td>
       <td class="admin-nowrap">${t.last_analyze ? ago(t.last_analyze) : "—"}</td>
+      <td class="admin-nowrap">
+        <button class="admin-btn admin-btn-xs" data-act="db_download" data-table="${escapeHtml(t.name)}" title="Download this table as JSON">⬇ JSON</button>
+        <button class="admin-btn admin-btn-xs admin-danger" data-act="db_wipe" data-table="${escapeHtml(t.name)}" data-rows="${t.rows ?? 0}" title="Delete every row in this table">Wipe</button>
+      </td>
     </tr>`).join("");
 
     const table = rows
-      ? `<table class="admin-table mon-table">${thead(["Table", "Rows (est.)", "Dead", "Size", "Analyzed"])}${rows}</tbody></table>`
+      ? `<table class="admin-table mon-table">${thead(["Table", "Rows (est.)", "Dead", "Size", "Analyzed", "Actions"])}${rows}</tbody></table>`
       : `<div class="admin-msg">No user tables reported.</div>`;
 
-    return cards +
-      `<p class="admin-note">Row counts are the planner's live estimates (refreshed by autovacuum/analyze). A high dead-row count or a low cache-hit ratio can indicate a table that needs vacuuming.</p>` +
+    // Snapshot / wipe toolbar. Downloads run client-side from the returned JSON;
+    // wipes require a typed confirmation (handled in onAction).
+    const toolbar = `<div class="db-toolbar">
+      <button class="admin-btn admin-btn-sm admin-primary" data-act="db_download_all">⬇ Download snapshot (all tables)</button>
+      <button class="admin-btn admin-btn-sm admin-danger" data-act="db_wipe_all">⚠ Wipe ALL tables</button>
+    </div>`;
+
+    return cards + toolbar +
+      `<p class="admin-note">Row counts are the planner's live estimates (refreshed by autovacuum/analyze). A high dead-row count or a low cache-hit ratio can indicate a table that needs vacuuming. <b>Wipe</b> permanently deletes every row (TRUNCATE … CASCADE) — snapshot first.</p>` +
       table;
   }
 

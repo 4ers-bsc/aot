@@ -4898,6 +4898,7 @@ body.in-game .log-feed { left: 70px; }
 .mon-warn { color: #f0c088; }
 .mon-sub { font-family: var(--font-body); font-size: 0.6rem; color: rgba(233, 224, 200, 0.5); }
 .mon-table td:not(:first-child) { font-variant-numeric: tabular-nums; }
+.db-toolbar { display: flex; flex-wrap: wrap; gap: 10px; margin: 14px 0 4px; }
 
 /* Edge-function health cards */
 .fn-card {

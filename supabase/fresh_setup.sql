@@ -9,6 +9,11 @@
 drop trigger if exists on_auth_user_created on auth.users;
 
 drop function if exists public.admin_db_stats();
+drop function if exists public.admin_assert_public_table(text);
+drop function if exists public.admin_export_table(text);
+drop function if exists public.admin_snapshot();
+drop function if exists public.admin_truncate_table(text);
+drop function if exists public.admin_truncate_all();
 drop function if exists public.close_stale_matches();
 drop function if exists public.compute_shadow_winner(uuid);
 drop function if exists public.match_duration_seconds(smallint);
@@ -1844,6 +1849,136 @@ $$;
 
 revoke all on function public.admin_db_stats() from public;
 grant execute on function public.admin_db_stats() to service_role;
+
+-- ---------------------------------------------------------------------------
+-- 13c. admin data ops — export (snapshot) + wipe (truncate) helpers for the
+--      dashboard's "Database" tab. Admin-only via f10admin (which requires a
+--      typed confirmation before any wipe). service_role execute only.
+--      See migrations/20260723_admin_data_ops.sql.
+-- ---------------------------------------------------------------------------
+create or replace function public.admin_assert_public_table(p_table text)
+returns void
+language plpgsql
+stable
+security definer
+set search_path = public, pg_catalog
+as $$
+begin
+  if not exists (
+    select 1 from information_schema.tables
+    where table_schema = 'public'
+      and table_name = p_table
+      and table_type = 'BASE TABLE'
+  ) then
+    raise exception 'unknown_table: %', p_table;
+  end if;
+end;
+$$;
+
+create or replace function public.admin_export_table(p_table text)
+returns jsonb
+language plpgsql
+stable
+security definer
+set search_path = public, pg_catalog
+as $$
+declare
+  v_rows jsonb;
+begin
+  perform public.admin_assert_public_table(p_table);
+  execute format('select coalesce(jsonb_agg(t), ''[]''::jsonb) from public.%I t', p_table)
+    into v_rows;
+  return v_rows;
+end;
+$$;
+
+create or replace function public.admin_snapshot()
+returns jsonb
+language plpgsql
+stable
+security definer
+set search_path = public, pg_catalog
+as $$
+declare
+  v_result jsonb := '{}'::jsonb;
+  v_rows   jsonb;
+  r        record;
+begin
+  for r in
+    select table_name from information_schema.tables
+    where table_schema = 'public' and table_type = 'BASE TABLE'
+    order by table_name
+  loop
+    execute format('select coalesce(jsonb_agg(t), ''[]''::jsonb) from public.%I t', r.table_name)
+      into v_rows;
+    v_result := v_result || jsonb_build_object(r.table_name, v_rows);
+  end loop;
+  return v_result;
+end;
+$$;
+
+create or replace function public.admin_truncate_table(p_table text)
+returns bigint
+language plpgsql
+security definer
+set search_path = public, pg_catalog
+as $$
+declare
+  v_count bigint;
+begin
+  perform public.admin_assert_public_table(p_table);
+  execute format('select count(*) from public.%I', p_table) into v_count;
+  execute format('truncate table public.%I restart identity cascade', p_table);
+  return v_count;
+end;
+$$;
+
+create or replace function public.admin_truncate_all()
+returns jsonb
+language plpgsql
+security definer
+set search_path = public, pg_catalog
+as $$
+declare
+  v_list   text;
+  v_names  text[];
+  v_total  bigint := 0;
+  v_count  bigint;
+begin
+  select array_agg(table_name order by table_name)
+    into v_names
+  from information_schema.tables
+  where table_schema = 'public' and table_type = 'BASE TABLE';
+
+  if v_names is null or array_length(v_names, 1) is null then
+    return jsonb_build_object('tables', '[]'::jsonb, 'rows', 0);
+  end if;
+
+  foreach v_list in array v_names loop
+    execute format('select count(*) from public.%I', v_list) into v_count;
+    v_total := v_total + v_count;
+  end loop;
+
+  select string_agg(format('public.%I', table_name), ', ')
+    into v_list
+  from information_schema.tables
+  where table_schema = 'public' and table_type = 'BASE TABLE';
+  execute 'truncate table ' || v_list || ' restart identity cascade';
+
+  return jsonb_build_object('tables', to_jsonb(v_names), 'rows', v_total);
+end;
+$$;
+
+revoke all on function public.admin_assert_public_table(text) from public;
+revoke all on function public.admin_export_table(text)        from public;
+revoke all on function public.admin_snapshot()                from public;
+revoke all on function public.admin_truncate_table(text)      from public;
+revoke all on function public.admin_truncate_all()            from public;
+grant execute on function public.admin_assert_public_table(text) to service_role;
+grant execute on function public.admin_export_table(text)        to service_role;
+grant execute on function public.admin_snapshot()                to service_role;
+grant execute on function public.admin_truncate_table(text)      to service_role;
+grant execute on function public.admin_truncate_all()            to service_role;
 
 -- ---------------------------------------------------------------------------
 -- 14. pg_cron — backstop sweeper. Runs every minute so an abandoned match
