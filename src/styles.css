@@ -4609,7 +4609,7 @@ body.in-game .log-feed { left: 70px; }
 }
 .home-chip:hover { border-color: var(--gold); color: #f0e8d2; }
 .home-chip-n { margin-right: 3px; color: var(--gold-hi); font-weight: bold; }
-.home-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.home-qa { display: flex; flex-flow: row wrap; align-items: center; gap: 8px; }
 
 .admin-msg { padding: 40px 12px; text-align: center; color: rgba(233, 224, 200, 0.6); font-family: var(--font-body); }
 .admin-err { color: #e88; }
@@ -5110,6 +5110,365 @@ body.in-game .log-feed { left: 70px; }
 .cfg-maint-state { font-size: 0.72rem; font-family: var(--font-body); }
 .cfg-maint-state.is-on  { color: #f0c088; }
 .cfg-maint-state.is-off { color: #9fe0a0; }
+
+/* ============================================================================
+   OPS DASHBOARD — readability theme.
+   A self-contained, high-contrast dark "control panel" look, deliberately off
+   the game's gold/parchment theme so the internal tool reads clearly: neutral
+   slate surfaces, a blue action accent, semantic green/amber/red, and larger
+   type throughout. Scoped under .admin-overlay so it only affects the dashboard
+   and overrides the base rules above (one extra class = higher specificity).
+   ============================================================================ */
+.admin-overlay {
+  --a-bg: #0e1014;
+  --a-surface: #171a21;
+  --a-surface-2: #1e222b;
+  --a-hover: #262c39;
+  --a-border: #2b313d;
+  --a-border-2: #3a4252;
+  --a-text: #edeff3;
+  --a-text-dim: #b8bfcc;
+  --a-text-mute: #838d9e;
+  --a-accent: #5b95ff;
+  --a-accent-hi: #82b0ff;
+  --a-green: #4ac86a;
+  --a-green-bg: rgba(74, 200, 106, 0.12);
+  --a-amber: #e3a838;
+  --a-amber-bg: rgba(227, 168, 56, 0.12);
+  --a-red: #f2604d;
+  --a-red-hi: #ff9a8b;
+  --a-red-bg: rgba(242, 96, 77, 0.13);
+  --a-radius: 10px;
+  --a-font: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  --a-mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  background: rgba(6, 7, 10, 0.74);
+}
+
+.admin-overlay .admin-panel {
+  width: min(1240px, 100%);
+  border: 1px solid var(--a-border);
+  border-radius: 14px;
+  background: var(--a-bg);
+  color: var(--a-text);
+  font-family: var(--a-font);
+  font-size: 14px;
+  box-shadow: 0 24px 90px rgba(0, 0, 0, 0.65);
+}
+
+.admin-overlay .admin-head {
+  padding: 15px 20px;
+  border-bottom: 1px solid var(--a-border);
+  background: var(--a-surface);
+}
+.admin-overlay .admin-title {
+  font-family: var(--a-font);
+  font-weight: 700;
+  font-size: 17px;
+  letter-spacing: 0.02em;
+  color: var(--a-text);
+}
+.admin-overlay .admin-title span { color: var(--a-text-mute); margin-left: 0.45em; font-weight: 600; }
+.admin-overlay .admin-refreshed { color: var(--a-text-mute); font-size: 12.5px; }
+
+.admin-overlay .admin-side {
+  width: 212px;
+  padding: 12px 10px;
+  border-right: 1px solid var(--a-border);
+  background: var(--a-surface);
+  gap: 16px;
+}
+.admin-overlay .admin-side-group {
+  padding: 2px 10px 5px;
+  font-size: 11px;
+  letter-spacing: 0.1em;
+  color: var(--a-text-mute);
+  font-weight: 600;
+}
+.admin-overlay .admin-tab {
+  padding: 9px 12px;
+  border-radius: 8px;
+  color: var(--a-text-dim);
+  font-family: var(--a-font);
+  font-size: 14px;
+  font-weight: 500;
+  letter-spacing: 0;
+}
+.admin-overlay .admin-tab:hover { background: var(--a-hover); color: var(--a-text); }
+.admin-overlay .admin-tab.is-active {
+  background: var(--a-accent);
+  color: #fff;
+  border-color: transparent;
+}
+.admin-overlay .admin-count {
+  min-width: 22px;
+  padding: 2px 7px;
+  background: var(--a-surface-2);
+  color: var(--a-text-dim);
+  font-size: 12px;
+  font-weight: 600;
+}
+.admin-overlay .admin-count.attn { background: var(--a-red); color: #fff; }
+.admin-overlay .admin-tab.is-active .admin-count { background: rgba(255, 255, 255, 0.28); color: #fff; }
+
+.admin-overlay .admin-body { padding: 20px 22px 28px; color: var(--a-text); }
+.admin-overlay .admin-msg { color: var(--a-text-mute); font-size: 14.5px; padding: 48px 12px; }
+.admin-overlay .admin-err { color: var(--a-red-hi); }
+.admin-overlay .admin-note { color: var(--a-text-mute); font-size: 13px; line-height: 1.55; margin-bottom: 14px; }
+.admin-overlay .admin-dim { color: var(--a-text-mute); font-size: 12.5px; }
+
+/* Cards */
+.admin-overlay .admin-card {
+  padding: 14px 16px;
+  border: 1px solid var(--a-border);
+  border-left: 3px solid var(--a-accent);
+  border-radius: var(--a-radius);
+  background: var(--a-surface);
+  font-family: var(--a-font);
+  font-size: 14px;
+  margin-bottom: 12px;
+}
+.admin-overlay .admin-card-head b { color: var(--a-text); font-size: 15px; }
+.admin-overlay .admin-prow { background: var(--a-surface-2); border-radius: 6px; padding: 7px 10px; }
+.admin-overlay .admin-seat { color: var(--a-accent-hi); font-family: var(--a-font); font-weight: 700; font-size: 13px; }
+.admin-overlay .admin-pname { color: var(--a-text); }
+.admin-overlay .admin-phP { color: var(--a-text-dim); font-size: 12.5px; }
+
+/* Tables */
+.admin-overlay .admin-table { font-family: var(--a-font); font-size: 13.5px; }
+.admin-overlay .admin-table th {
+  padding: 9px 10px;
+  border-bottom: 1px solid var(--a-border-2);
+  color: var(--a-text-mute);
+  font-size: 11.5px;
+  font-weight: 600;
+}
+.admin-overlay .admin-table td {
+  padding: 9px 10px;
+  border-bottom: 1px solid var(--a-border);
+  color: var(--a-text-dim);
+}
+.admin-overlay .admin-mono, .admin-overlay .admin-detail { font-family: var(--a-mono); font-size: 12.5px; }
+.admin-overlay .admin-detail { color: var(--a-text-mute); }
+
+/* Flags */
+.admin-overlay .admin-flag {
+  padding: 2px 8px;
+  background: var(--a-surface-2);
+  border: 1px solid var(--a-border-2);
+  color: var(--a-text-dim);
+  font-size: 12px;
+}
+.admin-overlay .admin-flag-red { background: var(--a-red-bg); border-color: rgba(242, 96, 77, 0.6); color: var(--a-red-hi); }
+
+/* Buttons */
+.admin-overlay .admin-btn {
+  padding: 7px 13px;
+  border: 1px solid var(--a-border-2);
+  border-radius: 7px;
+  background: var(--a-surface-2);
+  color: var(--a-text);
+  font-family: var(--a-font);
+  font-size: 13px;
+  font-weight: 500;
+  letter-spacing: 0;
+}
+.admin-overlay .admin-btn:hover { background: var(--a-hover); border-color: var(--a-accent); }
+.admin-overlay .admin-btn-sm { padding: 6px 11px; font-size: 12.5px; }
+.admin-overlay .admin-btn-xs { padding: 4px 9px; font-size: 12px; }
+.admin-overlay .admin-x { color: var(--a-text-mute); border-color: transparent; background: transparent; }
+.admin-overlay .admin-x:hover { color: var(--a-text); background: var(--a-hover); }
+.admin-overlay .admin-danger { border-color: rgba(242, 96, 77, 0.5); color: var(--a-red-hi); background: transparent; }
+.admin-overlay .admin-danger:hover { border-color: var(--a-red); background: var(--a-red-bg); }
+.admin-overlay .admin-primary {
+  border-color: var(--a-accent);
+  background: var(--a-accent);
+  color: #fff;
+  font-weight: 600;
+}
+.admin-overlay .admin-primary:hover { background: var(--a-accent-hi); border-color: var(--a-accent-hi); }
+
+/* Links, notes */
+.admin-overlay .admin-link { color: var(--a-accent-hi); border-bottom-color: rgba(91, 149, 255, 0.5); }
+.admin-overlay .admin-card-notes { border-top: 1px dashed var(--a-border-2); }
+.admin-overlay .admin-cnote { font-size: 13px; color: var(--a-text-dim); }
+.admin-overlay .admin-note-del { color: var(--a-text-mute); font-size: 15px; }
+.admin-overlay .admin-note-del:hover { color: var(--a-red-hi); }
+
+/* Modal + input */
+.admin-overlay .admin-modal {
+  border: 1px solid var(--a-border-2);
+  border-radius: 12px;
+  background: var(--a-surface);
+  box-shadow: 0 22px 70px rgba(0, 0, 0, 0.7);
+}
+.admin-overlay .admin-modal-back { background: rgba(0, 0, 0, 0.62); }
+.admin-overlay .admin-modal-label { color: var(--a-text); font-size: 14px; line-height: 1.55; }
+.admin-overlay .admin-input {
+  border: 1px solid var(--a-border-2);
+  border-radius: 7px;
+  background: var(--a-bg);
+  color: var(--a-text);
+  font-family: var(--a-font);
+  font-size: 14px;
+}
+.admin-overlay .admin-input:focus { border-color: var(--a-accent); }
+
+/* Toast */
+.admin-overlay .admin-toast {
+  border: 1px solid var(--a-border-2);
+  background: var(--a-surface);
+  color: var(--a-text);
+  font-size: 13.5px;
+  box-shadow: 0 10px 34px rgba(0, 0, 0, 0.6);
+}
+.admin-overlay .admin-toast-err { border-color: var(--a-red); color: var(--a-red-hi); }
+
+/* Search bar */
+.admin-overlay .admin-search-input {
+  padding: 9px 13px;
+  border: 1px solid var(--a-border-2);
+  border-radius: 8px;
+  background: var(--a-bg);
+  color: var(--a-text);
+  font-family: var(--a-font);
+  font-size: 14px;
+}
+.admin-overlay .admin-search-input:focus { border-color: var(--a-accent); }
+.admin-overlay .admin-search-count { color: var(--a-text-mute); font-size: 12.5px; }
+
+/* Chips */
+.admin-overlay .admin-chip {
+  padding: 5px 11px;
+  border: 1px solid var(--a-border-2);
+  background: var(--a-surface-2);
+  color: var(--a-text-dim);
+  font-family: var(--a-font);
+  font-size: 12.5px;
+}
+.admin-overlay .admin-chip:hover { border-color: var(--a-accent); color: var(--a-text); }
+.admin-overlay .admin-chip.is-active { background: var(--a-accent); color: #fff; border-color: var(--a-accent); }
+.admin-overlay .admin-chip-n { background: rgba(255, 255, 255, 0.1); color: var(--a-text-dim); font-size: 11.5px; }
+.admin-overlay .admin-chip.is-active .admin-chip-n { background: rgba(255, 255, 255, 0.28); color: #fff; }
+
+/* Cash flow */
+.admin-overlay .cf-field { color: var(--a-text-mute); font-size: 11.5px; }
+.admin-overlay .cf-input {
+  border: 1px solid var(--a-border-2);
+  background: var(--a-bg);
+  color: var(--a-text);
+  font-family: var(--a-font);
+  font-size: 14px;
+}
+.admin-overlay .cf-input:focus { border-color: var(--a-accent); }
+.admin-overlay .cf-card { border: 1px solid var(--a-border); border-radius: var(--a-radius); background: var(--a-surface); padding: 15px 18px; }
+.admin-overlay .cf-card-label { color: var(--a-text-mute); font-size: 12px; }
+.admin-overlay .cf-card-amt { font-family: var(--a-font); font-weight: 700; font-size: 22px; color: var(--a-text); }
+.admin-overlay .cf-card-sub { color: var(--a-text-mute); font-size: 13px; }
+.admin-overlay .cf-in  { border-color: rgba(74, 200, 106, 0.45); }
+.admin-overlay .cf-in  .cf-card-amt { color: var(--a-green); }
+.admin-overlay .cf-out { border-color: rgba(227, 168, 56, 0.45); }
+.admin-overlay .cf-out .cf-card-amt { color: var(--a-amber); }
+.admin-overlay .cf-net .cf-card-amt { color: var(--a-accent-hi); }
+.admin-overlay .cf-neg { color: var(--a-red-hi) !important; }
+.admin-overlay .cf-h { font-family: var(--a-font); font-weight: 600; font-size: 16px; color: var(--a-text); }
+.admin-overlay .cf-h .admin-dim { font-size: 12.5px; }
+
+/* Monitoring metric cards (Database + Edge functions + Home) */
+.admin-overlay .mon-card { border: 1px solid var(--a-border); border-radius: var(--a-radius); background: var(--a-surface); padding: 15px 18px; }
+.admin-overlay .mon-label { color: var(--a-text-mute); font-size: 12px; }
+.admin-overlay .mon-val { font-family: var(--a-font); font-weight: 700; font-size: 25px; color: var(--a-text); margin: 7px 0 4px; }
+.admin-overlay .mon-val .mon-of { color: var(--a-text-mute); font-size: 17px; }
+.admin-overlay .mon-warn { color: var(--a-amber); }
+.admin-overlay .mon-sub { color: var(--a-text-mute); font-size: 12.5px; }
+.admin-overlay .mon-link { text-align: left; cursor: pointer; transition: border-color 0.15s ease, background 0.15s ease; }
+.admin-overlay .mon-link:hover { border-color: var(--a-accent); background: var(--a-surface-2); }
+
+/* Data-ops toolbar / legend / safety badges */
+.admin-overlay .db-legend { color: var(--a-text-mute); font-size: 12px; }
+.admin-overlay .tbl-badge { padding: 3px 9px; font-size: 12px; }
+.admin-overlay .tbl-safe   { color: var(--a-green);  border-color: rgba(74, 200, 106, 0.45); background: var(--a-green-bg); }
+.admin-overlay .tbl-prune  { color: var(--a-amber);  border-color: rgba(227, 168, 56, 0.5);  background: var(--a-amber-bg); }
+.admin-overlay .tbl-danger { color: var(--a-red-hi); border-color: rgba(242, 96, 77, 0.55);  background: var(--a-red-bg); }
+.admin-overlay .tbl-unknown{ color: var(--a-text-mute); border-color: var(--a-border-2); }
+
+/* Edge-function cards */
+.admin-overlay .fn-card { border: 1px solid var(--a-border); border-radius: var(--a-radius); background: var(--a-surface); padding: 15px 18px; }
+.admin-overlay .fn-up   { border-color: rgba(74, 200, 106, 0.5); }
+.admin-overlay .fn-down { border-color: rgba(242, 96, 77, 0.6); }
+.admin-overlay .fn-up   .fn-dot { background: var(--a-green); box-shadow: 0 0 7px rgba(74, 200, 106, 0.8); }
+.admin-overlay .fn-down .fn-dot { background: var(--a-red);   box-shadow: 0 0 7px rgba(242, 96, 77, 0.8); }
+.admin-overlay .fn-name { font-family: var(--a-font); font-weight: 600; font-size: 16px; color: var(--a-text); }
+.admin-overlay .fn-status { color: var(--a-text-mute); font-size: 12.5px; }
+.admin-overlay .fn-err { color: var(--a-red-hi); font-size: 13px; }
+.admin-overlay .fn-kv { font-size: 13px; }
+.admin-overlay .fn-k { color: var(--a-text-mute); }
+.admin-overlay .fn-ok  { color: var(--a-green); }
+.admin-overlay .fn-bad { color: var(--a-red-hi); }
+
+/* Constants editor */
+.admin-overlay .cfg-card { border: 1px solid var(--a-border); border-radius: var(--a-radius); background: var(--a-surface); padding: 16px 18px; }
+.admin-overlay .cfg-h { font-family: var(--a-font); font-weight: 600; font-size: 16px; color: var(--a-text); }
+.admin-overlay .cfg-h .admin-dim { font-family: var(--a-mono); font-size: 12.5px; }
+.admin-overlay .cfg-field { color: var(--a-text-mute); font-size: 11.5px; }
+.admin-overlay .cfg-input {
+  border: 1px solid var(--a-border-2);
+  background: var(--a-bg);
+  color: var(--a-text);
+  font-family: var(--a-font);
+  font-size: 14px;
+}
+.admin-overlay .cfg-input:focus { border-color: var(--a-accent); }
+.admin-overlay .cfg-hint { color: var(--a-text-mute); font-size: 12px; }
+.admin-overlay .cfg-mc-label { color: var(--a-text); font-size: 14px; }
+.admin-overlay .cfg-maint-state { font-size: 14px; }
+.admin-overlay .cfg-maint-state.is-on  { color: var(--a-amber); }
+.admin-overlay .cfg-maint-state.is-off { color: var(--a-green); }
+
+/* Home dashboard */
+.admin-overlay .home-banner { border-radius: var(--a-radius); font-size: 15px; padding: 13px 17px; }
+.admin-overlay .home-banner.is-attn  { color: var(--a-red-hi); border-color: rgba(242, 96, 77, 0.55); background: var(--a-red-bg); }
+.admin-overlay .home-banner.is-clear { color: var(--a-green);  border-color: rgba(74, 200, 106, 0.45); background: var(--a-green-bg); }
+.admin-overlay .home-h { font-family: var(--a-font); font-weight: 600; font-size: 16px; letter-spacing: 0; color: var(--a-text); margin: 22px 0 11px; }
+.admin-overlay .home-loading { color: var(--a-text-mute); font-size: 13.5px; padding: 10px 2px; }
+.admin-overlay .home-tile { border: 1px solid var(--a-border); border-radius: var(--a-radius); background: var(--a-surface); padding: 16px 18px; }
+.admin-overlay .home-tile:hover { border-color: var(--a-accent); }
+.admin-overlay .home-tile-n { font-family: var(--a-font); font-weight: 700; font-size: 30px; color: var(--a-text); }
+.admin-overlay .home-tile-label { font-size: 14px; color: var(--a-text-dim); }
+.admin-overlay .home-tile-sub { font-size: 12.5px; color: var(--a-text-mute); }
+.admin-overlay .home-tile.is-attn { border-color: rgba(242, 96, 77, 0.5); background: var(--a-red-bg); }
+.admin-overlay .home-tile.is-attn .home-tile-n   { color: var(--a-red-hi); }
+.admin-overlay .home-tile.is-attn .home-tile-sub { color: var(--a-red-hi); }
+.admin-overlay .home-tile.is-clear .home-tile-sub { color: var(--a-green); }
+.admin-overlay .home-chip {
+  padding: 8px 13px;
+  border: 1px solid var(--a-border-2);
+  background: var(--a-surface-2);
+  color: var(--a-text-dim);
+  font-family: var(--a-font);
+  font-size: 13px;
+}
+.admin-overlay .home-chip:hover { border-color: var(--a-accent); color: var(--a-text); }
+.admin-overlay .home-chip-n { color: var(--a-accent-hi); }
+
+/* Responsive overrides (must follow the scoped base rules to win on narrow) */
+@media (max-width: 680px) {
+  .admin-overlay .admin-main { flex-direction: column; }
+  .admin-overlay .admin-side {
+    width: auto;
+    flex-direction: row;
+    flex-wrap: nowrap;
+    gap: 8px;
+    overflow-x: auto;
+    border-right: none;
+    border-bottom: 1px solid var(--a-border);
+  }
+  .admin-overlay .admin-side-section { flex-direction: row; align-items: center; gap: 5px; }
+  .admin-overlay .admin-side-group { display: none; }
+  .admin-overlay .admin-tab { width: auto; border: 1px solid var(--a-border-2); border-radius: 999px; }
+}
+@media (max-width: 640px) {
+  .admin-overlay .cf-summary { grid-template-columns: 1fr; }
+}
 
 /* ===== Maintenance mode ===== */
 .maintenance-on { overflow: hidden; }
