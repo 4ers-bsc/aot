@@ -289,6 +289,8 @@ export function initAdmin(supabase) {
   }
   // Kick off a custom tab's first fetch when it's opened (once).
   function lazyLoadFor(tab) {
+    // Home also shows live DB metrics, so it needs the db-stats fetch too.
+    if (tab === "home"      && !dbstats   && !dbstatsLoading)   loadDbStats();
     if (tab === "cashflow"  && !cashflow  && !cashflowLoading)  loadCashflow();
     if (tab === "db"        && !dbstats   && !dbstatsLoading)   loadDbStats();
     if (tab === "functions" && !fnhealth  && !fnhealthLoading)  loadFunctions();
@@ -299,7 +301,8 @@ export function initAdmin(supabase) {
   // loading flag, stores the result, and re-renders the body if its tab is open.
   async function fetchInto(action, params, tab, set) {
     set({ loading: true, error: "" });
-    if (activeTab === tab) renderBody();
+    // Re-render when the data's own tab is open, or Home (which mirrors db-stats).
+    if (activeTab === tab || activeTab === "home") renderBody();
     try {
       const { data: resp, error } = await supabase.functions.invoke("f10admin", {
         body: { action, ...(params || {}) },
@@ -837,7 +840,7 @@ export function initAdmin(supabase) {
       ? `<div class="home-banner is-attn">⚠ ${fmtInt(attnTotal)} item${attnTotal === 1 ? "" : "s"} need attention across your operational queues.</div>`
       : `<div class="home-banner is-clear">✓ All operational queues are clear.</div>`;
 
-    const actions = `<div class="home-actions">
+    const actions = `<div class="home-qa">
       <button class="admin-btn admin-btn-sm admin-primary" data-act="home_refresh">↻ Refresh</button>
       <button class="admin-btn admin-btn-sm" data-act="db_download_all">⬇ Download DB snapshot</button>
       <button class="admin-btn admin-btn-sm" data-act="goto" data-goto="cashflow">Cash flow</button>
@@ -849,11 +852,46 @@ export function initAdmin(supabase) {
     return `${banner}
       <h3 class="home-h">Needs attention</h3>
       <div class="home-grid">${tiles}</div>
+      <h3 class="home-h">Database</h3>
+      ${renderHomeDbMetrics()}
       <h3 class="home-h">At a glance</h3>
       <div class="home-chips">${info}</div>
       <h3 class="home-h">Quick actions</h3>
       ${actions}
       <p class="admin-note">Data as of ${data.generated_at ? `${fmtTime(data.generated_at)} (${ago(data.generated_at)})` : "—"}. Pick a queue or tool from the sidebar for the full view.</p>`;
+  }
+
+  // Compact DB-health tiles for the Home tab (mirrors the Database tab's cards).
+  function renderHomeDbMetrics() {
+    if (dbstatsLoading && !dbstats) return `<div class="home-loading">Loading database metrics…</div>`;
+    if (!dbstats) return `<div class="admin-note">Database metrics unavailable.${dbstatsError ? ` ${escapeHtml(dbstatsError)}` : ""}</div>`;
+    const c = dbstats.connections || {};
+    const cache = dbstats.cache_hit_ratio;
+    const cachePct = cache != null ? `${(Number(cache) * 100).toFixed(2)}%` : "—";
+    const cacheWarn = cache != null && Number(cache) < 0.99;
+    const oldest = Number(dbstats.oldest_query_seconds || 0);
+    return `<div class="mon-grid">
+      <button class="mon-card mon-link" data-act="goto" data-goto="db" title="Open Database tab">
+        <div class="mon-label">Database size</div>
+        <div class="mon-val">${fmtBytes(dbstats.db_bytes)}</div>
+        <div class="mon-sub">${fmtInt((dbstats.tables || []).length)} tables</div>
+      </button>
+      <button class="mon-card mon-link" data-act="goto" data-goto="db">
+        <div class="mon-label">Connections</div>
+        <div class="mon-val">${fmtInt(c.total)}<span class="mon-of"> / ${fmtInt(c.max)}</span></div>
+        <div class="mon-sub">${fmtInt(c.active)} active · ${fmtInt(c.idle)} idle</div>
+      </button>
+      <button class="mon-card mon-link" data-act="goto" data-goto="db">
+        <div class="mon-label">Cache hit ratio</div>
+        <div class="mon-val${cacheWarn ? " mon-warn" : ""}">${cachePct}</div>
+        <div class="mon-sub">heap blocks from cache</div>
+      </button>
+      <button class="mon-card mon-link" data-act="goto" data-goto="db">
+        <div class="mon-label">Longest query</div>
+        <div class="mon-val${oldest > 30 ? " mon-warn" : ""}">${oldest > 0 ? fmtDuration(Math.round(oldest)) : "—"}</div>
+        <div class="mon-sub">running now (excl. idle)</div>
+      </button>
+    </div>`;
   }
 
   // ---- Cash flow (total incoming vs outgoing) -------------------------------
