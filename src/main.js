@@ -6,7 +6,7 @@ import { createClient } from "@supabase/supabase-js";
 import { importEthers, importDevtoolsDetector } from "./lazy-deps.js";
 import { NETWORK, RPC_URL as ROBINHOOD_RPC_URL, txExplorerUrl } from "./network.js";
 import { createArenaGame } from "./game.js";
-import { escapeHtml } from "./utils.js";
+import { escapeHtml, tokensFromRaw, formatTokens } from "./utils.js";
 import { mountViews } from "./views/index.js";
 import { initHomeAnimations } from "./home-anim.js";
 import { initHomeTutorial } from "./tutorial.js";
@@ -1191,7 +1191,7 @@ async function retryPayout() {
       body: { match_id: state.match.id },
     });
     if (!payoutErr && payoutData?.winner_amount && payoutData?.decimals != null) {
-      prizeAmount = Number(payoutData.winner_amount) / 10 ** payoutData.decimals;
+      prizeAmount = tokensFromRaw(payoutData.winner_amount, payoutData.decimals);
       payoutTx = payoutData.payout_tx ?? null;
     } else {
       failReason = await describePayoutFailure(payoutErr, payoutData);
@@ -1292,7 +1292,7 @@ async function startPvp() {
         setStatus("Checking $FIGHT10 balance…");
         const raw = await getFight10Balance(addr);
         if (raw < ENTRY_FEE_RAW) {
-          const have = Number(raw) / 10 ** FIGHT10_DECIMALS;
+          const have = tokensFromRaw(raw, FIGHT10_DECIMALS);
           setStatus(`Insufficient $FIGHT10 — need ${ENTRY_FEE.toLocaleString()}, have ${have.toFixed(0)}.`);
           showBuyFight10(have);
           return;
@@ -1444,7 +1444,7 @@ async function loadHoldingsBoard() {
     .slice(0, 20);
   if (!ranked.length) return { empty: '<div class="lb-empty">No holders ranked yet — grab some $FIGHT10 to top this board.</div>' };
   return { rows: ranked.map((e, i) => {
-    const amt = (Number(e.balance) / 10 ** FIGHT10_DECIMALS).toLocaleString(undefined, { maximumFractionDigits: 0 });
+    const amt = formatTokens(e.balance, FIGHT10_DECIMALS);
     const w = e.r.addr;
     return {
       rank: i + 1,
@@ -1457,28 +1457,18 @@ async function loadHoldingsBoard() {
 }
 
 async function fetchLobbyCounts() {
-  const { data: matches, error } = await supabase
-    .from("matches")
-    .select("id, max_players")
-    .eq("status", "waiting");
-  if (error || !matches) return;
-  const matchIds = matches.map((m) => m.id);
-  const sizeOf = Object.fromEntries(matches.map((m) => [m.id, m.max_players]));
-  const counts = { 2: 0, 5: 0, 10: 0 };
-  if (matchIds.length > 0) {
-    const { data: players } = await supabase
-      .from("match_players")
-      .select("match_id")
-      .in("match_id", matchIds);
-    (players || []).forEach((p) => {
-      const sz = sizeOf[p.match_id];
-      if (sz) counts[sz] = (counts[sz] || 0) + 1;
-    });
-  }
+  // Aggregate seat counts come from the SECURITY DEFINER RPC pvp_waiting_counts()
+  // rather than a direct table scan: RLS restricts matches/match_players to
+  // participants, so a non-member can no longer enumerate every waiting lobby.
+  // The RPC returns counts only ({ "2": n, "5": n, "10": n }), never rows.
+  const { data, error } = await supabase.rpc("pvp_waiting_counts");
+  if (error) return;
+  const counts = data || {};
   [2, 5, 10].forEach((sz) => {
     const el = document.getElementById("pvpWaiting" + sz);
     if (!el) return;
-    el.textContent = counts[sz] > 0 ? counts[sz] + " waiting" : "";
+    const n = Number(counts[sz] ?? counts[String(sz)] ?? 0);
+    el.textContent = n > 0 ? n + " waiting" : "";
   });
 }
 
@@ -1696,7 +1686,7 @@ async function depositEntryFee(numPlayers = 2) {
     return null;
   }
   if (balance < ENTRY_FEE_RAW) {
-    const have = Number(balance) / 10 ** FIGHT10_DECIMALS;
+    const have = tokensFromRaw(balance, FIGHT10_DECIMALS);
     setStatus(`Insufficient $FIGHT10 balance — need ${ENTRY_FEE.toLocaleString()}, have ${have.toFixed(0)}.`);
     showBuyFight10(have);
     return null;
@@ -1775,7 +1765,7 @@ async function refreshFight10Balance() {
   if (!addr) return;
   try {
     const raw = await getFight10Balance(addr);
-    balEl.textContent = (Number(raw) / 10 ** FIGHT10_DECIMALS).toLocaleString(undefined, { maximumFractionDigits: 0 }) + " $FIGHT10";
+    balEl.textContent = formatTokens(raw, FIGHT10_DECIMALS) + " $FIGHT10";
     balEl.classList.remove("hidden");
   } catch (err) {
     console.error("[refreshFight10Balance]", err);
@@ -1806,7 +1796,7 @@ async function loadHoldings() {
   if (noteEl) noteEl.textContent = "";
   try {
     const raw = await getFight10Balance(addr);
-    amtEl.textContent = (Number(raw) / 10 ** FIGHT10_DECIMALS).toLocaleString(undefined, { maximumFractionDigits: 0 });
+    amtEl.textContent = formatTokens(raw, FIGHT10_DECIMALS);
   } catch (err) {
     console.error("[loadHoldings]", err);
     amtEl.textContent = "—";
@@ -2268,7 +2258,7 @@ async function reportResult(resultHint, { standings = [], finalHp = null } = {})
       body: { match_id: matchId },
     });
     if (!payoutErr && payoutData?.winner_amount && payoutData?.decimals != null) {
-      prizeAmount = Number(payoutData.winner_amount) / 10 ** payoutData.decimals;
+      prizeAmount = tokensFromRaw(payoutData.winner_amount, payoutData.decimals);
       payoutTx = payoutData.payout_tx ?? null;
     } else {
       failReason = await describePayoutFailure(payoutErr, payoutData);
@@ -2459,7 +2449,7 @@ async function loadHistory() {
     const po = win ? payoutByMatch[m.id] : null;
     let payoutHtml = "";
     if (po?.payout_tx) {
-      const amt = Number(po.amount_raw) / 10 ** (po.decimals ?? 6);
+      const amt = tokensFromRaw(po.amount_raw, po.decimals ?? 6);
       const amtStr = amt.toLocaleString(undefined, { maximumFractionDigits: 0 });
       payoutHtml =
         `<a class="hr-tx" href="${txExplorerUrl(po.payout_tx)}" target="_blank" rel="noopener noreferrer" title="View payout transaction">+${amtStr} ↗</a>`;
@@ -2560,6 +2550,37 @@ function toggle(el, show) {
   if (el) el.classList.toggle("hidden", !show);
 }
 
+// Give a dynamically-built overlay proper modal-dialog semantics: dialog role,
+// an accessible name, Escape-to-dismiss, a Tab focus trap so keyboard focus
+// can't wander behind the modal, and focus restoration to whatever was focused
+// before it opened. Returns a teardown fn to call from the dialog's close path.
+function applyModalA11y(backdrop, box, { label, onDismiss }) {
+  const prevFocus = document.activeElement;
+  box.setAttribute("role", "dialog");
+  box.setAttribute("aria-modal", "true");
+  if (label) box.setAttribute("aria-label", label);
+  const focusables = () => [...box.querySelectorAll(
+    'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])',
+  )].filter((el) => !el.disabled && el.offsetParent !== null);
+  const onKey = (e) => {
+    if (e.key === "Escape") { e.preventDefault(); onDismiss?.(); return; }
+    if (e.key !== "Tab") return;
+    const items = focusables();
+    if (items.length === 0) return;
+    const first = items[0], last = items[items.length - 1];
+    if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+    else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+  };
+  backdrop.addEventListener("keydown", onKey);
+  return () => {
+    backdrop.removeEventListener("keydown", onKey);
+    // Restore focus to the element that opened the dialog (if still around).
+    if (prevFocus && typeof prevFocus.focus === "function" && document.contains(prevFocus)) {
+      try { prevFocus.focus(); } catch (_) {}
+    }
+  };
+}
+
 // Non-blocking replacement for window.confirm() — returns a Promise<boolean>.
 function confirmDialog(message) {
   return new Promise((resolve) => {
@@ -2584,13 +2605,14 @@ function confirmDialog(message) {
     btnCancel.textContent = "Stay";
     btnCancel.style.cssText =
       "padding:8px 22px;background:rgba(255,255,255,.12);color:#f3f3f3;border:1px solid rgba(255,255,255,.2);border-radius:5px;cursor:pointer;font-size:13px;";
-    const close = (result) => { document.body.removeChild(backdrop); resolve(result); };
-    btnOk.addEventListener("click", () => close(true));
-    btnCancel.addEventListener("click", () => close(false));
     row.append(btnOk, btnCancel);
     box.append(msg, row);
     backdrop.appendChild(box);
     document.body.appendChild(backdrop);
+    const teardown = applyModalA11y(backdrop, box, { label: message, onDismiss: () => close(false) });
+    const close = (result) => { teardown(); document.body.removeChild(backdrop); resolve(result); };
+    btnOk.addEventListener("click", () => close(true));
+    btnCancel.addEventListener("click", () => close(false));
     btnCancel.focus();
   });
 }
@@ -2624,13 +2646,14 @@ function retryDialog(title, message) {
     btnCancel.textContent = "Close";
     btnCancel.style.cssText =
       "padding:8px 22px;background:rgba(255,255,255,.12);color:#f3f3f3;border:1px solid rgba(255,255,255,.2);border-radius:5px;cursor:pointer;font-size:13px;";
-    const close = (result) => { document.body.removeChild(backdrop); resolve(result); };
-    btnRetry.addEventListener("click", () => close(true));
-    btnCancel.addEventListener("click", () => close(false));
     row.append(btnRetry, btnCancel);
     box.append(heading, msg, row);
     backdrop.appendChild(box);
     document.body.appendChild(backdrop);
+    const teardown = applyModalA11y(backdrop, box, { label: title, onDismiss: () => close(false) });
+    const close = (result) => { teardown(); document.body.removeChild(backdrop); resolve(result); };
+    btnRetry.addEventListener("click", () => close(true));
+    btnCancel.addEventListener("click", () => close(false));
     btnRetry.focus();
   });
 }

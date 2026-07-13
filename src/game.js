@@ -3166,6 +3166,12 @@ export function createArenaGame(options) {
   let destroyed = false;
   let fpsAcc = 0, fpsFrames = 0;
   let fpsLastTime = performance.now();
+  // The 3D scene renders every frame, but the 2D HUD/minimap only need to
+  // refresh a few times a second — a player can't read text or a radar blip
+  // updating faster than ~20 Hz. Throttling these DOM/canvas writes off the
+  // 60 fps render loop cuts layout + canvas work without any visible change.
+  const UI_REFRESH_MS = 50; // ~20 Hz
+  let uiAcc = UI_REFRESH_MS; // update on the very first frame
   const clock = new THREE.Clock();
   function animate() {
     if (destroyed) return;
@@ -3288,10 +3294,6 @@ export function createArenaGame(options) {
         fpsLastTime = now;
       }
     }
-    const aliveRivals = foeList().filter((f) => f.connected && !f.dead).length;
-    rivalsEl.textContent = foeMode === "net" ? `RAIDERS ${aliveRivals}` : `RAIDERS ${aliveRivals} · KILLS ${kills}`;
-    coords.textContent = `x ${player.group.position.x.toFixed(1)} · z ${player.group.position.z.toFixed(1)} · ${foeMode === "net" ? `rivals ${aliveRivals}` : `kills ${kills}`}`;
-
     // Frag range ring — follow player, pulse opacity
     if (fragRing.visible) {
       fragRing.position.x = player.group.position.x;
@@ -3344,7 +3346,17 @@ export function createArenaGame(options) {
       riverMotes.mat.opacity = 0.6 + 0.3 * Math.sin(t * 2.2);
     }
 
-    drawMinimap();
+    // Throttled 2D HUD/minimap refresh (~20 Hz) — see UI_REFRESH_MS. The 3D
+    // scene below still renders every frame; only the DOM text + radar canvas,
+    // which a player can't perceive faster than this, are rate-limited.
+    uiAcc += dt * 1000;
+    if (uiAcc >= UI_REFRESH_MS) {
+      uiAcc = 0;
+      const aliveRivals = foeList().filter((f) => f.connected && !f.dead).length;
+      rivalsEl.textContent = foeMode === "net" ? `RAIDERS ${aliveRivals}` : `RAIDERS ${aliveRivals} · KILLS ${kills}`;
+      coords.textContent = `x ${player.group.position.x.toFixed(1)} · z ${player.group.position.z.toFixed(1)} · ${foeMode === "net" ? `rivals ${aliveRivals}` : `kills ${kills}`}`;
+      drawMinimap();
+    }
     renderer.render(scene, camera);
     requestAnimationFrame(animate);
   }

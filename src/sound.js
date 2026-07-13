@@ -58,8 +58,12 @@ export function initSfx() {
   initialized = true;
   try {
     for (const key in FILES) pools[key] = makePool(FILES[key]);
+    // The water loop is the largest clip by far and is only heard when a player
+    // wades into the river — often never in a match. preload="none" defers the
+    // download until the first setWaterLoop(true) calls play(), instead of
+    // fetching it up front on every match start.
     waterEl = new Audio(WATER_SRC);
-    waterEl.preload = "auto";
+    waterEl.preload = "none";
     waterEl.loop = true;
     waterEl.volume = WATER_VOLUME;
   } catch {

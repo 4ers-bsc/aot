@@ -16,7 +16,7 @@
 //   • press  Ctrl/Cmd + Shift + A
 // ============================================================================
 
-import { escapeHtml } from "./utils.js";
+import { escapeHtml, tokensFromRaw } from "./utils.js";
 import { txExplorerUrl, addrExplorerUrl } from "./network.js";
 
 const TABS = [
@@ -87,7 +87,9 @@ const SAFETY_META = {
 // stored in whole tokens (matches.pot_tokens).
 const TOKEN_DECIMALS = Number(import.meta.env?.VITE_FIGHT10_DECIMALS ?? 18);
 const fmtTokens = (raw, decimals = TOKEN_DECIMALS) => {
-  const n = Number(raw || 0) / 10 ** decimals;
+  // BigInt division first (exact) — a naive Number(raw)/10**decimals rounds for
+  // raw values past Number's safe-integer range (e.g. 2500 tokens @ 18 dp).
+  const n = tokensFromRaw(raw, decimals);
   return `${n.toLocaleString(undefined, { maximumFractionDigits: 0 })} $FIGHT10`;
 };
 const fmtTime = (iso) => {
@@ -455,7 +457,7 @@ export function initAdmin(supabase) {
         : `<input class="admin-input" type="text" value="${escapeHtml(initial)}" placeholder="${escapeHtml(placeholder)}" />`;
       host.innerHTML = `
         <div class="admin-modal-back">
-          <div class="admin-modal" role="dialog" aria-modal="true">
+          <div class="admin-modal" role="dialog" aria-modal="true" aria-label="${escapeHtml(label)}">
             <div class="admin-modal-label">${escapeHtml(label)}</div>
             ${showInput ? field : ""}
             <div class="admin-modal-actions">
@@ -465,14 +467,36 @@ export function initAdmin(supabase) {
           </div>
         </div>`;
       const inputEl = host.querySelector(".admin-input");
-      const done = (val) => { host.innerHTML = ""; resolve(val); };
+      const back = host.querySelector(".admin-modal-back");
+      const okBtn = host.querySelector('[data-m="ok"]');
+      const prevFocus = document.activeElement;
+      const done = (val) => {
+        host.innerHTML = "";
+        // Restore focus to whatever opened the modal.
+        if (prevFocus && typeof prevFocus.focus === "function" && document.contains(prevFocus)) {
+          try { prevFocus.focus(); } catch (_) {}
+        }
+        resolve(val);
+      };
       host.querySelector('[data-m="cancel"]').onclick = () => done(null);
-      host.querySelector('[data-m="ok"]').onclick = () => done(showInput ? (inputEl?.value ?? "") : true);
-      host.querySelector(".admin-modal-back").onclick = (e) => { if (e.target.classList.contains("admin-modal-back")) done(null); };
+      okBtn.onclick = () => done(showInput ? (inputEl?.value ?? "") : true);
+      back.onclick = (e) => { if (e.target.classList.contains("admin-modal-back")) done(null); };
+      // Escape closes the modal; Tab is trapped so focus can't leave it.
+      back.addEventListener("keydown", (e) => {
+        if (e.key === "Escape") { e.preventDefault(); done(null); return; }
+        if (e.key !== "Tab") return;
+        const items = [...back.querySelectorAll("button, input, textarea")].filter((el) => !el.disabled);
+        if (items.length === 0) return;
+        const first = items[0], last = items[items.length - 1];
+        if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+        else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+      });
       if (inputEl) {
         inputEl.focus();
         inputEl.select?.();
-        if (!multiline) inputEl.onkeydown = (e) => { if (e.key === "Enter") host.querySelector('[data-m="ok"]').click(); };
+        if (!multiline) inputEl.onkeydown = (e) => { if (e.key === "Enter") okBtn.click(); };
+      } else {
+        okBtn.focus();
       }
     });
   }

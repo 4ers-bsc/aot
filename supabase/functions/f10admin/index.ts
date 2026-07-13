@@ -542,29 +542,20 @@ Deno.serve(async (req: Request) => {
           const note = String(body?.note ?? "").trim();
           if (!matchId || !winnerId) return fail("match_id and winner_user_id are required");
 
-          const { data: m } = await admin
-            .from("matches").select("id, status").eq("id", matchId).maybeSingle();
-          if (!m) return fail("Match not found");
-          if (m.status !== "disputed") return fail(`Match is '${m.status}', not disputed`);
-
-          const { data: seat } = await admin
-            .from("match_players").select("user_id")
-            .eq("match_id", matchId).eq("user_id", winnerId).maybeSingle();
-          if (!seat) return fail("Chosen winner is not a participant in this match");
-
-          const { error: upErr } = await admin.from("matches").update({
-            status: "finished",
-            winner_user_id: winnerId,
-            shadow_winner: winnerId,
-            ended_at: new Date().toISOString(),
-          }).eq("id", matchId).eq("status", "disputed");
-          if (upErr) return fail(upErr.message);
-
-          // Award win/loss stats (idempotent via matches.stats_applied).
-          const { error: statErr } = await admin.rpc("apply_match_result", {
+          // Status flip + stats apply happen inside one transaction (the
+          // admin_resolve_dispute RPC) so they can never land half-applied.
+          // It re-validates 'disputed' status and participant membership under a
+          // row lock, surfacing a friendly message for each failure mode.
+          const { error: rpcErr } = await admin.rpc("admin_resolve_dispute", {
             p_match_id: matchId, p_winner_id: winnerId,
           });
-          if (statErr) console.error("apply_match_result failed:", statErr);
+          if (rpcErr) {
+            const msg = rpcErr.message || "";
+            if (msg.includes("match_not_found")) return fail("Match not found");
+            if (msg.includes("not_disputed")) return fail(`Match is '${msg.split("not_disputed:")[1] ?? "not disputed"}', not disputed`);
+            if (msg.includes("winner_not_participant")) return fail("Chosen winner is not a participant in this match");
+            return fail(msg);
+          }
 
           await logNote("match", matchId,
             note || `Dispute resolved: awarded to ${winnerId}.`, "resolve_dispute");
@@ -643,22 +634,75 @@ Deno.serve(async (req: Request) => {
         case "mark_payout_resolved": {
           // Record a real, out-of-band payout signature (e.g. the operator sent
           // the transfer manually) so the match reads as paid and can't be
-          // re-claimed. Only overwrites an unpaid ('pending' / null) match.
+          // re-claimed. Only overwrites an unpaid ('pending' / null) match, and
+          // the supplied hash is VERIFIED on-chain first — it must be a confirmed
+          // FIGHT10 transfer from escrow to the winner for at least the winner's
+          // share, so an arbitrary/typo'd string can never mark a match paid.
           const matchId = String(body?.match_id ?? "");
           const tx = String(body?.payout_tx ?? "").trim();
           const note = String(body?.note ?? "").trim();
           if (!matchId || !tx) return fail("match_id and payout_tx are required");
+          if (!/^0x[0-9a-fA-F]{64}$/.test(tx)) return fail("payout_tx is not a valid transaction hash");
           const { data: m } = await admin
-            .from("matches").select("payout_tx").eq("id", matchId).maybeSingle();
+            .from("matches").select("payout_tx, status, winner_user_id, max_players").eq("id", matchId).maybeSingle();
           if (!m) return fail("Match not found");
           if (m.payout_tx && m.payout_tx !== "pending") {
             return fail(`Match already has payout_tx ${m.payout_tx}`);
           }
+          if (m.status !== "finished" || !m.winner_user_id) {
+            return fail("Match is not finished with a winner — nothing to mark paid.");
+          }
+
+          // Resolve the winner wallet + expected minimum payout, then verify the
+          // hash actually moved that from escrow to the winner on-chain. Reuses
+          // the same inline chain helpers as payoutWinner (above).
+          try {
+            const { data: prof } = await admin
+              .from("profiles").select("wallet_address").eq("user_id", m.winner_user_id).maybeSingle();
+            const winnerAddr = norm(prof?.wallet_address);
+            if (!isAddress(winnerAddr)) return fail("Winner wallet address not found/invalid — cannot verify the transfer.");
+
+            const { data: seats } = await admin
+              .from("match_players").select("user_id").eq("match_id", matchId);
+            const numPlayers = seats?.length ?? m.max_players ?? 0;
+            if (numPlayers <= 0) return fail("Could not determine the match's player count.");
+
+            const escrowKey = (Deno.env.get("ESCROW_PRIVATE_KEY") ?? "").trim();
+            const tokenAddr = norm(Deno.env.get("FIGHT10_TOKEN"));
+            if (!escrowKey || !isAddress(tokenAddr)) return fail("Escrow configuration missing (ESCROW_PRIVATE_KEY / FIGHT10_TOKEN)");
+            const escrowAddr = new Wallet(escrowKey.startsWith("0x") ? escrowKey : "0x" + escrowKey).address.toLowerCase();
+
+            const rpc = createRpcPool();
+            const decimals = Number(await rpc.run((p) => new Contract(tokenAddr, ERC20_ABI, p).decimals()));
+            const { data: cfg } = await admin
+              .from("pvp_config").select("entry_fee_tokens, winner_share_bps").maybeSingle();
+            const entryFeeTokens = Number(cfg?.entry_fee_tokens) > 0 ? Number(cfg.entry_fee_tokens) : 2500;
+            const winnerShareBps = Number(cfg?.winner_share_bps) > 0 ? Number(cfg.winner_share_bps) : 9000;
+            const entryFeeRaw = BigInt(entryFeeTokens) * BigInt(10) ** BigInt(decimals);
+            const expectedRaw = (BigInt(numPlayers) * entryFeeRaw * BigInt(winnerShareBps)) / BigInt(10000);
+
+            const receipt = await rpc.run((p) => p.getTransactionReceipt(tx));
+            if (!receipt) return fail("On-chain verification failed: transaction not found");
+            if (receipt.status !== 1) return fail("On-chain verification failed: transaction failed on-chain");
+            const transfer = (receipt.logs ?? []).find((log: any) =>
+              (log.address ?? "").toLowerCase() === tokenAddr &&
+              (log.topics?.[0] ?? "") === TRANSFER_TOPIC &&
+              topicToAddr(log.topics?.[1]) === escrowAddr &&
+              topicToAddr(log.topics?.[2]) === winnerAddr
+            );
+            if (!transfer) return fail("On-chain verification failed: not a FIGHT10 transfer from escrow to the winner");
+            if (BigInt(transfer.data ?? "0x0") < expectedRaw) {
+              return fail(`On-chain verification failed: transfer amount is below the expected payout (${expectedRaw})`);
+            }
+          } catch (err) {
+            return fail(`On-chain verification failed: ${String(err?.message ?? err)}`);
+          }
+
           const { error } = await admin.from("matches").update({
             payout_tx: tx, payout_claimed_at: new Date().toISOString(),
-          }).eq("id", matchId);
+          }).eq("id", matchId).or("payout_tx.is.null,payout_tx.eq.pending");
           if (error) return fail(error.message);
-          await logNote("payout", matchId, note || `Payout marked resolved: ${tx}`, "mark_payout_resolved");
+          await logNote("payout", matchId, note || `Payout marked resolved (verified on-chain): ${tx}`, "mark_payout_resolved");
           return json({ ok: true });
         }
 
