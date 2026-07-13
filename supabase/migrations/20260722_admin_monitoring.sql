@@ -64,13 +64,17 @@ begin
   from pg_stat_activity
   where datname = current_database();
 
-  -- Age of the longest-running non-idle statement (seconds). A large value can
-  -- mean a stuck query holding locks.
+  -- Age of the longest-running active CLIENT statement (seconds). A large value
+  -- can mean a stuck query holding locks. Restricted to backend_type =
+  -- 'client backend' so long-lived background connections (Realtime's
+  -- logical-replication walsender, pg_cron, autovacuum) — which legitimately
+  -- sit in state='active' for hours — don't masquerade as a stuck query.
   select coalesce(max(extract(epoch from (now() - query_start))), 0)
     into v_oldest_secs
   from pg_stat_activity
   where datname = current_database()
     and state = 'active'
+    and backend_type = 'client backend'
     and query_start is not null
     and pid <> pg_backend_pid();
 
