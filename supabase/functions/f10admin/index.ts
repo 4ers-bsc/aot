@@ -504,6 +504,20 @@ Deno.serve(async (req: Request) => {
 
           const outNames = await resolveNames(outRows.map((r: any) => r.winner_user_id));
 
+          // Human-facing match numbers for both sides so the cash-flow rows link
+          // through with the same "#123" label the other tabs show (the ledger /
+          // seat tables only store match_id).
+          const matchNoIds = [...new Set([
+            ...(inRowsRes.data ?? []).map((r: any) => r.match_id),
+            ...outRows.map((r: any) => r.match_id),
+          ].filter(Boolean))];
+          const matchNoById = new Map<string, number>();
+          if (matchNoIds.length) {
+            const { data: mnos } = await admin
+              .from("matches").select("id, match_no").in("id", matchNoIds);
+            for (const m of mnos ?? []) matchNoById.set(m.id, m.match_no);
+          }
+
           // Winners whose profile has no wallet_address recorded: fall back to
           // the wallet that signed their deposit for that match (the seat row).
           const outSeatWallets = new Map<string, string>();
@@ -534,6 +548,7 @@ Deno.serve(async (req: Request) => {
                 deposit_wallet: r.deposit_wallet,
                 deposit_tx: r.deposit_tx,
                 match_id: r.match_id,
+                match_no: matchNoById.get(r.match_id) ?? null,
                 amount_raw: ENTRY_FEE_RAW.toString(),
               })),
             },
@@ -552,6 +567,7 @@ Deno.serve(async (req: Request) => {
                 decimals: r.decimals ?? TOKEN_DECIMALS,
                 payout_tx: r.payout_tx,
                 match_id: r.match_id,
+                match_no: matchNoById.get(r.match_id) ?? null,
               })),
             },
             net_raw: (inTotalRaw - outTotalRaw).toString(),
