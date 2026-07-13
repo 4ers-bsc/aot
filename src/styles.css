@@ -4864,6 +4864,122 @@ body.in-game .log-feed { left: 70px; }
   .cf-summary { grid-template-columns: 1fr; }
 }
 
+/* ===== Ops dashboard: monitoring + constants tabs ===== */
+.admin-right-txt { text-align: right; }
+
+/* Metric cards (shared by DB + functions tabs) */
+.mon-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 12px;
+  margin-bottom: 6px;
+}
+.mon-card {
+  border: 1px solid rgba(212, 160, 23, 0.25);
+  border-radius: 10px;
+  padding: 12px 15px;
+  background: rgba(20, 15, 6, 0.5);
+}
+.mon-label {
+  font-family: var(--font-body);
+  font-size: 0.56rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: rgba(233, 224, 200, 0.55);
+}
+.mon-val {
+  font-family: var(--font-display);
+  font-size: 1.15rem;
+  color: #f4ecd6;
+  margin: 6px 0 3px;
+  word-break: break-word;
+}
+.mon-val .mon-of { color: rgba(233, 224, 200, 0.4); font-size: 0.8rem; }
+.mon-warn { color: #f0c088; }
+.mon-sub { font-family: var(--font-body); font-size: 0.6rem; color: rgba(233, 224, 200, 0.5); }
+.mon-table td:not(:first-child) { font-variant-numeric: tabular-nums; }
+
+/* Edge-function health cards */
+.fn-card {
+  border: 1px solid rgba(212, 160, 23, 0.25);
+  border-radius: 10px;
+  padding: 12px 15px;
+  margin-bottom: 12px;
+  background: rgba(20, 15, 6, 0.5);
+}
+.fn-up   { border-color: rgba(90, 170, 90, 0.4); }
+.fn-down { border-color: rgba(198, 64, 42, 0.6); }
+.fn-head { display: flex; align-items: center; gap: 9px; }
+.fn-dot { width: 9px; height: 9px; border-radius: 50%; flex: none; }
+.fn-up   .fn-dot { background: #6ec46e; box-shadow: 0 0 6px rgba(110, 196, 110, 0.8); }
+.fn-down .fn-dot { background: #d8503a; box-shadow: 0 0 6px rgba(216, 80, 58, 0.8); }
+.fn-name { color: #f4ecd6; font-family: var(--font-display); font-size: 0.85rem; }
+.fn-status { font-family: var(--font-body); font-size: 0.62rem; color: rgba(233, 224, 200, 0.6); text-transform: uppercase; letter-spacing: 0.06em; }
+.fn-err { color: #f2b8ac; font-size: 0.66rem; margin-top: 8px; }
+.fn-detail {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 5px 16px;
+  margin-top: 10px;
+}
+.fn-kv { display: flex; align-items: baseline; gap: 8px; font-size: 0.64rem; }
+.fn-k { color: rgba(233, 224, 200, 0.55); min-width: 96px; }
+.fn-ok  { color: #9fe0a0; }
+.fn-bad { color: #f0a090; }
+
+/* Static-constants editor cards */
+.cfg-card {
+  border: 1px solid rgba(212, 160, 23, 0.25);
+  border-radius: 10px;
+  padding: 15px 17px;
+  margin-bottom: 14px;
+  background: rgba(20, 15, 6, 0.5);
+}
+.cfg-h {
+  font-family: var(--font-display);
+  font-weight: normal;
+  font-size: 0.85rem;
+  color: #f0e8d2;
+  margin: 0 0 12px;
+}
+.cfg-h .admin-dim { font-family: ui-monospace, monospace; font-size: 0.62rem; margin-left: 8px; }
+.cfg-fields {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 14px;
+}
+.cfg-field {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  font-family: var(--font-body);
+  font-size: 0.56rem;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: rgba(233, 224, 200, 0.6);
+}
+.cfg-input {
+  padding: 8px 10px;
+  border: 1px solid rgba(212, 160, 23, 0.3);
+  border-radius: 6px;
+  background: rgba(8, 7, 4, 0.9);
+  color: #f4ecd6;
+  font-family: var(--font-body);
+  font-size: 0.72rem;
+}
+.cfg-input:focus { outline: none; border-color: var(--gold); }
+.cfg-input:disabled { opacity: 0.5; cursor: not-allowed; }
+.cfg-hint { font-size: 0.58rem; text-transform: none; letter-spacing: 0; color: rgba(233, 224, 200, 0.45); }
+.cfg-actions { margin-top: 14px; }
+.cfg-mc-row { display: flex; align-items: center; gap: 12px; padding: 6px 0; flex-wrap: wrap; }
+.cfg-mc-label { min-width: 130px; color: #f0e8d2; font-size: 0.7rem; }
+.cfg-mc-input { width: 110px; }
+.cfg-mc-row .cfg-hint { flex: none; }
+.cfg-maint { display: flex; align-items: center; gap: 14px; margin-bottom: 8px; flex-wrap: wrap; }
+.cfg-maint-state { font-size: 0.72rem; font-family: var(--font-body); }
+.cfg-maint-state.is-on  { color: #f0c088; }
+.cfg-maint-state.is-off { color: #9fe0a0; }
+
 /* ===== Maintenance mode ===== */
 .maintenance-on { overflow: hidden; }
 .maintenance-overlay {

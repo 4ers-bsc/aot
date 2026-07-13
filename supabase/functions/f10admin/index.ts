@@ -15,6 +15,12 @@
 //   • banned users                (banned_users)
 //   • manual review notes         (review_notes)
 //
+// Monitoring + config (read/write) actions the UI also calls here:
+//   • db_stats          database health snapshot (admin_db_stats RPC)
+//   • functions_health  pings each edge function's ?health=1 probe
+//   • get_config        reads pvp_config / match_config / maintain
+//   • set_config        edits those static constants (audited via review_notes)
+//
 // Auth model: mirrors f10join / f10treasurer. The caller's JWT is verified
 // (userClient.auth.getUser()); the user id is then checked against the
 // ADMIN_USER_IDS allowlist (and optionally ADMIN_WALLETS). Everything the
@@ -282,6 +288,33 @@ async function payoutWinner(admin: any, matchId: string) {
 Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { status: 204, headers: corsHeaders });
+  }
+
+  // Unauthenticated health probe (…/f10admin?health=1). Lets the dashboard's
+  // "Edge functions" tab report this function's own reachability + config the
+  // same way it does for the others. Booleans / public addresses only.
+  if (new URL(req.url).searchParams.has("health")) {
+    let escrowAddr: string | null = null;
+    const escrowKey = (Deno.env.get("ESCROW_PRIVATE_KEY") ?? "").trim();
+    if (escrowKey) {
+      try {
+        escrowAddr = new Wallet(escrowKey.startsWith("0x") ? escrowKey : "0x" + escrowKey)
+          .address.toLowerCase();
+      } catch (_) { /* malformed key */ }
+    }
+    return json({
+      ok: true,
+      service: "f10admin",
+      time: new Date().toISOString(),
+      config: {
+        escrow_key_set: !!escrowKey,
+        escrow_wallet:  escrowAddr,
+        token:          norm(Deno.env.get("FIGHT10_TOKEN")) || null,
+        rpc_endpoints:  getRpcUrls().length,
+        admins_configured: csv(Deno.env.get("ADMIN_USER_IDS")).length + csv(Deno.env.get("ADMIN_WALLETS")).length,
+        app_origin_set: !!appOrigin,
+      },
+    });
   }
 
   const supabaseUrl        = Deno.env.get("SUPABASE_URL")!;
@@ -646,6 +679,155 @@ Deno.serve(async (req: Request) => {
           if (!rows || rows.length === 0) return fail("User was not banned — nothing to undo.");
           await logNote("user", uid, note || "Unbanned.", "unban_user");
           return json({ ok: true });
+        }
+
+        case "db_stats": {
+          // Database monitoring: size, per-table rows/bytes, connections,
+          // longest running query, cache-hit ratio. All read-only catalog +
+          // statistics reads (see admin_db_stats()), safe on every refresh.
+          const { data, error } = await admin.rpc("admin_db_stats");
+          if (error) return fail(`db_stats failed: ${error.message}`, 500);
+          return json({ ok: true, ...data });
+        }
+
+        case "functions_health": {
+          // Edge-function monitoring: ping every function's unauthenticated
+          // health probe and report reachability, latency and (non-sensitive)
+          // config. Run server-side so one dashboard call covers all functions
+          // without per-function CORS round-trips from the browser.
+          const base = `${supabaseUrl}/functions/v1`;
+          const names = ["f10join", "f10treasurer", "f10admin"];
+          const ping = async (name: string) => {
+            const started = Date.now();
+            const controller = new AbortController();
+            const timer = setTimeout(() => controller.abort(), 6000);
+            try {
+              const res = await fetch(`${base}/${name}?health=1`, {
+                method: "GET",
+                headers: { apikey: supabaseAnonKey, Authorization: `Bearer ${supabaseAnonKey}` },
+                signal: controller.signal,
+              });
+              const latency_ms = Date.now() - started;
+              const bodyJson = await res.json().catch(() => null);
+              return {
+                name,
+                ok: res.ok && bodyJson?.ok === true,
+                status: res.status,
+                latency_ms,
+                config: bodyJson?.config ?? null,
+              };
+            } catch (err: any) {
+              return {
+                name,
+                ok: false,
+                status: 0,
+                latency_ms: Date.now() - started,
+                error: err?.name === "AbortError" ? "timed out (>6s)" : String(err?.message ?? err),
+              };
+            } finally {
+              clearTimeout(timer);
+            }
+          };
+          const functions = await Promise.all(names.map(ping));
+          return json({ ok: true, generated_at: new Date().toISOString(), functions });
+        }
+
+        case "get_config": {
+          // Read the editable static constants that otherwise live only in the
+          // Supabase table editor: global PvP tunables, per-lobby match
+          // durations, and the maintenance switch. `entry_fee_locked` tells the
+          // UI when the entry fee can't be changed (matches in flight).
+          const [pvpRes, matchRes, maintRes, liveRes] = await Promise.all([
+            admin.from("pvp_config").select("player_cap, entry_fee_tokens, winner_share_bps").maybeSingle(),
+            admin.from("match_config").select("max_players, duration_seconds").order("max_players", { ascending: true }),
+            admin.from("maintain").select("value").limit(1).maybeSingle(),
+            admin.from("matches").select("id", { count: "exact", head: true }).in("status", ["waiting", "active"]),
+          ]);
+          const cfgErr = [pvpRes, matchRes, maintRes, liveRes].find((r: any) => r.error)?.error;
+          if (cfgErr) return fail(`get_config failed: ${cfgErr.message}`, 500);
+          return json({
+            ok: true,
+            pvp_config: pvpRes.data ?? null,
+            match_config: matchRes.data ?? [],
+            maintain: String(maintRes.data?.value ?? "n"),
+            live_matches: liveRes.count ?? 0,
+            entry_fee_locked: (liveRes.count ?? 0) > 0,
+          });
+        }
+
+        case "set_config": {
+          // Edit a static constant. `target` selects the table; only the fields
+          // supplied are changed. Ranges mirror the DB CHECK constraints so the
+          // operator gets a clean message instead of a raw constraint violation.
+          const target = String(body?.target ?? "");
+          const intField = (v: unknown) => {
+            const n = Number(v);
+            return Number.isInteger(n) ? n : NaN;
+          };
+
+          if (target === "pvp_config") {
+            const patch: Record<string, number> = {};
+            const label: string[] = [];
+            if (body?.player_cap != null) {
+              const n = intField(body.player_cap);
+              if (!(n >= 1 && n <= 100000)) return fail("player_cap must be between 1 and 100000");
+              patch.player_cap = n; label.push(`player_cap=${n}`);
+            }
+            if (body?.entry_fee_tokens != null) {
+              const n = intField(body.entry_fee_tokens);
+              if (!(n >= 1 && n <= 100000000)) return fail("entry_fee_tokens must be between 1 and 100000000");
+              patch.entry_fee_tokens = n; label.push(`entry_fee_tokens=${n}`);
+            }
+            if (body?.winner_share_bps != null) {
+              const n = intField(body.winner_share_bps);
+              if (!(n >= 0 && n <= 10000)) return fail("winner_share_bps must be between 0 and 10000 (bps)");
+              patch.winner_share_bps = n; label.push(`winner_share_bps=${n}`);
+            }
+            if (Object.keys(patch).length === 0) return fail("No pvp_config fields to update");
+            const { error } = await admin.from("pvp_config").update(patch).eq("id", true);
+            if (error) {
+              // The pvp_config_guard trigger blocks entry-fee changes while
+              // matches are live — surface that as a friendly message.
+              if ((error.message || "").includes("entry_fee_locked")) {
+                return fail("Entry fee is locked while matches are waiting or active — change it once the board is clear.");
+              }
+              return fail(error.message);
+            }
+            await logNote("general", "pvp_config", `Updated pvp_config: ${label.join(", ")}`, "set_config");
+            return json({ ok: true });
+          }
+
+          if (target === "match_config") {
+            // Accept one row or an array of { max_players, duration_seconds }.
+            const raw = Array.isArray(body?.rows) ? body.rows
+              : [{ max_players: body?.max_players, duration_seconds: body?.duration_seconds }];
+            const rows: { max_players: number; duration_seconds: number }[] = [];
+            for (const r of raw) {
+              const mp = intField(r?.max_players);
+              const ds = intField(r?.duration_seconds);
+              if (![2, 5, 10].includes(mp)) return fail("max_players must be 2, 5, or 10");
+              if (!(ds >= 30 && ds <= 3600)) return fail("duration_seconds must be between 30 and 3600");
+              rows.push({ max_players: mp, duration_seconds: ds });
+            }
+            if (rows.length === 0) return fail("No match_config rows to update");
+            const { error } = await admin.from("match_config").upsert(rows, { onConflict: "max_players" });
+            if (error) return fail(error.message);
+            await logNote("general", "match_config",
+              `Updated match durations: ${rows.map((r) => `${r.max_players}p=${r.duration_seconds}s`).join(", ")}`, "set_config");
+            return json({ ok: true });
+          }
+
+          if (target === "maintain") {
+            const value = String(body?.value ?? "").trim().toLowerCase();
+            if (value !== "y" && value !== "n") return fail("maintain value must be 'y' or 'n'");
+            const { error } = await admin.from("maintain").update({ value }).eq("id", true);
+            if (error) return fail(error.message);
+            await logNote("general", "maintain",
+              value === "y" ? "Maintenance mode turned ON" : "Maintenance mode turned OFF", "set_config");
+            return json({ ok: true });
+          }
+
+          return fail(`Unknown set_config target '${target}'`);
         }
 
         default:
