@@ -2564,7 +2564,20 @@ revoke all on function public.close_stale_matches() from public, anon, authentic
 grant execute on function public.close_stale_matches() to service_role;
 
 -- ---------------------------------------------------------------------------
--- 18. pg_cron — backstop sweeper. Runs every minute so an abandoned match
+-- 18. admin_read_marks — dashboard "mark as read" store (see migration
+--     20260729_admin_read_marks.sql). Written only by f10admin (service role).
+-- ---------------------------------------------------------------------------
+create table if not exists public.admin_read_marks (
+  subject_type text not null,
+  subject_id   text not null,
+  marked_by    uuid references auth.users(id) on delete set null,
+  marked_at    timestamptz not null default now(),
+  primary key (subject_type, subject_id)
+);
+alter table public.admin_read_marks enable row level security;
+
+-- ---------------------------------------------------------------------------
+-- 19. pg_cron — backstop sweeper. Runs every minute so an abandoned match
 --     settles within ~1 min of its hard 5-minute cap. Strongly recommended:
 --     without it, a match where every client vanished never settles.
 --     Run this separately ONLY if pg_cron is enabled on your Supabase project.

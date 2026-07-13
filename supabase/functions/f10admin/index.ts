@@ -610,6 +610,39 @@ Deno.serve(async (req: Request) => {
           });
         }
 
+        case "mark_read":
+        case "unmark_read": {
+          // Bulk mark/unmark dashboard items as read. items: [{ type, id }].
+          const items = Array.isArray(body?.items) ? body.items : [];
+          const clean = items
+            .map((it: any) => ({ type: String(it?.type ?? "").trim(), id: String(it?.id ?? "").trim() }))
+            .filter((it: any) => it.type && it.id)
+            .slice(0, 1000);
+          if (clean.length === 0) return fail("no items");
+
+          if (action === "mark_read") {
+            const rows = clean.map((it: any) => ({ subject_type: it.type, subject_id: it.id, marked_by: user.id }));
+            const { error } = await admin.from("admin_read_marks").upsert(rows, { onConflict: "subject_type,subject_id" });
+            if (error) return fail(error.message);
+            return json({ ok: true, marked: rows.length });
+          }
+          // unmark: group ids by type so each delete targets exact pairs.
+          const byType = new Map<string, string[]>();
+          for (const it of clean) {
+            const list = byType.get(it.type) ?? [];
+            list.push(it.id);
+            byType.set(it.type, list);
+          }
+          let removed = 0;
+          for (const [type, ids] of byType) {
+            const { data: del, error } = await admin.from("admin_read_marks")
+              .delete().eq("subject_type", type).in("subject_id", ids).select("subject_id");
+            if (error) return fail(error.message);
+            removed += del?.length ?? 0;
+          }
+          return json({ ok: true, unmarked: removed });
+        }
+
         case "add_note": {
           const subject_type = String(body?.subject_type ?? "general");
           const subject_id = body?.subject_id != null ? String(body.subject_id) : null;
@@ -1096,6 +1129,12 @@ Deno.serve(async (req: Request) => {
       return fail(`Query failed: ${firstErr.message}`, 500);
     }
 
+    // Read/acknowledged marks so the UI can dim already-reviewed items. Non-fatal
+    // (a missing table just means nothing is marked read yet).
+    const { data: readMarksData } = await admin
+      .from("admin_read_marks").select("subject_type, subject_id").limit(5000);
+    const read_marks = (readMarksData ?? []).map((r: any) => ({ subject_type: r.subject_type, subject_id: r.subject_id }));
+
     const disputed = disputedRes.data ?? [];
     const integrity = integrityRes.data ?? [];
     const payoutPending = payoutPendingRes.data ?? [];
@@ -1179,6 +1218,7 @@ Deno.serve(async (req: Request) => {
       ok: true,
       generated_at: new Date().toISOString(),
       thresholds: { stale_waiting_minutes: STALE_WAITING_MINUTES, payout_stuck_minutes: PAYOUT_STUCK_MINUTES },
+      read_marks,
       counts: {
         disputed: disputed.length,
         integrity: integrity.length,
