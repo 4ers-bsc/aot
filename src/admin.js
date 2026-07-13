@@ -168,7 +168,7 @@ export function initAdmin(supabase) {
   let cashflow = null;
   let cashflowLoading = false;
   let cashflowError = "";
-  let cashflowFilters = { from: "", to: "", wallet: "" };
+  let cashflowFilters = { from: "", to: "", wallet: "", match: "" };
 
   // Monitoring / config tabs — each fetched on demand, own loading + error state.
   let dbstats = null,  dbstatsLoading = false,  dbstatsError = "";
@@ -673,12 +673,13 @@ export function initAdmin(supabase) {
         from:   root.querySelector("#cfFrom")?.value.trim() || "",
         to:     root.querySelector("#cfTo")?.value.trim() || "",
         wallet: root.querySelector("#cfWallet")?.value.trim() || "",
+        match:  root.querySelector("#cfMatch")?.value.trim() || "",
       };
       loadCashflow();
       return;
     }
     if (a === "cf_clear") {
-      cashflowFilters = { from: "", to: "", wallet: "" };
+      cashflowFilters = { from: "", to: "", wallet: "", match: "" };
       loadCashflow();
       return;
     }
@@ -1128,6 +1129,9 @@ export function initAdmin(supabase) {
         <label class="cf-field">To
           <input id="cfTo" class="cf-input" type="date" value="${escapeHtml(f.to)}" />
         </label>
+        <label class="cf-field">Match #
+          <input id="cfMatch" class="cf-input" type="text" inputmode="numeric" placeholder="e.g. 123" value="${escapeHtml(f.match || "")}" autocomplete="off" />
+        </label>
         <label class="cf-field cf-field-grow">Wallet
           <input id="cfWallet" class="cf-input" type="text" placeholder="wallet address (any part)…" value="${escapeHtml(f.wallet)}" autocomplete="off" />
         </label>
@@ -1149,8 +1153,9 @@ export function initAdmin(supabase) {
     const netNeg = Number(cf.net_raw) < 0;
     const plural = (n, s) => `${Number(n).toLocaleString()} ${s}${Number(n) === 1 ? "" : "s"}`;
 
-    const scope = (cf.filters.from || cf.filters.to || cf.filters.wallet)
+    const scope = (cf.filters.from || cf.filters.to || cf.filters.wallet || cf.filters.match)
       ? [
+          cf.filters.match ? `match #${escapeHtml(cf.filters.match)}` : "",
           cf.filters.from ? `from ${escapeHtml(cf.filters.from)}` : "",
           cf.filters.to ? `to ${escapeHtml(cf.filters.to)}` : "",
           cf.filters.wallet ? `wallet ~ <span class="admin-mono">${escapeHtml(cf.filters.wallet)}</span>` : "",
@@ -1193,7 +1198,7 @@ export function initAdmin(supabase) {
   function cfInRow(r) {
     return `<tr>
       <td class="admin-nowrap" title="${fmtTime(r.joined_at)}">${ago(r.joined_at)}</td>
-      <td class="admin-nowrap">${matchRef(r.match_id, r.match_no ? `#${r.match_no}` : shortId(r.match_id))}</td>
+      <td class="admin-nowrap">${matchRef(r.match_id, r.match_no != null ? `#${r.match_no}` : shortId(r.match_id))}</td>
       <td>${escapeHtml(r.display_name || shortId(r.user_id))}</td>
       <td class="admin-mono">${r.deposit_wallet ? addrLink(r.deposit_wallet) : "—"}</td>
       <td class="admin-nowrap">${fmtTokens(r.amount_raw)}</td>
@@ -1204,7 +1209,7 @@ export function initAdmin(supabase) {
   function cfOutRow(r) {
     return `<tr>
       <td class="admin-nowrap" title="${fmtTime(r.created_at)}">${ago(r.created_at)}</td>
-      <td class="admin-nowrap">${matchRef(r.match_id, r.match_no ? `#${r.match_no}` : shortId(r.match_id))}</td>
+      <td class="admin-nowrap">${matchRef(r.match_id, r.match_no != null ? `#${r.match_no}` : shortId(r.match_id))}</td>
       <td>${escapeHtml(r.winner_name || shortId(r.winner_user_id))}</td>
       <td class="admin-mono">${r.winner_wallet ? addrLink(r.winner_wallet) : "—"}</td>
       <td class="admin-nowrap">${r.num_players ?? "—"}</td>
@@ -1495,7 +1500,7 @@ export function initAdmin(supabase) {
       <td><span class="admin-flag">${escapeHtml(r.kind || "—")}</span></td>
       <td class="admin-detail">${escapeHtml(r.detail ? JSON.stringify(r.detail) : "—")}</td>
       <td class="admin-nowrap">
-        ${matchRef(r.match_id, shortId(r.match_id))}
+        ${matchRef(r.match_id, r.match_no != null ? `#${r.match_no}` : shortId(r.match_id))}
         ${r.user_id ? `<button class="admin-btn admin-btn-xs" data-act="ban" data-user="${r.user_id}">Ban</button>` : ""}
       </td>
     </tr>`;
@@ -1508,7 +1513,7 @@ export function initAdmin(supabase) {
       <td>${escapeHtml(r.user_name || shortId(r.user_id))}</td>
       <td class="admin-mono">${r.user_wallet ? addrLink(r.user_wallet) : "—"}</td>
       <td class="admin-mono">${txLink(r.deposit_tx)}</td>
-      <td class="admin-nowrap">${matchRef(r.match_id, shortId(r.match_id))}</td>
+      <td class="admin-nowrap">${matchRef(r.match_id, r.match_no != null ? `#${r.match_no}` : shortId(r.match_id))}</td>
     </tr>`;
   }
 
