@@ -4176,7 +4176,7 @@ body.in-game .log-feed { left: 70px; }
   color: rgba(233, 224, 200, 0.68);
 }
 
-/* Mode cards (Modes & Stakes) */
+/* Mode cards (Modes & Pay) */
 .hs-mode-name {
   font-family: var(--font-head);
   font-size: 0.72rem;
@@ -5022,9 +5022,25 @@ body.in-game .log-feed { left: 70px; }
   cursor: pointer;
   font-family: var(--font-body);
   font-size: 12px;
+  /* Keep the checkbox and its label together on one line — the wide display
+     font otherwise wraps the text, leaving the box stranded to the left of a
+     two-line label. */
+  white-space: nowrap;
   color: rgba(255, 255, 255, 0.5);
 }
-.tut-dontshow input { accent-color: var(--gold); cursor: pointer; }
+/* The global text-input reset stretches every input to width:100%; undo it for
+   this checkbox so it stays a small box beside its label instead of filling the
+   row and shoving the text off to the side. */
+.tut-dontshow input {
+  flex: none;
+  width: auto;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  accent-color: var(--gold);
+  cursor: pointer;
+}
 .tut-dontshow:hover { color: rgba(255, 255, 255, 0.75); }
 
 @media (max-width: 480px) {
