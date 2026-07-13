@@ -14,7 +14,19 @@ export function escapeHtml(s) {
 export function tokensFromRaw(raw, decimals = 18) {
   let v;
   try {
-    v = typeof raw === "bigint" ? raw : BigInt(String(raw ?? "0").split(".")[0] || "0");
+    if (typeof raw === "bigint") {
+      v = raw;
+    } else if (typeof raw === "number") {
+      // supabase-js returns a numeric/bigint column as a JS number, and a large
+      // raw amount (e.g. 18000 tokens @ 18 dp = 1.8e22) stringifies to
+      // exponential form ("1.8e+22"). Feeding that through String().split(".")
+      // would parse just the "1", collapsing a real payout to 0 — so convert the
+      // number straight to BigInt (its sub-token low bits are already lost to
+      // float rounding, but those get divided away below anyway).
+      v = Number.isFinite(raw) ? BigInt(Math.trunc(raw)) : 0n;
+    } else {
+      v = BigInt(String(raw ?? "0").split(".")[0] || "0");
+    }
   } catch (_) {
     return 0;
   }

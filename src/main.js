@@ -2497,7 +2497,7 @@ async function loadHistory() {
     const po = win ? payoutByMatch[m.id] : null;
     let payoutHtml = "";
     if (po?.payout_tx) {
-      const amt = tokensFromRaw(po.amount_raw, po.decimals ?? 6);
+      const amt = tokensFromRaw(po.amount_raw, po.decimals ?? 18);
       const amtStr = amt.toLocaleString(undefined, { maximumFractionDigits: 0 });
       payoutHtml =
         `<a class="hr-tx" href="${txExplorerUrl(po.payout_tx)}" target="_blank" rel="noopener noreferrer" title="View payout transaction">+${amtStr} ↗</a>`;
