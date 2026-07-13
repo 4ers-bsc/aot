@@ -55,6 +55,7 @@ drop table if exists public.integrity_signals cascade;
 drop table if exists public.rate_limits      cascade;
 drop table if exists public.match_config   cascade;
 drop table if exists public.pvp_config     cascade;
+drop table if exists public.maintain       cascade;
 drop table if exists public.match_damage   cascade;
 drop table if exists public.match_kills    cascade;
 drop table if exists public.match_players cascade;
