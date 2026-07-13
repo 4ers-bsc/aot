@@ -1856,14 +1856,27 @@ async function enterArena(matchId, iRoomFiller = false) {
   game.usePvpFoes();
   game.setMatchPhase("waiting");
 
+  // Private channel: Supabase authorizes join/send against the realtime.messages
+  // RLS policy, which only lets an authenticated user who holds a seat in THIS
+  // match onto the `match-<id>` topic (see the realtime authorization migration).
+  // This binds every message to an authenticated match session, so an outsider
+  // can neither observe gameplay nor inject events into a match they never paid
+  // to enter. The per-event roster checks below are defense-in-depth on top.
   state.channel = supabase.channel(`match-${matchId}`, {
-    config: { broadcast: { self: false }, presence: { key: state.user.id } }
+    config: { private: true, broadcast: { self: false }, presence: { key: state.user.id } }
   });
+  // A sender's identity in a broadcast payload is self-declared, so only accept
+  // state/attack from a user we admitted from the authenticated DB roster
+  // (state.remoteIds). Events naming an unknown / nonparticipant sender — or the
+  // local player's own id — are dropped rather than fed into the simulation.
+  const fromParticipant = (id) => !!id && id !== state.user.id && state.remoteIds.has(id);
   state.channel
     .on("broadcast", { event: "state" }, ({ payload }) => {
-      if (payload?.userId && payload.userId !== state.user.id) game.receivePlayerState(payload.userId, payload.snapshot);
+      if (fromParticipant(payload?.userId)) game.receivePlayerState(payload.userId, payload.snapshot);
     })
-    .on("broadcast", { event: "attack" }, ({ payload }) => game.receiveAttack(payload))
+    .on("broadcast", { event: "attack" }, ({ payload }) => {
+      if (fromParticipant(payload?.fromId)) game.receiveAttack(payload);
+    })
     .on("broadcast", { event: "start" }, ({ payload }) => beginMatch(false, payload?.startAt))
     .on("broadcast", { event: "match-over" }, () => { handleMatchOver().catch(console.error); })
     // Echo pings back so the sender can measure RTT

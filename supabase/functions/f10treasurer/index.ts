@@ -7,7 +7,7 @@
 // network is defined below and matches the client's src/network.js.
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-import { Contract, JsonRpcProvider, Wallet } from "npm:ethers@6.13.0";
+import { Contract, JsonRpcProvider, Transaction, Wallet } from "npm:ethers@6.13.0";
 
 // ---------------------------------------------------------------------------
 // Robinhood Chain network (mainnet). Kept in sync with src/network.js on the
@@ -181,14 +181,17 @@ Deno.serve(async (req: Request) => {
     // ── Validate match state ─────────────────────────────────────────────────
     const { data: matchRow, error: matchErr } = await adminClient
       .from("matches")
-      .select("id, status, winner_user_id, payout_tx, entry_fee_tokens, winner_share_bps")
+      .select("id, status, winner_user_id, payout_tx, payout_nonce, entry_fee_tokens, winner_share_bps, token_address, chain_id, escrow_wallet")
       .eq("id", matchId).maybeSingle();
     if (matchErr || !matchRow) return errorResponse("Match not found", 404);
     if (matchRow.status !== "finished") return errorResponse("Match is not finished", 400);
     if (matchRow.winner_user_id !== user.id) return errorResponse("Only the winner may claim", 403);
-    // Allow stale 'pending' reservations to fall through; claim_payout_slot
-    // will auto-release them if >10 minutes old (Fix 4).
-    if (matchRow.payout_tx && matchRow.payout_tx !== "pending") return errorResponse("Prize already claimed", 409);
+    // A real recorded hash (anything other than null / the 'pending' reservation)
+    // is reconciled against the chain further down — never blindly rejected as
+    // "already claimed" and never blindly re-sent. Stale 'pending' reservations
+    // fall through to claim_payout_slot, which auto-releases them if >10 min old;
+    // with hash+nonce now persisted BEFORE broadcast, a 'pending' row is one that
+    // never signed a transfer, so releasing it can't strand an on-chain payout.
 
     // ── Verify all deposits exist ────────────────────────────────────────────
     const { data: players, error: playersErr } = await adminClient
@@ -207,10 +210,21 @@ Deno.serve(async (req: Request) => {
       players.map((p: any) => [p.user_id, normAddr(p.deposit_wallet)]),
     );
 
-    // ── Fetch winner wallet ──────────────────────────────────────────────────
-    const { data: profile } = await adminClient
-      .from("profiles").select("wallet_address").eq("user_id", user.id).maybeSingle();
-    if (!profile?.wallet_address) return errorResponse("Winner wallet address not found", 400);
+    // ── Resolve the winner's PAYOUT wallet from the entry snapshot ────────────
+    // Pay to the wallet the winner deposited from (recorded on their seat at join
+    // time and enforced == their login wallet then), NOT the live profile
+    // wallet_address. profiles.wallet_address is mutable, so reading it here would
+    // let a winner (or an account takeover) repoint the prize after the match by
+    // editing their profile. deposit_wallet is a per-match snapshot that never
+    // changes once the seat is taken (P1: snapshot payout wallet at match entry).
+    // Fall back to the login profile only for legacy rows with no snapshot.
+    let winnerAddr = walletByUser.get(user.id) ?? "";
+    if (!isAddress(winnerAddr)) {
+      const { data: profile } = await adminClient
+        .from("profiles").select("wallet_address").eq("user_id", user.id).maybeSingle();
+      winnerAddr = normAddr(profile?.wallet_address);
+    }
+    if (!isAddress(winnerAddr)) return errorResponse("Winner payout wallet not found", 400);
 
     // ── Escrow / token config ────────────────────────────────────────────────
     const escrowKey = (Deno.env.get("ESCROW_PRIVATE_KEY") ?? "").trim();
@@ -220,8 +234,25 @@ Deno.serve(async (req: Request) => {
     const rpc = createRpcPool();
     const escrowWallet = new Wallet(escrowKey.startsWith("0x") ? escrowKey : "0x" + escrowKey);
     const escrowAddr = escrowWallet.address.toLowerCase();
-    const winnerAddr = normAddr(profile.wallet_address);
-    if (!isAddress(winnerAddr)) return errorResponse("Winner wallet address invalid", 400);
+
+    // ── Enforce the frozen economic contract (P1) ────────────────────────────
+    // The match snapshotted the token contract, chain, and escrow wallet that
+    // applied when players deposited (join_pvp_match). If the live config has
+    // since drifted — a token/escrow redeploy, a chain change — refuse to pay:
+    // the deposits were made against a DIFFERENT contract and paying from the new
+    // one would send the wrong token / wrong escrow's funds. Only enforced when a
+    // snapshot exists (matches created before the columns keep the old behaviour).
+    const snapToken  = normAddr(matchRow.token_address);
+    const snapEscrow = normAddr(matchRow.escrow_wallet);
+    if (snapToken && snapToken !== tokenAddr) {
+      return errorResponse("Token contract changed since match entry — payout blocked", 409, matchId);
+    }
+    if (snapEscrow && snapEscrow !== escrowAddr) {
+      return errorResponse("Escrow wallet changed since match entry — payout blocked", 409, matchId);
+    }
+    if (matchRow.chain_id != null && Number(matchRow.chain_id) !== NETWORK.chainId) {
+      return errorResponse("Chain changed since match entry — payout blocked", 409, matchId);
+    }
 
     // ── Resolve token decimals → exact entry-fee amount ─────────────────────
     // Done early so the same values are reused for both deposit verification
@@ -241,6 +272,64 @@ Deno.serve(async (req: Request) => {
     const winnerShareBps = Number(matchRow.winner_share_bps) > 0 ? Number(matchRow.winner_share_bps)
       : Number(cfg?.winner_share_bps) > 0 ? Number(cfg.winner_share_bps) : 9000;
     const entryFeeRaw = BigInt(entryFeeTokens) * BigInt(10) ** BigInt(decimals);
+
+    // ── Reconcile any already-recorded payout against the chain (P0) ─────────
+    // A row can already carry a real tx hash if a prior attempt persisted it (we
+    // now write hash+nonce BEFORE broadcasting). Decide what to do by looking at
+    // the chain, NEVER by blindly clearing the slot or re-sending:
+    //   • confirmed  → idempotent success (adopt the existing tx)
+    //   • reverted   → no tokens moved; clear the slot and fall through to resend
+    //   • unmined    → only resend if the recorded nonce is still FREE on-chain.
+    //                  Once that nonce is spent, a same-match re-send would use a
+    //                  DIFFERENT nonce and could double-pay, so refuse instead.
+    const recordedTx = String(matchRow.payout_tx ?? "").toLowerCase();
+    if (recordedTx && recordedTx !== "pending") {
+      const totalRaw        = BigInt(players.length) * entryFeeRaw;
+      const winnerAmountRaw = (totalRaw * BigInt(winnerShareBps)) / BigInt(10000);
+      const receipt = await rpc.run((p) => p.getTransactionReceipt(recordedTx)).catch(() => null);
+      if (receipt && receipt.status === 1) {
+        // Already paid. Make sure the audit row exists, then report success.
+        const { error: ledgerErr } = await adminClient.from("payouts").upsert({
+          match_id: matchId, winner_user_id: user.id, payout_tx: recordedTx,
+          amount_raw: winnerAmountRaw.toString(), decimals, num_players: players.length,
+        }, { onConflict: "match_id" });
+        if (ledgerErr) console.error("payouts upsert (reconcile) failed (non-fatal):", ledgerErr);
+        console.log(`[f10treasurer] reconciled match=${matchId} tx=${recordedTx} already confirmed`);
+        return new Response(
+          JSON.stringify({ ok: true, payout_tx: recordedTx, winner_amount: winnerAmountRaw.toString(), num_players: players.length, decimals, confirmed: true }),
+          { headers: { "Content-Type": "application/json", ...corsHeaders } },
+        );
+      }
+      if (receipt && receipt.status !== 1) {
+        // Reverted — no tokens moved. Clear only THIS hash and continue to resend.
+        await adminClient.from("matches")
+          .update({ payout_tx: null, payout_nonce: null, payout_claimed_at: null })
+          .eq("id", matchId).eq("payout_tx", recordedTx);
+      } else {
+        // Not mined yet. Consult the escrow's PENDING nonce (mempool included)
+        // before deciding. "pending" is essential: a recorded tx still sitting in
+        // the mempool advances the pending count past its nonce, so we correctly
+        // refuse; "latest" would report the nonce as free and let us re-send a
+        // second transfer that could confirm alongside the first (double-pay).
+        const escrowNonce = await rpc.run((p) => p.getTransactionCount(escrowAddr, "pending")).catch(() => null);
+        const recordedNonce = matchRow.payout_nonce == null ? null : Number(matchRow.payout_nonce);
+        if (escrowNonce == null || recordedNonce == null || escrowNonce > recordedNonce) {
+          // The signing nonce is already spent (or we can't be sure it is free):
+          // the recorded tx may still confirm, so re-sending risks a second
+          // transfer. Refuse and let it settle / an admin confirm on the explorer.
+          return errorResponse(
+            `A payout for this match is already in flight (${recordedTx}). Wait for it to confirm before retrying.`,
+            409, matchId,
+          );
+        }
+        // Nonce still free → the recorded tx never propagated. A re-send reuses
+        // that same nonce, so at most one of the two can ever confirm (they are
+        // mutually exclusive). Safe to clear and resend below.
+        await adminClient.from("matches")
+          .update({ payout_tx: null, payout_nonce: null, payout_claimed_at: null })
+          .eq("id", matchId).eq("payout_tx", recordedTx);
+      }
+    }
 
     // ── Verify each deposit tx is mined, succeeded, and paid escrow ──────────
     // Receipts are queryable for the chain's full history (no status-cache
@@ -305,7 +394,7 @@ Deno.serve(async (req: Request) => {
         // 10-minute stale-'pending' window.
         try {
           await adminClient.from("matches")
-            .update({ payout_tx: null, payout_claimed_at: null })
+            .update({ payout_tx: null, payout_nonce: null, payout_claimed_at: null })
             .eq("id", matchId).eq("payout_tx", "pending");
         } catch (_) { /* best-effort; stale-'pending' auto-releases after 10 min */ }
         slotClaimed = false;
@@ -318,13 +407,47 @@ Deno.serve(async (req: Request) => {
     const totalRaw        = BigInt(players.length) * entryFeeRaw;
     const winnerAmountRaw = (totalRaw * BigInt(winnerShareBps)) / BigInt(10000);
 
-    // Lease one provider for the whole send + confirm sequence so the tx is
-    // broadcast and polled on a single endpoint (round-robin across the keys).
+    // Lease one provider for the whole sign + broadcast + confirm sequence so the
+    // tx is signed, sent, and polled on a single endpoint.
     const payProvider = rpc.lease();
     const signer = escrowWallet.connect(payProvider);
     const token = new Contract(tokenAddr, ERC20_ABI, signer);
-    const sentTx = await token.transfer(winnerAddr, winnerAmountRaw);
-    const payoutSig: string = String(sentTx.hash).toLowerCase(); // #7 normalise
+
+    // #P0 (persist BEFORE broadcast): build, populate (nonce + gas + fees), and
+    // SIGN the transfer WITHOUT sending it, so we know its exact hash and nonce
+    // up front. The nonce is read here while we still hold the escrow lock, so no
+    // other match can assign the same nonce concurrently.
+    const txData    = await token.transfer.populateTransaction(winnerAddr, winnerAmountRaw);
+    const populated = await signer.populateTransaction(txData);
+    const payoutNonce = Number(populated.nonce);
+    const signedRaw = await signer.signTransaction(populated);
+    const payoutSig: string = String(Transaction.from(signedRaw).hash).toLowerCase();
+
+    // Record the signed hash + nonce, advancing our reservation from 'pending' to
+    // the real tx BEFORE it hits the network. If this write can't be made durable
+    // we throw WITHOUT broadcasting — no transfer is sent — and the catch block
+    // releases the escrow lock and the still-'pending' slot for a clean retry.
+    // Because the hash is on record before broadcast, any later crash leaves a row
+    // that the reconcile step above resolves against the chain, never a silent
+    // broadcast the DB knows nothing about.
+    let hashWritten = false;
+    for (let attempt = 0; attempt < 5; attempt++) {
+      if (attempt > 0) await new Promise((r) => setTimeout(r, 1000 * attempt));
+      const { data: rows, error: writeErr } = await adminClient
+        .from("matches")
+        .update({ payout_tx: payoutSig, payout_nonce: payoutNonce })
+        .eq("id", matchId).eq("payout_tx", "pending")
+        .select("id");
+      if (!writeErr && rows && rows.length === 1) { hashWritten = true; break; }
+      if (writeErr) console.error(`DB pre-broadcast write attempt ${attempt + 1} failed:`, writeErr);
+    }
+    if (!hashWritten) {
+      throw new Error("Could not record payout before sending — no transfer was broadcast; please retry");
+    }
+    slotClaimed = false; // slot now holds the real hash, not 'pending'
+
+    // Hash + nonce are durably recorded — NOW broadcast the pre-signed tx.
+    await payProvider.broadcastTransaction(signedRaw);
     broadcast = true;
 
     // Nonce consumed + tx broadcast — release the escrow lock so other matches
@@ -334,20 +457,6 @@ Deno.serve(async (req: Request) => {
       try { await adminClient.rpc("end_escrow_payout", { p_holder: escrowLockHolder }); }
       catch (_) { /* best-effort; the lock's TTL frees it anyway */ }
     }
-
-    // #5: persist the REAL tx hash immediately, BEFORE waiting for the receipt.
-    // Once broadcast, a retry must never send a second transfer, so the slot has
-    // to hold the real hash even if the receipt is slow. A receipt TIMEOUT must
-    // leave the payout recorded-as-sent, not cleared back to unpaid (double-pay).
-    let hashWritten = false;
-    for (let attempt = 0; attempt < 5; attempt++) {
-      if (attempt > 0) await new Promise((r) => setTimeout(r, 1000 * attempt));
-      const { error: writeErr } = await adminClient
-        .from("matches").update({ payout_tx: payoutSig }).eq("id", matchId);
-      if (!writeErr) { hashWritten = true; break; }
-      console.error(`DB hash write attempt ${attempt + 1} failed:`, writeErr);
-    }
-    if (hashWritten) slotClaimed = false; // slot now holds the real hash, not 'pending'
 
     // Poll for on-chain confirmation. A REVERT is definitive (no tokens moved),
     // so we clear the recorded hash and let the winner retry. A TIMEOUT is NOT
@@ -372,21 +481,10 @@ Deno.serve(async (req: Request) => {
       // unrelated later claim.
       try {
         await adminClient.from("matches")
-          .update({ payout_tx: null, payout_claimed_at: null })
+          .update({ payout_tx: null, payout_nonce: null, payout_claimed_at: null })
           .eq("id", matchId).eq("payout_tx", payoutSig);
       } catch (_) { /* best-effort */ }
       return errorResponse("Payout tx reverted on-chain: " + payoutSig, 502, matchId);
-    }
-
-    if (!hashWritten) {
-      // Broadcast but the hash could not be recorded after retries. Leave the
-      // slot as 'pending' (NOT cleared) so a retry can't double-send; admin must
-      // set payout_tx to the real hash manually.
-      console.error(`CRITICAL: payout tx ${payoutSig} broadcast but DB update failed for match ${matchId}. Manual resolution required.`);
-      return errorResponse(
-        `Payout sent on-chain (${payoutSig}) but internal record failed. Contact support with this transaction ID.`,
-        500, matchId,
-      );
     }
 
     // Record a durable payout row (audit trail + the explorer link the client
@@ -428,7 +526,7 @@ Deno.serve(async (req: Request) => {
       try {
         const adminClient = createClient(supabaseUrl, supabaseServiceKey);
         await adminClient.from("matches")
-          .update({ payout_tx: null, payout_claimed_at: null })
+          .update({ payout_tx: null, payout_nonce: null, payout_claimed_at: null })
           .eq("id", matchId)
           .eq("payout_tx", "pending");
       } catch (_) { /* best-effort */ }
