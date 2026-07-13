@@ -433,6 +433,7 @@ Deno.serve(async (req: Request) => {
           const fromRaw = String(body?.from ?? "").trim();
           const toRaw   = String(body?.to ?? "").trim();
           const walletTail = (String(body?.wallet ?? "").split(":").pop() ?? "").trim();
+          const matchRaw = String(body?.match ?? "").trim().replace(/^#/, "");
 
           // Accept a date (YYYY-MM-DD → inclusive UTC day bounds) or a full ISO
           // string. Returns null when absent, undefined when unparseable.
@@ -466,10 +467,26 @@ Deno.serve(async (req: Request) => {
             return q;
           };
 
+          // Optional match-number filter: resolve the number to its match id(s)
+          // and restrict both sides to those matches. Neither source table stores
+          // match_no, so match on match_id. An unknown number ⇒ empty result.
+          let matchIdFilter: string[] | null = null;
+          if (matchRaw) {
+            const matchNo = Number(matchRaw);
+            if (!Number.isInteger(matchNo) || matchNo < 0) return fail("Invalid match number");
+            const { data: mm, error: mmErr } = await admin
+              .from("matches").select("id").eq("match_no", matchNo);
+            if (mmErr) return fail(mmErr.message);
+            matchIdFilter = (mm ?? []).map((m: any) => m.id);
+          }
+          const applyMatch = (q: any) =>
+            matchIdFilter ? q.in("match_id", matchIdFilter.length ? matchIdFilter : emptyGuard) : q;
+
           // Incoming: exact count (× fixed fee) + latest rows for the table.
           let inCountQ = admin.from("match_players")
             .select("match_id", { count: "exact", head: true }).not("deposit_tx", "is", null);
           inCountQ = applyRange(inCountQ, "joined_at");
+          inCountQ = applyMatch(inCountQ);
           if (walletTail) inCountQ = inCountQ.ilike("deposit_wallet", `%${walletTail}%`);
 
           let inRowsQ = admin.from("match_players")
@@ -477,17 +494,20 @@ Deno.serve(async (req: Request) => {
             .not("deposit_tx", "is", null)
             .order("joined_at", { ascending: false }).limit(CASHFLOW_ROWS);
           inRowsQ = applyRange(inRowsQ, "joined_at");
+          inRowsQ = applyMatch(inRowsQ);
           if (walletTail) inRowsQ = inRowsQ.ilike("deposit_wallet", `%${walletTail}%`);
 
           // Outgoing: exact count + rows up to the sum cap (summed in JS).
           let outCountQ = admin.from("payouts").select("match_id", { count: "exact", head: true });
           outCountQ = applyRange(outCountQ, "created_at");
+          outCountQ = applyMatch(outCountQ);
           if (winnerIds) outCountQ = outCountQ.in("winner_user_id", winnerIds.length ? winnerIds : emptyGuard);
 
           let outRowsQ = admin.from("payouts")
             .select("match_id, winner_user_id, payout_tx, amount_raw, decimals, num_players, created_at")
             .order("created_at", { ascending: false }).limit(CASHFLOW_SUM_CAP);
           outRowsQ = applyRange(outRowsQ, "created_at");
+          outRowsQ = applyMatch(outRowsQ);
           if (winnerIds) outRowsQ = outRowsQ.in("winner_user_id", winnerIds.length ? winnerIds : emptyGuard);
 
           const [inCountRes, inRowsRes, outCountRes, outRowsRes] = await Promise.all([
@@ -536,7 +556,7 @@ Deno.serve(async (req: Request) => {
 
           return json({
             ok: true,
-            filters: { from: fromRaw, to: toRaw, wallet: walletTail },
+            filters: { from: fromRaw, to: toRaw, wallet: walletTail, match: matchRaw },
             decimals: TOKEN_DECIMALS,
             incoming: {
               count: inCount,
@@ -1196,6 +1216,22 @@ Deno.serve(async (req: Request) => {
       (matchId && userId ? seatWallets.get(`${matchId}:${userId}`) ?? null : null);
     const ledgerByMatch = new Map<string, any>();
     for (const p of (ledgerRes.data ?? [])) ledgerByMatch.set(p.match_id, p);
+
+    // Human-facing match numbers for the queues whose source table only stores
+    // match_id (integrity signals, consumed deposits). The match-driven queues
+    // (disputed / payouts / waiting …) already carry match_no from their select.
+    // Surfacing it here lets those rows render "#123" and makes the match number
+    // findable via the shared free-text search.
+    const matchNoIds = [...new Set([
+      ...integrity.map((r: any) => r.match_id),
+      ...consumed.map((r: any) => r.match_id),
+    ].filter(Boolean))];
+    const matchNoById = new Map<string, number>();
+    if (matchNoIds.length) {
+      const { data: mnos } = await admin
+        .from("matches").select("id, match_no").in("id", matchNoIds);
+      for (const m of mnos ?? []) matchNoById.set(m.id, m.match_no);
+    }
     const groupByMatch = (rows: any[]) => {
       const map = new Map<string, any[]>();
       for (const s of rows) {
@@ -1252,6 +1288,7 @@ Deno.serve(async (req: Request) => {
       })),
       integrity: integrity.map((r: any) => ({
         ...r,
+        match_no: matchNoById.get(r.match_id) ?? null,
         user_name: nameOf(r.user_id),
         user_wallet: walletOf(r.user_id) ?? seatWalletOf(r.match_id, r.user_id),
       })),
@@ -1261,6 +1298,7 @@ Deno.serve(async (req: Request) => {
       // (the seat row), falling back to the player's profile login wallet.
       consumed_deposits: consumed.map((r: any) => ({
         ...r,
+        match_no: matchNoById.get(r.match_id) ?? null,
         user_name: nameOf(r.user_id),
         user_wallet: seatWalletOf(r.match_id, r.user_id) ?? walletOf(r.user_id),
       })),
