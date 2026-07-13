@@ -3542,11 +3542,18 @@ export function createArenaGame(options) {
     },
     receiveAttack(payload) {
       if (!payload || foeMode !== "net") return;
+      // Reject events from unknown / nonparticipant senders. The realtime
+      // channel is broadcast, so the payload's identity is self-declared — the
+      // only trustworthy binding we have is that the sender maps to a fighter we
+      // admitted from the authenticated match roster. Without this guard a
+      // sender who never joined could broadcast { targetId: <you>, dmg } and
+      // drive applyDamage(player, …) directly (the melee branch below never
+      // needed `attacker`), killing the local player from outside the match.
       const attacker = payload.fromId ? opponents.get(payload.fromId) : null;
-      // Clamp to the attacker's known weapon cap; fall back to the global max
-      // only when the sender is unknown so a cheating client can't send sniper
-      // damage while holding a sword.
-      const weaponCap = attacker?.weapon
+      if (!attacker) return;
+      // Clamp to the attacker's known weapon cap so a cheating client can't send
+      // sniper damage while holding a sword.
+      const weaponCap = attacker.weapon
         ? attacker.weapon.atk + attacker.weapon.atkVar
         : Math.max(...Object.values(WEAPONS).map((w) => w.atk + w.atkVar));
       const dmg = Math.min(Math.max(0, payload.dmg || 0), weaponCap);

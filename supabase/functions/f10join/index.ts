@@ -289,12 +289,20 @@ Deno.serve(async (req: Request) => {
     }
 
     // ── Deposit verified → admit the player via the service-role RPC ──────────
+    // Pass the economic identity this deposit was just verified against so a NEW
+    // match freezes the exact token / chain / escrow contract onto the row. The
+    // payout function later refuses to pay if its live config has drifted from
+    // this snapshot, so a token/escrow redeploy can never redirect a settled
+    // match's prize (P1: snapshot the complete economic contract).
     const { data: joinResult, error: joinErr } = await adminClient.rpc("join_pvp_match", {
       p_user_id:        user.id,
       p_max_players:    maxPlayers,
       p_deposit_tx:     depositTx,
       p_display_name:   displayName,
       p_deposit_wallet: depositWallet,
+      p_token_address:  tokenAddr,
+      p_chain_id:       NETWORK.chainId,
+      p_escrow_wallet:  escrowAddr,
     });
     if (joinErr) {
       console.error("join_pvp_match RPC failed", joinErr);
