@@ -138,6 +138,25 @@ Deno.serve(async (req: Request) => {
     return new Response(null, { status: 204, headers: corsHeaders });
   }
 
+  // Unauthenticated health probe (…/f10join?health=1). Used by the ops
+  // dashboard's "Edge functions" tab to check reachability + report whether the
+  // deposit-verification config is wired up. Returns only booleans / public
+  // addresses — never a secret value. Handled before auth and before the body
+  // is read, so it can't interfere with a real join request.
+  if (new URL(req.url).searchParams.has("health")) {
+    return jsonResponse({
+      ok: true,
+      service: "f10join",
+      time: new Date().toISOString(),
+      config: {
+        escrow_wallet: normAddr(Deno.env.get("ESCROW_WALLET")) || null,
+        token:         normAddr(Deno.env.get("FIGHT10_TOKEN")) || null,
+        rpc_endpoints: getRpcUrls().length,
+        app_origin_set: !!appOrigin,
+      },
+    });
+  }
+
   const supabaseUrl        = Deno.env.get("SUPABASE_URL")!;
   const supabaseAnonKey    = Deno.env.get("SUPABASE_ANON_KEY")!;
   const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;

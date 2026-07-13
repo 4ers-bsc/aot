@@ -30,12 +30,16 @@ const TABS = [
   ["stale_waiting",     "Stale rooms"],
   ["banned",            "Banned users"],
   ["notes",             "Review notes"],
+  ["db",                "Database"],
+  ["functions",         "Edge functions"],
+  ["constants",         "Constants"],
 ];
 // Tabs whose badge count is informational (not an action queue) — no red badge.
 const INFO_TABS = new Set(["payouts", "consumed_deposits", "notes"]);
 // Tabs that render their own body (own filters / layout) instead of the shared
-// free-text search + row table.
-const CUSTOM_TABS = new Set(["cashflow"]);
+// free-text search + row table. Each loads its data lazily on first open and
+// keeps its own loading / error state.
+const CUSTOM_TABS = new Set(["cashflow", "db", "functions", "constants"]);
 
 // Raw on-chain units → whole $FIGHT10. ERC-20 default is 18 decimals
 // (override with VITE_FIGHT10_DECIMALS); pass decimals 0 for values already
@@ -61,6 +65,21 @@ const ago = (iso) => {
   return `${Math.floor(h / 24)}d ago`;
 };
 const shortId = (id) => (id ? `${String(id).slice(0, 8)}…` : "—");
+const fmtBytes = (b) => {
+  const n = Number(b || 0);
+  if (n < 1024) return `${n} B`;
+  const units = ["KB", "MB", "GB", "TB"];
+  let v = n / 1024, i = 0;
+  while (v >= 1024 && i < units.length - 1) { v /= 1024; i++; }
+  return `${v.toLocaleString(undefined, { maximumFractionDigits: v < 10 ? 1 : 0 })} ${units[i]}`;
+};
+const fmtInt = (n) => Number(n || 0).toLocaleString();
+const fmtDuration = (secs) => {
+  const s = Number(secs || 0);
+  if (s < 60) return `${s}s`;
+  const m = Math.floor(s / 60), r = s % 60;
+  return r ? `${m}m ${r}s` : `${m}m`;
+};
 const player = (p) => escapeHtml(p?.display_name || p?.name || shortId(p?.user_id));
 
 // Blockscout explorer links (network-aware via network.js) so the operator
@@ -85,6 +104,11 @@ export function initAdmin(supabase) {
   let cashflowLoading = false;
   let cashflowError = "";
   let cashflowFilters = { from: "", to: "", wallet: "" };
+
+  // Monitoring / config tabs — each fetched on demand, own loading + error state.
+  let dbstats = null,  dbstatsLoading = false,  dbstatsError = "";
+  let fnhealth = null, fnhealthLoading = false, fnhealthError = "";
+  let config = null,   configLoading = false,   configError = "";
 
   // ---- DOM shell (built once, on first open) --------------------------------
   function ensureRoot() {
@@ -116,9 +140,7 @@ export function initAdmin(supabase) {
       if (e.target === root) close();
     });
     root.querySelector('[data-admin="close"]').addEventListener("click", close);
-    root.querySelector('[data-admin="refresh"]').addEventListener("click", () => {
-      activeTab === "cashflow" ? loadCashflow() : load();
-    });
+    root.querySelector('[data-admin="refresh"]').addEventListener("click", refreshActive);
     root.querySelector("#adminTabs").addEventListener("click", (e) => {
       const t = e.target.closest("[data-tab]");
       if (t && t.dataset.tab !== activeTab) {
@@ -127,13 +149,10 @@ export function initAdmin(supabase) {
         integrityKind = "";
         const s = root.querySelector("#adminSearch");
         if (s) s.value = "";
-        // Cash flow loads lazily the first time it's opened.
-        if (activeTab === "cashflow" && !cashflow && !cashflowLoading) {
-          renderTabs();
-          loadCashflow();
-        } else {
-          render();
-        }
+        render();
+        // Custom tabs (cash flow / monitoring / constants) fetch lazily the
+        // first time they're opened.
+        lazyLoadFor(activeTab);
       }
     });
     // Live free-text filter — re-renders only the body so the input keeps focus.
@@ -207,6 +226,78 @@ export function initAdmin(supabase) {
     } finally {
       cashflowLoading = false;
       if (activeTab === "cashflow") renderBody();
+    }
+  }
+
+  // Refresh whatever the active tab shows (each source is independent).
+  function refreshActive() {
+    switch (activeTab) {
+      case "cashflow":  return loadCashflow();
+      case "db":        return loadDbStats();
+      case "functions": return loadFunctions();
+      case "constants": return loadConfig();
+      default:          return load();
+    }
+  }
+  // Kick off a custom tab's first fetch when it's opened (once).
+  function lazyLoadFor(tab) {
+    if (tab === "cashflow"  && !cashflow  && !cashflowLoading)  loadCashflow();
+    if (tab === "db"        && !dbstats   && !dbstatsLoading)   loadDbStats();
+    if (tab === "functions" && !fnhealth  && !fnhealthLoading)  loadFunctions();
+    if (tab === "constants" && !config    && !configLoading)    loadConfig();
+  }
+
+  // Generic on-demand fetch for a monitoring / config action. Sets the given
+  // loading flag, stores the result, and re-renders the body if its tab is open.
+  async function fetchInto(action, params, tab, set) {
+    set({ loading: true, error: "" });
+    if (activeTab === tab) renderBody();
+    try {
+      const { data: resp, error } = await supabase.functions.invoke("f10admin", {
+        body: { action, ...(params || {}) },
+      });
+      if (error) throw new Error(error.message || "request failed");
+      if (!resp?.ok) throw new Error(resp?.error || "request failed");
+      set({ data: resp });
+    } catch (err) {
+      set({ data: null, error: String(err?.message || err) });
+    } finally {
+      set({ loading: false });
+      if (activeTab === tab) renderBody();
+    }
+  }
+  const loadDbStats = () => fetchInto("db_stats", null, "db", (s) => {
+    if ("data" in s)    dbstats = s.data;
+    if ("loading" in s) dbstatsLoading = s.loading;
+    if ("error" in s)   dbstatsError = s.error;
+  });
+  const loadFunctions = () => fetchInto("functions_health", null, "functions", (s) => {
+    if ("data" in s)    fnhealth = s.data;
+    if ("loading" in s) fnhealthLoading = s.loading;
+    if ("error" in s)   fnhealthError = s.error;
+  });
+  const loadConfig = () => fetchInto("get_config", null, "constants", (s) => {
+    if ("data" in s)    config = s.data;
+    if ("loading" in s) configLoading = s.loading;
+    if ("error" in s)   configError = s.error;
+  });
+
+  // Save an edited static constant, then reload the constants tab.
+  async function saveConfig(params) {
+    try {
+      const { data: resp, error } = await supabase.functions.invoke("f10admin", {
+        body: { action: "set_config", ...params },
+      });
+      if (error) {
+        let reason = error.message || "request failed";
+        try { const b = await error.context?.json?.(); if (b?.error) reason = b.error; } catch (_) {}
+        throw new Error(reason);
+      }
+      if (!resp?.ok) throw new Error(resp?.error || "request failed");
+      toast("Saved ✓");
+      await loadConfig();
+    } catch (err) {
+      toast(`Save failed: ${err?.message || err}`, true);
     }
   }
 
@@ -301,6 +392,39 @@ export function initAdmin(supabase) {
     if (a === "integrity_kind") {
       integrityKind = btn.dataset.kind || "";
       renderBody();
+      return;
+    }
+    if (a === "cfg_save_pvp") {
+      const params = { target: "pvp_config" };
+      const cap  = root.querySelector("#cfgPlayerCap")?.value.trim();
+      const fee  = root.querySelector("#cfgEntryFee");
+      const bps  = root.querySelector("#cfgWinnerShare")?.value.trim();
+      if (cap !== "") params.player_cap = cap;
+      // Skip the entry fee when it's locked (input disabled) so the guard trigger
+      // never sees an unwanted change attempt.
+      if (fee && !fee.disabled && fee.value.trim() !== "") params.entry_fee_tokens = fee.value.trim();
+      if (bps !== "") params.winner_share_bps = bps;
+      saveConfig(params);
+      return;
+    }
+    if (a === "cfg_save_match") {
+      const rows = [...root.querySelectorAll("[data-mc-row]")].map((el) => ({
+        max_players: Number(el.dataset.mcRow),
+        duration_seconds: el.querySelector(".cfg-mc-input")?.value.trim(),
+      }));
+      saveConfig({ target: "match_config", rows });
+      return;
+    }
+    if (a === "cfg_maint") {
+      const value = btn.dataset.value; // 'y' to turn on, 'n' to turn off
+      const on = value === "y";
+      if (await askConfirm(
+        on
+          ? "Turn maintenance mode ON? New joins are blocked game-wide (in-flight matches still settle and pay out)."
+          : "Turn maintenance mode OFF and resume normal play?",
+        on ? "Turn ON" : "Turn OFF")) {
+        saveConfig({ target: "maintain", value });
+      }
       return;
     }
     if (a === "note") {
@@ -433,7 +557,10 @@ export function initAdmin(supabase) {
     // Custom tabs own their body and hide the shared free-text search bar.
     const searchbar = root.querySelector(".admin-searchbar");
     if (searchbar) searchbar.style.display = CUSTOM_TABS.has(activeTab) ? "none" : "";
-    if (activeTab === "cashflow") { bodyEl.innerHTML = renderCashflow(); return; }
+    if (activeTab === "cashflow")  { bodyEl.innerHTML = renderCashflow(); return; }
+    if (activeTab === "db")        { bodyEl.innerHTML = renderDbStats(); return; }
+    if (activeTab === "functions") { bodyEl.innerHTML = renderFunctions(); return; }
+    if (activeTab === "constants") { bodyEl.innerHTML = renderConstants(); return; }
     if (countEl) countEl.textContent = "";
     if (loading && !data) { bodyEl.innerHTML = `<div class="admin-msg">Loading…</div>`; return; }
     if (errorMsg)         { bodyEl.innerHTML = `<div class="admin-msg admin-err">${escapeHtml(errorMsg)}</div>`; return; }
@@ -602,6 +729,161 @@ export function initAdmin(supabase) {
       <td class="admin-nowrap">${fmtTokens(r.amount_raw, r.decimals ?? TOKEN_DECIMALS)}</td>
       <td class="admin-mono">${txLink(r.payout_tx)}</td>
     </tr>`;
+  }
+
+  // ---- Database monitoring --------------------------------------------------
+  function renderDbStats() {
+    if (dbstatsLoading && !dbstats) return `<div class="admin-msg">Loading…</div>`;
+    if (dbstatsError)              return `<div class="admin-msg admin-err">${escapeHtml(dbstatsError)}</div>`;
+    if (!dbstats)                  return `<div class="admin-msg">No data.</div>`;
+
+    const c = dbstats.connections || {};
+    const cache = dbstats.cache_hit_ratio;
+    const cachePct = cache != null ? `${(Number(cache) * 100).toFixed(2)}%` : "—";
+    // Cache hit ratio below ~99% on an OLTP workload is worth a second look.
+    const cacheWarn = cache != null && Number(cache) < 0.99;
+    const oldest = Number(dbstats.oldest_query_seconds || 0);
+    const oldestWarn = oldest > 30;
+
+    const cards = `
+      <div class="mon-grid">
+        <div class="mon-card">
+          <div class="mon-label">Database size</div>
+          <div class="mon-val">${fmtBytes(dbstats.db_bytes)}</div>
+          <div class="mon-sub">${fmtInt((dbstats.tables || []).length)} tables</div>
+        </div>
+        <div class="mon-card">
+          <div class="mon-label">Connections</div>
+          <div class="mon-val">${fmtInt(c.total)}<span class="mon-of"> / ${fmtInt(c.max)}</span></div>
+          <div class="mon-sub">${fmtInt(c.active)} active · ${fmtInt(c.idle)} idle${c.idle_in_transaction ? ` · ${fmtInt(c.idle_in_transaction)} idle-in-txn` : ""}</div>
+        </div>
+        <div class="mon-card">
+          <div class="mon-label">Cache hit ratio</div>
+          <div class="mon-val${cacheWarn ? " mon-warn" : ""}">${cachePct}</div>
+          <div class="mon-sub">heap blocks from cache</div>
+        </div>
+        <div class="mon-card">
+          <div class="mon-label">Longest query</div>
+          <div class="mon-val${oldestWarn ? " mon-warn" : ""}">${oldest > 0 ? fmtDuration(Math.round(oldest)) : "—"}</div>
+          <div class="mon-sub">running now (excl. idle)</div>
+        </div>
+      </div>`;
+
+    const rows = (dbstats.tables || []).map((t) => `<tr>
+      <td>${escapeHtml(t.name)}</td>
+      <td class="admin-nowrap admin-right-txt">${fmtInt(t.rows)}</td>
+      <td class="admin-nowrap admin-right-txt">${t.dead_rows ? fmtInt(t.dead_rows) : "—"}</td>
+      <td class="admin-nowrap admin-right-txt">${fmtBytes(t.total_bytes)}</td>
+      <td class="admin-nowrap">${t.last_analyze ? ago(t.last_analyze) : "—"}</td>
+    </tr>`).join("");
+
+    const table = rows
+      ? `<table class="admin-table mon-table">${thead(["Table", "Rows (est.)", "Dead", "Size", "Analyzed"])}${rows}</tbody></table>`
+      : `<div class="admin-msg">No user tables reported.</div>`;
+
+    return cards +
+      `<p class="admin-note">Row counts are the planner's live estimates (refreshed by autovacuum/analyze). A high dead-row count or a low cache-hit ratio can indicate a table that needs vacuuming.</p>` +
+      table;
+  }
+
+  // ---- Edge-function monitoring ---------------------------------------------
+  function renderFunctions() {
+    if (fnhealthLoading && !fnhealth) return `<div class="admin-msg">Pinging functions…</div>`;
+    if (fnhealthError)               return `<div class="admin-msg admin-err">${escapeHtml(fnhealthError)}</div>`;
+    if (!fnhealth)                   return `<div class="admin-msg">No data.</div>`;
+
+    const cards = (fnhealth.functions || []).map((f) => {
+      const cfg = f.config || {};
+      const detail = Object.entries(cfg).map(([k, v]) => {
+        let val;
+        if (v === true)  val = `<span class="fn-ok">yes</span>`;
+        else if (v === false || v == null) val = `<span class="fn-bad">no</span>`;
+        else if (typeof v === "string" && /^0x[0-9a-f]{40}$/i.test(v)) val = `<span class="admin-mono">${addrLink(v)}</span>`;
+        else val = `<span class="admin-mono">${escapeHtml(String(v))}</span>`;
+        return `<div class="fn-kv"><span class="fn-k">${escapeHtml(k)}</span>${val}</div>`;
+      }).join("");
+      const latWarn = f.ok && Number(f.latency_ms) > 2000;
+      return `<div class="fn-card ${f.ok ? "fn-up" : "fn-down"}">
+        <div class="fn-head">
+          <span class="fn-dot"></span>
+          <b class="fn-name">${escapeHtml(f.name)}</b>
+          <span class="fn-status">${f.ok ? "reachable" : "unreachable"}</span>
+          <span class="admin-dim admin-right">${f.status ? `HTTP ${f.status} · ` : ""}<span class="${latWarn ? "mon-warn" : ""}">${fmtInt(f.latency_ms)} ms</span></span>
+        </div>
+        ${f.error ? `<div class="fn-err">${escapeHtml(f.error)}</div>` : ""}
+        ${detail ? `<div class="fn-detail">${detail}</div>` : ""}
+      </div>`;
+    }).join("");
+
+    return `<p class="admin-note">Each function's unauthenticated health probe, pinged just now. “Config” reports whether required secrets are wired up — booleans and public addresses only, never a secret value. Watch for a mismatched escrow wallet / token across functions.</p>` +
+      (cards || `<div class="admin-msg">No functions reported.</div>`);
+  }
+
+  // ---- Static constants editor ----------------------------------------------
+  function renderConstants() {
+    if (configLoading && !config) return `<div class="admin-msg">Loading…</div>`;
+    if (configError)              return `<div class="admin-msg admin-err">${escapeHtml(configError)}</div>`;
+    if (!config)                  return `<div class="admin-msg">No data.</div>`;
+
+    const pvp = config.pvp_config || {};
+    const locked = !!config.entry_fee_locked;
+    const shareBps = pvp.winner_share_bps;
+    const sharePct = shareBps != null ? (Number(shareBps) / 100).toLocaleString(undefined, { maximumFractionDigits: 2 }) : "";
+
+    const pvpCard = `
+      <div class="cfg-card">
+        <h3 class="cfg-h">Global PvP tunables <span class="admin-dim">pvp_config</span></h3>
+        <div class="cfg-fields">
+          <label class="cfg-field">Player cap
+            <input id="cfgPlayerCap" class="cfg-input" type="number" min="1" max="100000" step="1" value="${escapeHtml(String(pvp.player_cap ?? ""))}" />
+            <span class="cfg-hint">Max concurrent players game-wide.</span>
+          </label>
+          <label class="cfg-field">Entry fee ($FIGHT10)
+            <input id="cfgEntryFee" class="cfg-input" type="number" min="1" max="100000000" step="1" value="${escapeHtml(String(pvp.entry_fee_tokens ?? ""))}"${locked ? " disabled" : ""} />
+            <span class="cfg-hint">${locked
+              ? `🔒 Locked — ${fmtInt(config.live_matches)} match${config.live_matches === 1 ? "" : "es"} waiting/active.`
+              : "Whole tokens per seat. Verified on-chain."}</span>
+          </label>
+          <label class="cfg-field">Winner share (bps)
+            <input id="cfgWinnerShare" class="cfg-input" type="number" min="0" max="10000" step="1" value="${escapeHtml(String(shareBps ?? ""))}" />
+            <span class="cfg-hint">10000 = 100%. Currently ${sharePct}% of the pot.</span>
+          </label>
+        </div>
+        <div class="cfg-actions">
+          <button class="admin-btn admin-btn-sm admin-primary" data-act="cfg_save_pvp">Save tunables</button>
+        </div>
+      </div>`;
+
+    const mcRows = (config.match_config || []).map((r) => `
+      <div class="cfg-mc-row" data-mc-row="${r.max_players}">
+        <span class="cfg-mc-label">${r.max_players}-player lobby</span>
+        <input class="cfg-input cfg-mc-input" type="number" min="30" max="3600" step="1" value="${escapeHtml(String(r.duration_seconds ?? ""))}" />
+        <span class="cfg-hint">seconds (${fmtDuration(r.duration_seconds)})</span>
+      </div>`).join("");
+    const matchCard = `
+      <div class="cfg-card">
+        <h3 class="cfg-h">Match durations <span class="admin-dim">match_config</span></h3>
+        ${mcRows || `<div class="admin-msg">No lobby sizes configured.</div>`}
+        <div class="cfg-actions">
+          <button class="admin-btn admin-btn-sm admin-primary" data-act="cfg_save_match">Save durations</button>
+        </div>
+      </div>`;
+
+    const maintOn = config.maintain === "y";
+    const maintCard = `
+      <div class="cfg-card">
+        <h3 class="cfg-h">Maintenance mode <span class="admin-dim">maintain</span></h3>
+        <div class="cfg-maint">
+          <span class="cfg-maint-state ${maintOn ? "is-on" : "is-off"}">${maintOn ? "● ON — new joins blocked" : "● OFF — normal play"}</span>
+          <button class="admin-btn admin-btn-sm ${maintOn ? "" : "admin-danger"}" data-act="cfg_maint" data-value="${maintOn ? "n" : "y"}">
+            ${maintOn ? "Turn OFF" : "Turn ON"}
+          </button>
+        </div>
+        <span class="cfg-hint">In-flight matches still settle &amp; pay out; only new seats are blocked.</span>
+      </div>`;
+
+    return `<p class="admin-note">Edit the static constants that otherwise live only in the Supabase table editor. Changes take effect immediately and are recorded as review notes.</p>` +
+      pvpCard + matchCard + maintCard;
   }
 
   // Notes attached to a given subject (match / payout / user id). The overview

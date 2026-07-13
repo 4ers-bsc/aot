@@ -8,6 +8,7 @@
 -- ---------------------------------------------------------------------------
 drop trigger if exists on_auth_user_created on auth.users;
 
+drop function if exists public.admin_db_stats();
 drop function if exists public.close_stale_matches();
 drop function if exists public.compute_shadow_winner(uuid);
 drop function if exists public.match_duration_seconds(smallint);
@@ -1761,6 +1762,84 @@ grant execute on function public.pvp_settings()                        to authen
 grant execute on function public.apply_match_result(uuid, uuid)    to service_role;
 grant execute on function public.finalize_match(uuid, boolean)     to service_role;
 grant execute on function public.close_stale_matches()             to service_role;
+
+-- ---------------------------------------------------------------------------
+-- 13b. admin_db_stats — read-only database health snapshot for the ops
+--      dashboard's "Database" tab (surfaced via the f10admin edge function).
+--      Cheap catalog + statistics reads only; service_role execute only.
+--      See migrations/20260722_admin_monitoring.sql.
+-- ---------------------------------------------------------------------------
+create or replace function public.admin_db_stats()
+returns jsonb
+language plpgsql
+stable
+security definer
+set search_path = public, pg_catalog
+as $$
+declare
+  v_tables      jsonb;
+  v_conns       jsonb;
+  v_oldest_secs numeric;
+  v_cache_ratio numeric;
+  v_db_bytes    bigint;
+begin
+  select pg_database_size(current_database()) into v_db_bytes;
+
+  select coalesce(jsonb_agg(t order by t_bytes desc), '[]'::jsonb)
+    into v_tables
+  from (
+    select jsonb_build_object(
+             'name',        relname,
+             'rows',        n_live_tup,
+             'dead_rows',   n_dead_tup,
+             'total_bytes', pg_total_relation_size(relid),
+             'last_vacuum', greatest(last_vacuum, last_autovacuum),
+             'last_analyze',greatest(last_analyze, last_autoanalyze)
+           ) as t,
+           pg_total_relation_size(relid) as t_bytes
+    from pg_stat_user_tables
+    where schemaname = 'public'
+  ) s;
+
+  select jsonb_build_object(
+           'total',              count(*),
+           'active',             count(*) filter (where state = 'active'),
+           'idle',               count(*) filter (where state = 'idle'),
+           'idle_in_transaction',count(*) filter (where state = 'idle in transaction'),
+           'max',                current_setting('max_connections')::int
+         )
+    into v_conns
+  from pg_stat_activity
+  where datname = current_database();
+
+  select coalesce(max(extract(epoch from (now() - query_start))), 0)
+    into v_oldest_secs
+  from pg_stat_activity
+  where datname = current_database()
+    and state = 'active'
+    and query_start is not null
+    and pid <> pg_backend_pid();
+
+  select case when (sum(heap_blks_hit) + sum(heap_blks_read)) > 0
+              then round(sum(heap_blks_hit)::numeric
+                         / (sum(heap_blks_hit) + sum(heap_blks_read)), 4)
+              else null end
+    into v_cache_ratio
+  from pg_statio_user_tables;
+
+  return jsonb_build_object(
+    'generated_at',  now(),
+    'db_bytes',      v_db_bytes,
+    'tables',        v_tables,
+    'connections',   v_conns,
+    'oldest_query_seconds', round(v_oldest_secs, 1),
+    'cache_hit_ratio',      v_cache_ratio
+  );
+end;
+$$;
+
+revoke all on function public.admin_db_stats() from public;
+grant execute on function public.admin_db_stats() to service_role;
 
 -- ---------------------------------------------------------------------------
 -- 14. pg_cron — backstop sweeper. Runs every minute so an abandoned match
