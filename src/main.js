@@ -1163,6 +1163,9 @@ function updateGameOverPrize(prizeAmount, payoutTx = null, failReason = null) {
   if (!prizeEl || !prizeAmt) return;
   if (prizeAmount !== null) {
     prizeAmt.textContent = prizeAmount.toLocaleString(undefined, { maximumFractionDigits: 0 }) + " $FIGHT10";
+    // Big gold-number styling for a real prize; drop any error styling from a
+    // previous failed attempt.
+    prizeAmt.classList.remove("go-prize-amount--error");
     retryBtn?.classList.add("hidden");
     setGameOverTxLink(payoutTx);
   } else {
@@ -1171,6 +1174,9 @@ function updateGameOverPrize(prizeAmount, payoutTx = null, failReason = null) {
     prizeAmt.textContent = failReason
       ? `Payout failed: ${failReason} — tap Retry or contact support`
       : "Payout failed — tap Retry or contact support";
+    // A failure is a full sentence, not a short number — render it small,
+    // wrapping and non-gradient instead of at the 2rem prize size (#font-fix).
+    prizeAmt.classList.add("go-prize-amount--error");
     retryBtn?.classList.remove("hidden");
     setGameOverTxLink(null);
   }
@@ -1941,8 +1947,16 @@ async function loadRoster(matchId) {
           clearInterval(state.depositPollTimer);
           state.depositPollTimer = null;
           hidePvpLobby();
-          setStatus("Lobby timed out — not enough players joined. Please try again.");
-          leaveMatch({ silent: true });
+          setStatus("Lobby timed out — not enough players joined. Your paid entry has been flagged for a refund review.");
+          // Close the stale lobby server-side (flags each paid seat for refund
+          // review) so the entry isn't silently lost — then tear down the UI.
+          // The match becomes 'finished', so it can't be rejoined and the spent
+          // deposit stays single-use; a fresh game needs a new payment.
+          (async () => {
+            try { await supabase.rpc("abandon_stale_lobby", { p_match_id: matchId }); }
+            catch (e) { console.error("[abandon_stale_lobby]", e); }
+            await leaveMatch({ silent: true });
+          })();
           return;
         }
         loadRoster(matchId).catch(console.error);

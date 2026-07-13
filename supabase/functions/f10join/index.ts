@@ -257,7 +257,7 @@ Deno.serve(async (req: Request) => {
     // the client just charged.
     const { data: cfg } = await adminClient
       .from("pvp_config").select("entry_fee_tokens").maybeSingle();
-    const entryFeeTokens = Number(cfg?.entry_fee_tokens) > 0 ? Number(cfg.entry_fee_tokens) : 2500;
+    const entryFeeTokens = Number(cfg?.entry_fee_tokens) > 0 ? Number(cfg.entry_fee_tokens) : 10000;
     const entryFeeRaw = BigInt(entryFeeTokens) * BigInt(10) ** BigInt(decimals);
 
     // ── Verify the deposit tx is mined and succeeded ─────────────────────────

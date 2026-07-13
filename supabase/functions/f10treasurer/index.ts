@@ -237,7 +237,7 @@ Deno.serve(async (req: Request) => {
     const { data: cfg } = await adminClient
       .from("pvp_config").select("entry_fee_tokens, winner_share_bps").maybeSingle();
     const entryFeeTokens = Number(matchRow.entry_fee_tokens) > 0 ? Number(matchRow.entry_fee_tokens)
-      : Number(cfg?.entry_fee_tokens) > 0 ? Number(cfg.entry_fee_tokens) : 2500;
+      : Number(cfg?.entry_fee_tokens) > 0 ? Number(cfg.entry_fee_tokens) : 10000;
     const winnerShareBps = Number(matchRow.winner_share_bps) > 0 ? Number(matchRow.winner_share_bps)
       : Number(cfg?.winner_share_bps) > 0 ? Number(cfg.winner_share_bps) : 9000;
     const entryFeeRaw = BigInt(entryFeeTokens) * BigInt(10) ** BigInt(decimals);
@@ -303,9 +303,11 @@ Deno.serve(async (req: Request) => {
         // Couldn't get the escrow lock and nothing was broadcast — release our
         // reservation so the winner can retry cleanly instead of waiting out the
         // 10-minute stale-'pending' window.
-        await adminClient.from("matches")
-          .update({ payout_tx: null, payout_claimed_at: null })
-          .eq("id", matchId).eq("payout_tx", "pending").catch(() => {});
+        try {
+          await adminClient.from("matches")
+            .update({ payout_tx: null, payout_claimed_at: null })
+            .eq("id", matchId).eq("payout_tx", "pending");
+        } catch (_) { /* best-effort; stale-'pending' auto-releases after 10 min */ }
         slotClaimed = false;
         return errorResponse("Another payout is in progress — please retry in a moment", 503, matchId);
       }
@@ -329,7 +331,8 @@ Deno.serve(async (req: Request) => {
     // can proceed in parallel. The confirm poll below does not need it.
     if (escrowLocked) {
       escrowLocked = false;
-      await adminClient.rpc("end_escrow_payout", { p_holder: escrowLockHolder }).catch(() => {});
+      try { await adminClient.rpc("end_escrow_payout", { p_holder: escrowLockHolder }); }
+      catch (_) { /* best-effort; the lock's TTL frees it anyway */ }
     }
 
     // #5: persist the REAL tx hash immediately, BEFORE waiting for the receipt.
@@ -367,9 +370,11 @@ Deno.serve(async (req: Request) => {
       // Only clear the slot we actually recorded, and only because the revert is
       // proof no tokens moved. Guarded on the exact hash so we never wipe an
       // unrelated later claim.
-      await adminClient.from("matches")
-        .update({ payout_tx: null, payout_claimed_at: null })
-        .eq("id", matchId).eq("payout_tx", payoutSig).catch(() => {});
+      try {
+        await adminClient.from("matches")
+          .update({ payout_tx: null, payout_claimed_at: null })
+          .eq("id", matchId).eq("payout_tx", payoutSig);
+      } catch (_) { /* best-effort */ }
       return errorResponse("Payout tx reverted on-chain: " + payoutSig, 502, matchId);
     }
 

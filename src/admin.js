@@ -57,28 +57,36 @@ const CUSTOM_TABS = new Set(["home", "cashflow", "db", "functions", "constants"]
 // financial / security / identity / config state.
 //   safe   — transient, regenerates on its own; fine to wipe anytime
 //   prune  — historical logs; only clear OLD/finished rows, never live
-//   danger — money / replay-protection / identity / config; do not wipe on prod
+//   danger — money / replay-protection / identity; do not wipe on prod
+//   locked — constant config / static locks; NEVER wipeable (server refuses too)
 const TABLE_SAFETY = {
   rate_limits:       ["safe",   "Transient throttle windows — regenerate instantly. Safe to wipe anytime."],
   match_damage:      ["prune",  "Combat ledger (read by settlement). Only prune OLD finished matches — wiping live matches breaks their settlement."],
   match_kills:       ["prune",  "Combat ledger. Only prune OLD finished matches — never wipe while games are live."],
   integrity_signals: ["prune",  "Anticheat audit trail — grows slowly; prune old entries if needed."],
   review_notes:      ["prune",  "Admin audit notes — historical."],
+  admin_read_marks:  ["prune",  "Dashboard read/acknowledged marks — operational; safe to clear."],
   matches:           ["danger", "Payout source of truth. Wiping destroys payout + deposit history."],
   match_players:     ["danger", "Holds the paid deposit tx / wallet for each seat."],
   consumed_deposits: ["danger", "Deposit replay-protection ledger — NEVER wipe on prod (enables replaying spent deposits)."],
   payouts:           ["danger", "Payout / cash-flow ledger."],
   profiles:          ["danger", "User identity, wallet and stats."],
   banned_users:      ["danger", "Wiping this unbans everyone."],
-  pvp_config:        ["danger", "Global PvP tunables (config)."],
-  match_config:      ["danger", "Per-lobby match durations (config)."],
-  maintain:          ["danger", "Maintenance switch (config)."],
+  // Constant configuration + static single-row locks — protected. The server
+  // (admin_truncate_table / admin_truncate_all) refuses/skips these too, so the
+  // constant values can never be lost to a wipe.
+  pvp_config:        ["locked", "Global PvP tunables (entry fee, winner share, cap). Constant config — never wiped."],
+  match_config:      ["locked", "Per-lobby match durations. Constant config — never wiped."],
+  maintain:          ["locked", "Maintenance switch. Constant config — never wiped."],
+  escrow_payout_lock:["locked", "Escrow payout single-flight lock (static). Never wiped."],
 };
 const safetyOf = (name) => TABLE_SAFETY[name] || ["unknown", "Unclassified — treat as sensitive; wipe only if you're sure."];
+const isLockedTable = (name) => safetyOf(name)[0] === "locked";
 const SAFETY_META = {
   safe:    ["🟢", "Safe"],
   prune:   ["🟡", "Prune-only"],
   danger:  ["🔴", "Do not wipe"],
+  locked:  ["🔒", "Protected — never wipe"],
   unknown: ["⚪", "Unknown"],
 };
 
@@ -125,6 +133,14 @@ const fmtDuration = (secs) => {
 };
 const player = (p) => escapeHtml(p?.display_name || p?.name || shortId(p?.user_id));
 
+// A clickable match reference. Rendered everywhere a match id / number is shown
+// so the operator can click through to the match-detail modal. `cls` lets a
+// header render bolder than an inline table cell.
+const matchRef = (id, label, cls = "") =>
+  id
+    ? `<button type="button" class="admin-linkish ${cls}" data-act="match_detail" data-match="${id}" title="View match details">${escapeHtml(label ?? shortId(id))}</button>`
+    : escapeHtml(label ?? "—");
+
 // Blockscout explorer links (network-aware via network.js) so the operator
 // can review a transaction / address on-chain.
 const txLink = (sig, label) =>
@@ -140,6 +156,12 @@ export function initAdmin(supabase) {
   let errorMsg = "";
   let query = ""; // per-tab free-text filter (searches every column)
   let integrityKind = ""; // Integrity tab: narrow to a single signal kind ("" = all)
+  // Multi-select + mark-as-read. `readSet` mirrors the server's read marks
+  // (keyed "tab::id"); `selected` is the current checkbox selection.
+  let readSet = new Set();
+  const selected = new Set();
+  const selKey = (type, id) => `${type}::${id}`;
+  const isRead = (type, id) => readSet.has(selKey(type, id));
 
   // Cash-flow tab keeps its own state: filters are applied server-side (so the
   // totals span every row, not just the first page), fetched on demand.
@@ -198,6 +220,7 @@ export function initAdmin(supabase) {
       renderBody();
     });
     root.querySelector("#adminBody").addEventListener("click", onAction);
+    root.querySelector("#adminBody").addEventListener("change", onBodyChange);
     // Enter inside a cash-flow filter field applies the filters.
     root.querySelector("#adminBody").addEventListener("keydown", (e) => {
       if (e.key === "Enter" && e.target.closest("#cfFilters")) {
@@ -236,6 +259,9 @@ export function initAdmin(supabase) {
       if (error) throw new Error(error.message || "request failed");
       if (!resp?.ok) throw new Error(resp?.error || "request failed");
       data = resp;
+      // Rebuild read state from the server; drop any stale selection.
+      readSet = new Set((resp.read_marks || []).map((m) => selKey(m.subject_type, m.subject_id)));
+      selected.clear();
     } catch (err) {
       errorMsg = String(err?.message || err);
       data = null;
@@ -273,6 +299,7 @@ export function initAdmin(supabase) {
     activeTab = key;
     query = "";
     integrityKind = "";
+    selected.clear(); // selection is per-tab
     const s = root.querySelector("#adminSearch");
     if (s) s.value = "";
     render();
@@ -508,12 +535,139 @@ export function initAdmin(supabase) {
   const askExact = (label, expected, okText = "Confirm", placeholder = "") =>
     modal({ label, placeholder, okText }).then((v) => v != null && String(v).trim() === expected);
 
+  // ---- Match-detail drill-down ---------------------------------------------
+  // Clicking any match id/number opens this read-only modal with the full match
+  // record: economics snapshot, every seat + deposit, payout state, combat
+  // totals, and notes. Fetched on demand from the f10admin `match_detail` action.
+  function detailHost() { return root.querySelector("#adminModalHost"); }
+  function closeDetail() { const h = detailHost(); if (h) h.innerHTML = ""; }
+  function wireDetail(host) {
+    const back = host.querySelector(".admin-modal-back");
+    const closeBtn = host.querySelector('[data-md="close"]');
+    closeBtn.onclick = closeDetail;
+    back.onclick = (e) => { if (e.target.classList.contains("admin-modal-back")) closeDetail(); };
+    back.addEventListener("keydown", (e) => { if (e.key === "Escape") { e.preventDefault(); closeDetail(); } });
+    closeBtn.focus();
+  }
+  function detailShell(inner) {
+    return `<div class="admin-modal-back"><div class="admin-modal admin-modal-wide" role="dialog" aria-modal="true" aria-label="Match details">
+      ${inner}
+      <div class="admin-modal-actions"><button class="admin-btn admin-btn-sm admin-primary" data-md="close">Close</button></div>
+    </div></div>`;
+  }
+  async function showMatchDetail(matchId) {
+    if (!matchId) return;
+    const host = detailHost();
+    if (!host) return;
+    host.innerHTML = detailShell(`<div class="admin-modal-label">Loading match…</div>`);
+    wireDetail(host);
+    try {
+      const { data: resp, error } = await supabase.functions.invoke("f10admin", {
+        body: { action: "match_detail", match_id: matchId },
+      });
+      if (error) {
+        let reason = error.message || "request failed";
+        try { const b = await error.context?.json?.(); if (b?.error) reason = b.error; } catch (_) {}
+        throw new Error(reason);
+      }
+      if (!resp?.ok) throw new Error(resp?.error || "request failed");
+      host.innerHTML = detailShell(renderMatchDetail(resp));
+    } catch (err) {
+      host.innerHTML = detailShell(`<div class="admin-modal-label">Match details</div>
+        <div class="admin-detail-err">Could not load match: ${escapeHtml(String(err?.message || err))}</div>`);
+    }
+    wireDetail(host);
+  }
+
+  function renderMatchDetail(d) {
+    const m = d.match || {};
+    const kv = (k, v) => `<div class="admin-detail-kv"><span class="admin-detail-k">${escapeHtml(k)}</span><span class="admin-detail-v">${v}</span></div>`;
+    const statusFlag = `<span class="admin-flag">${escapeHtml(m.status || "—")}</span>`;
+
+    // Payout state, read from matches.payout_tx (the source of truth).
+    const payTx = m.payout_tx;
+    const payState = !payTx ? "unclaimed"
+      : payTx === "pending" ? `pending${m.payout_claimed_at ? ` since ${ago(m.payout_claimed_at)}` : ""}`
+      : "paid";
+    const payTxHtml = payTx && payTx !== "pending" ? txLink(payTx) : escapeHtml(payState);
+    const ledger = d.payout
+      ? `${(Number(d.payout.amount_raw) / 10 ** (d.payout.decimals ?? TOKEN_DECIMALS)).toLocaleString(undefined, { maximumFractionDigits: 0 })} $FIGHT10 · ${d.payout.num_players ?? "—"} players`
+      : "—";
+
+    const overview = `<div class="admin-detail-grid">
+      ${kv("Status", statusFlag)}
+      ${kv("Lobby size", `${m.max_players ?? "—"}-player`)}
+      ${kv("Pot (bookkeeping)", fmtTokens(m.pot_tokens, 0) + " $FIGHT10")}
+      ${kv("Entry fee (snapshot)", m.entry_fee_tokens != null ? `${fmtInt(m.entry_fee_tokens)} $FIGHT10` : "— (pre-snapshot)")}
+      ${kv("Winner share (snapshot)", m.winner_share_bps != null ? `${m.winner_share_bps} bps (${(m.winner_share_bps / 100).toFixed(0)}%)` : "— (pre-snapshot)")}
+      ${kv("Duration (snapshot)", m.duration_seconds != null ? fmtDuration(m.duration_seconds) : "— (live match_config)")}
+      ${kv("Economics ver.", m.economics_version ?? "—")}
+      ${kv("Stats applied", m.stats_applied ? "yes" : "no")}
+      ${kv("Created", `${fmtTime(m.created_at)} (${ago(m.created_at)})`)}
+      ${kv("Started", m.started_at ? `${fmtTime(m.started_at)} (${ago(m.started_at)})` : "—")}
+      ${kv("Ended", m.ended_at ? `${fmtTime(m.ended_at)} (${ago(m.ended_at)})` : "—")}
+      ${kv("Created by", escapeHtml(d.created_by_name || shortId(m.created_by)))}
+    </div>`;
+
+    const winnerBlock = `<div class="admin-detail-grid">
+      ${kv("Winner", m.winner_user_id ? `${escapeHtml(d.winner_name || shortId(m.winner_user_id))}${d.winner_wallet ? ` · <span class="admin-mono">${addrLink(d.winner_wallet)}</span>` : ""}` : "—")}
+      ${kv("Payout", payTxHtml)}
+      ${kv("Payout ledger", ledger)}
+    </div>`;
+
+    // Per-seat deposits — the money side the operator most often needs.
+    const dmgBy = {};
+    for (const r of (d.damage || [])) dmgBy[r.attacker] = (dmgBy[r.attacker] || 0) + Number(r.total_damage || 0);
+    const killsBy = {};
+    for (const k of (d.kills || [])) killsBy[k.attacker] = (killsBy[k.attacker] || 0) + 1;
+    const players = (d.players || []).map((p) => `<tr>
+      <td class="admin-nowrap">#${p.seat}</td>
+      <td>${escapeHtml(p.name || shortId(p.user_id))}</td>
+      <td class="admin-mono">${p.deposit_wallet ? addrLink(p.deposit_wallet) : "—"}</td>
+      <td class="admin-mono">${p.deposit_tx ? txLink(p.deposit_tx) : `<span class="admin-flag admin-flag-red">no deposit</span>`}</td>
+      <td class="admin-nowrap">${p.final_hp ?? "—"}</td>
+      <td class="admin-nowrap">${fmtInt(dmgBy[p.user_id] || 0)}</td>
+      <td class="admin-nowrap">${killsBy[p.user_id] || 0}</td>
+      <td class="admin-nowrap" title="${fmtTime(p.last_seen)}">${p.last_seen ? ago(p.last_seen) : "—"}</td>
+    </tr>`).join("");
+    const playersTable = `<table class="admin-table admin-detail-table">
+      <thead><tr><th>Seat</th><th>Player</th><th>Deposit wallet</th><th>Deposit tx</th><th>Final HP</th><th>Dmg</th><th>Kills</th><th>Last seen</th></tr></thead>
+      <tbody>${players || `<tr><td colspan="8" class="admin-dim">No seats recorded.</td></tr>`}</tbody></table>`;
+
+    const notes = (d.notes || []).length
+      ? `<div class="admin-detail-notes">${d.notes.map((n) => `<div class="admin-note">
+          <span class="admin-dim">${fmtTime(n.created_at)} · ${escapeHtml(n.action || "note")} · ${escapeHtml(n.author_name || shortId(n.author_id))}</span>
+          <div>${escapeHtml(n.note)}</div></div>`).join("")}</div>`
+      : `<div class="admin-dim">No notes.</div>`;
+
+    return `<div class="admin-detail-head">
+        <span class="admin-detail-title">Match #${m.match_no ?? shortId(m.id)}</span>
+        <span class="admin-mono admin-dim">${escapeHtml(m.id || "")}</span>
+      </div>
+      ${overview}
+      <div class="admin-detail-section">Winner &amp; payout</div>${winnerBlock}
+      <div class="admin-detail-section">Seats &amp; deposits</div>${playersTable}
+      <div class="admin-detail-section">Notes</div>${notes}`;
+  }
+
   // ---- Row action handler ---------------------------------------------------
   async function onAction(e) {
     const btn = e.target.closest("[data-act]");
     if (!btn) return;
     const { act: a, match, user } = btn.dataset;
 
+    if (a === "match_detail") {
+      showMatchDetail(match);
+      return;
+    }
+    if (a === "bulk_mark_read" || a === "bulk_mark_unread") {
+      const tab = btn.dataset.tab;
+      const keys = [...selected].filter((k) => k.startsWith(tab + "::"));
+      if (keys.length === 0) { toast("Select at least one item first.", true); return; }
+      const items = keys.map((k) => { const i = k.indexOf("::"); return { type: k.slice(0, i), id: k.slice(i + 2) }; });
+      act(a === "bulk_mark_read" ? "mark_read" : "unmark_read", { items });
+      return;
+    }
     if (a === "cf_apply") {
       cashflowFilters = {
         from:   root.querySelector("#cfFrom")?.value.trim() || "",
@@ -553,6 +707,12 @@ export function initAdmin(supabase) {
       const t = btn.dataset.table;
       const n = Number(btn.dataset.rows || 0);
       const [cls, why] = safetyOf(t);
+      // Constant config / static tables are never wipeable (the server refuses
+      // them too); the button is normally hidden, this is defense in depth.
+      if (cls === "locked") {
+        toast(`🔒 “${t}” holds constant config and cannot be wiped.`, true);
+        return;
+      }
       const warn = cls === "danger" ? `🔴 PROTECTED TABLE — ${why}\n\n`
                  : cls === "prune"  ? `🟡 ${why}\n\n`
                  : "";
@@ -565,7 +725,7 @@ export function initAdmin(supabase) {
     }
     if (a === "db_wipe_all") {
       if (await askExact(
-        `⚠ DELETE EVERY ROW IN EVERY TABLE. This empties the entire database (matches, payouts, deposits, profiles, config — everything) and cannot be undone. Download a snapshot first. Type WIPE ALL to confirm.`,
+        `⚠ DELETE EVERY ROW IN EVERY TABLE. This empties the database (matches, payouts, deposits, profiles — everything) EXCEPT the protected config tables (pvp_config, match_config, maintain, escrow_payout_lock), which are preserved. Cannot be undone. Download a snapshot first. Type WIPE ALL to confirm.`,
         "WIPE ALL", "Wipe everything", "WIPE ALL")) {
         dbWipe(null, "WIPE ALL");
       }
@@ -736,6 +896,44 @@ export function initAdmin(supabase) {
     catch { return true; }
   }
 
+  // ---- Multi-select + mark-as-read helpers ----------------------------------
+  function selBox(type, id) {
+    const k = selKey(type, id);
+    return `<input type="checkbox" class="admin-sel" data-selkey="${escapeHtml(k)}"${selected.has(k) ? " checked" : ""} aria-label="Select item">`;
+  }
+  const selCell = (type, id) => `<td class="admin-selcell">${selBox(type, id)}</td>`;
+  const readCls = (type, id) => (isRead(type, id) ? " is-read" : "");
+  // Bulk toolbar shown above a queue list — select-all + mark read/unread.
+  function selToolbar(tab) {
+    const n = [...selected].filter((k) => k.startsWith(tab + "::")).length;
+    return `<div class="admin-selbar">
+      <label class="admin-selall"><input type="checkbox" class="admin-selall-box" data-selall="${tab}"> Select all</label>
+      <span class="admin-selcount" data-selcount="${tab}">${n} selected</span>
+      <button class="admin-btn admin-btn-sm admin-primary" data-act="bulk_mark_read" data-tab="${tab}">✓ Mark read</button>
+      <button class="admin-btn admin-btn-sm" data-act="bulk_mark_unread" data-tab="${tab}">↺ Mark unread</button>
+    </div>`;
+  }
+  function updateSelCounts() {
+    root.querySelectorAll("[data-selcount]").forEach((el) => {
+      const tab = el.getAttribute("data-selcount");
+      el.textContent = `${[...selected].filter((k) => k.startsWith(tab + "::")).length} selected`;
+    });
+  }
+  // Checkbox toggles (change events) — item selection + per-tab select-all.
+  function onBodyChange(e) {
+    const t = e.target;
+    if (t.classList?.contains("admin-sel")) {
+      if (t.checked) selected.add(t.dataset.selkey); else selected.delete(t.dataset.selkey);
+      updateSelCounts();
+    } else if (t.classList?.contains("admin-selall-box")) {
+      root.querySelectorAll(".admin-sel").forEach((b) => {
+        b.checked = t.checked;
+        if (t.checked) selected.add(b.dataset.selkey); else selected.delete(b.dataset.selkey);
+      });
+      updateSelCounts();
+    }
+  }
+
   function renderBody() {
     const bodyEl = root.querySelector("#adminBody");
     const countEl = root.querySelector("#adminSearchCount");
@@ -775,7 +973,7 @@ export function initAdmin(supabase) {
         ${noiseCount ? `<button class="admin-btn admin-btn-sm admin-danger" data-act="clear_release_notes">Clear ${noiseCount} release-slot note${noiseCount > 1 ? "s" : ""}</button>` : ""}
       </div>`;
       const table = rows.length
-        ? `<table class="admin-table">${thead(["When", "Subject", "Note", "By", ""])}${rows.map(noteRow).join("")}</tbody></table>`
+        ? selToolbar("notes") + `<table class="admin-table">${thead(["", "When", "Subject", "Note", "By", ""])}${rows.map(noteRow).join("")}</tbody></table>`
         : `<div class="admin-msg">${query ? `No notes match “${escapeHtml(query)}”.` : "No notes yet."}</div>`;
       return bar + table;
     }
@@ -791,19 +989,19 @@ export function initAdmin(supabase) {
             kinds.map((k) => chip(k, k, searched.filter((r) => r.kind === k).length, integrityKind === k)).join("")}</div>`
         : "";
       const table = rows.length
-        ? `<table class="admin-table">${thead(["When", "Player", "Wallet", "Kind", "Detail", "Match"])}${rows.map(integrityRow).join("")}</tbody></table>`
+        ? selToolbar("integrity") + `<table class="admin-table">${thead(["", "When", "Player", "Wallet", "Kind", "Detail", "Match"])}${rows.map(integrityRow).join("")}</tbody></table>`
         : `<div class="admin-msg">${integrityKind ? `No “${escapeHtml(integrityKind)}” flags${query ? " match this search" : ""}.` : (query ? `No flags match “${escapeHtml(query)}”.` : "Nothing here — queue is clear. ✓")}</div>`;
       return chips + table;
     }
     if (rows.length === 0) return emptyMsg;
     switch (tab) {
-      case "disputed":          return rows.map(disputedCard).join("");
-      case "payout_pending":    return `<p class="admin-note">Finished matches with a winner that have not paid out yet.</p>` + rows.map((r) => payoutCard(r, false)).join("");
-      case "payout_failed":     return `<p class="admin-note">Payout reservations stuck as 'pending' for over ${meta.payout_stuck_minutes ?? 15} min — likely a payout that half-completed. Verify on-chain before acting.</p>` + rows.map((r) => payoutCard(r, true)).join("");
-      case "payouts":           return `<p class="admin-note">Completed payouts (from the payouts ledger). Every column is searchable above.</p><table class="admin-table">${thead(["When", "Match", "Winner", "Wallet", "Amount", "Players", "Tx"])}${rows.map(payoutRow).join("")}</tbody></table>`;
-      case "consumed_deposits": return `<table class="admin-table">${thead(["When", "Player", "Wallet", "Deposit tx", "Match"])}${rows.map(consumedRow).join("")}</tbody></table>`;
-      case "stale_waiting":     return rows.map(waitingCard).join("");
-      case "banned":            return `<table class="admin-table">${thead(["When", "Wallet", "Reason", "Action"])}${rows.map(bannedRow).join("")}</tbody></table>`;
+      case "disputed":          return selToolbar("disputed") + rows.map(disputedCard).join("");
+      case "payout_pending":    return `<p class="admin-note">Finished matches with a winner that have not paid out yet.</p>` + selToolbar("payout_pending") + rows.map((r) => payoutCard(r, false, "payout_pending")).join("");
+      case "payout_failed":     return `<p class="admin-note">Payout reservations stuck as 'pending' for over ${meta.payout_stuck_minutes ?? 15} min — likely a payout that half-completed. Verify on-chain before acting.</p>` + selToolbar("payout_failed") + rows.map((r) => payoutCard(r, true, "payout_failed")).join("");
+      case "payouts":           return `<p class="admin-note">Completed payouts (from the payouts ledger). Every column is searchable above.</p>` + selToolbar("payouts") + `<table class="admin-table">${thead(["", "When", "Match", "Winner", "Wallet", "Amount", "Players", "Tx"])}${rows.map(payoutRow).join("")}</tbody></table>`;
+      case "consumed_deposits": return selToolbar("consumed_deposits") + `<table class="admin-table">${thead(["", "When", "Player", "Wallet", "Deposit tx", "Match"])}${rows.map(consumedRow).join("")}</tbody></table>`;
+      case "stale_waiting":     return selToolbar("stale_waiting") + rows.map(waitingCard).join("");
+      case "banned":            return selToolbar("banned") + `<table class="admin-table">${thead(["", "When", "Wallet", "Reason", "Action"])}${rows.map(bannedRow).join("")}</tbody></table>`;
       default:                  return "";
     }
   }
@@ -811,9 +1009,10 @@ export function initAdmin(supabase) {
   function payoutRow(r) {
     const amt = r.amount != null
       ? `${r.amount.toLocaleString(undefined, { maximumFractionDigits: 0 })} $FIGHT10` : "—";
-    return `<tr>
+    return `<tr class="${readCls("payouts", r.match_id)}">
+      ${selCell("payouts", r.match_id)}
       <td class="admin-nowrap" title="${fmtTime(r.created_at)}">${ago(r.created_at)}</td>
-      <td class="admin-nowrap">#${r.match_no ?? shortId(r.match_id)}</td>
+      <td class="admin-nowrap">${matchRef(r.match_id, `#${r.match_no ?? shortId(r.match_id)}`)}</td>
       <td>${escapeHtml(r.winner_name || shortId(r.winner_user_id))}</td>
       <td class="admin-mono">${r.winner_wallet ? addrLink(r.winner_wallet) : "—"}</td>
       <td class="admin-nowrap">${amt}</td>
@@ -1065,7 +1264,9 @@ export function initAdmin(supabase) {
       <td class="admin-nowrap">${t.last_analyze ? ago(t.last_analyze) : "—"}</td>
       <td class="admin-nowrap">
         <button class="admin-btn admin-btn-xs" data-act="db_download" data-table="${escapeHtml(t.name)}" title="Download this table as JSON">⬇ JSON</button>
-        <button class="admin-btn admin-btn-xs admin-danger" data-act="db_wipe" data-table="${escapeHtml(t.name)}" data-rows="${t.rows ?? 0}" title="Delete every row in this table">Wipe</button>
+        ${isLockedTable(t.name)
+          ? `<span class="admin-lock-tag" title="Constant config / static — protected from wipes">🔒 Protected</span>`
+          : `<button class="admin-btn admin-btn-xs admin-danger" data-act="db_wipe" data-table="${escapeHtml(t.name)}" data-rows="${t.rows ?? 0}" title="Delete every row in this table">Wipe</button>`}
       </td>
     </tr>`).join("");
 
@@ -1225,9 +1426,10 @@ export function initAdmin(supabase) {
         ${award}
       </div>`;
     }).join("");
-    return `<div class="admin-card">
+    return `<div class="admin-card${readCls("disputed", m.id)}">
       <div class="admin-card-head">
-        <b>Match #${m.match_no ?? shortId(m.id)}</b>
+        <label class="admin-selwrap">${selBox("disputed", m.id)}</label>
+        ${matchRef(m.id, `Match #${m.match_no ?? shortId(m.id)}`, "admin-linkish--head")}
         <span class="admin-dim">${m.max_players}-player · pot ${fmtTokens(m.pot_tokens, 0)} · reason: ${reason}</span>
         <span class="admin-dim admin-right">${fmtTime(m.ended_at)} (${ago(m.ended_at)})</span>
       </div>
@@ -1240,14 +1442,15 @@ export function initAdmin(supabase) {
     </div>`;
   }
 
-  function payoutCard(m, failed) {
+  function payoutCard(m, failed, type = "payout_pending") {
     const stuck = m.stuck_minutes != null ? `stuck ${m.stuck_minutes}m` : "";
     const status = m.payout_tx === "pending"
       ? `<span class="admin-flag ${failed ? "admin-flag-red" : ""}">pending ${stuck}</span>`
       : `<span class="admin-flag">unclaimed</span>`;
-    return `<div class="admin-card">
+    return `<div class="admin-card${readCls(type, m.id)}">
       <div class="admin-card-head">
-        <b>Match #${m.match_no ?? shortId(m.id)}</b>
+        <label class="admin-selwrap">${selBox(type, m.id)}</label>
+        ${matchRef(m.id, `Match #${m.match_no ?? shortId(m.id)}`, "admin-linkish--head")}
         <span class="admin-dim">winner ${escapeHtml(m.winner_name || shortId(m.winner_user_id))}${m.winner_wallet ? ` · <span class="admin-mono">${addrLink(m.winner_wallet)}</span>` : ""} · pot ${fmtTokens(m.pot_tokens, 0)}</span>
         ${status}
         <span class="admin-dim admin-right">${fmtTime(m.ended_at)} (${ago(m.ended_at)})</span>
@@ -1265,9 +1468,10 @@ export function initAdmin(supabase) {
   function waitingCard(m) {
     const players = (m.players || []).map((p) =>
       `#${p.seat} ${player(p)}${p.deposit_wallet ? ` <span class="admin-mono">${addrLink(p.deposit_wallet)}</span>` : ""}`).join(", ");
-    return `<div class="admin-card">
+    return `<div class="admin-card${readCls("stale_waiting", m.id)}">
       <div class="admin-card-head">
-        <b>Match #${m.match_no ?? shortId(m.id)}</b>
+        <label class="admin-selwrap">${selBox("stale_waiting", m.id)}</label>
+        ${matchRef(m.id, `Match #${m.match_no ?? shortId(m.id)}`, "admin-linkish--head")}
         <span class="admin-dim">${m.seats_filled}/${m.max_players} seats · open ${m.open_minutes}m · pot ${fmtTokens(m.pot_tokens, 0)}</span>
         <span class="admin-dim admin-right">${fmtTime(m.created_at)}</span>
       </div>
@@ -1281,31 +1485,34 @@ export function initAdmin(supabase) {
   }
 
   function integrityRow(r) {
-    return `<tr>
+    return `<tr class="${readCls("integrity", r.id)}">
+      ${selCell("integrity", r.id)}
       <td class="admin-nowrap" title="${fmtTime(r.created_at)}">${ago(r.created_at)}</td>
       <td>${escapeHtml(r.user_name || shortId(r.user_id))}</td>
       <td class="admin-mono">${r.user_wallet ? addrLink(r.user_wallet) : "—"}</td>
       <td><span class="admin-flag">${escapeHtml(r.kind || "—")}</span></td>
       <td class="admin-detail">${escapeHtml(r.detail ? JSON.stringify(r.detail) : "—")}</td>
       <td class="admin-nowrap">
-        ${shortId(r.match_id)}
+        ${matchRef(r.match_id, shortId(r.match_id))}
         ${r.user_id ? `<button class="admin-btn admin-btn-xs" data-act="ban" data-user="${r.user_id}">Ban</button>` : ""}
       </td>
     </tr>`;
   }
 
   function consumedRow(r) {
-    return `<tr>
+    return `<tr class="${readCls("consumed_deposits", r.deposit_tx)}">
+      ${selCell("consumed_deposits", r.deposit_tx)}
       <td class="admin-nowrap" title="${fmtTime(r.consumed_at)}">${ago(r.consumed_at)}</td>
       <td>${escapeHtml(r.user_name || shortId(r.user_id))}</td>
       <td class="admin-mono">${r.user_wallet ? addrLink(r.user_wallet) : "—"}</td>
       <td class="admin-mono">${txLink(r.deposit_tx)}</td>
-      <td class="admin-nowrap">${shortId(r.match_id)}</td>
+      <td class="admin-nowrap">${matchRef(r.match_id, shortId(r.match_id))}</td>
     </tr>`;
   }
 
   function bannedRow(r) {
-    return `<tr>
+    return `<tr class="${readCls("banned", r.user_id)}">
+      ${selCell("banned", r.user_id)}
       <td class="admin-nowrap" title="${fmtTime(r.created_at)}">${ago(r.created_at)}</td>
       <td class="admin-mono">${r.wallet ? addrLink(r.wallet) : "—"}</td>
       <td>${escapeHtml(r.reason || "—")}</td>
@@ -1317,7 +1524,8 @@ export function initAdmin(supabase) {
   }
 
   function noteRow(r) {
-    return `<tr>
+    return `<tr class="${readCls("notes", r.id)}">
+      ${selCell("notes", r.id)}
       <td class="admin-nowrap" title="${fmtTime(r.created_at)}">${ago(r.created_at)}</td>
       <td class="admin-nowrap">${escapeHtml(r.subject_type)} ${r.subject_id ? shortId(r.subject_id) : ""}${r.action ? ` <span class="admin-dim">(${escapeHtml(r.action)})</span>` : ""}</td>
       <td>${escapeHtml(r.note)}</td>

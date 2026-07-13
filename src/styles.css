@@ -3740,6 +3740,23 @@ body.in-game .log-feed { left: 70px; }
   line-height: 1.15;
 }
 
+/* Failure state: the prize slot holds a full error sentence, not a short gold
+   number. Shrink it, drop the gradient/letter-spacing, wrap long text, and tint
+   it amber so it reads as a warning on every screen size. */
+.go-prize-amount.go-prize-amount--error {
+  font-family: var(--font-head);
+  font-size: clamp(0.82rem, 3.2vw, 0.98rem);
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  line-height: 1.4;
+  background: none;
+  -webkit-text-fill-color: currentColor;
+  color: #e8b48f;
+  filter: none;
+  max-width: 32ch;
+  overflow-wrap: anywhere;
+}
+
 .go-prize-tx {
   margin-top: 4px;
   font-family: var(--font-head);
@@ -4787,6 +4804,101 @@ body.in-game .log-feed { left: 70px; }
 }
 .admin-input:focus { outline: none; border-color: var(--gold); }
 .admin-modal-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 14px; }
+
+/* Clickable match reference (id / number) → opens the match-detail modal. */
+.admin-linkish {
+  appearance: none;
+  background: none;
+  border: none;
+  padding: 0;
+  margin: 0;
+  cursor: pointer;
+  font: inherit;
+  color: var(--gold-hi);
+  border-bottom: 1px dotted rgba(212, 160, 23, 0.5);
+  transition: border-color 0.12s ease, color 0.12s ease;
+}
+.admin-linkish:hover { border-bottom-style: solid; color: #ffd76a; }
+.admin-linkish:focus-visible { outline: 2px solid var(--gold); outline-offset: 2px; }
+.admin-linkish--head { font-weight: 700; font-size: 0.9rem; color: #f4ecd6; border-bottom-color: rgba(212, 160, 23, 0.35); }
+.admin-linkish--head:hover { color: #ffe08a; }
+
+/* Match-detail modal: wider than the input modals, scrolls if tall. */
+.admin-modal-wide {
+  width: min(720px, 100%);
+  max-height: 84vh;
+  overflow-y: auto;
+}
+.admin-detail-head {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-bottom: 12px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid rgba(212, 160, 23, 0.25);
+}
+.admin-detail-title { font-family: var(--font-head, var(--font-body)); font-weight: 700; font-size: 1rem; color: #f4ecd6; }
+.admin-detail-section {
+  margin: 16px 0 8px;
+  font-size: 0.6rem;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: rgba(212, 160, 23, 0.75);
+}
+.admin-detail-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(210px, 1fr));
+  gap: 6px 18px;
+}
+.admin-detail-kv { display: flex; justify-content: space-between; gap: 10px; font-size: 0.72rem; padding: 3px 0; border-bottom: 1px solid rgba(255, 255, 255, 0.05); }
+.admin-detail-k { color: rgba(240, 232, 210, 0.5); }
+.admin-detail-v { color: #f0e8d2; text-align: right; overflow-wrap: anywhere; }
+.admin-detail-table { margin-top: 4px; font-size: 0.68rem; }
+.admin-detail-notes { display: flex; flex-direction: column; gap: 8px; }
+.admin-detail-notes .admin-note { font-size: 0.72rem; color: #e8dfc6; }
+.admin-detail-err { font-size: 0.75rem; color: #f2b8ac; line-height: 1.45; }
+
+/* Multi-select + mark-as-read across the queue tabs. */
+.admin-selbar {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+  margin: 0 0 10px;
+  padding: 7px 10px;
+  border: 1px solid rgba(212, 160, 23, 0.22);
+  border-radius: 6px;
+  background: rgba(212, 160, 23, 0.05);
+  font-size: 0.72rem;
+}
+.admin-selall { display: inline-flex; align-items: center; gap: 6px; cursor: pointer; color: #f0e8d2; }
+.admin-selcount { color: rgba(240, 232, 210, 0.6); min-width: 78px; }
+.admin-selcell { width: 26px; text-align: center; }
+.admin-selwrap { display: inline-flex; align-items: center; margin-right: 4px; }
+.admin-sel, .admin-selall-box { width: 15px; height: 15px; cursor: pointer; accent-color: var(--gold, #d4a017); }
+/* Read/acknowledged rows + cards read as dimmed and de-emphasised. */
+.admin-table tr.is-read { opacity: 0.5; }
+.admin-table tr.is-read td { text-decoration: none; }
+.admin-card.is-read { opacity: 0.52; }
+.admin-card.is-read:hover { opacity: 0.8; }
+
+/* "Protected" tag shown in place of a Wipe button for constant/config tables. */
+.admin-lock-tag {
+  display: inline-block;
+  font-size: 0.62rem;
+  letter-spacing: 0.02em;
+  color: rgba(240, 232, 210, 0.7);
+  border: 1px solid rgba(212, 160, 23, 0.35);
+  border-radius: 4px;
+  padding: 2px 6px;
+  white-space: nowrap;
+}
+
+@media (max-width: 640px) {
+  .admin-detail-grid { grid-template-columns: 1fr; }
+  .admin-modal-wide { max-height: 90vh; }
+}
 
 .admin-toast {
   position: absolute;

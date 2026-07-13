@@ -78,7 +78,7 @@ const TOKEN_DECIMALS = Number(Deno.env.get("FIGHT10_DECIMALS") ?? "18");
 // settled at whatever fee applied then, so a mutable current value would skew
 // historical rows. The live deposit-validation + payout paths below read the
 // entry fee from pvp_config per request.
-const ENTRY_FEE_RAW  = 2500n * 10n ** BigInt(TOKEN_DECIMALS);
+const ENTRY_FEE_RAW  = 10000n * 10n ** BigInt(TOKEN_DECIMALS);
 
 const norm = (w?: string | null) => ((w ?? "").split(":").pop() ?? "").trim().toLowerCase();
 const csv = (v?: string | null) =>
@@ -195,7 +195,7 @@ async function payoutWinner(admin: any, matchId: string) {
   const { data: cfg } = await admin
     .from("pvp_config").select("entry_fee_tokens, winner_share_bps").maybeSingle();
   const entryFeeTokens = Number(matchRow.entry_fee_tokens) > 0 ? Number(matchRow.entry_fee_tokens)
-    : Number(cfg?.entry_fee_tokens) > 0 ? Number(cfg.entry_fee_tokens) : 2500;
+    : Number(cfg?.entry_fee_tokens) > 0 ? Number(cfg.entry_fee_tokens) : 10000;
   const winnerShareBps = Number(matchRow.winner_share_bps) > 0 ? Number(matchRow.winner_share_bps)
     : Number(cfg?.winner_share_bps) > 0 ? Number(cfg.winner_share_bps) : 9000;
   const entryFeeRaw = BigInt(entryFeeTokens) * BigInt(10) ** BigInt(decimals);
@@ -261,7 +261,8 @@ async function payoutWinner(admin: any, matchId: string) {
     // Nonce consumed + tx broadcast — release the escrow lock for other matches.
     if (escrowLocked) {
       escrowLocked = false;
-      await admin.rpc("end_escrow_payout", { p_holder: escrowLockHolder }).catch(() => {});
+      try { await admin.rpc("end_escrow_payout", { p_holder: escrowLockHolder }); }
+      catch (_) { /* best-effort; the lock's TTL frees it anyway */ }
     }
 
     // #5: persist the REAL hash immediately, BEFORE waiting for the receipt, so a
@@ -291,8 +292,10 @@ async function payoutWinner(admin: any, matchId: string) {
     }
 
     if (reverted) {
-      await admin.from("matches").update({ payout_tx: null, payout_claimed_at: null })
-        .eq("id", matchId).eq("payout_tx", payoutSig).catch(() => {});
+      try {
+        await admin.from("matches").update({ payout_tx: null, payout_claimed_at: null })
+          .eq("id", matchId).eq("payout_tx", payoutSig);
+      } catch (_) { /* best-effort */ }
       throw new Error("Payout tx reverted on-chain: " + payoutSig);
     }
 
@@ -555,6 +558,91 @@ Deno.serve(async (req: Request) => {
           });
         }
 
+        case "match_detail": {
+          // Full drill-down for one match: the row itself (incl. the economics
+          // snapshot), every seat with its deposit, the payout ledger row, the
+          // review notes filed against it, and the combat ledger totals. Powers
+          // the dashboard's clickable match-id detail modal. Read-only.
+          const matchId = String(body?.match_id ?? "");
+          if (!matchId) return fail("match_id is required");
+          const [mRes, seatsRes, payRes, notesRes, dmgRes, killRes] = await Promise.all([
+            admin.from("matches")
+              .select("id, match_no, status, max_players, created_by, winner_user_id, created_at, started_at, ended_at, pot_tokens, payout_tx, payout_claimed_at, stats_applied, entry_fee_tokens, winner_share_bps, duration_seconds, economics_version, forfeited_user_ids")
+              .eq("id", matchId).maybeSingle(),
+            admin.from("match_players")
+              .select("user_id, seat, display_name, joined_at, deposit_tx, deposit_wallet, final_hp, last_seen")
+              .eq("match_id", matchId).order("seat", { ascending: true }),
+            admin.from("payouts")
+              .select("payout_tx, amount_raw, decimals, num_players, winner_user_id, created_at")
+              .eq("match_id", matchId).maybeSingle(),
+            admin.from("review_notes")
+              .select("id, subject_type, note, action, author_id, created_at")
+              .eq("subject_id", matchId).order("created_at", { ascending: false }).limit(50),
+            admin.from("match_damage")
+              .select("attacker, victim, total_damage, hit_count").eq("match_id", matchId),
+            admin.from("match_kills")
+              .select("attacker, victim, t_ms").eq("match_id", matchId),
+          ]);
+          const dErr = [mRes, seatsRes, payRes, notesRes, dmgRes, killRes].find((r: any) => r.error)?.error;
+          if (dErr) return fail(`match_detail failed: ${dErr.message}`, 500);
+          if (!mRes.data) return fail("Match not found", 404);
+
+          const seats = seatsRes.data ?? [];
+          const nameMap = await resolveNames([
+            mRes.data.winner_user_id, mRes.data.created_by,
+            ...seats.map((s: any) => s.user_id),
+            ...(notesRes.data ?? []).map((n: any) => n.author_id),
+          ]);
+          const nm = (id?: string | null) => (id ? nameMap.get(id)?.name ?? null : null);
+          const wl = (id?: string | null) => (id ? nameMap.get(id)?.wallet ?? null : null);
+
+          return json({
+            ok: true,
+            match: mRes.data,
+            created_by_name: nm(mRes.data.created_by),
+            winner_name: nm(mRes.data.winner_user_id),
+            winner_wallet: wl(mRes.data.winner_user_id),
+            players: seats.map((s: any) => ({ ...s, name: nm(s.user_id) })),
+            payout: payRes.data ?? null,
+            notes: (notesRes.data ?? []).map((n: any) => ({ ...n, author_name: nm(n.author_id) })),
+            damage: dmgRes.data ?? [],
+            kills: killRes.data ?? [],
+          });
+        }
+
+        case "mark_read":
+        case "unmark_read": {
+          // Bulk mark/unmark dashboard items as read. items: [{ type, id }].
+          const items = Array.isArray(body?.items) ? body.items : [];
+          const clean = items
+            .map((it: any) => ({ type: String(it?.type ?? "").trim(), id: String(it?.id ?? "").trim() }))
+            .filter((it: any) => it.type && it.id)
+            .slice(0, 1000);
+          if (clean.length === 0) return fail("no items");
+
+          if (action === "mark_read") {
+            const rows = clean.map((it: any) => ({ subject_type: it.type, subject_id: it.id, marked_by: user.id }));
+            const { error } = await admin.from("admin_read_marks").upsert(rows, { onConflict: "subject_type,subject_id" });
+            if (error) return fail(error.message);
+            return json({ ok: true, marked: rows.length });
+          }
+          // unmark: group ids by type so each delete targets exact pairs.
+          const byType = new Map<string, string[]>();
+          for (const it of clean) {
+            const list = byType.get(it.type) ?? [];
+            list.push(it.id);
+            byType.set(it.type, list);
+          }
+          let removed = 0;
+          for (const [type, ids] of byType) {
+            const { data: del, error } = await admin.from("admin_read_marks")
+              .delete().eq("subject_type", type).in("subject_id", ids).select("subject_id");
+            if (error) return fail(error.message);
+            removed += del?.length ?? 0;
+          }
+          return json({ ok: true, unmarked: removed });
+        }
+
         case "add_note": {
           const subject_type = String(body?.subject_type ?? "general");
           const subject_id = body?.subject_id != null ? String(body.subject_id) : null;
@@ -621,16 +709,17 @@ Deno.serve(async (req: Request) => {
         }
 
         case "close_waiting_room": {
-          // Close a stale waiting lobby so it stops showing as open.
+          // Close a stale waiting lobby so it stops showing as open. Routes
+          // through settle_abandoned_lobby so every paid seat is also filed for
+          // refund review (same as an auto-timeout), instead of silently losing
+          // the forfeited entries.
           const matchId = String(body?.match_id ?? "");
           const note = String(body?.note ?? "").trim();
           if (!matchId) return fail("match_id is required");
-          const { data: rows, error } = await admin.from("matches").update({
-            status: "finished", ended_at: new Date().toISOString(),
-          }).eq("id", matchId).eq("status", "waiting").select("id");
+          const { data: closed, error } = await admin.rpc("settle_abandoned_lobby", { p_match_id: matchId });
           if (error) return fail(error.message);
-          if (!rows || rows.length === 0) return fail("This match is no longer waiting — nothing to close.");
-          await logNote("waiting", matchId, note || "Stale waiting room closed.", "close_waiting_room");
+          if (closed !== true) return fail("This match is no longer waiting — nothing to close.");
+          await logNote("waiting", matchId, note || "Stale waiting room closed (paid seats flagged for refund review).", "close_waiting_room");
           return json({ ok: true });
         }
 
@@ -721,7 +810,7 @@ Deno.serve(async (req: Request) => {
             const decimals = Number(await rpc.run((p) => new Contract(tokenAddr, ERC20_ABI, p).decimals()));
             const { data: cfg } = await admin
               .from("pvp_config").select("entry_fee_tokens, winner_share_bps").maybeSingle();
-            const entryFeeTokens = Number(cfg?.entry_fee_tokens) > 0 ? Number(cfg.entry_fee_tokens) : 2500;
+            const entryFeeTokens = Number(cfg?.entry_fee_tokens) > 0 ? Number(cfg.entry_fee_tokens) : 10000;
             const winnerShareBps = Number(cfg?.winner_share_bps) > 0 ? Number(cfg.winner_share_bps) : 9000;
             const entryFeeRaw = BigInt(entryFeeTokens) * BigInt(10) ** BigInt(decimals);
             const expectedRaw = (BigInt(numPlayers) * entryFeeRaw * BigInt(winnerShareBps)) / BigInt(10000);
@@ -1040,6 +1129,12 @@ Deno.serve(async (req: Request) => {
       return fail(`Query failed: ${firstErr.message}`, 500);
     }
 
+    // Read/acknowledged marks so the UI can dim already-reviewed items. Non-fatal
+    // (a missing table just means nothing is marked read yet).
+    const { data: readMarksData } = await admin
+      .from("admin_read_marks").select("subject_type, subject_id").limit(5000);
+    const read_marks = (readMarksData ?? []).map((r: any) => ({ subject_type: r.subject_type, subject_id: r.subject_id }));
+
     const disputed = disputedRes.data ?? [];
     const integrity = integrityRes.data ?? [];
     const payoutPending = payoutPendingRes.data ?? [];
@@ -1123,6 +1218,7 @@ Deno.serve(async (req: Request) => {
       ok: true,
       generated_at: new Date().toISOString(),
       thresholds: { stale_waiting_minutes: STALE_WAITING_MINUTES, payout_stuck_minutes: PAYOUT_STUCK_MINUTES },
+      read_marks,
       counts: {
         disputed: disputed.length,
         integrity: integrity.length,
