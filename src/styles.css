@@ -2394,6 +2394,29 @@ body.in-game .game-hud-root {
 
 .gear:hover { transform: rotate(45deg); border-color: #33b14a; }
 
+.mute-btn {
+  position: fixed;
+  top: 64px;
+  left: 16px;
+  z-index: 12;
+  width: 40px;
+  height: 40px;
+  border-radius: 9px;
+  background: rgba(20, 28, 24, 0.6);
+  color: #dfeee0;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  backdrop-filter: blur(6px);
+  font-size: 18px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: border-color 0.15s, background 0.15s;
+}
+.mute-btn:hover { border-color: #33b14a; background: rgba(20, 28, 24, 0.85); }
+.mute-btn.muted { color: #e07a7a; border-color: rgba(224, 122, 122, 0.5); }
+.hud-hidden .mute-btn { display: none !important; }
+
 .keys-info-btn {
   position: fixed;
   top: 64px;
@@ -4153,7 +4176,7 @@ body.in-game .log-feed { left: 70px; }
   color: rgba(233, 224, 200, 0.68);
 }
 
-/* Mode cards (Modes & Stakes) */
+/* Mode cards (Modes & Pay) */
 .hs-mode-name {
   font-family: var(--font-head);
   font-size: 0.72rem;
@@ -4990,6 +5013,12 @@ body.in-game .log-feed { left: 70px; }
 }
 .tut-btn-primary:hover { filter: brightness(1.06); }
 
+/* First step has no BACK button — drop it from the layout and centre the lone
+   NEXT button instead of leaving it stranded in the right half of the row. */
+.tut-nav:has(.tut-btn-ghost.is-hidden) { justify-content: center; }
+.tut-nav:has(.tut-btn-ghost.is-hidden) .tut-btn-ghost { display: none; }
+.tut-nav:has(.tut-btn-ghost.is-hidden) .tut-btn-primary { flex: 0 1 260px; }
+
 .tut-dontshow {
   display: flex;
   align-items: center;
@@ -4999,9 +5028,25 @@ body.in-game .log-feed { left: 70px; }
   cursor: pointer;
   font-family: var(--font-body);
   font-size: 12px;
+  /* Keep the checkbox and its label together on one line — the wide display
+     font otherwise wraps the text, leaving the box stranded to the left of a
+     two-line label. */
+  white-space: nowrap;
   color: rgba(255, 255, 255, 0.5);
 }
-.tut-dontshow input { accent-color: var(--gold); cursor: pointer; }
+/* The global text-input reset stretches every input to width:100%; undo it for
+   this checkbox so it stays a small box beside its label instead of filling the
+   row and shoving the text off to the side. */
+.tut-dontshow input {
+  flex: none;
+  width: auto;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  accent-color: var(--gold);
+  cursor: pointer;
+}
 .tut-dontshow:hover { color: rgba(255, 255, 255, 0.75); }
 
 @media (max-width: 480px) {

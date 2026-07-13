@@ -11,6 +11,7 @@ import * as THREE from "three";
 import { escapeHtml } from "./utils.js";
 import { APPEARANCE_PRESETS } from "./appearance.js";
 import { WALL_THEME } from "./wallThemes.js";
+import { initSfx, setSfxEnabled, playSfx, setWaterLoop } from "./sound.js";
 
 const TILE = 2;
 const MAP_TILES = 50;
@@ -2262,6 +2263,10 @@ export function createArenaGame(options) {
   // can reach `def`. When given, the bullet flies to that point and deals no
   // damage — the obstruction soaks the round.
   function fireBullet(att, def, dmg, deal, weapon, impact = null) {
+    // One choke point for every ranged shot — player, AI raider, or a
+    // network opponent's mirrored attack — so gun audio lives in a single spot.
+    // Each gun gets its own report: pistol → pistol, sniper → sniper.
+    playSfx(weapon?.id === "sniper" ? "sniper" : "pistol");
     const bulletSize  = weapon?.bulletSize  ?? 0.13;
     const bulletSpeed = weapon?.bulletSpeed ?? 46;
     const bGroup = new THREE.Group();
@@ -2329,6 +2334,7 @@ export function createArenaGame(options) {
         g.mesh.visible = (Math.floor(g.fuseTimer * 10) % 2 === 0);
         if (g.fuseTimer >= 1.0) {
           // AOE explosion
+          playSfx("frag");
           const blastR = WEAPONS.frag.blastRadius;
           const allFighters = [player, ...foeList()];
           for (const f of allFighters) {
@@ -2382,6 +2388,8 @@ export function createArenaGame(options) {
     const w = player.weapon;
     player.cdTimer = w.cd;
     player.atkAnim = 0.32;
+    // Melee swing sound fires on commit (ranged shots are voiced in fireBullet).
+    if (!w.ranged && !w.isGrenade) playSfx("melee");
     // Trees / snow mountains in the way stop the attack. Melee simply deflects
     // (swing plays, no hit); a ranged shot still leaves the barrel and thuds
     // into the obstruction, dealing no damage to the sheltered target.
@@ -2413,6 +2421,7 @@ export function createArenaGame(options) {
     const w = e.weapon;
     e.cdTimer = w.cd;
     e.atkAnim = 0.32;
+    if (!w.ranged && !w.isGrenade) playSfx("melee");
     if (losBlocked(e.group.position.x, e.group.position.z, player.group.position.x, player.group.position.z)) {
       if (w.ranged) {
         const impact = rayBlockHit(e.group.position.x, e.group.position.z, player.group.position.x, player.group.position.z)
@@ -2429,6 +2438,7 @@ export function createArenaGame(options) {
     else applyDamage(player, dmg);
   }
   function killFighter(f) {
+    playSfx("dead");
     f.dead = true;
     f.moving = false;
     f.deadTimer = f.isPlayer ? 1.8 : 2.2;
@@ -2757,7 +2767,7 @@ export function createArenaGame(options) {
 
   // -- HUD (attached reference set) -----------------------------------------
   const hud = buildHud();
-  const { coords, mmCanvas, hotbar, slots, rivalsEl, fpsEl, pingEl, overlay, renderDistBtn, matchTimerEl, matchNoEl, raiderCountCtrl, raiderCountEl, scorePanel, weaponPanel, keysInfoPanel } = hud;
+  const { coords, mmCanvas, hotbar, slots, rivalsEl, fpsEl, pingEl, overlay, renderDistBtn, matchTimerEl, matchNoEl, raiderCountCtrl, raiderCountEl, scorePanel, weaponPanel, keysInfoPanel, muteBtn } = hud;
 
   // Top-right menu button: open the app's in-game menu (resume / how to play /
   // settings / leave) rather than jumping straight into settings — on touch
@@ -2878,7 +2888,7 @@ export function createArenaGame(options) {
   // MSAA (via a >1 pixel ratio) defaults OFF on mobile so a phone renders at 1×
   // out of the gate; the player can re-enable it in Settings if their device
   // can spare the fill rate.
-  const settings = { renderDistance: "Far", fog: false, msaa: !LOW_QUALITY, animations: true, centerCamera: false, hideHud: false, fps: true, ping: true, location: false };
+  const settings = { renderDistance: "Far", fog: false, msaa: !LOW_QUALITY, animations: true, centerCamera: false, hideHud: false, fps: true, ping: true, location: false, sound: true };
   function applyFog() {
     if (settings.fog) { const r = RD_FOG[settings.renderDistance]; scene.fog = new THREE.Fog(theme.bg, r[0], r[1]); }
     else scene.fog = null;
@@ -2890,11 +2900,27 @@ export function createArenaGame(options) {
     pingEl.style.display = settings.ping && !settings.hideHud ? "block" : "none";
     coords.style.display = settings.location && !settings.hideHud ? "block" : "none";
   }
+  // Single source of truth for the sound on/off state: drives the audio
+  // engine, the on-screen mute button, and the Settings-menu toggle together so
+  // flipping any one control keeps the others in sync.
+  const soundToggleEl = overlay.querySelector('[data-setting="sound"]');
+  function applySound(on) {
+    settings.sound = !!on;
+    setSfxEnabled(settings.sound);
+    muteBtn.classList.toggle("muted", !settings.sound);
+    muteBtn.innerHTML = settings.sound ? "&#128266;" : "&#128263;"; // 🔊 / 🔇
+    muteBtn.title = settings.sound ? "Mute sound" : "Unmute sound";
+    muteBtn.setAttribute("aria-pressed", String(!settings.sound));
+    if (soundToggleEl) soundToggleEl.classList.toggle("on", settings.sound);
+  }
+  muteBtn.addEventListener("click", () => applySound(!settings.sound));
+
   hud.bindSettings({
-    settings, applyFog, applyMsaa, refreshHud,
+    settings, applyFog, applyMsaa, refreshHud, onSound: applySound,
     onCenter: () => { if (settings.centerCamera) following = true; },
   });
   applyFog(); applyMsaa(); refreshHud();
+  initSfx(); applySound(settings.sound);
 
   // Raider count control (demo only)
   raiderCountCtrl.querySelector(".rc-minus").addEventListener("click", () => {
@@ -3160,6 +3186,12 @@ export function createArenaGame(options) {
     updateBullets(dt);
     updateGrenades(dt);
     updateExplosions(dt);
+
+    // Splash loop while the local player wades through the river.
+    setWaterLoop(
+      perspective === "player" && !player.dead && player.moving &&
+      inRiver(player.group.position.x, player.group.position.z)
+    );
 
     // Tick frag's independent cooldown
     if (fragCd > 0) fragCd = Math.max(0, fragCd - dt);
@@ -3549,13 +3581,13 @@ export function createArenaGame(options) {
         if (player.dead) return;
         if (attacker) attacker.atkAnim = 0.32;
         if (payload.ranged && attacker) fireBullet(attacker, player, dmg, true, attacker.weapon);
-        else applyDamage(player, dmg);
+        else { playSfx("melee"); applyDamage(player, dmg); }
       } else {
         const target = opponents.get(payload.targetId);
         if (!target || target.dead) return;
         if (attacker) attacker.atkAnim = 0.32;
         if (payload.ranged && attacker) fireBullet(attacker, target, dmg, true, attacker.weapon);
-        else applyDamage(target, dmg);
+        else { playSfx("melee"); applyDamage(target, dmg); }
       }
     },
     generateMap(seed) { generateMap(seed); buildMinimapStatic(); },
@@ -3590,6 +3622,7 @@ export function createArenaGame(options) {
     openSettings() { overlay.classList.add("show"); },
     destroy() {
       destroyed = true;
+      setWaterLoop(false); // silence the wade loop when the arena tears down
       clearInterval(_timerFallback);
       ro.disconnect();
       canvas.removeEventListener("pointerdown", _onPointerDown);
@@ -3668,6 +3701,7 @@ function buildHud() {
   </div>`);
   add('<button class="gear game-ui" title="Menu">&#9776;</button>');
   const gearBtn = root.querySelector(".gear");
+  const muteBtn = add('<button class="mute-btn game-ui" title="Mute sound" aria-pressed="false">&#128266;</button>');
   const rivalsEl = add('<div class="game-rivals game-ui">--</div>');
   const fpsEl = add('<div class="game-fps game-ui">FPS --</div>');
   const pingEl = add('<div class="game-ping game-ui">-- ms</div>');
@@ -3685,6 +3719,7 @@ function buildHud() {
           <div class="row"><span>Fog</span><button class="toggle" data-setting="fog"></button></div>
           <div class="row"><span>Anti-aliasing (MSAA)</span><button class="toggle" data-setting="msaa"></button></div>
           <div class="row"><span>Animations</span><button class="toggle" data-setting="animations"></button></div>
+          <div class="row"><span>Sound Effects</span><button class="toggle" data-setting="sound"></button></div>
           <div class="row"><span>Center Camera</span><button class="toggle" data-setting="centerCamera"></button></div>
           <div class="divider"></div>
           <div class="section">OTHER</div>
@@ -3734,6 +3769,7 @@ function buildHud() {
         if (key === "fog") ctx.applyFog();
         else if (key === "msaa") ctx.applyMsaa();
         else if (key === "centerCamera") ctx.onCenter();
+        else if (key === "sound") ctx.onSound(ctx.settings.sound);
         else ctx.refreshHud();
       });
     });
@@ -3745,7 +3781,7 @@ function buildHud() {
     });
   }
 
-  return { root, coords, matchTimerEl, matchNoEl, mmCanvas, hotbar, slots, rivalsEl, fpsEl, pingEl, overlay, renderDistBtn, bindSettings, raiderCountCtrl, raiderCountEl, scorePanel, weaponPanel, keysInfoPanel, gearBtn };
+  return { root, coords, matchTimerEl, matchNoEl, mmCanvas, hotbar, slots, rivalsEl, fpsEl, pingEl, overlay, renderDistBtn, bindSettings, raiderCountCtrl, raiderCountEl, scorePanel, weaponPanel, keysInfoPanel, gearBtn, muteBtn };
 }
 
 function clamp(v, min, max) {
