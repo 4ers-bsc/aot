@@ -864,6 +864,67 @@ as $$
 $$;
 
 -- ---------------------------------------------------------------------------
+-- 4c. pvp_waiting_counts — lobby "N waiting" badges without exposing rows.
+--     Returns seat counts per lobby size for matches still in 'waiting'. Runs
+--     as SECURITY DEFINER so the matches / match_players SELECT policies stay
+--     participant-only while the lobby UI keeps working. Counts only.
+-- ---------------------------------------------------------------------------
+create or replace function public.pvp_waiting_counts()
+returns jsonb
+language sql
+security definer
+set search_path = public
+stable
+as $$
+  select coalesce(jsonb_object_agg(sz::text, cnt), '{}'::jsonb)
+  from (
+    select m.max_players as sz, count(mp.user_id) as cnt
+    from public.matches m
+    join public.match_players mp on mp.match_id = m.id
+    where m.status = 'waiting'
+    group by m.max_players
+  ) s;
+$$;
+
+-- ---------------------------------------------------------------------------
+-- 4d. admin_resolve_dispute — atomic dispute resolution (f10admin calls this).
+--     Flip 'disputed' -> 'finished' with a chosen winner and apply their stats
+--     in ONE transaction, so the status change and the stats write can never
+--     land half-applied.
+-- ---------------------------------------------------------------------------
+create or replace function public.admin_resolve_dispute(p_match_id uuid, p_winner_id uuid)
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_status text;
+begin
+  select status into v_status from matches where id = p_match_id for update;
+  if v_status is null then
+    raise exception 'match_not_found';
+  end if;
+  if v_status <> 'disputed' then
+    raise exception 'not_disputed:%', v_status;
+  end if;
+  if not exists (
+    select 1 from match_players where match_id = p_match_id and user_id = p_winner_id
+  ) then
+    raise exception 'winner_not_participant';
+  end if;
+
+  update matches
+  set status = 'finished', winner_user_id = p_winner_id,
+      shadow_winner = p_winner_id, ended_at = now()
+  where id = p_match_id and status = 'disputed';
+
+  -- Same transaction: if this raises, the status flip rolls back with it.
+  perform public.apply_match_result(p_match_id, p_winner_id);
+end;
+$$;
+
+-- ---------------------------------------------------------------------------
 -- 5. leave_my_matches
 -- ---------------------------------------------------------------------------
 create or replace function public.leave_my_matches()
@@ -1087,7 +1148,9 @@ security definer
 set search_path = public
 as $$
 declare
-  v_caller uuid := auth.uid();
+  v_caller  uuid := auth.uid();
+  v_status  text;
+  v_started timestamptz;
 begin
   if v_caller is null then
     raise exception 'not_authenticated';
@@ -1101,6 +1164,18 @@ begin
     where match_id = p_match_id and user_id = v_caller
   ) then
     raise exception 'not_a_participant';
+  end if;
+
+  -- Only an in-progress match can receive a final HP report. A 'waiting' match
+  -- (not yet started) or an already-settled one is rejected so a player cannot
+  -- lock in a final HP before combat has begun (or overwrite one afterwards).
+  select status, started_at into v_status, v_started
+  from matches where id = p_match_id for update;
+  if v_status is null then
+    raise exception 'match_not_found';
+  end if;
+  if v_status <> 'active' or v_started is null then
+    raise exception 'match_not_active';
   end if;
 
   -- Record caller's HP (clamped 0–100). This is finish_match's only side effect.
@@ -1689,18 +1764,18 @@ on public.profiles for update to authenticated
 using (auth.uid() = user_id)
 with check (auth.uid() = user_id);
 
--- Matches: visible when active or you are a member
-create policy "matches_select_member_or_active"
+-- Matches: participants only. A logged-in user cannot enumerate every
+-- active/waiting match — lobby "N waiting" badges come from the aggregate
+-- SECURITY DEFINER RPC pvp_waiting_counts() instead, which exposes counts
+-- only, never rows.
+create policy "matches_select_member"
 on public.matches for select to authenticated
-using (status in ('active', 'waiting') or public.is_match_member(id));
+using (public.is_match_member(id));
 
--- Match players: visible when active or you are in the match
-create policy "match_players_select_member_or_active"
+-- Match players: participants only (same rationale as matches above).
+create policy "match_players_select_member"
 on public.match_players for select to authenticated
-using (
-  public.is_match_member(match_id)
-  or exists (select 1 from public.matches m where m.id = match_id and m.status = 'active')
-);
+using (public.is_match_member(match_id));
 
 -- Combat ledger: you may only INSERT rows where you are the attacker (so you
 -- can never report your own incoming HP), and only read your own matches.
@@ -1760,11 +1835,13 @@ grant execute on function public.match_duration_seconds(smallint)      to authen
 grant execute on function public.pvp_capacity()                        to authenticated, anon;
 grant execute on function public.pvp_capacity_cap()                    to authenticated, anon;
 grant execute on function public.pvp_settings()                        to authenticated, anon;
+grant execute on function public.pvp_waiting_counts()                  to authenticated, anon;
 
 -- apply_match_result, finalize_match and close_stale_matches are internal:
 -- finalize_match is only ever called from finish_match (a security-definer
 -- function), so it never needs a direct grant to authenticated.
 grant execute on function public.apply_match_result(uuid, uuid)    to service_role;
+grant execute on function public.admin_resolve_dispute(uuid, uuid) to service_role;
 grant execute on function public.finalize_match(uuid, boolean)     to service_role;
 grant execute on function public.close_stale_matches()             to service_role;
 
