@@ -21,6 +21,7 @@ import { txExplorerUrl, addrExplorerUrl } from "./network.js";
 
 const TABS = [
   ["home",              "Home"],
+  ["matches",           "All matches"],
   ["disputed",          "Disputed"],
   ["integrity",         "Integrity flags"],
   ["payout_pending",    "Payout pending"],
@@ -38,7 +39,7 @@ const TABS = [
 const TAB_LABEL = Object.fromEntries(TABS);
 // Sidebar grouping + vertical order. Empty group name = no header (Home).
 const TAB_GROUPS = [
-  ["",           ["home"]],
+  ["",           ["home", "matches"]],
   ["Operations", ["disputed", "integrity", "payout_pending", "payout_failed", "stale_waiting"]],
   ["Finance",    ["payouts", "cashflow", "consumed_deposits"]],
   ["Users",      ["banned", "notes"]],
@@ -49,7 +50,7 @@ const INFO_TABS = new Set(["payouts", "consumed_deposits", "notes"]);
 // Tabs that render their own body (own filters / layout) instead of the shared
 // free-text search + row table. Each loads its data lazily on first open and
 // keeps its own loading / error state.
-const CUSTOM_TABS = new Set(["home", "cashflow", "db", "functions", "constants"]);
+const CUSTOM_TABS = new Set(["home", "matches", "cashflow", "db", "functions", "constants"]);
 
 // Wipe-safety classification for the Database tab. Purely advisory — the backend
 // still gates every wipe behind a typed confirmation and refuses to cascade — but
@@ -170,6 +171,10 @@ export function initAdmin(supabase) {
   let cashflowError = "";
   let cashflowFilters = { from: "", to: "", wallet: "", match: "" };
 
+  // All-matches tab: server-side paginated browse (25/page) with its own state.
+  let matchesData = null, matchesLoading = false, matchesError = "";
+  let matchesPage = 0, matchesSearch = "";
+
   // Monitoring / config tabs — each fetched on demand, own loading + error state.
   let dbstats = null,  dbstatsLoading = false,  dbstatsError = "";
   let fnhealth = null, fnhealthLoading = false, fnhealthError = "";
@@ -226,6 +231,10 @@ export function initAdmin(supabase) {
       if (e.key === "Enter" && e.target.closest("#cfFilters")) {
         e.preventDefault();
         root.querySelector('[data-act="cf_apply"]')?.click();
+      }
+      if (e.key === "Enter" && e.target.closest("#mtFilters")) {
+        e.preventDefault();
+        root.querySelector('[data-act="matches_apply"]')?.click();
       }
     });
     return root;
@@ -292,6 +301,26 @@ export function initAdmin(supabase) {
     }
   }
 
+  // All-matches tab: fetch one page of matches for the current search.
+  async function loadMatches() {
+    matchesLoading = true; matchesError = "";
+    if (activeTab === "matches") renderBody();
+    try {
+      const { data: resp, error } = await supabase.functions.invoke("f10admin", {
+        body: { action: "matches", page: matchesPage, search: matchesSearch },
+      });
+      if (error) throw new Error(error.message || "request failed");
+      if (!resp?.ok) throw new Error(resp?.error || "request failed");
+      matchesData = resp;
+    } catch (err) {
+      matchesError = String(err?.message || err);
+      matchesData = null;
+    } finally {
+      matchesLoading = false;
+      if (activeTab === "matches") renderBody();
+    }
+  }
+
   // Switch tabs (from the sidebar or a Home shortcut). Custom tabs fetch their
   // data lazily the first time they're opened.
   function switchTab(key) {
@@ -309,6 +338,7 @@ export function initAdmin(supabase) {
   // Refresh whatever the active tab shows (each source is independent).
   function refreshActive() {
     switch (activeTab) {
+      case "matches":   return loadMatches();
       case "cashflow":  return loadCashflow();
       case "db":        return loadDbStats();
       case "functions": return loadFunctions();
@@ -320,6 +350,7 @@ export function initAdmin(supabase) {
   function lazyLoadFor(tab) {
     // Home also shows live DB metrics, so it needs the db-stats fetch too.
     if (tab === "home"      && !dbstats   && !dbstatsLoading)   loadDbStats();
+    if (tab === "matches"   && !matchesData && !matchesLoading) loadMatches();
     if (tab === "cashflow"  && !cashflow  && !cashflowLoading)  loadCashflow();
     if (tab === "db"        && !dbstats   && !dbstatsLoading)   loadDbStats();
     if (tab === "functions" && !fnhealth  && !fnhealthLoading)  loadFunctions();
@@ -683,6 +714,27 @@ export function initAdmin(supabase) {
       loadCashflow();
       return;
     }
+    if (a === "matches_apply") {
+      matchesSearch = root.querySelector("#mtSearch")?.value.trim() || "";
+      matchesPage = 0;
+      loadMatches();
+      return;
+    }
+    if (a === "matches_clear") {
+      matchesSearch = ""; matchesPage = 0;
+      loadMatches();
+      return;
+    }
+    if (a === "matches_page") {
+      const total = Number(matchesData?.total ?? 0);
+      const pageSize = Number(matchesData?.page_size ?? 25);
+      const maxPage = Math.max(0, Math.ceil(total / pageSize) - 1);
+      matchesPage = btn.dataset.dir === "next"
+        ? Math.min(maxPage, matchesPage + 1)
+        : Math.max(0, matchesPage - 1);
+      loadMatches();
+      return;
+    }
     if (a === "integrity_kind") {
       integrityKind = btn.dataset.kind || "";
       renderBody();
@@ -943,6 +995,7 @@ export function initAdmin(supabase) {
     const searchbar = root.querySelector(".admin-searchbar");
     if (searchbar) searchbar.style.display = CUSTOM_TABS.has(activeTab) ? "none" : "";
     if (activeTab === "home")      { bodyEl.innerHTML = renderHome(); return; }
+    if (activeTab === "matches")   { bodyEl.innerHTML = renderMatches(); return; }
     if (activeTab === "cashflow")  { bodyEl.innerHTML = renderCashflow(); return; }
     if (activeTab === "db")        { bodyEl.innerHTML = renderDbStats(); return; }
     if (activeTab === "functions") { bodyEl.innerHTML = renderFunctions(); return; }
@@ -1215,6 +1268,61 @@ export function initAdmin(supabase) {
       <td class="admin-nowrap">${r.num_players ?? "—"}</td>
       <td class="admin-nowrap">${fmtTokens(r.amount_raw, r.decimals ?? TOKEN_DECIMALS)}</td>
       <td class="admin-mono">${txLink(r.payout_tx)}</td>
+    </tr>`;
+  }
+
+  // ---- All matches (paginated browse) ---------------------------------------
+  function renderMatches() {
+    const bar = `
+      <div class="cf-filters" id="mtFilters">
+        <label class="cf-field cf-field-grow">Search
+          <input id="mtSearch" class="cf-input" type="text" placeholder="match # (e.g. 123) or status (waiting / finished / disputed)…" value="${escapeHtml(matchesSearch)}" autocomplete="off" />
+        </label>
+        <button class="admin-btn admin-btn-sm admin-primary" data-act="matches_apply">Search</button>
+        <button class="admin-btn admin-btn-sm" data-act="matches_clear">Clear</button>
+      </div>`;
+    let content;
+    if (matchesLoading && !matchesData) content = `<div class="admin-msg">Loading…</div>`;
+    else if (matchesError)              content = `<div class="admin-msg admin-err">${escapeHtml(matchesError)}</div>`;
+    else if (!matchesData)              content = `<div class="admin-msg">No data.</div>`;
+    else                                content = renderMatchesData();
+    return bar + content;
+  }
+
+  function renderMatchesData() {
+    const md = matchesData;
+    const rows = md.rows || [];
+    const total = Number(md.total || 0);
+    const pageSize = Number(md.page_size || 25);
+    const page = Number(md.page || 0);
+    const maxPage = Math.max(0, Math.ceil(total / pageSize) - 1);
+    if (!rows.length) {
+      return `<div class="admin-msg">${matchesSearch ? `No matches for “${escapeHtml(matchesSearch)}”.` : "No matches yet."}</div>`;
+    }
+    const from = page * pageSize + 1;
+    const to = page * pageSize + rows.length;
+    const pager = `<div class="mt-pager">
+      <button class="admin-btn admin-btn-sm" data-act="matches_page" data-dir="prev"${page <= 0 ? " disabled" : ""}>← Prev</button>
+      <span class="admin-dim">${from.toLocaleString()}–${to.toLocaleString()} of ${total.toLocaleString()} · page ${page + 1} of ${maxPage + 1}</span>
+      <button class="admin-btn admin-btn-sm" data-act="matches_page" data-dir="next"${page >= maxPage ? " disabled" : ""}>Next →</button>
+    </div>`;
+    const table = `<table class="admin-table">${thead(["Match", "Status", "Players", "Winner", "Pot", "Created", "Ended", "Payout"])}${rows.map(matchRow).join("")}</tbody></table>`;
+    return pager + table + pager;
+  }
+
+  function matchRow(r) {
+    const pay = !r.payout_tx ? "—"
+      : r.payout_tx === "pending" ? `<span class="admin-flag">pending</span>`
+      : txLink(r.payout_tx);
+    return `<tr>
+      <td class="admin-nowrap">${matchRef(r.id, r.match_no != null ? `#${r.match_no}` : shortId(r.id))}</td>
+      <td><span class="admin-flag">${escapeHtml(r.status || "—")}</span></td>
+      <td class="admin-nowrap">${r.max_players ?? "—"}</td>
+      <td>${r.winner_user_id ? escapeHtml(r.winner_name || shortId(r.winner_user_id)) : "—"}</td>
+      <td class="admin-nowrap">${fmtTokens(r.pot_tokens, 0)}</td>
+      <td class="admin-nowrap" title="${fmtTime(r.created_at)}">${r.created_at ? ago(r.created_at) : "—"}</td>
+      <td class="admin-nowrap" title="${fmtTime(r.ended_at)}">${r.ended_at ? ago(r.ended_at) : "—"}</td>
+      <td class="admin-mono">${pay}</td>
     </tr>`;
   }
 

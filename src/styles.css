@@ -5070,6 +5070,15 @@ body.in-game .log-feed { left: 70px; }
 .cf-out .cf-card-amt { color: #f0c088; }
 .cf-net .cf-card-amt { color: var(--gold-hi); }
 .cf-neg { color: #f2b8ac !important; }
+.mt-pager {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 0;
+  font-size: 0.72rem;
+}
+.mt-pager .admin-btn[disabled] { opacity: 0.4; pointer-events: none; }
 .cf-h {
   font-family: var(--font-display);
   font-weight: normal;
