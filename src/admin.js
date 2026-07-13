@@ -20,26 +20,36 @@ import { escapeHtml } from "./utils.js";
 import { txExplorerUrl, addrExplorerUrl } from "./network.js";
 
 const TABS = [
+  ["home",              "Home"],
   ["disputed",          "Disputed"],
   ["integrity",         "Integrity flags"],
   ["payout_pending",    "Payout pending"],
   ["payout_failed",     "Payout failed"],
+  ["stale_waiting",     "Stale rooms"],
   ["payouts",           "All payouts"],
   ["cashflow",          "Cash flow"],
   ["consumed_deposits", "Consumed deposits"],
-  ["stale_waiting",     "Stale rooms"],
   ["banned",            "Banned users"],
   ["notes",             "Review notes"],
   ["db",                "Database"],
   ["functions",         "Edge functions"],
   ["constants",         "Constants"],
 ];
+const TAB_LABEL = Object.fromEntries(TABS);
+// Sidebar grouping + vertical order. Empty group name = no header (Home).
+const TAB_GROUPS = [
+  ["",           ["home"]],
+  ["Operations", ["disputed", "integrity", "payout_pending", "payout_failed", "stale_waiting"]],
+  ["Finance",    ["payouts", "cashflow", "consumed_deposits"]],
+  ["Users",      ["banned", "notes"]],
+  ["System",     ["db", "functions", "constants"]],
+];
 // Tabs whose badge count is informational (not an action queue) — no red badge.
 const INFO_TABS = new Set(["payouts", "consumed_deposits", "notes"]);
 // Tabs that render their own body (own filters / layout) instead of the shared
 // free-text search + row table. Each loads its data lazily on first open and
 // keeps its own loading / error state.
-const CUSTOM_TABS = new Set(["cashflow", "db", "functions", "constants"]);
+const CUSTOM_TABS = new Set(["home", "cashflow", "db", "functions", "constants"]);
 
 // Wipe-safety classification for the Database tab. Purely advisory — the backend
 // still gates every wipe behind a typed confirmation and refuses to cascade — but
@@ -123,7 +133,7 @@ const addrLink = (addr, label) =>
 export function initAdmin(supabase) {
   let root = null;
   let data = null;
-  let activeTab = "disputed";
+  let activeTab = "home";
   let loading = false;
   let errorMsg = "";
   let query = ""; // per-tab free-text filter (searches every column)
@@ -157,12 +167,16 @@ export function initAdmin(supabase) {
             <button class="admin-btn admin-x" type="button" data-admin="close" aria-label="Close">✕</button>
           </div>
         </header>
-        <nav class="admin-tabs" id="adminTabs"></nav>
-        <div class="admin-searchbar">
-          <input id="adminSearch" class="admin-search-input" type="search" placeholder="Search this tab — any column…" autocomplete="off" />
-          <span class="admin-search-count" id="adminSearchCount"></span>
+        <div class="admin-main">
+          <nav class="admin-side" id="adminTabs"></nav>
+          <div class="admin-content">
+            <div class="admin-searchbar">
+              <input id="adminSearch" class="admin-search-input" type="search" placeholder="Search this tab — any column…" autocomplete="off" />
+              <span class="admin-search-count" id="adminSearchCount"></span>
+            </div>
+            <div class="admin-body" id="adminBody"></div>
+          </div>
         </div>
-        <div class="admin-body" id="adminBody"></div>
       </div>
       <div class="admin-modal-host" id="adminModalHost"></div>`;
     document.body.appendChild(root);
@@ -174,17 +188,7 @@ export function initAdmin(supabase) {
     root.querySelector('[data-admin="refresh"]').addEventListener("click", refreshActive);
     root.querySelector("#adminTabs").addEventListener("click", (e) => {
       const t = e.target.closest("[data-tab]");
-      if (t && t.dataset.tab !== activeTab) {
-        activeTab = t.dataset.tab;
-        query = "";
-        integrityKind = "";
-        const s = root.querySelector("#adminSearch");
-        if (s) s.value = "";
-        render();
-        // Custom tabs (cash flow / monitoring / constants) fetch lazily the
-        // first time they're opened.
-        lazyLoadFor(activeTab);
-      }
+      if (t) switchTab(t.dataset.tab);
     });
     // Live free-text filter — re-renders only the body so the input keeps focus.
     root.querySelector("#adminSearch").addEventListener("input", (e) => {
@@ -258,6 +262,19 @@ export function initAdmin(supabase) {
       cashflowLoading = false;
       if (activeTab === "cashflow") renderBody();
     }
+  }
+
+  // Switch tabs (from the sidebar or a Home shortcut). Custom tabs fetch their
+  // data lazily the first time they're opened.
+  function switchTab(key) {
+    if (!key || key === activeTab) return;
+    activeTab = key;
+    query = "";
+    integrityKind = "";
+    const s = root.querySelector("#adminSearch");
+    if (s) s.value = "";
+    render();
+    lazyLoadFor(key);
   }
 
   // Refresh whatever the active tab shows (each source is independent).
@@ -489,6 +506,14 @@ export function initAdmin(supabase) {
       renderBody();
       return;
     }
+    if (a === "goto") {
+      switchTab(btn.dataset.goto);
+      return;
+    }
+    if (a === "home_refresh") {
+      load();
+      return;
+    }
     if (a === "db_download") {
       dbExport(btn.dataset.table);
       return;
@@ -654,16 +679,25 @@ export function initAdmin(supabase) {
 
   function renderTabs() {
     const counts = data?.counts || {};
-    root.querySelector("#adminTabs").innerHTML = TABS.map(([key, label]) => {
-      // Custom tabs (e.g. cash flow) have no queue count — render without a badge.
+    const tabBtn = (key) => {
+      const label = TAB_LABEL[key] ?? key;
+      // Custom tabs (home / monitoring / constants) carry no queue count.
       if (CUSTOM_TABS.has(key)) {
-        return `<button class="admin-tab${key === activeTab ? " is-active" : ""}" data-tab="${key}">${escapeHtml(label)}</button>`;
+        return `<button class="admin-tab${key === activeTab ? " is-active" : ""}" data-tab="${key}">
+          <span class="admin-tab-label">${escapeHtml(label)}</span>
+        </button>`;
       }
       const c = counts[key] ?? 0;
       const attn = c > 0 && !INFO_TABS.has(key);
       return `<button class="admin-tab${key === activeTab ? " is-active" : ""}" data-tab="${key}">
-        ${escapeHtml(label)}<span class="admin-count${attn ? " attn" : ""}">${c}</span>
+        <span class="admin-tab-label">${escapeHtml(label)}</span>
+        <span class="admin-count${attn ? " attn" : ""}">${c}</span>
       </button>`;
+    };
+    root.querySelector("#adminTabs").innerHTML = TAB_GROUPS.map(([group, keys]) => {
+      const items = keys.map(tabBtn).join("");
+      const header = group ? `<div class="admin-side-group">${escapeHtml(group)}</div>` : "";
+      return `<div class="admin-side-section">${header}${items}</div>`;
     }).join("");
   }
 
@@ -682,6 +716,7 @@ export function initAdmin(supabase) {
     // Custom tabs own their body and hide the shared free-text search bar.
     const searchbar = root.querySelector(".admin-searchbar");
     if (searchbar) searchbar.style.display = CUSTOM_TABS.has(activeTab) ? "none" : "";
+    if (activeTab === "home")      { bodyEl.innerHTML = renderHome(); return; }
     if (activeTab === "cashflow")  { bodyEl.innerHTML = renderCashflow(); return; }
     if (activeTab === "db")        { bodyEl.innerHTML = renderDbStats(); return; }
     if (activeTab === "functions") { bodyEl.innerHTML = renderFunctions(); return; }
@@ -761,6 +796,65 @@ export function initAdmin(supabase) {
   }
 
   const thead = (cols) => `<thead><tr>${cols.map((c) => `<th>${escapeHtml(c)}</th>`).join("")}</tr></thead><tbody>`;
+
+  // ---- Home (overview dashboard) --------------------------------------------
+  function renderHome() {
+    if (loading && !data) return `<div class="admin-msg">Loading…</div>`;
+    if (errorMsg)         return `<div class="admin-msg admin-err">${escapeHtml(errorMsg)}</div>`;
+    if (!data)            return `<div class="admin-msg">No data.</div>`;
+    const c = data.counts || {};
+
+    // Action queues that can leave a real user stuck — the things worth acting on.
+    const queues = [
+      ["disputed",       "Disputed matches"],
+      ["integrity",      "Integrity flags"],
+      ["payout_pending", "Payouts pending"],
+      ["payout_failed",  "Payouts stuck"],
+      ["stale_waiting",  "Stale rooms"],
+    ];
+    const attnTotal = queues.reduce((n, [k]) => n + (c[k] || 0), 0);
+
+    const tiles = queues.map(([k, label]) => {
+      const n = c[k] || 0;
+      return `<button class="home-tile ${n > 0 ? "is-attn" : "is-clear"}" data-act="goto" data-goto="${k}" title="Open ${escapeHtml(label)}">
+        <span class="home-tile-n">${fmtInt(n)}</span>
+        <span class="home-tile-label">${escapeHtml(label)}</span>
+        <span class="home-tile-sub">${n > 0 ? "needs review →" : "clear ✓"}</span>
+      </button>`;
+    }).join("");
+
+    const info = [
+      ["payouts",           "All payouts",       c.payouts],
+      ["consumed_deposits", "Consumed deposits", c.consumed_deposits],
+      ["banned",            "Banned users",      c.banned],
+      ["notes",             "Review notes",      c.notes],
+    ].map(([k, label, n]) =>
+      `<button class="home-chip" data-act="goto" data-goto="${k}">
+        <span class="home-chip-n">${fmtInt(n || 0)}</span> ${escapeHtml(label)}
+      </button>`).join("");
+
+    const banner = attnTotal > 0
+      ? `<div class="home-banner is-attn">⚠ ${fmtInt(attnTotal)} item${attnTotal === 1 ? "" : "s"} need attention across your operational queues.</div>`
+      : `<div class="home-banner is-clear">✓ All operational queues are clear.</div>`;
+
+    const actions = `<div class="home-actions">
+      <button class="admin-btn admin-btn-sm admin-primary" data-act="home_refresh">↻ Refresh</button>
+      <button class="admin-btn admin-btn-sm" data-act="db_download_all">⬇ Download DB snapshot</button>
+      <button class="admin-btn admin-btn-sm" data-act="goto" data-goto="cashflow">Cash flow</button>
+      <button class="admin-btn admin-btn-sm" data-act="goto" data-goto="constants">Constants</button>
+      <button class="admin-btn admin-btn-sm" data-act="goto" data-goto="db">Database</button>
+      <button class="admin-btn admin-btn-sm" data-act="goto" data-goto="functions">Edge functions</button>
+    </div>`;
+
+    return `${banner}
+      <h3 class="home-h">Needs attention</h3>
+      <div class="home-grid">${tiles}</div>
+      <h3 class="home-h">At a glance</h3>
+      <div class="home-chips">${info}</div>
+      <h3 class="home-h">Quick actions</h3>
+      ${actions}
+      <p class="admin-note">Data as of ${data.generated_at ? `${fmtTime(data.generated_at)} (${ago(data.generated_at)})` : "—"}. Pick a queue or tool from the sidebar for the full view.</p>`;
+  }
 
   // ---- Cash flow (total incoming vs outgoing) -------------------------------
   function renderCashflow() {
