@@ -2174,14 +2174,14 @@ body.in-game .game-hud-root {
   transition: width 0.12s linear;
 }
 
-/* Weapon hotbar */
+/* Weapon hotbar — hidden; weapons are still switchable via the 1–4 number keys */
 .hotbar {
+  display: none;
   position: fixed;
   bottom: 18px;
   left: 50%;
   transform: translateX(-50%);
   z-index: 10;
-  display: flex;
   gap: 8px;
 }
 

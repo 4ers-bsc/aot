@@ -230,12 +230,21 @@ export function createArenaGame(options) {
     tex.magFilter = THREE.NearestFilter;
     tex.minFilter = THREE.NearestFilter;
     tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
-    tex.repeat.set(MAP_WORLD / 24, MAP_WORLD / 24);
     return tex;
   }
+  // The play boundary is ±MAP_HALF (grid/border below), but the ground plane
+  // overscans slightly so its edge tucks under the rampart's inner base rather
+  // than terminating exactly on the rim — this hides any hairline/diagonal
+  // "cut" between floor and wall at low camera angles. The overscan (0.5) stays
+  // well inside the wall thickness (WALL_T = 2.6), so the floor can never poke
+  // past the outer wall face, at edges or corners.
+  const FLOOR_OVERSCAN = 0.5;
+  const FLOOR_SIZE = MAP_WORLD + FLOOR_OVERSCAN * 2;
+  const groundTex = makeGroundTex(theme.ground);
+  groundTex.repeat.set(FLOOR_SIZE / 24, FLOOR_SIZE / 24); // keep tile world-scale constant
   const ground = new THREE.Mesh(
-    new THREE.PlaneGeometry(MAP_WORLD, MAP_WORLD),
-    new THREE.MeshStandardMaterial({ map: makeGroundTex(theme.ground), roughness: 1, metalness: 0 })
+    new THREE.PlaneGeometry(FLOOR_SIZE, FLOOR_SIZE),
+    new THREE.MeshStandardMaterial({ map: groundTex, roughness: 1, metalness: 0 })
   );
   ground.rotation.x = -Math.PI / 2;
   ground.receiveShadow = true;
@@ -304,7 +313,11 @@ export function createArenaGame(options) {
     const addObj = (obj) => { scene.add(obj); wallObjects.push(obj); return obj; };
 
     // Near-black underside slab behind each wall (matches the fortress rampart).
-    const sideMat = new THREE.MeshStandardMaterial({ color: 0x0b0b0e, roughness: 0.92, metalness: 0.12 });
+    // DoubleSide: each slab is a single plane whose front normal points inward,
+    // so the near (south/east) edges — viewed from outside by the follow camera —
+    // would otherwise back-face cull and let the void show through, making the
+    // bottom walls look transparent.
+    const sideMat = new THREE.MeshStandardMaterial({ color: 0x0b0b0e, roughness: 0.92, metalness: 0.12, side: THREE.DoubleSide });
     [
       { x: 0,         z: -MAP_HALF, ry: 0 },
       { x: 0,         z:  MAP_HALF, ry: Math.PI },
@@ -320,7 +333,7 @@ export function createArenaGame(options) {
     // Bottom cap
     const btm = new THREE.Mesh(
       new THREE.PlaneGeometry(MAP_WORLD, MAP_WORLD),
-      new THREE.MeshStandardMaterial({ color: 0x030302, roughness: 1 })
+      new THREE.MeshStandardMaterial({ color: 0x030302, roughness: 1, side: THREE.DoubleSide })
     );
     btm.rotation.x = Math.PI / 2;
     btm.position.y = -DEPTH;
