@@ -304,7 +304,10 @@ export function createArenaGame(options) {
     const addObj = (obj) => { scene.add(obj); wallObjects.push(obj); return obj; };
 
     // Near-black underside slab behind each wall (matches the fortress rampart).
-    const sideMat = new THREE.MeshStandardMaterial({ color: 0x0b0b0e, roughness: 0.92, metalness: 0.12 });
+    // DoubleSide: the four backing planes have inward-facing normals, so the two
+    // near-edge walls would otherwise be back-face culled and read as a hole —
+    // the arena's bottom edge appearing "cut" through to the void behind it.
+    const sideMat = new THREE.MeshStandardMaterial({ color: 0x0b0b0e, roughness: 0.92, metalness: 0.12, side: THREE.DoubleSide });
     [
       { x: 0,         z: -MAP_HALF, ry: 0 },
       { x: 0,         z:  MAP_HALF, ry: Math.PI },
