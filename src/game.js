@@ -304,7 +304,11 @@ export function createArenaGame(options) {
     const addObj = (obj) => { scene.add(obj); wallObjects.push(obj); return obj; };
 
     // Near-black underside slab behind each wall (matches the fortress rampart).
-    const sideMat = new THREE.MeshStandardMaterial({ color: 0x0b0b0e, roughness: 0.92, metalness: 0.12 });
+    // DoubleSide: the four side planes are oriented with inward-facing normals,
+    // so the two camera-facing (south/east) faces would otherwise be back-face
+    // culled and let the background show through below the near rampart wall —
+    // the "sliced" look at the bottom of the screen.
+    const sideMat = new THREE.MeshStandardMaterial({ color: 0x0b0b0e, roughness: 0.92, metalness: 0.12, side: THREE.DoubleSide });
     [
       { x: 0,         z: -MAP_HALF, ry: 0 },
       { x: 0,         z:  MAP_HALF, ry: Math.PI },
@@ -320,7 +324,7 @@ export function createArenaGame(options) {
     // Bottom cap
     const btm = new THREE.Mesh(
       new THREE.PlaneGeometry(MAP_WORLD, MAP_WORLD),
-      new THREE.MeshStandardMaterial({ color: 0x030302, roughness: 1 })
+      new THREE.MeshStandardMaterial({ color: 0x030302, roughness: 1, side: THREE.DoubleSide })
     );
     btm.rotation.x = Math.PI / 2;
     btm.position.y = -DEPTH;
