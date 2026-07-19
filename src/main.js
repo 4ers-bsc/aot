@@ -602,17 +602,20 @@ const game = createArenaGame({
 });
 
 // -- Player skin (profile → APPEARANCE tab) ----------------------------------
-// Two fixed skins. Picking a card applies the skin live and remembers it on
+// Three fixed skins. Picking a card applies the skin live and remembers it on
 // this device; the Save button writes the preference to the wallet profile
 // (profiles.skin_id — the "default character"). Which skins a player has at
-// all comes from profiles.skins (server-managed; everyone has 1 and 2 today).
+// all comes from profiles.skins (server-managed; everyone has 1–3 today).
 const SKIN_KEY = "f10_skin";
 let activeSkin = "1";
-let availableSkins = [1, 2];
-try { if (JSON.parse(localStorage.getItem(SKIN_KEY) || "null") === "2") activeSkin = "2"; } catch { /* corrupted storage → default */ }
+let availableSkins = [1, 2, 3];
+try {
+  const saved = JSON.parse(localStorage.getItem(SKIN_KEY) || "null");
+  if (saved === "2" || saved === "3") activeSkin = saved;
+} catch { /* corrupted storage → default */ }
 
 function applySkin(id) {
-  activeSkin = id === "2" ? "2" : "1";
+  activeSkin = id === "2" || id === "3" ? id : "1";
   game.setPlayerAppearance({ style: activeSkin, colors: APPEARANCE_PRESETS[activeSkin] });
   if (appearancePreview) appearancePreview.setAppearance(activeSkin, APPEARANCE_PRESETS[activeSkin]);
   try { localStorage.setItem(SKIN_KEY, JSON.stringify(activeSkin)); } catch { /* private mode */ }
@@ -944,7 +947,7 @@ async function handleSession(session) {
       availableSkins = state.profile.skins.map(Number);
     }
     const serverSkin = state.profile?.skin_id;
-    if (serverSkin === 1 || serverSkin === 2) applySkin(String(serverSkin));
+    if (serverSkin === 1 || serverSkin === 2 || serverSkin === 3) applySkin(String(serverSkin));
     else renderSkinCards();
   } catch (error) {
     console.error("[handleSession]", error);
