@@ -2102,7 +2102,13 @@ body.in-game .game-hud-root {
 }
 
 /* Minimap */
-.game-minimap {
+@property --mm-glow-angle {
+  syntax: '<angle>';
+  inherits: false;
+  initial-value: 0deg;
+}
+
+.game-minimap-frame {
   position: fixed;
   bottom: 16px;
   left: 16px;
@@ -2110,10 +2116,46 @@ body.in-game .game-hud-root {
   width: 160px;
   height: 160px;
   border-radius: 10px;
-  border: 1px solid rgba(27, 42, 27, 0.18);
   background: rgba(244, 248, 250, 0.82);
   backdrop-filter: blur(4px);
   box-shadow: 0 6px 16px rgba(0, 0, 0, 0.1);
+}
+
+/* Generated content (the glow ring below) can't render on the <canvas>
+   itself since it's a replaced element, so the frame div hosts it. */
+.game-minimap-frame canvas.game-minimap {
+  display: block;
+  width: 100%;
+  height: 100%;
+  border-radius: inherit;
+  border: 1px solid rgba(27, 42, 27, 0.18);
+}
+
+.game-minimap-frame::before {
+  content: "";
+  position: absolute;
+  inset: -3px;
+  z-index: -1;
+  border-radius: inherit;
+  padding: 3px;
+  background: conic-gradient(
+    from var(--mm-glow-angle),
+    transparent 0deg,
+    transparent 260deg,
+    rgba(51, 255, 102, 0.9) 300deg,
+    rgba(180, 255, 200, 1) 330deg,
+    transparent 360deg
+  );
+  -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  filter: drop-shadow(0 0 6px rgba(51, 255, 102, 0.85));
+  animation: minimap-glow-spin 3.2s linear infinite;
+  pointer-events: none;
+}
+
+@keyframes minimap-glow-spin {
+  to { --mm-glow-angle: 360deg; }
 }
 
 .mm-label {
@@ -2546,7 +2588,7 @@ body.in-game .game-hud-root {
 
 /* Hide HUD toggle */
 .hud-hidden .hint,
-.hud-hidden .game-minimap,
+.hud-hidden .game-minimap-frame,
 .hud-hidden .mm-label,
 .hud-hidden .hotbar,
 .hud-hidden .game-rivals,
@@ -3951,7 +3993,7 @@ body.in-game .log-feed { left: 70px; }
 
   /* Bottom row: minimap and the weapon panel share a band above the hotbar
      instead of sitting beside it, so nothing has to overlap to fit. */
-  .game-minimap { bottom: 68px; left: 10px; width: 100px; height: 100px; }
+  .game-minimap-frame { bottom: 68px; left: 10px; width: 100px; height: 100px; }
   .mm-label { bottom: 172px; left: 14px; font-size: 9px; }
 
   .wpanel {
