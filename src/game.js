@@ -202,6 +202,14 @@ export function createArenaGame(options) {
   const CAM_OFFSET = new THREE.Vector3(28, 34, 28);
   const camCenter = new THREE.Vector3(0, 0, 0);
   let following = true;
+  // Landing-page framing: while the home overlay is visible, shift the view
+  // window up by a fraction of the visible height so the arena renders lower
+  // on screen and its bottom corner tucks behind the bottom info strip. The
+  // overlay is anchored in fixed pixels while the map scales with the
+  // viewport, so without this the corner pokes up between the action buttons
+  // and the strip at some window heights.
+  const HOME_FRAME_SHIFT = 0.1;
+  let frameShift = HOME_FRAME_SHIFT; // pages load on the home view
 
   scene.add(new THREE.AmbientLight(0xffffff, 0.85));
   const sun = new THREE.DirectionalLight(0xffffff, 0.65);
@@ -3232,6 +3240,16 @@ export function createArenaGame(options) {
     }
     camCenter.x = Math.max(-MAP_HALF, Math.min(MAP_HALF, camCenter.x));
     camCenter.z = Math.max(-MAP_HALF, Math.min(MAP_HALF, camCenter.z));
+    const shiftTarget = !viewIsGame && !homePlay ? HOME_FRAME_SHIFT : 0;
+    frameShift += (shiftTarget - frameShift) * (1 - Math.pow(0.0016, dt));
+    // The frustum center is not divided by zoom, so scale by it to keep the
+    // shift a constant fraction of the visible height.
+    const frameCy = frameShift * ((2 * FRUSTUM) / camera.zoom);
+    if (Math.abs((camera.top + camera.bottom) / 2 - frameCy) > 1e-4) {
+      camera.top = FRUSTUM + frameCy;
+      camera.bottom = -FRUSTUM + frameCy;
+      camera.updateProjectionMatrix();
+    }
     camera.position.set(camCenter.x + CAM_OFFSET.x, CAM_OFFSET.y, camCenter.z + CAM_OFFSET.z);
     camera.lookAt(camCenter.x, 1, camCenter.z);
     sun.position.copy(player.group.position).add(_sunOffset);
