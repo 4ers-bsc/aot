@@ -10,8 +10,9 @@ export function escapeHtml(s) {
 // We divide with BigInt first (exact) and only convert the already-small
 // whole-token quotient to Number. `raw` may be a bigint, decimal string, or
 // number; returns a Number of whole tokens (fractional part dropped, matching
-// the app's "maximumFractionDigits: 0" display everywhere).
-export function tokensFromRaw(raw, decimals = 18) {
+// the app's "maximumFractionDigits: 0" display everywhere). Default decimals is
+// the SPL token standard used by $FIGHT10 (9).
+export function tokensFromRaw(raw, decimals = 9) {
   let v;
   try {
     if (typeof raw === "bigint") {
@@ -37,6 +38,6 @@ export function tokensFromRaw(raw, decimals = 18) {
 
 // Precision-safe, grouped display string for a raw token amount, e.g.
 // "2,500". Uses tokensFromRaw() so large raw values never lose precision.
-export function formatTokens(raw, decimals = 18) {
+export function formatTokens(raw, decimals = 9) {
   return tokensFromRaw(raw, decimals).toLocaleString(undefined, { maximumFractionDigits: 0 });
 }

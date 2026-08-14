@@ -1,56 +1,55 @@
 /// Verified-join Edge Function
 //
 // Deposit verification happens BEFORE lobby admission. The browser sends the
-// confirmed deposit tx hash here; this function:
+// confirmed deposit tx signature here; this function:
 //   1. authenticates the caller (JWT),
-//   2. verifies the tx on-chain (mined + successful + an ERC-20 Transfer of
-//      the exact FIGHT10 amount from the player's own wallet to escrow),
+//   2. verifies the tx on-chain (confirmed + succeeded + an SPL transfer of the
+//      exact FIGHT10 amount from the player's own wallet to escrow),
 //   3. ONLY THEN calls the service-role `join_pvp_match` RPC to take a seat.
 //
 // Because join_pvp_match is no longer granted to `authenticated`, a malicious
-// user cannot call the RPC directly with a fake hash to fill a lobby.
+// user cannot call the RPC directly with a fake signature to fill a lobby.
 //
-// Chain: Robinhood Chain (an Ethereum L2). The app runs on mainnet only —
-// the network is defined below and matches the client's src/network.js.
-// Verification runs on raw JSON-RPC (eth_getTransactionReceipt / eth_call),
-// no web3 library needed.
+// Chain: Solana (mainnet-beta). The network is defined below and matches the
+// client's src/network.js. Verification runs on raw Solana JSON-RPC
+// (getTransaction / getTokenSupply), no web3 library needed.
 //
-// Required Supabase secrets: ESCROW_WALLET (0x address), FIGHT10_TOKEN
-// (ERC-20 contract 0x address), and optionally RPC_URL(_2, _3).
+// Required Supabase secrets: ESCROW_WALLET (base58 address), FIGHT10_TOKEN
+// (SPL mint, base58), and optionally RPC_URL(_2, _3).
 // Verifying a deposit only needs the escrow's PUBLIC address — the private
 // key stays with f10treasurer, the only function that signs payouts.
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 // ---------------------------------------------------------------------------
-// Robinhood Chain network (mainnet). Kept in sync with src/network.js on the
-// client.
+// Solana network (mainnet-beta). Kept in sync with src/network.js on the
+// client. `chainId` is a small cluster sentinel (Metaplex convention:
+// mainnet-beta = 101) used only for the match economic-identity snapshot.
 // ---------------------------------------------------------------------------
-const NETWORK: { name: string; chainId: number; rpcUrl: string } = {
-  name: "Robinhood Chain",
-  chainId: 4663,
-  rpcUrl: "https://rpc.mainnet.chain.robinhood.com",
+const NETWORK: { name: string; chainId: number; cluster: string; rpcUrl: string } = {
+  name: "Solana",
+  chainId: 101,
+  cluster: "mainnet-beta",
+  rpcUrl: "https://api.mainnet-beta.solana.com",
 };
 
-// keccak256("Transfer(address,address,uint256)") — the ERC-20 Transfer event.
-const TRANSFER_TOPIC = "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef";
-
 // ---------------------------------------------------------------------------
-// Address / hex helpers
+// Address / signature helpers
 // ---------------------------------------------------------------------------
-// Ethereum addresses are case-insensitive (EIP-55 checksums just vary the
-// case), and stored wallet_address values may carry a "chain:" prefix
-// (e.g. "ethereum:0x…") — normalise to the lowercased trailing segment.
+// Solana addresses/signatures are base58 and CASE-SENSITIVE, so — unlike the
+// old Ethereum 0x addresses — we must NOT lowercase them. Stored wallet_address
+// values may carry a CAIP "solana:" prefix; strip only that leading segment.
 const normAddr = (w?: string | null) =>
-  ((w ?? "").trim().split(":").pop() ?? "").trim().toLowerCase();
-const isAddress = (a: string) => /^0x[0-9a-f]{40}$/.test(a);
-const isTxHash = (h: string) => /^0x[0-9a-fA-F]{64}$/.test(h);
-// An indexed address event topic is the address left-padded to 32 bytes.
-const topicToAddr = (t?: string) => (t ? "0x" + t.slice(-40).toLowerCase() : "");
+  ((w ?? "").trim().split(":").pop() ?? "").trim();
+const BASE58 = "[1-9A-HJ-NP-Za-km-z]";
+// Ed25519 public keys encode to 32–44 base58 chars.
+const isAddress = (a: string) => new RegExp(`^${BASE58}{32,44}$`).test(a);
+// Transaction signatures (64 bytes) encode to 86–88 base58 chars.
+const isTxSig = (h: string) => new RegExp(`^${BASE58}{43,88}$`).test(h);
 
 // ---------------------------------------------------------------------------
 // RPC endpoint pool — spread load across up to 3 keys (RPC_URL, RPC_URL_2,
-// RPC_URL_3; the network's public RPC as fallback). Each call grabs the next
+// RPC_URL_3; the cluster's public RPC as fallback). Each call grabs the next
 // endpoint round-robin, so concurrent joins hit different keys; on error
 // (e.g. a 429 rate limit) the call rotates to the next key instead of failing.
 // Random start index keeps load balanced across function instances.
@@ -102,11 +101,37 @@ function createRpcPool() {
   };
 }
 
-// ERC-20 decimals() — selector 0x313ce567.
-async function getTokenDecimals(rpc: ReturnType<typeof createRpcPool>, token: string): Promise<number> {
-  const result = await rpc.run("eth_call", [{ to: token, data: "0x313ce567" }, "latest"]);
-  if (!result || result === "0x") throw new Error("Token contract not found on-chain");
-  return Number(BigInt(result));
+// SPL mint decimals via getTokenSupply — a single, dependency-free RPC read.
+async function getTokenDecimals(rpc: ReturnType<typeof createRpcPool>, mint: string): Promise<number> {
+  const result = await rpc.run("getTokenSupply", [mint]);
+  const d = result?.value?.decimals;
+  if (d == null) throw new Error("Token mint not found on-chain");
+  return Number(d);
+}
+
+// ---------------------------------------------------------------------------
+// SPL transfer verification via token-balance deltas.
+//
+// Solana has no ERC-20 "Transfer" event log; instead every confirmed tx carries
+// pre/postTokenBalances snapshots. Summing the balance change for a given
+// (owner, mint) pair tells us exactly how much that owner's holding of the mint
+// moved. A valid deposit is: escrow's holding of FIGHT10 went UP by exactly the
+// entry fee AND the sender's holding went DOWN by exactly the entry fee — which
+// together prove mint, from, to, and amount, just like the old Transfer-log
+// check. Works for direct transfers and router/CPI-wrapped ones.
+// ---------------------------------------------------------------------------
+type TokenBalance = { mint?: string; owner?: string; uiTokenAmount?: { amount?: string } };
+function ownerMintDelta(meta: any, owner: string, mint: string): bigint {
+  const sumFor = (list: TokenBalance[] | undefined) =>
+    (list ?? []).reduce((acc, b) =>
+      (b.owner === owner && b.mint === mint)
+        ? acc + BigInt(b.uiTokenAmount?.amount ?? "0")
+        : acc, 0n);
+  return sumFor(meta?.postTokenBalances) - sumFor(meta?.preTokenBalances);
+}
+function txHasDeposit(meta: any, mint: string, sender: string, escrow: string, amount: bigint): boolean {
+  return ownerMintDelta(meta, escrow, mint) === amount &&
+         ownerMintDelta(meta, sender, mint) === -amount;
 }
 
 // ---------------------------------------------------------------------------
@@ -220,17 +245,15 @@ Deno.serve(async (req: Request) => {
 
     const body = await req.json().catch(() => null);
     const maxPlayers    = Number(body?.max_players);
-    // EVM tx hashes are case-insensitive, but the DB compares deposit_tx as an
-    // exact string and the consumed-deposit ledger is keyed on it — normalise to
-    // lowercase so a re-cased hash can't pass replay protection as a new deposit
-    // (matches join_pvp_match + the lower(deposit_tx) unique indexes). #7
-    const depositTx     = String(body?.deposit_tx ?? "").trim().toLowerCase();
+    // Solana signatures are base58 and CASE-SENSITIVE — do NOT lowercase. The DB
+    // keys the consumed-deposit ledger on the exact signature string.
+    const depositTx     = String(body?.deposit_tx ?? "").trim();
     const depositWallet = String(body?.deposit_wallet ?? "").trim();
     const displayName   = body?.display_name ?? null;
 
     if (![2, 5, 10].includes(maxPlayers)) return fail("max_players must be 2, 5, or 10");
     if (!depositTx)     return fail("deposit_tx is required");
-    if (!isTxHash(depositTx)) return fail("deposit_tx is not a valid transaction hash");
+    if (!isTxSig(depositTx)) return fail("deposit_tx is not a valid transaction signature");
     if (!depositWallet) return fail("deposit_wallet is required");
 
     // ── Escrow / token config ────────────────────────────────────────────────
@@ -260,40 +283,39 @@ Deno.serve(async (req: Request) => {
     const entryFeeTokens = Number(cfg?.entry_fee_tokens) > 0 ? Number(cfg.entry_fee_tokens) : 10000;
     const entryFeeRaw = BigInt(entryFeeTokens) * BigInt(10) ** BigInt(decimals);
 
-    // ── Verify the deposit tx is mined and succeeded ─────────────────────────
-    // A receipt only exists once the tx is included in a block; status 0x1
-    // means it executed without reverting. Unlike Solana there is no separate
-    // status cache — receipts are queryable for the chain's full history.
-    const receipt = await rpc.run("eth_getTransactionReceipt", [depositTx]);
-    if (!receipt) return fail("Deposit not found on-chain — try again in a moment");
-    if (receipt.status !== "0x1") return fail("Deposit failed on-chain");
+    // ── Fetch the deposit tx and verify it succeeded ─────────────────────────
+    // getTransaction returns null until the tx is confirmed; meta.err === null
+    // means it executed without failing. jsonParsed encoding gives us the
+    // pre/postTokenBalances we diff below. maxSupportedTransactionVersion lets
+    // versioned transactions parse instead of erroring.
+    const tx = await rpc.run("getTransaction", [
+      depositTx,
+      { encoding: "jsonParsed", commitment: "confirmed", maxSupportedTransactionVersion: 0 },
+    ]);
+    if (!tx) return fail("Deposit not found on-chain — try again in a moment");
+    if (tx.meta?.err) return fail("Deposit failed on-chain");
 
     // ── Verify the tx transferred the correct amount to escrow from the player ─
-    // The ERC-20 Transfer event is emitted by the token contract itself, so a
-    // confirmed-but-unrelated tx hash cannot pass this: the log must come from
-    // OUR token contract, from the player's wallet, to escrow, for the exact
-    // entry fee. Works for direct transfers and router/contract-wrapped ones.
-    const valid = (receipt.logs ?? []).some((log: any) =>
-      (log.address ?? "").toLowerCase() === tokenAddr &&
-      log.topics?.[0] === TRANSFER_TOPIC &&
-      topicToAddr(log.topics?.[1]) === expectedSender &&
-      topicToAddr(log.topics?.[2]) === escrowAddr &&
-      BigInt(log.data ?? "0x0") === entryFeeRaw
-    );
+    // The token-balance deltas prove OUR mint moved from the player's wallet to
+    // escrow for the exact entry fee — a confirmed-but-unrelated signature cannot
+    // pass this.
+    const valid = txHasDeposit(tx.meta, tokenAddr, expectedSender, escrowAddr, entryFeeRaw);
 
     if (!valid) {
       console.error("Join deposit verification failed", JSON.stringify({
         user: user.id, expectedSender, escrowAddr, tokenAddr, entryFee: entryFeeRaw.toString(),
+        escrowDelta: ownerMintDelta(tx.meta, escrowAddr, tokenAddr).toString(),
+        senderDelta: ownerMintDelta(tx.meta, expectedSender, tokenAddr).toString(),
       }));
       return fail("Deposit does not contain a valid FIGHT10 transfer from your wallet to escrow");
     }
 
     // ── Deposit verified → admit the player via the service-role RPC ──────────
     // Pass the economic identity this deposit was just verified against so a NEW
-    // match freezes the exact token / chain / escrow contract onto the row. The
-    // payout function later refuses to pay if its live config has drifted from
-    // this snapshot, so a token/escrow redeploy can never redirect a settled
-    // match's prize (P1: snapshot the complete economic contract).
+    // match freezes the exact token / cluster / escrow onto the row. The payout
+    // function later refuses to pay if its live config has drifted from this
+    // snapshot, so a token/escrow change can never redirect a settled match's
+    // prize (P1: snapshot the complete economic contract).
     const { data: joinResult, error: joinErr } = await adminClient.rpc("join_pvp_match", {
       p_user_id:        user.id,
       p_max_players:    maxPlayers,

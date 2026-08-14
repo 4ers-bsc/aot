@@ -1,10 +1,10 @@
 // All dependencies are bundled from node_modules (NOT CDN imports), so the app
 // never depends on a third-party CDN being reachable — and no third party can
-// alter the code we run. The Ethereum lib (ethers) is still loaded lazily as a
-// separate local chunk — see loadEthers().
+// alter the code we run. The Solana libs (@solana/web3.js + @solana/spl-token)
+// are still loaded lazily as separate local chunks — see loadSolana().
 import { createClient } from "@supabase/supabase-js";
-import { importEthers, importDevtoolsDetector } from "./lazy-deps.js";
-import { NETWORK, RPC_URL as ROBINHOOD_RPC_URL, txExplorerUrl } from "./network.js";
+import { importSolanaWeb3, importSplToken, importDevtoolsDetector } from "./lazy-deps.js";
+import { NETWORK, RPC_URL as SOLANA_RPC_URL, txExplorerUrl } from "./network.js";
 import { createArenaGame } from "./game.js";
 import { escapeHtml, tokensFromRaw, formatTokens } from "./utils.js";
 import { mountViews } from "./views/index.js";
@@ -28,13 +28,14 @@ const SIGN_IN_STATEMENT = "Sign in to FIGHT10 to play realtime PvP duels.";
 
 // ---------------------------------------------------------------------------
 // FIGHT10 Tokenomics constants
-// Fill in FIGHT10_TOKEN and ESCROW_WALLET after deploying the ERC-20 token on
-// Robinhood Chain + generating the escrow account. The network (mainnet) these
-// live on is defined in network.js.
+// Fill in FIGHT10_TOKEN (the SPL token mint address) and ESCROW_WALLET (the
+// escrow's Solana account address) after creating the SPL token on Solana +
+// generating the escrow keypair. The network (mainnet-beta) these live on is
+// defined in network.js. Both are base58 Solana addresses.
 // ---------------------------------------------------------------------------
-const FIGHT10_TOKEN   = import.meta.env?.VITE_FIGHT10_TOKEN?.trim()  || "<FIGHT10_TOKEN_ADDRESS>";
+const FIGHT10_TOKEN   = import.meta.env?.VITE_FIGHT10_TOKEN?.trim()  || "<FIGHT10_TOKEN_MINT>";
 const ESCROW_WALLET   = import.meta.env?.VITE_ESCROW_WALLET?.trim()  || "<ESCROW_WALLET_ADDRESS>";
-const FIGHT10_DECIMALS = Number(import.meta.env?.VITE_FIGHT10_DECIMALS ?? 18); // standard ERC-20 decimals
+const FIGHT10_DECIMALS = Number(import.meta.env?.VITE_FIGHT10_DECIMALS ?? 9); // SPL token decimals
 // Entry fee + winner share are tunables sourced from the pvp_config table via
 // pvp_settings() (loaded at boot by loadPvpConfig). These are the historical
 // literals, used until the DB read lands and as the fallback if it fails — they
@@ -53,54 +54,51 @@ let WINNER_SHARE    = 0.9;
 // mismatch means the player pays but cannot enter. Gated in startPvp(). (#3)
 let pvpConfigReady = false;
 
-// The ethers library (~350 KB) is only needed for deposits and balance
-// checks, never to reach the menu — so it is dynamically imported on first
-// use instead of at boot. Vite code-splits it into a separate chunk served
-// from our own origin: nothing to download at boot, and no third-party CDN
-// (the old esm.sh imports were a boot-hang and supply-chain risk). A failed
-// chunk load just surfaces as a deposit/balance error message, and a later
-// retry re-attempts the download.
-let _ethersPromise = null;
-function loadEthers() {
-  if (!_ethersPromise) {
-    _ethersPromise = importEthers().catch((err) => {
-      _ethersPromise = null; // allow a retry on the next call
-      throw new Error("Could not load the Ethereum libraries — check your connection and try again.");
-    });
+// The Solana libraries (@solana/web3.js + @solana/spl-token, ~200 KB combined)
+// are only needed for deposits and balance checks, never to reach the menu — so
+// they are dynamically imported on first use instead of at boot. Vite
+// code-splits them into separate chunks served from our own origin: nothing to
+// download at boot, and no third-party CDN. A failed chunk load just surfaces as
+// a deposit/balance error message, and a later retry re-attempts the download.
+let _solanaPromise = null;
+function loadSolana() {
+  if (!_solanaPromise) {
+    _solanaPromise = Promise.all([importSolanaWeb3(), importSplToken()])
+      .then(([web3, splToken]) => ({ ...web3, ...splToken }))
+      .catch((err) => {
+        _solanaPromise = null; // allow a retry on the next call
+        throw new Error("Could not load the Solana libraries — check your connection and try again.");
+      });
   }
-  return _ethersPromise;
+  return _solanaPromise;
 }
 
-// Minimal ERC-20 surface the app needs: $FIGHT10 is a standard ERC-20 on
-// Robinhood Chain, so transfer + balanceOf cover deposits and balance checks.
-const ERC20_ABI = [
-  "function transfer(address to, uint256 amount) returns (bool)",
-  "function balanceOf(address owner) view returns (uint256)",
-  "function decimals() view returns (uint8)",
-];
-
-// Lazy singleton — one HTTP JSON-RPC provider for all read-only calls.
-// staticNetwork skips the eth_chainId round-trip on every request.
-let _readProvider = null;
-async function getReadProvider() {
-  const ethers = await loadEthers();
-  if (!_readProvider) {
-    _readProvider = new ethers.JsonRpcProvider(ROBINHOOD_RPC_URL, NETWORK.chainId, { staticNetwork: true });
+// Lazy singleton — one Connection for all read-only calls. 'confirmed'
+// commitment matches the deposit confirmation the client waits for.
+let _connection = null;
+async function getConnection() {
+  const solana = await loadSolana();
+  if (!_connection) {
+    _connection = new solana.Connection(SOLANA_RPC_URL, "confirmed");
   }
-  return _readProvider;
+  return _connection;
 }
 
-async function getFight10Contract() {
-  const ethers = await loadEthers();
-  return new ethers.Contract(FIGHT10_TOKEN, ERC20_ABI, await getReadProvider());
+// The player's Associated Token Account (ATA) for $FIGHT10 — the SPL token
+// account that actually holds the balance for a given owner wallet.
+async function getFight10Ata(ownerPubkey) {
+  const solana = await loadSolana();
+  const mint = new solana.PublicKey(FIGHT10_TOKEN);
+  return solana.getAssociatedTokenAddress(mint, ownerPubkey);
 }
 
 // Wallet addresses are compared all over (login wallet vs deposit wallet,
-// leaderboard rows vs the connected wallet). Ethereum addresses come in
-// checksummed and lowercase forms, and Supabase may store a "chain:" prefix
-// (e.g. "ethereum:0x…") — normalise to the lowercased trailing segment.
+// leaderboard rows vs the connected wallet). Solana addresses are base58 and
+// CASE-SENSITIVE, so — unlike the old Ethereum 0x addresses — we must NOT
+// lowercase them. Supabase may store a CAIP "solana:" prefix; strip only that
+// leading segment and trim.
 function normWallet(w) {
-  return (w ?? "").trim().split(":").pop().trim().toLowerCase();
+  return (w ?? "").trim().split(":").pop().trim();
 }
 
 const els = {
@@ -842,65 +840,40 @@ async function init() {
 // ---------------------------------------------------------------------------
 // Auth
 // ---------------------------------------------------------------------------
-// Every major Ethereum wallet (MetaMask, Rabby, Brave, Robinhood Wallet)
-// injects the EIP-1193 provider at window.ethereum.
-function getEthereumWallet() {
-  return window.ethereum || null;
+// Every major Solana wallet (Phantom, Solflare, Backpack) injects a
+// Wallet-Standard provider. Phantom/Backpack expose it at window.solana;
+// Solflare at window.solflare. Return the first one present.
+function getSolanaWallet() {
+  return window.solana || window.phantom?.solana || window.solflare || null;
 }
 
-// The wallet's currently connected address (lowercased), or null when the
-// site isn't connected yet. eth_accounts never pops a prompt.
-async function getWalletAddress(wallet = getEthereumWallet()) {
+// The wallet's currently connected address (base58), or null when the site
+// isn't connected yet. Reads the already-exposed publicKey — never pops a
+// prompt (the connect prompt happens in signIn()).
+async function getWalletAddress(wallet = getSolanaWallet()) {
   if (!wallet) return null;
   try {
-    const accounts = await wallet.request({ method: "eth_accounts" });
-    return accounts?.[0] ? accounts[0].toLowerCase() : null;
+    return wallet.publicKey ? wallet.publicKey.toBase58() : null;
   } catch (_) {
     return null;
   }
 }
 
-// Make sure the wallet is on the Robinhood Chain network (see the NETWORK
-// definition in network.js), prompting a switch — or a one-time add from
-// it — when it isn't. Throws if the user declines.
-async function ensureNetwork(wallet) {
-  const current = await wallet.request({ method: "eth_chainId" });
-  if (parseInt(current, 16) === NETWORK.chainId) return;
-  try {
-    await wallet.request({
-      method: "wallet_switchEthereumChain",
-      params: [{ chainId: NETWORK.chainIdHex }],
-    });
-  } catch (err) {
-    // 4902: the chain isn't in the wallet yet — add it (which also switches).
-    const code = err?.code ?? err?.data?.originalError?.code;
-    if (code !== 4902) throw err;
-    await wallet.request({
-      method: "wallet_addEthereumChain",
-      params: [{
-        chainId: NETWORK.chainIdHex,
-        chainName: NETWORK.name,
-        rpcUrls: [NETWORK.rpcUrl],
-        blockExplorerUrls: [NETWORK.explorerBase],
-        nativeCurrency: NETWORK.nativeCurrency,
-      }],
-    });
-  }
-}
-
 async function signIn() {
-  const wallet = getEthereumWallet();
+  const wallet = getSolanaWallet();
   if (!wallet) {
-    setStatus("No Ethereum wallet found. Install MetaMask, Rabby, or Brave Wallet.");
+    setStatus("No Solana wallet found. Install Phantom, Solflare, or Backpack.");
     return;
   }
   try {
     setStatus("Approve the signature in your wallet…");
-    await wallet.request({ method: "eth_requestAccounts" });
-    // Put the wallet on Robinhood Chain before signing so the SIWE message
-    // carries the right chain id and deposits later need no extra switch.
-    await ensureNetwork(wallet);
-    const { error } = await supabase.auth.signInWithWeb3({ chain: "ethereum", statement: SIGN_IN_STATEMENT, wallet });
+    // Connect first so the wallet exposes its publicKey and can sign the
+    // Sign-In-With-Solana (SIWS) message. Solana has no network-switch step —
+    // the cluster follows our RPC endpoint (see network.js).
+    if (!wallet.publicKey && typeof wallet.connect === "function") {
+      await wallet.connect();
+    }
+    const { error } = await supabase.auth.signInWithWeb3({ chain: "solana", statement: SIGN_IN_STATEMENT, wallet });
     if (error) throw error;
   } catch (error) {
     console.error("[signIn]", error);
@@ -932,7 +905,7 @@ async function handleSession(session) {
     await teardownMatch();
     game.clearAll();
     showLobby();
-    setStatus("Connect an Ethereum wallet to begin.");
+    setStatus("Connect a Solana wallet to begin.");
     return;
   }
 
@@ -1141,7 +1114,7 @@ function refreshGameOverStats() {
 }
 
 // Explorer links come from network.js (txExplorerUrl) so they always point at
-// the Blockscout instance of the selected Robinhood Chain network.
+// the Solscan explorer for the selected Solana cluster.
 
 // Show/hide the "View transaction" link in the victory prize box.
 function setGameOverTxLink(sig) {
@@ -1338,9 +1311,9 @@ async function startPvp() {
   fetchLobbyCounts().catch(() => {});
 }
 
-// Where to buy $FIGHT10 — override with VITE_BUY_FIGHT10_URL (e.g. a DEX swap
-// link on Robinhood Chain); defaults to the token's Blockscout page once the
-// token address is configured, the explorer home before launch.
+// Where to buy $FIGHT10 — override with VITE_BUY_FIGHT10_URL (e.g. a Jupiter /
+// Raydium swap link); defaults to the token's Solscan page once the mint is
+// configured, the explorer home before launch.
 const BUY_FIGHT10_URL =
   import.meta.env?.VITE_BUY_FIGHT10_URL?.trim() ||
   (FIGHT10_TOKEN.startsWith("<")
@@ -1348,13 +1321,13 @@ const BUY_FIGHT10_URL =
     : `${NETWORK.explorerBase}/token/${FIGHT10_TOKEN}`);
 
 // DEX Screener page for $FIGHT10 — override with VITE_DEXSCREENER_URL; defaults
-// to the token's DEX Screener page once the token address is configured, the
-// DEX Screener home before launch.
+// to the token's DEX Screener page once the mint is configured, the DEX Screener
+// home before launch.
 const DEXSCREENER_URL =
   import.meta.env?.VITE_DEXSCREENER_URL?.trim() ||
   (FIGHT10_TOKEN.startsWith("<")
     ? "https://dexscreener.com"
-    : `https://dexscreener.com/robinhood/${FIGHT10_TOKEN}`);
+    : `https://dexscreener.com/solana/${FIGHT10_TOKEN}`);
 
 // "Not enough $FIGHT10" popup with a buy link. haveTokens (optional) is the
 // wallet's current balance in whole tokens, shown for context.
@@ -1453,22 +1426,25 @@ async function loadStatsBoard(tab) {
   }) };
 }
 
-// Holdings tab — balances live on-chain, so rank client-side: one ERC-20
-// balanceOf read per wallet, all in parallel against the read provider.
+// Holdings tab — balances live on-chain, so rank client-side: one SPL token
+// balance read per wallet, all in parallel against the RPC connection.
 async function loadHoldingsBoard() {
   if (FIGHT10_TOKEN.startsWith("<")) return { empty: '<div class="lb-empty">Holder rankings go live at token launch.</div>' };
   const { data, error } = await supabase.rpc("get_holdings_wallets", { p_limit: 100 });
   if (error || !Array.isArray(data)) throw error ?? new Error("bad get_holdings_wallets response");
-  // wallet_address may carry a "chain:" prefix (e.g. "ethereum:0x…") —
-  // same normalization as the deposit flow: keep only the address tail.
+  const solana = await loadSolana();
+  // wallet_address may carry a "solana:" prefix — same normalization as the
+  // deposit flow: keep only the base58 address tail (no lowercasing). Skip any
+  // value that isn't a valid Solana public key.
   const holders = data
     .map((r) => ({ ...r, addr: normWallet(r.wallet_address) }))
-    .filter((r) => /^0x[0-9a-f]{40}$/.test(r.addr)); // skip malformed addresses
+    .filter((r) => {
+      try { new solana.PublicKey(r.addr); return true; } catch { return false; }
+    });
   if (!holders.length) return { empty: '<div class="lb-empty">No holders ranked yet — connect a wallet and grab some $FIGHT10.</div>' };
-  const token = await getFight10Contract();
   // A failed read ranks that wallet as zero rather than sinking the board.
   const entries = await Promise.all(holders.map(async (r) => {
-    try { return { r, balance: BigInt(await token.balanceOf(r.addr)) }; }
+    try { return { r, balance: await getFight10Balance(r.addr) }; }
     catch { return { r, balance: 0n }; }
   }));
   const ranked = entries.filter((e) => e.balance > 0n)
@@ -1481,7 +1457,7 @@ async function loadHoldingsBoard() {
     return {
       rank: i + 1,
       r: e.r,
-      mid: `${w.slice(0, 6)}…${w.slice(-4)}`,
+      mid: `${w.slice(0, 4)}…${w.slice(-4)}`,
       value: `${amt} F10`,
       search: `${(e.r.display_name ?? "").toLowerCase()} ${w.toLowerCase()}`,
     };
@@ -1658,25 +1634,30 @@ async function joinPvp(maxPlayers) {
 
 // ---------------------------------------------------------------------------
 // FIGHT10 deposit — transfer ENTRY_FEE from player wallet to escrow on-chain
-// Poll eth_getTransactionReceipt over HTTP — no WebSocket subscriptions needed.
-// Errors are tagged so callers can tell a DEFINITIVE on-chain failure (tx
-// reverted — tokens never moved, safe to forget the hash) from a timeout /
-// RPC hiccup (the tx may still land — the hash must be kept).
-async function pollTxConfirmation(provider, txHash, timeoutMs = 90000) {
+// Poll getSignatureStatuses over HTTP — no WebSocket subscriptions needed.
+// Errors are tagged so callers can tell a DEFINITIVE on-chain failure (the tx
+// executed with an error — tokens never moved, safe to forget the signature)
+// from a timeout / RPC hiccup (the tx may still land — the signature must be
+// kept). A confirmed status with a non-null `err` is a hard failure.
+async function pollTxConfirmation(connection, signature, timeoutMs = 90000) {
   const start = Date.now();
   while (Date.now() - start < timeoutMs) {
-    const receipt = await provider.getTransactionReceipt(txHash).catch(() => null);
-    if (receipt) {
-      if (receipt.status === 0) {
-        const e = new Error("Transaction reverted on-chain: " + txHash);
+    const { value } = await connection.getSignatureStatuses([signature], { searchTransactionHistory: true })
+      .catch(() => ({ value: [null] }));
+    const st = value?.[0];
+    if (st) {
+      if (st.err) {
+        const e = new Error("Transaction failed on-chain: " + signature);
         e.failedOnChain = true;
         throw e;
       }
-      return receipt; // included with status 1 — confirmed
+      if (st.confirmationStatus === "confirmed" || st.confirmationStatus === "finalized") {
+        return st; // executed successfully
+      }
     }
     await new Promise(r => setTimeout(r, 2000));
   }
-  const e = new Error(`Tx not confirmed after ${timeoutMs / 1000}s — hash: ${txHash}`);
+  const e = new Error(`Tx not confirmed after ${timeoutMs / 1000}s — signature: ${signature}`);
   e.confirmTimeout = true;
   throw e;
 }
@@ -1685,7 +1666,7 @@ async function pollTxConfirmation(provider, txHash, timeoutMs = 90000) {
 // Returns the confirmed tx signature on success, or null if cancelled/failed.
 // Does NOT record the deposit in the DB — that happens inside join_pvp_match().
 async function depositEntryFee(numPlayers = 2) {
-  const wallet = getEthereumWallet();
+  const wallet = getSolanaWallet();
   const playerAddress = await getWalletAddress(wallet);
   if (!playerAddress) {
     setStatus("Wallet not connected — cannot deposit.");
@@ -1695,8 +1676,8 @@ async function depositEntryFee(numPlayers = 2) {
   // One wallet per player: the deposit must come from the same wallet the player
   // signed in with. Catch a mismatch here (before any on-chain payment) so the
   // user isn't charged only to be rejected by join_pvp_match. wallet_address may
-  // carry a "chain:" prefix (e.g. "ethereum:0x…") — compare the lowercased
-  // address tail (Ethereum addresses are case-insensitive).
+  // carry a "solana:" prefix — compare the base58 address tail exactly (Solana
+  // addresses are CASE-SENSITIVE, so no lowercasing).
   const loginWallet = normWallet(state.profile?.wallet_address);
   if (loginWallet && playerAddress !== loginWallet) {
     setStatus("Wrong wallet — switch back to your signed-in wallet to deposit, or sign out and sign in with this one.");
@@ -1737,40 +1718,68 @@ async function depositEntryFee(numPlayers = 2) {
     setStatus(`Depositing ${ENTRY_FEE.toLocaleString()} $FIGHT10… approve in wallet.`);
     els.pvpLobbyStatus.textContent = "Approve deposit in your wallet…";
 
-    // The deposit must land on the configured Robinhood Chain network —
-    // prompt a switch (or one-time add) before asking for a signature.
-    await ensureNetwork(wallet);
+    const solana = await loadSolana();
+    const connection = await getConnection();
+    const owner = new solana.PublicKey(playerAddress);
+    const mint = new solana.PublicKey(FIGHT10_TOKEN);
+    const escrowOwner = new solana.PublicKey(ESCROW_WALLET);
 
-    const ethers = await loadEthers();
-    const browserProvider = new ethers.BrowserProvider(wallet);
-    const signer = await browserProvider.getSigner();
-    const token = new ethers.Contract(FIGHT10_TOKEN, ERC20_ABI, signer);
-    const tx = await token.transfer(ESCROW_WALLET, ENTRY_FEE_RAW);
-    const txHash = tx.hash;
+    // Source = the player's ATA, destination = the escrow's ATA for the mint.
+    const fromAta = await solana.getAssociatedTokenAddress(mint, owner);
+    const toAta = await solana.getAssociatedTokenAddress(mint, escrowOwner);
 
-    // Persist the hash + signing wallet the moment the tx is broadcast
+    const instructions = [];
+    // Create the escrow's ATA if it doesn't exist yet (idempotent — a no-op if
+    // present). The player pays the one-time rent; on an escrow that has already
+    // received a deposit this adds nothing. transferChecked binds the mint +
+    // decimals so a wrong-mint or wrong-amount transfer can't slip through.
+    instructions.push(
+      solana.createAssociatedTokenAccountIdempotentInstruction(owner, toAta, escrowOwner, mint),
+    );
+    instructions.push(
+      solana.createTransferCheckedInstruction(fromAta, mint, toAta, owner, ENTRY_FEE_RAW, FIGHT10_DECIMALS),
+    );
+
+    const { blockhash, lastValidBlockHeight } = await connection.getLatestBlockhash("confirmed");
+    const tx = new solana.Transaction({ feePayer: owner, blockhash, lastValidBlockHeight });
+    tx.add(...instructions);
+
+    // Sign + send through the wallet adapter. signAndSendTransaction is the
+    // Wallet-Standard method Phantom/Solflare/Backpack expose; fall back to
+    // signTransaction + raw send for older adapters. Returns a base58 signature.
+    let signature;
+    if (typeof wallet.signAndSendTransaction === "function") {
+      const res = await wallet.signAndSendTransaction(tx);
+      signature = typeof res === "string" ? res : res?.signature;
+    } else {
+      const signed = await wallet.signTransaction(tx);
+      signature = await connection.sendRawTransaction(signed.serialize());
+    }
+    if (!signature) throw new Error("Wallet did not return a transaction signature.");
+
+    // Persist the signature + signing wallet the moment the tx is broadcast
     // (memory AND localStorage), BEFORE waiting for confirmation. If the poll
     // below times out (congestion / RPC hiccup) but the transfer lands anyway,
-    // an unsaved hash would mean the player pays AGAIN on the next attempt.
+    // an unsaved signature would mean the player pays AGAIN on the next attempt.
     // f10join re-verifies confirmation server-side either way, and a
-    // definitive on-chain failure clears the saved hash in the catch.
-    savePendingDeposit(txHash, playerAddress);
+    // definitive on-chain failure clears the saved signature in the catch.
+    savePendingDeposit(signature, playerAddress);
 
     setStatus("Confirming deposit on-chain…");
     els.pvpLobbyStatus.textContent = "Confirming on-chain…";
-    await pollTxConfirmation(await getReadProvider(), txHash);
+    await pollTxConfirmation(connection, signature);
 
     setStatus("Deposit confirmed — entering queue.");
-    return txHash;
+    return signature;
   } catch (err) {
     console.error("[depositEntryFee]", err);
     const msg = err?.message || String(err);
     if (err?.failedOnChain) {
-      // The tx landed on-chain as a FAILURE — no tokens moved, so the saved
-      // hash is worthless; forget it to keep the next attempt clean.
+      // The tx executed on-chain with an error — no tokens moved, so the saved
+      // signature is worthless; forget it to keep the next attempt clean.
       savePendingDeposit(null, null);
       setStatus("Deposit failed on-chain — you were not charged. Try again.");
-    } else if (err?.code === 4001 || err?.code === "ACTION_REJECTED" || /user rejected|cancelled/i.test(msg)) {
+    } else if (err?.code === 4001 || err?.code === "ACTION_REJECTED" || /user rejected|reject|cancelled|declined/i.test(msg)) {
       setStatus("Deposit cancelled.");
     } else if (state.pendingDepositTx) {
       // Broadcast but not (yet) confirmed. The signature is saved, so the next
@@ -1784,8 +1793,19 @@ async function depositEntryFee(numPlayers = 2) {
 }
 
 async function getFight10Balance(walletAddress) {
-  const token = await getFight10Contract();
-  return BigInt(await token.balanceOf(walletAddress));
+  const solana = await loadSolana();
+  const connection = await getConnection();
+  const owner = walletAddress instanceof solana.PublicKey
+    ? walletAddress
+    : new solana.PublicKey(walletAddress);
+  const ata = await getFight10Ata(owner);
+  // No token account (never held $FIGHT10) reads as a zero balance, not an error.
+  try {
+    const res = await connection.getTokenAccountBalance(ata);
+    return BigInt(res?.value?.amount ?? "0");
+  } catch (_) {
+    return 0n;
+  }
 }
 
 function updatePrizePot(numPlayers) {

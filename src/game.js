@@ -386,7 +386,7 @@ export function createArenaGame(options) {
   // strung with crossed-barb strands, canted inward on top arms), anchored at
   // its corners by black-brick-and-gold beacon towers with glowing gold
   // lanterns (palette from WALL_THEME), giant billboard signs (F10 ARENA /
-  // TRADE·FIGHT·EARN / ROBINHOOD CHAIN) and gold crystal clusters.
+  // TRADE·FIGHT·EARN / SOLANA) and gold crystal clusters.
   // Flame lamps ride the top of the fence. Built once and parented to the
   // scene, so it stays anchored to the map rim in both the lobby backdrop and a
   // live match, and is released with everything else by disposeObject3D(scene)
@@ -677,7 +677,9 @@ export function createArenaGame(options) {
       g.fillStyle = goldTextFill(g, H * 0.6, H * 0.74); g.font = bannerFont(state, H * 0.13);
       g.fillText("F10 IS THE FUTURE", W / 2, H * 0.66);
     };
-    // Robinhood logo, contained inside the hem with its aspect ratio preserved.
+    // Sponsor logo, contained inside the hem with its aspect ratio preserved.
+    // (Asset: assets/robinhood.webp — swap this file for a Solana logo to
+    // re-brand the arena banner; the render path is otherwise chain-agnostic.)
     const drawLogo = (g, W, H, state) => {
       if (!state.img) return;
       const pad = Math.min(W, H) * 0.2;
@@ -689,7 +691,7 @@ export function createArenaGame(options) {
 
     placeBanner("west",  0,  17, 8, drawF10);          // F10 cloth banner
     placeBanner("north", -14, 17, 7, drawTrade);       // TRADE. FIGHT. EARN.
-    const rhBanner = placeBanner("north", 15, 12, 6.5, drawLogo); // ROBINHOOD logo
+    const rhBanner = placeBanner("north", 15, 12, 6.5, drawLogo); // sponsor logo
     const rhImg = new Image();
     rhImg.onload = () => { rhBanner.state.img = rhImg; rhBanner.repaint(); };
     rhImg.src = "/robinhood.webp";
