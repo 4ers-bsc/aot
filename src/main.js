@@ -194,7 +194,6 @@ const state = {
   // truth shared with the server). Seeded with the defaults as a fallback.
   matchDurations: { 2: 300, 5: 420, 10: 600 },
   presenceChannel: null,
-  dailyTasks: [],          // active daily tasks (from get_daily_tasks), for the home screen
 };
 
 // ---------------------------------------------------------------------------
@@ -926,10 +925,6 @@ async function handleSession(session) {
     return;
   }
   showLobby();
-  // Just signed in → mark the daily check-in, and pick up play/win completion
-  // state. loadDailyTasks() (also kicked by showLobby) resolves the task list
-  // first so autoCompleteDaily can find 'daily_login' by key.
-  loadDailyTasks().then(() => autoCompleteDaily("daily_login")).catch(() => {});
   // Restore a deposit that was confirmed on-chain but never spent on a seat
   // (e.g. the tab crashed between payment and queue entry).
   loadPendingDeposit();
@@ -1467,100 +1462,6 @@ async function loadHoldingsBoard() {
       search: `${(e.r.display_name ?? "").toLowerCase()} ${w.toLowerCase()}`,
     };
   }) };
-}
-
-// ---------------------------------------------------------------------------
-// Daily tasks — a trackable set of daily objectives shown on the home screen.
-// Served by get_daily_tasks() (active tasks + the caller's own completion + how
-// many profiles finished each). Completions record through complete_daily_task();
-// the login/play/win tasks auto-complete from gameplay via autoCompleteDaily().
-// ---------------------------------------------------------------------------
-let _dailyTasksTimer = null;
-
-async function loadDailyTasks() {
-  const list = document.getElementById("dailyTasksList");
-  if (!list) return; // home view not mounted
-  try {
-    const { data, error } = await supabase.rpc("get_daily_tasks");
-    if (error) throw error;
-    state.dailyTasks = Array.isArray(data) ? data : [];
-  } catch (err) {
-    console.error("[loadDailyTasks]", err);
-    state.dailyTasks = [];
-  }
-  renderDailyTasks();
-}
-
-// Human "time left" until an ISO end timestamp, e.g. "5h 12m left" or "48m left".
-function fmtTimeLeft(endIso) {
-  const ms = new Date(endIso).getTime() - Date.now();
-  if (!Number.isFinite(ms) || ms <= 0) return "ended";
-  const mins = Math.floor(ms / 60000);
-  const h = Math.floor(mins / 60);
-  const m = mins % 60;
-  return h > 0 ? `${h}h ${m}m left` : `${Math.max(m, 1)}m left`;
-}
-
-function renderDailyTasks() {
-  const section = document.getElementById("dailyTasks");
-  const list = document.getElementById("dailyTasksList");
-  const hint = document.getElementById("dailyTasksHint");
-  if (!list) return;
-  const tasks = state.dailyTasks;
-  if (section) section.hidden = tasks.length === 0;
-  if (!tasks.length) { list.innerHTML = ""; return; }
-
-  const doneCount = tasks.filter((t) => t.completed).length;
-  if (hint) {
-    hint.textContent = state.user
-      ? `${doneCount}/${tasks.length} done today`
-      : "Sign in to track your progress";
-  }
-
-  // Task fields are from our own RPC, but escape anyway — defence in depth for
-  // any user-authored title/description that might land in daily_tasks later.
-  list.innerHTML = tasks.map((t) => {
-    const done = !!t.completed;
-    const count = Number(t.completed_count || 0);
-    return `
-      <div class="dt-card${done ? " dt-done" : ""}">
-        <span class="dt-check" aria-hidden="true">${done ? "✓" : ""}</span>
-        <div class="dt-main">
-          <div class="dt-title">${escapeHtml(t.title)}</div>
-          <div class="dt-desc">${escapeHtml(t.description ?? "")}</div>
-        </div>
-        <div class="dt-meta">
-          <span class="dt-time" data-dt-end="${escapeHtml(t.end_time)}">${escapeHtml(fmtTimeLeft(t.end_time))}</span>
-          <span class="dt-count">${count.toLocaleString()} done</span>
-        </div>
-      </div>`;
-  }).join("");
-
-  // One shared ticker keeps every countdown label fresh (windows are hours
-  // long, so 30s cadence is plenty). Never stacks more than one interval.
-  if (!_dailyTasksTimer) {
-    _dailyTasksTimer = setInterval(() => {
-      document.querySelectorAll("[data-dt-end]").forEach((el) => {
-        el.textContent = fmtTimeLeft(el.getAttribute("data-dt-end"));
-      });
-    }, 30000);
-  }
-}
-
-// Mark a daily task complete by its stable key (e.g. 'daily_win'), when the
-// signed-in user has it active and unfinished. Best-effort: a failure never
-// interrupts the gameplay flow that triggered it.
-async function autoCompleteDaily(taskKey) {
-  if (!state.user) return;
-  const task = state.dailyTasks.find((t) => t.task_id === taskKey);
-  if (!task || task.completed) return;
-  try {
-    const { error } = await supabase.rpc("complete_daily_task", { p_task_id: task.id });
-    if (error) throw error;
-    await loadDailyTasks(); // refresh completed flag + count
-  } catch (err) {
-    console.error("[autoCompleteDaily]", taskKey, err);
-  }
 }
 
 async function fetchLobbyCounts() {
@@ -2416,9 +2317,6 @@ async function reportResult(resultHint, { standings = [], finalHp = null } = {})
     return;
   }
 
-  // Any settled PvP result counts as "played today" for the daily task.
-  autoCompleteDaily("daily_play");
-
   const won = settled.winner_user_id === state.user?.id;
   if (!won) {
     showGameOver("loss", "You were defeated.", finalStandings, null, serverKills ?? matchKills, finalTimeMs);
@@ -2431,7 +2329,6 @@ async function reportResult(resultHint, { standings = [], finalHp = null } = {})
     ? "All rivals disconnected — you win by walkover."
     : "Last one standing — you won!";
   showGameOver("win", winReason, finalStandings, "pending", serverKills ?? matchKills, finalTimeMs);
-  autoCompleteDaily("daily_win");
   let prizeAmount = null;
   let payoutTx = null;
   let failReason = null;
@@ -2522,8 +2419,6 @@ function showLobby() {
   toggle(els.signOutBtn, connected);
   const balEl = document.getElementById("fight10Balance");
   if (balEl && !connected) balEl.classList.add("hidden");
-  // Refresh the daily-tasks board whenever the home lands (signed in or not).
-  loadDailyTasks().catch(() => {});
   // Show the living showcase arena behind the landing chrome.
   game.showHomeScene();
 }

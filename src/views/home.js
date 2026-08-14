@@ -42,15 +42,6 @@ export const html = `
     </div>
   </div>
 
-  <!-- ===== Daily tasks ===== -->
-  <section class="daily-tasks" id="dailyTasks" hidden>
-    <div class="dt-head">
-      <span class="dt-head-title">DAILY TASKS</span>
-      <span class="dt-head-sub" id="dailyTasksHint"></span>
-    </div>
-    <div class="dt-list" id="dailyTasksList"></div>
-  </section>
-
   <!-- ===== Info strip ===== -->
   <div class="info-strip">
     <div class="info-tile">
