@@ -8,4 +8,10 @@
 // library into its own locally served chunk, fetched lazily on first use.
 export const importSolanaWeb3 = () => import("@solana/web3.js");
 export const importSplToken = () => import("@solana/spl-token");
+// @solana/spl-token references a bare global `Buffer` at module-evaluation time
+// (e.g. `Buffer.from(...)` for its discriminators). Browsers have no such
+// global, so the chunk throws `ReferenceError: Buffer is not defined` on import
+// unless we install a Buffer polyfill first — see loadSolana() in main.js. Kept
+// here (unobfuscated) so this import() literal stays code-splittable too.
+export const importBuffer = () => import("buffer");
 export const importDevtoolsDetector = () => import("devtools-detector");

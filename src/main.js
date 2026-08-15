@@ -3,7 +3,7 @@
 // alter the code we run. The Solana libs (@solana/web3.js + @solana/spl-token)
 // are still loaded lazily as separate local chunks — see loadSolana().
 import { createClient } from "@supabase/supabase-js";
-import { importSolanaWeb3, importSplToken, importDevtoolsDetector } from "./lazy-deps.js";
+import { importSolanaWeb3, importSplToken, importBuffer, importDevtoolsDetector } from "./lazy-deps.js";
 import { NETWORK, RPC_URL as SOLANA_RPC_URL, txExplorerUrl } from "./network.js";
 import { createArenaGame } from "./game.js";
 import { escapeHtml, tokensFromRaw, formatTokens } from "./utils.js";
@@ -60,10 +60,24 @@ let pvpConfigReady = false;
 // code-splits them into separate chunks served from our own origin: nothing to
 // download at boot, and no third-party CDN. A failed chunk load just surfaces as
 // a deposit/balance error message, and a later retry re-attempts the download.
+//
+// @solana/spl-token's browser bundle assumes a Node-style global `Buffer`
+// (it runs `Buffer.from(...)` at module top level), which browsers don't
+// provide — so its chunk throws `ReferenceError: Buffer is not defined` the
+// instant it's imported. We install the `buffer` polyfill as its own lazy
+// chunk first (still zero boot cost) and only then pull in the Solana libs.
 let _solanaPromise = null;
+async function ensureBufferPolyfill() {
+  if (typeof globalThis.Buffer === "undefined") {
+    const buffer = await importBuffer();
+    // `buffer` exports Buffer as a named export (and on default for CJS interop).
+    globalThis.Buffer = buffer.Buffer ?? buffer.default?.Buffer;
+  }
+}
 function loadSolana() {
   if (!_solanaPromise) {
-    _solanaPromise = Promise.all([importSolanaWeb3(), importSplToken()])
+    _solanaPromise = ensureBufferPolyfill()
+      .then(() => Promise.all([importSolanaWeb3(), importSplToken()]))
       .then(([web3, splToken]) => ({ ...web3, ...splToken }))
       .catch((err) => {
         _solanaPromise = null; // allow a retry on the next call
