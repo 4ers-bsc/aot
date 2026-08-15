@@ -20,6 +20,8 @@
 //   • functions_health  pings each edge function's ?health=1 probe
 //   • get_config        reads pvp_config / match_config / maintain
 //   • set_config        edits those static constants (audited via review_notes)
+//   • get_deployment    read-only on-chain / env constants (mint, escrow, RPC,
+//                        network, CORS) — booleans + public addresses only
 //   • db_export         JSON snapshot of one table / the whole schema (download)
 //   • db_wipe           TRUNCATE one table / every table (typed confirmation)
 //
@@ -143,6 +145,20 @@ function getRpcUrls(): string[] {
     .map((u) => u?.trim()).filter((u): u is string => !!u);
   const unique = [...new Set(urls)];
   return unique.length ? unique : [NETWORK.rpcUrl];
+}
+
+// Mask an RPC URL for display in the ops dashboard: keep scheme + host so the
+// operator can tell WHICH provider is configured (Helius, QuickNode, Triton,
+// the public node…), but redact any path segment or query string — dedicated
+// endpoints carry the API key there. Never returns a usable secret.
+function maskRpcUrl(url: string): string {
+  try {
+    const u = new URL(url);
+    const hasSecret = (u.pathname && u.pathname !== "/") || !!u.search;
+    return `${u.protocol}//${u.host}${hasSecret ? "/…" : ""}`;
+  } catch {
+    return "invalid-url";
+  }
 }
 function createRpcPool() {
   const connections = getRpcUrls().map((u) => new Connection(u, "confirmed"));
@@ -1143,6 +1159,49 @@ Deno.serve(async (req: Request) => {
             maintain: String(maintRes.data?.value ?? "n"),
             live_matches: liveRes.count ?? 0,
             entry_fee_locked: (liveRes.count ?? 0) > 0,
+          });
+        }
+
+        case "get_deployment": {
+          // Read-only snapshot of the on-chain / environment constants the edge
+          // functions actually run with, so the operator can confirm the
+          // deployed mint, escrow, RPC pool and network from the dashboard —
+          // and spot a client/server mismatch, the usual cause of a balance
+          // that won't load or a deposit that won't verify — without opening the
+          // Supabase secrets editor. Secrets are NEVER returned: the escrow
+          // wallet is derived as a PUBLIC address from the signer, RPC URLs are
+          // host-only, the private key is reported as a boolean.
+          let escrowAddr: string | null = null;
+          let escrowKeyError: string | null = null;
+          const escrowKey = (Deno.env.get("ESCROW_PRIVATE_KEY") ?? "").trim();
+          if (escrowKey) {
+            try { escrowAddr = loadEscrowKeypair(escrowKey).publicKey.toBase58(); }
+            catch { escrowKeyError = "ESCROW_PRIVATE_KEY is set but could not be parsed (bad base58 / JSON)."; }
+          }
+          const rpcUrls = getRpcUrls();
+          const tokenAddr = norm(Deno.env.get("FIGHT10_TOKEN"));
+          // f10join verifies deposits land at ESCROW_WALLET (a public env var);
+          // the payout functions sign from ESCROW_PRIVATE_KEY. Surface both so a
+          // deposit-destination ≠ payout-source misconfig is visible.
+          const escrowWalletEnv = norm(Deno.env.get("ESCROW_WALLET"));
+          return json({
+            ok: true,
+            generated_at: new Date().toISOString(),
+            network: NETWORK,
+            token: tokenAddr || null,
+            token_valid: isAddress(tokenAddr),
+            token_decimals: TOKEN_DECIMALS,
+            escrow_wallet: escrowAddr,                       // derived from signer (payout source)
+            escrow_wallet_env: escrowWalletEnv || null,      // ESCROW_WALLET (deposit destination)
+            escrow_key_set: !!escrowKey,
+            escrow_key_error: escrowKeyError,
+            rpc_endpoints: rpcUrls.map(maskRpcUrl),
+            rpc_endpoint_count: rpcUrls.length,
+            rpc_using_public_fallback: rpcUrls.length === 1 && rpcUrls[0] === NETWORK.rpcUrl,
+            app_origin: appOrigin || null,
+            app_origin_set: !!appOrigin,
+            admin_user_ids: csv(Deno.env.get("ADMIN_USER_IDS")).length,
+            admin_wallets: csv(Deno.env.get("ADMIN_WALLETS")).length,
           });
         }
 

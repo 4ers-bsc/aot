@@ -5179,6 +5179,21 @@ body.in-game .log-feed { left: 70px; }
 .fn-ok  { color: #9fe0a0; }
 .fn-bad { color: #f0a090; }
 
+/* Deployment tab — config warnings */
+.dep-warn {
+  border: 1px solid rgba(198, 64, 42, 0.6);
+  background: rgba(198, 64, 42, 0.12);
+  border-radius: 10px;
+  padding: 10px 14px;
+  margin-bottom: 14px;
+}
+.dep-warn-row {
+  color: #f2b8ac;
+  font-size: 0.66rem;
+  line-height: 1.5;
+}
+.dep-warn-row + .dep-warn-row { margin-top: 6px; }
+
 /* Static-constants editor cards */
 .cfg-card {
   border: 1px solid rgba(212, 160, 23, 0.25);
@@ -5525,6 +5540,16 @@ body.in-game .log-feed { left: 70px; }
 .admin-overlay .fn-k { color: var(--a-text-mute); }
 .admin-overlay .fn-ok  { color: var(--a-green); }
 .admin-overlay .fn-bad { color: var(--a-red-hi); }
+
+/* Deployment tab — config warnings */
+.admin-overlay .dep-warn {
+  border: 1px solid var(--a-red);
+  background: var(--a-red-bg, rgba(198, 64, 42, 0.12));
+  border-radius: var(--a-radius);
+  padding: 12px 16px;
+  margin-bottom: 16px;
+}
+.admin-overlay .dep-warn-row { color: var(--a-red-hi); font-size: 13px; line-height: 1.55; }
 
 /* Constants editor */
 .admin-overlay .cfg-card { border: 1px solid var(--a-border); border-radius: var(--a-radius); background: var(--a-surface); padding: 16px 18px; }

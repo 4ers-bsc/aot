@@ -1864,12 +1864,25 @@ async function refreshFight10Balance() {
   if (!balEl || !state.user) return;
   const addr = await getDisplayWalletAddress();
   if (!addr) return;
+  // Pre-launch: the mint isn't configured yet, so there is no on-chain balance
+  // to read. Mirror the holdings tab and leave the chip hidden rather than
+  // building an invalid PublicKey (which threw and was swallowed here, so the
+  // chip silently "never loaded"). The holdings tab explains the pre-launch state.
+  if (FIGHT10_TOKEN.startsWith("<")) return;
   try {
     const raw = await getFight10Balance(addr);
     balEl.textContent = formatTokens(raw, FIGHT10_DECIMALS) + " $FIGHT10";
+    balEl.title = "View your $FIGHT10 holdings";
     balEl.classList.remove("hidden");
   } catch (err) {
     console.error("[refreshFight10Balance]", err);
+    // Make a real read failure VISIBLE instead of leaving the chip invisible: a
+    // rate-limited / 403 / timed-out RPC used to fail silently here, so a funded
+    // wallet looked like it simply never loaded. Show a dash the player can hover
+    // for the reason and click to retry via the holdings tab.
+    balEl.textContent = "— $FIGHT10";
+    balEl.title = `Balance unavailable — ${err?.message || "tap to retry"}`;
+    balEl.classList.remove("hidden");
   }
 }
 
