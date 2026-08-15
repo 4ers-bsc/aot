@@ -873,6 +873,18 @@ async function getWalletAddress(wallet = getSolanaWallet()) {
   }
 }
 
+// Wallet address for READ-ONLY balance display. Prefer the live connected
+// wallet, but fall back to the address the current session signed in with —
+// stored on the profile, the same value the server verifies against. After a
+// page reload the Supabase session is restored before (or without) the injected
+// wallet reconnecting, so wallet.publicKey is often null even though we already
+// know the address; without this fallback the balance silently never loads and
+// the UI just sits blank. Money-moving paths keep using getWalletAddress(),
+// which requires the live wallet that must actually sign.
+async function getDisplayWalletAddress() {
+  return (await getWalletAddress()) || normWallet(state.profile?.wallet_address) || null;
+}
+
 async function signIn() {
   const wallet = getSolanaWallet();
   if (!wallet) {
@@ -1806,6 +1818,21 @@ async function depositEntryFee(numPlayers = 2) {
   }
 }
 
+// A wallet that never held $FIGHT10 has no SPL token account for the mint, and
+// the RPC answers getTokenAccountBalance with "could not find account" — that is
+// a genuine zero balance, not a failure. Every OTHER error (rate-limit, 403/429,
+// timeout, node behind) is a real read failure that must NOT be papered over as
+// zero: doing so shows a funded wallet as empty and, in the pre-join gate,
+// wrongly blocks players out of paid matches. So only the missing-account case
+// maps to 0n; anything else propagates.
+function isMissingTokenAccountError(err) {
+  const msg = (err?.message || String(err ?? "")).toLowerCase();
+  return err?.code === -32602 ||
+    msg.includes("could not find account") ||
+    msg.includes("account not found") ||
+    msg.includes("does not exist");
+}
+
 async function getFight10Balance(walletAddress) {
   const solana = await loadSolana();
   const connection = await getConnection();
@@ -1813,12 +1840,12 @@ async function getFight10Balance(walletAddress) {
     ? walletAddress
     : new solana.PublicKey(walletAddress);
   const ata = await getFight10Ata(owner);
-  // No token account (never held $FIGHT10) reads as a zero balance, not an error.
   try {
     const res = await connection.getTokenAccountBalance(ata);
     return BigInt(res?.value?.amount ?? "0");
-  } catch (_) {
-    return 0n;
+  } catch (err) {
+    if (isMissingTokenAccountError(err)) return 0n;
+    throw err; // real RPC failure — surface it instead of faking a zero balance
   }
 }
 
@@ -1835,7 +1862,7 @@ function updatePrizePot(numPlayers) {
 async function refreshFight10Balance() {
   const balEl = document.getElementById("fight10Balance");
   if (!balEl || !state.user) return;
-  const addr = await getWalletAddress();
+  const addr = await getDisplayWalletAddress();
   if (!addr) return;
   try {
     const raw = await getFight10Balance(addr);
@@ -1854,7 +1881,7 @@ async function loadHoldings() {
   const buyEl    = document.getElementById("holdingsBuyLink");
   if (buyEl) buyEl.href = DEXSCREENER_URL;
   if (!amtEl) return;
-  const addr = await getWalletAddress();
+  const addr = await getDisplayWalletAddress();
   if (walletEl) walletEl.textContent = addr ? `${addr.slice(0, 6)}…${addr.slice(-4)}` : "";
   if (!addr) {
     amtEl.textContent = "—";
