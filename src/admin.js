@@ -149,6 +149,17 @@ const txLink = (sig, label) =>
 const addrLink = (addr, label) =>
   addr ? `<a class="admin-link" href="${addrExplorerUrl(addr)}" target="_blank" rel="noopener noreferrer" title="${escapeHtml(addr)}">${escapeHtml(label || shortId(addr))} ↗</a>` : "—";
 
+// supabase-js collapses EVERY non-2xx from the edge function into the same
+// opaque "Edge Function returned a non-2xx status code" message; the real
+// reason (auth failure, a failed query, missing admin config) is in the JSON
+// body. Pull it out so a failed load shows what actually went wrong instead of
+// a dead end. Mirrors the extraction the mutating actions already do inline.
+async function adminErrorReason(error) {
+  let reason = error?.message || "request failed";
+  try { const b = await error?.context?.json?.(); if (b?.error) reason = b.error; } catch (_) {}
+  return reason;
+}
+
 export function initAdmin(supabase) {
   let root = null;
   let data = null;
@@ -265,7 +276,7 @@ export function initAdmin(supabase) {
       const { data: resp, error } = await supabase.functions.invoke("f10admin", {
         body: { action: "overview" },
       });
-      if (error) throw new Error(error.message || "request failed");
+      if (error) throw new Error(await adminErrorReason(error));
       if (!resp?.ok) throw new Error(resp?.error || "request failed");
       data = resp;
       // Rebuild read state from the server; drop any stale selection.
@@ -289,7 +300,7 @@ export function initAdmin(supabase) {
       const { data: resp, error } = await supabase.functions.invoke("f10admin", {
         body: { action: "cashflow", ...cashflowFilters },
       });
-      if (error) throw new Error(error.message || "request failed");
+      if (error) throw new Error(await adminErrorReason(error));
       if (!resp?.ok) throw new Error(resp?.error || "request failed");
       cashflow = resp;
     } catch (err) {
@@ -309,7 +320,7 @@ export function initAdmin(supabase) {
       const { data: resp, error } = await supabase.functions.invoke("f10admin", {
         body: { action: "matches", page: matchesPage, search: matchesSearch },
       });
-      if (error) throw new Error(error.message || "request failed");
+      if (error) throw new Error(await adminErrorReason(error));
       if (!resp?.ok) throw new Error(resp?.error || "request failed");
       matchesData = resp;
     } catch (err) {
@@ -367,7 +378,7 @@ export function initAdmin(supabase) {
       const { data: resp, error } = await supabase.functions.invoke("f10admin", {
         body: { action, ...(params || {}) },
       });
-      if (error) throw new Error(error.message || "request failed");
+      if (error) throw new Error(await adminErrorReason(error));
       if (!resp?.ok) throw new Error(resp?.error || "request failed");
       set({ data: resp });
     } catch (err) {
@@ -433,7 +444,7 @@ export function initAdmin(supabase) {
       const { data: resp, error } = await supabase.functions.invoke("f10admin", {
         body: { action: "db_export", ...(table ? { table } : {}) },
       });
-      if (error) throw new Error(error.message || "request failed");
+      if (error) throw new Error(await adminErrorReason(error));
       if (!resp?.ok) throw new Error(resp?.error || "request failed");
       if (table) {
         downloadJson(`${table}-${stamp()}.json`,
