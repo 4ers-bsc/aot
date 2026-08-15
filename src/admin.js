@@ -91,10 +91,10 @@ const SAFETY_META = {
   unknown: ["⚪", "Unknown"],
 };
 
-// Raw on-chain units → whole $FIGHT10. ERC-20 default is 18 decimals
+// Raw on-chain units → whole $FIGHT10. SPL token default is 9 decimals
 // (override with VITE_FIGHT10_DECIMALS); pass decimals 0 for values already
 // stored in whole tokens (matches.pot_tokens).
-const TOKEN_DECIMALS = Number(import.meta.env?.VITE_FIGHT10_DECIMALS ?? 18);
+const TOKEN_DECIMALS = Number(import.meta.env?.VITE_FIGHT10_DECIMALS ?? 9);
 const fmtTokens = (raw, decimals = TOKEN_DECIMALS) => {
   // BigInt division first (exact) — a naive Number(raw)/10**decimals rounds for
   // raw values past Number's safe-integer range (e.g. 2500 tokens @ 18 dp).
@@ -142,7 +142,7 @@ const matchRef = (id, label, cls = "") =>
     ? `<button type="button" class="admin-linkish ${cls}" data-act="match_detail" data-match="${id}" title="View match details">${escapeHtml(label ?? shortId(id))}</button>`
     : escapeHtml(label ?? "—");
 
-// Blockscout explorer links (network-aware via network.js) so the operator
+// Solscan explorer links (network-aware via network.js) so the operator
 // can review a transaction / address on-chain.
 const txLink = (sig, label) =>
   sig ? `<a class="admin-link" href="${txExplorerUrl(sig)}" target="_blank" rel="noopener noreferrer" title="${escapeHtml(sig)}">${escapeHtml(label || shortId(sig))} ↗</a>` : "—";

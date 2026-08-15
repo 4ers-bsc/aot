@@ -9,9 +9,10 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@solana/spl-token": "^0.4.9",
+    "@solana/web3.js": "^1.95.4",
     "@supabase/supabase-js": "^2.50.0",
     "devtools-detector": "^2.0.25",
-    "ethers": "^6.13.0",
     "three": "^0.128.0"
   },
   "devDependencies": {
