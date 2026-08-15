@@ -1595,6 +1595,8 @@ export function initAdmin(supabase) {
     if (deployment && !srv.escrow_key_set) warns.push(`Server has no ESCROW_PRIVATE_KEY — winners cannot be paid.`);
     if (srv.escrow_wallet && srv.escrow_wallet_env && srv.escrow_wallet !== srv.escrow_wallet_env)
       warns.push(`Deposit destination (ESCROW_WALLET) ≠ payout source (derived from ESCROW_PRIVATE_KEY) — deposits and payouts use different accounts.`);
+    if (srv.rpc_invalid_count > 0)
+      warns.push(`${srv.rpc_invalid_count} server RPC endpoint(s) are not usable URLs — surrounding quotes or a missing "https://" scheme. The edge functions can't open a Connection to them, so deposit verification and payouts fail. Re-set RPC_URL / RPC_URL_2 to a bare https://… URL with no quotes.`);
     if (srv.rpc_using_public_fallback)
       warns.push(`Server is on the public mainnet RPC (no RPC_URL set) — heavily rate-limited; set a dedicated endpoint for production.`);
     const warnBlock = warns.length

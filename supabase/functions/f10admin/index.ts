@@ -147,18 +147,31 @@ function getRpcUrls(): string[] {
   return unique.length ? unique : [NETWORK.rpcUrl];
 }
 
-// Mask an RPC URL for display in the ops dashboard: keep scheme + host so the
-// operator can tell WHICH provider is configured (Helius, QuickNode, Triton,
-// the public node…), but redact any path segment or query string — dedicated
-// endpoints carry the API key there. Never returns a usable secret.
-function maskRpcUrl(url: string): string {
-  try {
-    const u = new URL(url);
-    const hasSecret = (u.pathname && u.pathname !== "/") || !!u.search;
-    return `${u.protocol}//${u.host}${hasSecret ? "/…" : ""}`;
-  } catch {
-    return "invalid-url";
-  }
+// Describe an RPC endpoint for the ops dashboard: a display-safe, secret-free
+// label (scheme + host so the operator can tell WHICH provider is configured —
+// Helius, QuickNode, Triton, the public node… — with the path/query redacted,
+// since dedicated endpoints carry the API key there) plus whether the raw value
+// is actually usable by `new Connection()`. Two common secrets-editor mistakes
+// break the edge functions the same way and are surfaced here rather than hidden
+// behind an opaque "invalid-url": surrounding quotes, and a missing scheme.
+function describeRpcUrl(raw: string): { display: string; valid: boolean; note?: string } {
+  const unquoted = raw.replace(/^["']+|["']+$/g, "").trim();
+  const quoted = unquoted !== raw.trim();
+  const parse = (s: string) => { try { return new URL(s); } catch { return null; } };
+  let u = parse(unquoted);
+  let schemeless = false;
+  if (!u) { u = parse(`https://${unquoted}`); schemeless = !!u; } // salvage a bare host
+  if (!u) return { display: "unparseable", valid: false, note: "not a URL" };
+  const hasSecret = (u.pathname && u.pathname !== "/") || !!u.search;
+  const host = schemeless ? u.host : `${u.protocol}//${u.host}`;
+  const problems: string[] = [];
+  if (quoted) problems.push("surrounding quotes");
+  if (schemeless) problems.push("missing scheme");
+  return {
+    display: `${host}${hasSecret ? "/…" : ""}`,
+    valid: !quoted && !schemeless, // usable as-is by new Connection()
+    note: problems.length ? problems.join(", ") : undefined,
+  };
 }
 function createRpcPool() {
   const connections = getRpcUrls().map((u) => new Connection(u, "confirmed"));
@@ -1179,6 +1192,7 @@ Deno.serve(async (req: Request) => {
             catch { escrowKeyError = "ESCROW_PRIVATE_KEY is set but could not be parsed (bad base58 / JSON)."; }
           }
           const rpcUrls = getRpcUrls();
+          const rpcDesc = rpcUrls.map(describeRpcUrl);
           const tokenAddr = norm(Deno.env.get("FIGHT10_TOKEN"));
           // f10join verifies deposits land at ESCROW_WALLET (a public env var);
           // the payout functions sign from ESCROW_PRIVATE_KEY. Surface both so a
@@ -1195,8 +1209,9 @@ Deno.serve(async (req: Request) => {
             escrow_wallet_env: escrowWalletEnv || null,      // ESCROW_WALLET (deposit destination)
             escrow_key_set: !!escrowKey,
             escrow_key_error: escrowKeyError,
-            rpc_endpoints: rpcUrls.map(maskRpcUrl),
+            rpc_endpoints: rpcDesc.map((d) => (d.note ? `${d.display} (${d.note})` : d.display)),
             rpc_endpoint_count: rpcUrls.length,
+            rpc_invalid_count: rpcDesc.filter((d) => !d.valid).length,
             rpc_using_public_fallback: rpcUrls.length === 1 && rpcUrls[0] === NETWORK.rpcUrl,
             app_origin: appOrigin || null,
             app_origin_set: !!appOrigin,
