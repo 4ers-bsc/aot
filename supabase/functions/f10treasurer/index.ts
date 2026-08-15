@@ -225,7 +225,7 @@ Deno.serve(async (req: Request) => {
 
     // ── Verify all deposits exist ────────────────────────────────────────────
     const { data: players, error: playersErr } = await adminClient
-      .from("match_players").select("user_id, deposit_tx, deposit_wallet").eq("match_id", matchId);
+      .from("match_players").select("user_id, deposit_tx, deposit_wallet, deposit_verified").eq("match_id", matchId);
     if (playersErr || !players) return errorResponse("Could not fetch match players", 500);
     const missing = players.filter((p: any) => !p.deposit_tx);
     if (missing.length > 0) return errorResponse(`${missing.length} player(s) have not deposited`, 400);
@@ -365,31 +365,40 @@ Deno.serve(async (req: Request) => {
       }
     }
 
-    // ── Verify each deposit tx succeeded and paid escrow ─────────────────────
-    // The token-balance deltas prove the mint, sender, destination, and exact
-    // amount — a confirmed-but-unrelated signature cannot pass. All fetches run
-    // in parallel to minimise latency.
-    const depositTxs = players.map((p: any) => p.deposit_tx as string);
-    const parsedDeposits = await Promise.all(depositTxs.map((tx) => getParsedTx(rpc, tx)));
+    // ── Verify deposits ──────────────────────────────────────────────────────
+    // Trust the deposit_verified flag f10join set when it checked each deposit
+    // on-chain at join time (while the tx was fresh). Only re-verify on-chain the
+    // players whose seat was NOT flagged — legacy rows, or a join whose flag
+    // write failed. This avoids re-fetching every deposit at payout, where a
+    // Solana tx can have aged past an RPC's history window during a long match
+    // and return null (a spurious "deposit not found"). The flag is settable
+    // only by the service role (clients have no UPDATE grant on match_players),
+    // so trusting it introduces no new attack surface. The token-balance deltas
+    // in the fallback prove mint, sender, destination, and exact amount.
+    const unverified = players.filter((p: any) => p.deposit_verified !== true);
+    if (unverified.length > 0) {
+      const parsedDeposits = await Promise.all(
+        unverified.map((p: any) => getParsedTx(rpc, p.deposit_tx as string)),
+      );
+      for (let i = 0; i < unverified.length; i++) {
+        const parsed = parsedDeposits[i];
+        if (!parsed) return errorResponse(`Deposit for player ${i + 1} not found on-chain`, 400);
+        if (parsed.meta?.err) return errorResponse(`Deposit for player ${i + 1} failed on-chain`, 400);
 
-    for (let i = 0; i < depositTxs.length; i++) {
-      const parsed = parsedDeposits[i];
-      if (!parsed) return errorResponse(`Deposit ${i + 1} not found on-chain`, 400);
-      if (parsed.meta?.err) return errorResponse(`Deposit ${i + 1} failed on-chain`, 400);
+        const expectedSender = walletByUser.get(unverified[i].user_id) ?? "";
+        if (!isAddress(expectedSender)) return errorResponse(`Deposit for player ${i + 1}: depositing wallet was not recorded at join time`, 400);
 
-      const expectedSender = walletByUser.get(players[i].user_id) ?? "";
-      if (!isAddress(expectedSender)) return errorResponse(`Deposit ${i + 1}: depositing wallet was not recorded at join time`, 400);
-
-      if (!txHasDeposit(parsed.meta, tokenAddr, expectedSender, escrowAddr, entryFeeRaw)) {
-        console.error(`Deposit ${i + 1} verification failed`, JSON.stringify({
-          expectedSender, escrowAddr, tokenAddr, entryFee: entryFeeRaw.toString(),
-          escrowDelta: ownerMintDelta(parsed.meta, escrowAddr, tokenAddr).toString(),
-          senderDelta: ownerMintDelta(parsed.meta, expectedSender, tokenAddr).toString(),
-        }));
-        return errorResponse(
-          `Deposit ${i + 1} does not contain a valid FIGHT10 transfer from the player to escrow`,
-          400,
-        );
+        if (!txHasDeposit(parsed.meta, tokenAddr, expectedSender, escrowAddr, entryFeeRaw)) {
+          console.error(`Deposit verification failed`, JSON.stringify({
+            expectedSender, escrowAddr, tokenAddr, entryFee: entryFeeRaw.toString(),
+            escrowDelta: ownerMintDelta(parsed.meta, escrowAddr, tokenAddr).toString(),
+            senderDelta: ownerMintDelta(parsed.meta, expectedSender, tokenAddr).toString(),
+          }));
+          return errorResponse(
+            `A deposit does not contain a valid FIGHT10 transfer from the player to escrow`,
+            400,
+          );
+        }
       }
     }
 

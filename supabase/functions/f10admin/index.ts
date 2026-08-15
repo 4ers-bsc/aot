@@ -180,7 +180,7 @@ async function payoutWinner(admin: any, matchId: string) {
   const winnerId = matchRow.winner_user_id as string;
 
   const { data: players, error: playersErr } = await admin
-    .from("match_players").select("user_id, deposit_tx, deposit_wallet").eq("match_id", matchId);
+    .from("match_players").select("user_id, deposit_tx, deposit_wallet, deposit_verified").eq("match_id", matchId);
   if (playersErr || !players || players.length === 0) throw new Error("Could not fetch match players");
   const missing = players.filter((p: any) => !p.deposit_tx);
   if (missing.length > 0) throw new Error(`${missing.length} player(s) have no recorded deposit`);
@@ -270,18 +270,25 @@ async function payoutWinner(admin: any, matchId: string) {
     }
   }
 
-  // The token-balance deltas prove the mint, sender, destination, and exact
-  // amount — a confirmed-but-unrelated signature cannot pass.
-  const depositTxs = players.map((p: any) => p.deposit_tx as string);
-  const parsedDeposits = await Promise.all(depositTxs.map((tx) => getParsedTx(rpc, tx)));
-  for (let i = 0; i < depositTxs.length; i++) {
-    const parsed = parsedDeposits[i];
-    if (!parsed) throw new Error(`Deposit ${i + 1} not found on-chain`);
-    if (parsed.meta?.err) throw new Error(`Deposit ${i + 1} failed on-chain`);
-    const expectedSender = walletByUser.get(players[i].user_id) ?? "";
-    if (!isAddress(expectedSender)) throw new Error(`Deposit ${i + 1}: depositing wallet was not recorded at join time`);
-    if (!txHasDeposit(parsed.meta, tokenAddr, expectedSender, escrowAddr, entryFeeRaw)) {
-      throw new Error(`Deposit ${i + 1} does not contain a valid FIGHT10 transfer from the player to escrow`);
+  // Trust the deposit_verified flag f10join set when it checked each deposit
+  // on-chain at join time (fresh tx); only re-verify players whose seat wasn't
+  // flagged (legacy rows / a failed flag write). Same rationale + safety as
+  // f10treasurer — the flag is service-role-only, and the token-balance deltas
+  // in the fallback prove mint, sender, destination, and exact amount.
+  const unverified = players.filter((p: any) => p.deposit_verified !== true);
+  if (unverified.length > 0) {
+    const parsedDeposits = await Promise.all(
+      unverified.map((p: any) => getParsedTx(rpc, p.deposit_tx as string)),
+    );
+    for (let i = 0; i < unverified.length; i++) {
+      const parsed = parsedDeposits[i];
+      if (!parsed) throw new Error(`Deposit for player ${i + 1} not found on-chain`);
+      if (parsed.meta?.err) throw new Error(`Deposit for player ${i + 1} failed on-chain`);
+      const expectedSender = walletByUser.get(unverified[i].user_id) ?? "";
+      if (!isAddress(expectedSender)) throw new Error(`Deposit for player ${i + 1}: depositing wallet was not recorded at join time`);
+      if (!txHasDeposit(parsed.meta, tokenAddr, expectedSender, escrowAddr, entryFeeRaw)) {
+        throw new Error(`A deposit does not contain a valid FIGHT10 transfer from the player to escrow`);
+      }
     }
   }
 

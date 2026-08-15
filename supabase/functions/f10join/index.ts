@@ -332,7 +332,24 @@ Deno.serve(async (req: Request) => {
       return fail(joinErr.message || "Could not join match");
     }
 
-    return jsonResponse({ ok: true, ...(joinResult as Record<string, unknown>) });
+    // Flag the deposit verified NOW, while we've just confirmed it on-chain and
+    // the tx is fresh. The payout functions trust this instead of re-verifying
+    // at payout time (a Solana deposit can age past an RPC's history window
+    // during a long match). Service role only — clients have no UPDATE grant on
+    // match_players. Skip on rejoin: the seat's deposit was flagged on the
+    // original join. Best-effort: the payout path falls back to on-chain
+    // verification for any unflagged row, so a failed write never strands a join.
+    const jr = joinResult as Record<string, unknown>;
+    if (!jr?.rejoining && jr?.match_id) {
+      const { error: flagErr } = await adminClient
+        .from("match_players")
+        .update({ deposit_verified: true })
+        .eq("match_id", jr.match_id as string)
+        .eq("user_id", user.id);
+      if (flagErr) console.error("deposit_verified write failed (non-fatal):", flagErr);
+    }
+
+    return jsonResponse({ ok: true, ...jr });
   } catch (err) {
     console.error("Join error:", err);
     return jsonResponse({ ok: false, error: String(err) }, 500);

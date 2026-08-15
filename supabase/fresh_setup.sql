@@ -134,6 +134,13 @@ create table public.match_players (
   -- player's login wallet (profiles.wallet_address) when they deposit from a
   -- different connected wallet, so the payout function verifies against this.
   deposit_wallet text,
+  -- Set true by f10join (service role) once the entry-fee deposit is verified
+  -- on-chain at join time, while the tx is still fresh. The payout functions
+  -- trust this flag instead of re-verifying every deposit at payout — a Solana
+  -- deposit can age past an RPC's transaction-history window during a long
+  -- match, so re-verification there is slow and can spuriously fail. Clients
+  -- have no UPDATE grant on this table, so only the service role can set it.
+  deposit_verified boolean not null default false,
   final_hp     int,
   -- Liveness heartbeat: clients update this every few seconds while in an active
   -- match. A stale value marks the player disconnected (see finalize_match).
