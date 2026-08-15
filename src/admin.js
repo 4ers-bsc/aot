@@ -17,7 +17,7 @@
 // ============================================================================
 
 import { escapeHtml, tokensFromRaw } from "./utils.js";
-import { txExplorerUrl, addrExplorerUrl } from "./network.js";
+import { NETWORK, RPC_URL as CLIENT_RPC_URL, txExplorerUrl, addrExplorerUrl } from "./network.js";
 
 const TABS = [
   ["home",              "Home"],
@@ -35,6 +35,7 @@ const TABS = [
   ["db",                "Database"],
   ["functions",         "Edge functions"],
   ["constants",         "Constants"],
+  ["deployment",        "Deployment"],
 ];
 const TAB_LABEL = Object.fromEntries(TABS);
 // Sidebar grouping + vertical order. Empty group name = no header (Home).
@@ -43,14 +44,14 @@ const TAB_GROUPS = [
   ["Operations", ["disputed", "integrity", "payout_pending", "payout_failed", "stale_waiting"]],
   ["Finance",    ["payouts", "cashflow", "consumed_deposits"]],
   ["Users",      ["banned", "notes"]],
-  ["System",     ["db", "functions", "constants"]],
+  ["System",     ["db", "functions", "constants", "deployment"]],
 ];
 // Tabs whose badge count is informational (not an action queue) — no red badge.
 const INFO_TABS = new Set(["payouts", "consumed_deposits", "notes"]);
 // Tabs that render their own body (own filters / layout) instead of the shared
 // free-text search + row table. Each loads its data lazily on first open and
 // keeps its own loading / error state.
-const CUSTOM_TABS = new Set(["home", "matches", "cashflow", "db", "functions", "constants"]);
+const CUSTOM_TABS = new Set(["home", "matches", "cashflow", "db", "functions", "constants", "deployment"]);
 
 // Wipe-safety classification for the Database tab. Purely advisory — the backend
 // still gates every wipe behind a typed confirmation and refuses to cascade — but
@@ -190,6 +191,7 @@ export function initAdmin(supabase) {
   let dbstats = null,  dbstatsLoading = false,  dbstatsError = "";
   let fnhealth = null, fnhealthLoading = false, fnhealthError = "";
   let config = null,   configLoading = false,   configError = "";
+  let deployment = null, deploymentLoading = false, deploymentError = "";
 
   // ---- DOM shell (built once, on first open) --------------------------------
   function ensureRoot() {
@@ -354,6 +356,7 @@ export function initAdmin(supabase) {
       case "db":        return loadDbStats();
       case "functions": return loadFunctions();
       case "constants": return loadConfig();
+      case "deployment": return loadDeployment();
       default:          return load();
     }
   }
@@ -366,6 +369,7 @@ export function initAdmin(supabase) {
     if (tab === "db"        && !dbstats   && !dbstatsLoading)   loadDbStats();
     if (tab === "functions" && !fnhealth  && !fnhealthLoading)  loadFunctions();
     if (tab === "constants" && !config    && !configLoading)    loadConfig();
+    if (tab === "deployment" && !deployment && !deploymentLoading) loadDeployment();
   }
 
   // Generic on-demand fetch for a monitoring / config action. Sets the given
@@ -402,6 +406,11 @@ export function initAdmin(supabase) {
     if ("data" in s)    config = s.data;
     if ("loading" in s) configLoading = s.loading;
     if ("error" in s)   configError = s.error;
+  });
+  const loadDeployment = () => fetchInto("get_deployment", null, "deployment", (s) => {
+    if ("data" in s)    deployment = s.data;
+    if ("loading" in s) deploymentLoading = s.loading;
+    if ("error" in s)   deploymentError = s.error;
   });
 
   // Save an edited static constant, then reload the constants tab.
@@ -1011,6 +1020,7 @@ export function initAdmin(supabase) {
     if (activeTab === "db")        { bodyEl.innerHTML = renderDbStats(); return; }
     if (activeTab === "functions") { bodyEl.innerHTML = renderFunctions(); return; }
     if (activeTab === "constants") { bodyEl.innerHTML = renderConstants(); return; }
+    if (activeTab === "deployment") { bodyEl.innerHTML = renderDeployment(); return; }
     if (countEl) countEl.textContent = "";
     if (loading && !data) { bodyEl.innerHTML = `<div class="admin-msg">Loading…</div>`; return; }
     if (errorMsg)         { bodyEl.innerHTML = `<div class="admin-msg admin-err">${escapeHtml(errorMsg)}</div>`; return; }
@@ -1516,6 +1526,122 @@ export function initAdmin(supabase) {
 
     return `<p class="admin-note">Edit the static constants that otherwise live only in the Supabase table editor. Changes take effect immediately and are recorded as review notes.</p>` +
       pvpCard + matchCard + maintCard;
+  }
+
+  // ---- Deployment / on-chain constants (read-only) --------------------------
+  // Surfaces the on-chain + environment constants the app is deployed with —
+  // token mint, escrow, RPC pool, network, CORS — split into the CLIENT (this
+  // browser build, VITE_* baked in) and the SERVER (edge-function env, via
+  // get_deployment) so a client/server mismatch — the usual cause of a balance
+  // that won't load or a deposit that won't verify — shows at a glance. No
+  // secret is ever exposed: escrow is a public address, RPC keys are redacted
+  // server-side, the escrow private key is reported as a yes/no.
+  const isPlaceholder = (v) => { const s = (v == null ? "" : String(v)).trim(); return !s || s.startsWith("<"); };
+  function renderDeployment() {
+    if (deploymentLoading && !deployment) return `<div class="admin-msg">Loading deployment config…</div>`;
+
+    // Client constants are baked into this build from VITE_* env vars — no
+    // network needed, so they render even if the server read fails.
+    const env = import.meta.env || {};
+    const cMint     = (env.VITE_FIGHT10_TOKEN || "").trim();
+    const cEscrow   = (env.VITE_ESCROW_WALLET || "").trim();
+    const cSupabase = (env.VITE_SUPABASE_URL || "").trim();
+    const cBuy      = (env.VITE_BUY_FIGHT10_URL || "").trim();
+    const cDex      = (env.VITE_DEXSCREENER_URL || "").trim();
+
+    const srv = deployment || {};
+    const srvNet = srv.network || {};
+
+    // Render a constant value with placeholder / not-set styling; `link` turns a
+    // base58 address into a Solscan link.
+    const val = (v, { link = false, mono = true } = {}) => {
+      const s = (v == null ? "" : String(v)).trim();
+      if (!s)                return `<span class="admin-dim">not set</span>`;
+      if (s.startsWith("<")) return `<span class="admin-dim">placeholder</span>`;
+      if (link)              return addrLink(s);
+      return mono ? `<span class="admin-mono">${escapeHtml(s)}</span>` : escapeHtml(s);
+    };
+    // Match / mismatch flag — "—" when either side is unset (nothing to compare).
+    const flag = (a, b) => {
+      if (isPlaceholder(a) || isPlaceholder(b)) return `<span class="admin-dim">—</span>`;
+      return String(a).trim() === String(b).trim()
+        ? `<span class="fn-ok">match</span>`
+        : `<span class="fn-bad">mismatch ✗</span>`;
+    };
+    const cmpRow = (label, client, server, opts = {}) =>
+      `<tr><td>${escapeHtml(label)}</td><td>${val(client, opts)}</td><td>${val(server, opts)}</td><td>${flag(client, server)}</td></tr>`;
+
+    const cmpTable = `
+      <table class="admin-table">
+        ${thead(["Constant", "Client (browser)", "Server (edge fns)", ""])}
+          ${cmpRow("$FIGHT10 mint", cMint, srv.token, { link: true })}
+          ${cmpRow("Escrow wallet (payout source)", cEscrow, srv.escrow_wallet, { link: true })}
+          ${cmpRow("Token decimals", TOKEN_DECIMALS, srv.token_decimals ?? "")}
+          ${cmpRow("Cluster", NETWORK.cluster, srvNet.cluster ?? "")}
+          ${cmpRow("Chain id (sentinel)", NETWORK.chainId, srvNet.chainId ?? "")}
+        </tbody>
+      </table>`;
+
+    // Warnings surfaced above the tables — each is an actual "this will break"
+    // condition, most of which explain a balance/deposit that silently fails.
+    const warns = [];
+    if (isPlaceholder(cMint))
+      warns.push(`Client $FIGHT10 mint is not set (VITE_FIGHT10_TOKEN) — the balance chip and holdings can't read on-chain and the pre-join balance gate is skipped. This is the usual cause of a balance that never loads.`);
+    if (deployment && srv.token != null && !srv.token_valid)
+      warns.push(`Server FIGHT10_TOKEN is missing or not a valid base58 mint — payouts will fail.`);
+    if (deployment && !isPlaceholder(cMint) && srv.token && cMint !== String(srv.token).trim())
+      warns.push(`Client and server point at DIFFERENT mints — deposits will not verify. Align VITE_FIGHT10_TOKEN with the FIGHT10_TOKEN secret.`);
+    if (srv.escrow_key_error) warns.push(srv.escrow_key_error);
+    if (deployment && !srv.escrow_key_set) warns.push(`Server has no ESCROW_PRIVATE_KEY — winners cannot be paid.`);
+    if (srv.escrow_wallet && srv.escrow_wallet_env && srv.escrow_wallet !== srv.escrow_wallet_env)
+      warns.push(`Deposit destination (ESCROW_WALLET) ≠ payout source (derived from ESCROW_PRIVATE_KEY) — deposits and payouts use different accounts.`);
+    if (srv.rpc_using_public_fallback)
+      warns.push(`Server is on the public mainnet RPC (no RPC_URL set) — heavily rate-limited; set a dedicated endpoint for production.`);
+    const warnBlock = warns.length
+      ? `<div class="dep-warn">` + warns.map((w) => `<div class="dep-warn-row">⚠ ${escapeHtml(w)}</div>`).join("") + `</div>`
+      : "";
+
+    // Server-only environment (no client counterpart).
+    const yn = (b) => b ? `<span class="fn-ok">yes</span>` : `<span class="fn-bad">no</span>`;
+    const rpcJoined = (srv.rpc_endpoints || []).length
+      ? srv.rpc_endpoints.map((u) => escapeHtml(u)).join(" · ")
+      : "—";
+    const serverCard = deployment ? `
+      <div class="cfg-card">
+        <h3 class="cfg-h">Server environment <span class="admin-dim">edge functions</span></h3>
+        <div class="fn-detail">
+          <div class="fn-kv"><span class="fn-k">Deposit destination (ESCROW_WALLET)</span>${srv.escrow_wallet_env ? addrLink(srv.escrow_wallet_env) : `<span class="admin-dim">not set</span>`}</div>
+          <div class="fn-kv"><span class="fn-k">Escrow private key</span>${yn(srv.escrow_key_set)}</div>
+          <div class="fn-kv"><span class="fn-k">RPC endpoints (${escapeHtml(String(srv.rpc_endpoint_count ?? 0))})</span><span class="admin-mono">${rpcJoined}${srv.rpc_using_public_fallback ? " · public fallback" : ""}</span></div>
+          <div class="fn-kv"><span class="fn-k">CORS origin (APP_ORIGIN)</span>${srv.app_origin ? `<span class="admin-mono">${escapeHtml(srv.app_origin)}</span>` : `<span class="fn-bad">open (*)</span>`}</div>
+          <div class="fn-kv"><span class="fn-k">Admins allowlisted</span><span class="admin-mono">${escapeHtml(String(srv.admin_user_ids ?? 0))} user id(s) · ${escapeHtml(String(srv.admin_wallets ?? 0))} wallet(s)</span></div>
+        </div>
+      </div>` : "";
+
+    // Client-only environment.
+    const clientCard = `
+      <div class="cfg-card">
+        <h3 class="cfg-h">Client environment <span class="admin-dim">browser build</span></h3>
+        <div class="fn-detail">
+          <div class="fn-kv"><span class="fn-k">Network</span><span class="admin-mono">${escapeHtml(NETWORK.name)} · ${escapeHtml(NETWORK.cluster)}</span></div>
+          <div class="fn-kv"><span class="fn-k">Read RPC</span><span class="admin-mono">${escapeHtml(CLIENT_RPC_URL)}</span></div>
+          <div class="fn-kv"><span class="fn-k">Explorer</span><span class="admin-mono">${escapeHtml(NETWORK.explorerBase)}</span></div>
+          <div class="fn-kv"><span class="fn-k">Supabase URL</span>${cSupabase ? `<span class="admin-mono">${escapeHtml(cSupabase)}</span>` : `<span class="admin-dim">not set</span>`}</div>
+          <div class="fn-kv"><span class="fn-k">Buy link</span>${cBuy ? `<span class="admin-mono">${escapeHtml(cBuy)}</span>` : `<span class="admin-dim">default (explorer)</span>`}</div>
+          <div class="fn-kv"><span class="fn-k">DEX Screener</span>${cDex ? `<span class="admin-mono">${escapeHtml(cDex)}</span>` : `<span class="admin-dim">default</span>`}</div>
+        </div>
+      </div>`;
+
+    const srvErr = deploymentError
+      ? `<div class="admin-msg admin-err">Server config unavailable — ${escapeHtml(deploymentError)}</div>`
+      : "";
+
+    return `<p class="admin-note">Read-only. The on-chain &amp; environment constants this app is deployed with, split into the browser build and the edge-function server. Secrets are never shown — the escrow wallet is a public address, RPC keys are redacted, the private key is a yes/no. A client/server <b>mismatch</b> below is the usual cause of a balance that won't load or a deposit that won't verify.</p>`
+      + warnBlock
+      + `<div class="cfg-card"><h3 class="cfg-h">Client vs. server</h3>${cmpTable}</div>`
+      + srvErr
+      + serverCard
+      + clientCard;
   }
 
   // Notes attached to a given subject (match / payout / user id). The overview

@@ -50,6 +50,17 @@ network" prompt — the cluster follows the RPC endpoint the app uses.
 > The escrow account must also hold a little **SOL** to pay transaction fees and
 > the one-time rent when a winner's token account has to be created.
 
+### Verifying the deployed config
+
+The ops dashboard (`<app>/#admin` → **System → Deployment**) shows the on-chain
+and environment constants the app is actually running with — the $FIGHT10 mint,
+escrow wallet, RPC pool, network and CORS origin — split into the **client**
+(browser build) and **server** (edge-function) side, and flags any
+**mismatch**. Secrets are never exposed: the escrow wallet is a public address,
+RPC keys are redacted, and the private key shows only as a yes/no. A client vs.
+server mint mismatch (or an unset `VITE_FIGHT10_TOKEN`) is the usual cause of a
+balance that won't load or a deposit that won't verify — check this tab first.
+
 ## How money moves
 
 1. **Deposit** — the client builds an SPL `transferChecked` of 10,000 $FIGHT10
