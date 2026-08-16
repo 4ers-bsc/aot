@@ -1526,11 +1526,28 @@ async function loadHoldingsBoard() {
       try { new solana.PublicKey(r.addr); return true; } catch { return false; }
     });
   if (!holders.length) return { empty: '<div class="lb-empty">No holders ranked yet — connect a wallet and grab some $FIGHT10.</div>' };
+  // Batch every holder's balance into a SINGLE getMultipleParsedAccounts call by
+  // deriving each wallet's ATA, instead of one getParsedTokenAccountsByOwner per
+  // holder (up to 100 RPC calls that rate-limited and partially failed). Derive
+  // ATAs with the mint's real token program so Token-2022 mints resolve too.
   // A failed read ranks that wallet as zero rather than sinking the board.
-  const entries = await Promise.all(holders.map(async (r) => {
-    try { return { r, balance: await getFight10Balance(r.addr) }; }
-    catch { return { r, balance: 0n }; }
-  }));
+  let entries;
+  try {
+    const connection = await getConnection();
+    const programId  = await getTokenProgramId();
+    const mintPk     = new solana.PublicKey(FIGHT10_TOKEN);
+    const atas = await Promise.all(
+      holders.map((r) => solana.getAssociatedTokenAddress(mintPk, new solana.PublicKey(r.addr), false, programId)),
+    );
+    const { value } = await connection.getMultipleParsedAccounts(atas);
+    entries = holders.map((r, i) => {
+      const amt = value?.[i]?.data?.parsed?.info?.tokenAmount?.amount;
+      return { r, balance: amt ? BigInt(amt) : 0n };
+    });
+  } catch (err) {
+    console.error("[loadHoldingsBoard] batch balance read failed", err);
+    entries = holders.map((r) => ({ r, balance: 0n }));
+  }
   const ranked = entries.filter((e) => e.balance > 0n)
     .sort((a, b) => (b.balance > a.balance ? 1 : b.balance < a.balance ? -1 : 0))
     .slice(0, 20);

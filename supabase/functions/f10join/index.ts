@@ -134,6 +134,53 @@ function txHasDeposit(meta: any, mint: string, sender: string, escrow: string, a
          ownerMintDelta(meta, sender, mint) === -amount;
 }
 
+// Instruction-level deposit check. Unlike the balance-delta check above, this
+// verifies the AUTHORISED transfer — the amount the player signed for, from
+// their wallet, into the escrow token account — rather than escrow's NET credit.
+// That matters on a Token-2022 mint with a transfer fee: escrow receives
+// (amount − fee), so a "credited exactly amount" check would reject every valid
+// deposit. Binding to destination === escrow ATA + authority === sender keeps it
+// replay-safe (a third party's transfer, or one to another account, can't pass).
+// jsonParsed instructions expose { programId, parsed: { type, info } }; token
+// transfers may be top-level or CPI-wrapped (inner), so both are scanned.
+function txAuthorizesDeposit(
+  txJson: any, escrowAta: string, sender: string, tokenProgram: string, amountRaw: string,
+): boolean {
+  const top = (txJson?.transaction?.message?.instructions ?? []) as any[];
+  const inner = (txJson?.meta?.innerInstructions ?? []).flatMap((ii: any) => ii?.instructions ?? []);
+  return [...top, ...inner].some((ix: any) => {
+    if (ix?.programId !== tokenProgram) return false;
+    const p = ix?.parsed;
+    if (!p) return false;
+    const info = p.info ?? {};
+    // Single-sig wallets sign as `authority`; multisig as `multisigAuthority`.
+    if ((info.authority ?? info.multisigAuthority) !== sender) return false;
+    if (info.destination !== escrowAta) return false;
+    // Compare the GROSS amount the instruction moved (pre-fee) against the fee.
+    if (p.type === "transfer") return info.amount === amountRaw;
+    if (p.type === "transferChecked" || p.type === "transferCheckedWithFee") {
+      return info.tokenAmount?.amount === amountRaw;
+    }
+    return false;
+  });
+}
+
+// Resolve the escrow's associated token account for the mint and the mint's
+// owning token program (classic SPL or Token-2022), both needed to check a
+// deposit instruction. Returns nulls if the escrow has no token account yet.
+async function resolveEscrowAtaAndProgram(
+  rpc: ReturnType<typeof createRpcPool>, escrow: string, mint: string,
+): Promise<{ escrowAta: string | null; tokenProgram: string | null }> {
+  const [mintInfo, escrowAccts] = await Promise.all([
+    rpc.run("getAccountInfo", [mint, { encoding: "jsonParsed" }]),
+    rpc.run("getTokenAccountsByOwner", [escrow, { mint }, { encoding: "jsonParsed" }]),
+  ]);
+  return {
+    escrowAta: escrowAccts?.value?.[0]?.pubkey ?? null,
+    tokenProgram: mintInfo?.value?.owner ?? null,
+  };
+}
+
 // ---------------------------------------------------------------------------
 
 const appOrigin = Deno.env.get("APP_ORIGIN");
@@ -296,14 +343,20 @@ Deno.serve(async (req: Request) => {
     if (tx.meta?.err) return fail("Deposit failed on-chain");
 
     // ── Verify the tx transferred the correct amount to escrow from the player ─
-    // The token-balance deltas prove OUR mint moved from the player's wallet to
-    // escrow for the exact entry fee — a confirmed-but-unrelated signature cannot
-    // pass this.
-    const valid = txHasDeposit(tx.meta, tokenAddr, expectedSender, escrowAddr, entryFeeRaw);
+    // Instruction-level check: confirm the player AUTHORISED a transfer of the
+    // entry fee from their wallet into the escrow token account. This validates
+    // the amount sent (pre-fee), so it stays correct on a Token-2022 mint that
+    // withholds a transfer fee — a balance-delta "escrow credited exactly amount"
+    // check would reject those. A confirmed-but-unrelated signature, a third
+    // party's transfer, or one to another account cannot pass.
+    const { escrowAta, tokenProgram } = await resolveEscrowAtaAndProgram(rpc, escrowAddr, tokenAddr);
+    if (!escrowAta || !tokenProgram) return fail("Escrow token account not found for this mint");
+    const valid = txAuthorizesDeposit(tx, escrowAta, expectedSender, tokenProgram, entryFeeRaw.toString());
 
     if (!valid) {
       console.error("Join deposit verification failed", JSON.stringify({
-        user: user.id, expectedSender, escrowAddr, tokenAddr, entryFee: entryFeeRaw.toString(),
+        user: user.id, expectedSender, escrowAddr, escrowAta, tokenAddr, tokenProgram,
+        entryFee: entryFeeRaw.toString(),
         escrowDelta: ownerMintDelta(tx.meta, escrowAddr, tokenAddr).toString(),
         senderDelta: ownerMintDelta(tx.meta, expectedSender, tokenAddr).toString(),
       }));
