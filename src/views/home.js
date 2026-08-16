@@ -246,6 +246,25 @@ export const html = `
     </footer>
   </div><!-- /.home-sections -->
 
+  <!-- ===== Home-sections style previewer =====
+       Floating switcher that repaints the landing sections (#homeSections) in
+       one of five completely different looks, plus the classic default. It just
+       toggles a single theme class on #homeSections and remembers the pick in
+       localStorage (see src/home-style.js). Purely a design-preview control —
+       safe to gate behind a flag or delete once a direction is chosen. -->
+  <div class="hs-style-picker" id="hsStylePicker">
+    <svg class="hs-style-picker-ico" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="7" height="7" rx="1.4"/><rect x="14" y="3" width="7" height="7" rx="1.4"/><rect x="3" y="14" width="7" height="7" rx="1.4"/><rect x="14" y="14" width="7" height="7" rx="1.4"/></svg>
+    <label class="hs-style-picker-label" for="hsStyleSelect">STYLE</label>
+    <select class="hs-style-picker-select" id="hsStyleSelect" aria-label="Preview home-sections style">
+      <option value="">Classic — Gold Ops</option>
+      <option value="hs-theme-neon">Neon Arena</option>
+      <option value="hs-theme-brutal">Brutalist Press</option>
+      <option value="hs-theme-aurora">Aurora Glass</option>
+      <option value="hs-theme-terminal">Terminal CRT</option>
+      <option value="hs-theme-deco">Luxe Deco</option>
+    </select>
+  </div>
+
   <!-- Scroll cue — bottom-right hint that there's more below the fold -->
   <button class="scroll-cue" id="scrollCue" type="button" aria-label="Scroll down for details">
     <span class="scroll-cue-text">SCROLL</span>

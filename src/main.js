@@ -9,12 +9,15 @@ import { createArenaGame } from "./game.js";
 import { escapeHtml, tokensFromRaw, formatTokens } from "./utils.js";
 import { mountViews } from "./views/index.js";
 import { initHomeAnimations } from "./home-anim.js";
+import { initHomeStylePicker } from "./home-style.js";
 import { initHomeTutorial } from "./tutorial.js";
 import { initAdmin } from "./admin.js";
 import { APPEARANCE_PRESETS } from "./appearance.js";
 
 mountViews();
 initHomeAnimations();
+// Design-preview switcher for the landing sections (5 alternate looks + classic).
+initHomeStylePicker();
 // First-visit walkthrough — shows once when the home page loads (reveals after
 // the boot splash lifts) and can be permanently dismissed via "Don't show again".
 initHomeTutorial();
