@@ -58,29 +58,6 @@ let FIGHT10_DECIMALS = Number(import.meta.env?.VITE_FIGHT10_DECIMALS ?? 6);
 // ENTRY_FEE_RAW is recomputed whenever ENTRY_FEE changes.
 let ENTRY_FEE       = 10000;          // FIGHT10 tokens per player
 let ENTRY_FEE_RAW   = BigInt(ENTRY_FEE) * BigInt(10) ** BigInt(FIGHT10_DECIMALS);
-
-// ---------------------------------------------------------------------------
-// Diagnostic logger. Temporary instrumentation to trace why the $FIGHT10
-// balance chip may not render. Every step of the balance path logs under the
-// "[F10]" prefix — filter the browser console by "F10" to follow it end to end.
-// ---------------------------------------------------------------------------
-const F10 = (...args) => { try { console.log("[F10]", ...args); } catch (_) {} };
-F10("boot config", {
-  FIGHT10_TOKEN,
-  tokenIsPlaceholder: FIGHT10_TOKEN.startsWith("<"),
-  ESCROW_WALLET,
-  escrowIsPlaceholder: ESCROW_WALLET.startsWith("<"),
-  FIGHT10_DECIMALS,
-  SOLANA_RPC_URL,
-  env: {
-    VITE_FIGHT10_TOKEN: import.meta.env?.VITE_FIGHT10_TOKEN ?? null,
-    VITE_FIGHT10_MINT: import.meta.env?.VITE_FIGHT10_MINT ?? null,
-    VITE_FIGHT10_DECIMALS: import.meta.env?.VITE_FIGHT10_DECIMALS ?? null,
-    VITE_SOLANA_RPC_URL: import.meta.env?.VITE_SOLANA_RPC_URL ?? null,
-    VITE_SUPABASE_URL: import.meta.env?.VITE_SUPABASE_URL ?? null,
-    hasAnonKey: !!(import.meta.env?.VITE_SUPABASE_ANON_KEY?.trim()),
-  },
-});
 // Winner's share of the pot. MUST match the treasurer/admin payout math
 // ((total * winner_share_bps) / 10000): every place the UI promises a prize
 // derives from this.
@@ -114,16 +91,11 @@ async function ensureBufferPolyfill() {
 }
 function loadSolana() {
   if (!_solanaPromise) {
-    F10("loadSolana: starting (buffer polyfill + import web3/spl-token)…");
     _solanaPromise = ensureBufferPolyfill()
-      .then(() => { F10("loadSolana: buffer polyfill ok, Buffer=", typeof globalThis.Buffer); return Promise.all([importSolanaWeb3(), importSplToken()]); })
-      .then(([web3, splToken]) => {
-        F10("loadSolana: libs loaded ok", { hasConnection: !!web3.Connection, hasPublicKey: !!web3.PublicKey, hasGetATA: !!splToken.getAssociatedTokenAddress });
-        return { ...web3, ...splToken };
-      })
+      .then(() => Promise.all([importSolanaWeb3(), importSplToken()]))
+      .then(([web3, splToken]) => ({ ...web3, ...splToken }))
       .catch((err) => {
         _solanaPromise = null; // allow a retry on the next call
-        F10("loadSolana: FAILED", err?.message || err, err);
         throw new Error("Could not load the Solana libraries — check your connection and try again.");
       });
   }
@@ -158,13 +130,9 @@ let _tokenProgramId = null;
 let _decimalsResolved = false;
 let _decimalsPromise = null;
 async function resolveTokenDecimals() {
-  if (_decimalsResolved || FIGHT10_TOKEN.startsWith("<")) {
-    F10("resolveTokenDecimals: skip", { alreadyResolved: _decimalsResolved, placeholder: FIGHT10_TOKEN.startsWith("<"), decimals: FIGHT10_DECIMALS, tokenProgram: _tokenProgramId?.toBase58?.() ?? null });
-    return FIGHT10_DECIMALS;
-  }
+  if (_decimalsResolved || FIGHT10_TOKEN.startsWith("<")) return FIGHT10_DECIMALS;
   if (!_decimalsPromise) {
     _decimalsPromise = (async () => {
-      F10("resolveTokenDecimals: reading mint", FIGHT10_TOKEN);
       const solana = await loadSolana();
       const connection = await getConnection();
       const info = await connection.getParsedAccountInfo(new solana.PublicKey(FIGHT10_TOKEN));
@@ -172,9 +140,7 @@ async function resolveTokenDecimals() {
       // owner is the token program (classic or Token-2022). Cache it for ATA
       // derivation and deposit instruction building.
       if (info?.value?.owner) _tokenProgramId = new solana.PublicKey(info.value.owner);
-      F10("resolveTokenDecimals: mint account", { found: !!info?.value, ownerProgram: _tokenProgramId?.toBase58?.() ?? null, decimalsFromChain: d });
       if (typeof d === "number" && Number.isInteger(d) && d >= 0 && d !== FIGHT10_DECIMALS) {
-        F10(`resolveTokenDecimals: correcting ${FIGHT10_DECIMALS} → ${d}`);
         FIGHT10_DECIMALS = d;
         ENTRY_FEE_RAW = BigInt(ENTRY_FEE) * BigInt(10) ** BigInt(FIGHT10_DECIMALS);
       }
@@ -182,7 +148,7 @@ async function resolveTokenDecimals() {
       return FIGHT10_DECIMALS;
     })().catch((err) => {
       _decimalsPromise = null; // allow a retry on the next call
-      F10("resolveTokenDecimals: FAILED (keeping seed)", err?.message || err, err);
+      console.error("[resolveTokenDecimals]", err);
       return FIGHT10_DECIMALS;
     });
   }
@@ -927,27 +893,21 @@ async function init() {
   }, 50);
 
   if (statusEl) statusEl.textContent = "Connecting…";
-  F10("init: start");
   // Gate the whole app on the maintenance switch before anything else boots.
-  const maint = await isUnderMaintenance();
-  F10("init: isUnderMaintenance →", maint);
-  if (maint) { clearInterval(tick); showMaintenance(); return; }
+  if (await isUnderMaintenance()) { clearInterval(tick); showMaintenance(); return; }
   loadMatchConfig(); // fire-and-forget; ready well before any match starts
   loadPvpConfig();   // fire-and-forget; entry fee + winner share for the UI/deposit
   resolveTokenDecimals().catch(() => {}); // fire-and-forget; corrects token decimals from the mint (self-heals a wrong seed/env)
   startOnlinePresence(); // fire-and-forget; independent of auth/login state
   supabase.auth.onAuthStateChange((_event, session) => {
-    F10("onAuthStateChange", { event: _event, hasSession: !!session });
     handleSession(session).catch((error) => {
       console.error(error);
       setStatus(error.message || "Auth update failed.");
     });
   });
   const { data } = await supabase.auth.getSession();
-  F10("init: getSession →", { hasSession: !!data.session, userId: data.session?.user?.id ?? null });
   if (statusEl) statusEl.textContent = "Loading profile…";
   await handleSession(data.session);
-  F10("init: handleSession(initial) done");
 
   // Snap to 100 % then fade out.
   clearInterval(tick);
@@ -965,14 +925,7 @@ async function init() {
 // Wallet-Standard provider. Phantom/Backpack expose it at window.solana;
 // Solflare at window.solflare. Return the first one present.
 function getSolanaWallet() {
-  const w = window.solana || window.phantom?.solana || window.solflare || null;
-  F10("getSolanaWallet →", w ? (w.isPhantom ? "phantom" : w.isSolflare ? "solflare" : "wallet-standard") : "NONE", {
-    hasWindowSolana: !!window.solana,
-    hasPhantom: !!window.phantom?.solana,
-    hasSolflare: !!window.solflare,
-    publicKey: w?.publicKey ? w.publicKey.toBase58() : null,
-  });
-  return w;
+  return window.solana || window.phantom?.solana || window.solflare || null;
 }
 
 // The wallet's currently connected address (base58), or null when the site
@@ -996,11 +949,7 @@ async function getWalletAddress(wallet = getSolanaWallet()) {
 // the UI just sits blank. Money-moving paths keep using getWalletAddress(),
 // which requires the live wallet that must actually sign.
 async function getDisplayWalletAddress() {
-  const live = await getWalletAddress();
-  const fromProfile = normWallet(state.profile?.wallet_address);
-  const addr = live || fromProfile || null;
-  F10("getDisplayWalletAddress →", addr, { liveWallet: live, profileWallet: state.profile?.wallet_address ?? null, normalizedProfile: fromProfile });
-  return addr;
+  return (await getWalletAddress()) || normWallet(state.profile?.wallet_address) || null;
 }
 
 async function signIn() {
@@ -1034,7 +983,6 @@ async function signOut() {
 async function handleSession(session) {
   const prevUserId = state.user?.id;
   state.user = session?.user ?? null;
-  F10("handleSession", { hasSession: !!session, userId: state.user?.id ?? null, prevUserId: prevUserId ?? null });
 
   // Supabase re-fires auth events for the SAME user (token refresh, tab
   // refocus re-emitting SIGNED_IN — e.g. returning from the wallet popup).
@@ -1078,8 +1026,7 @@ async function handleSession(session) {
       ? "You have a confirmed, unused entry deposit — click Play PvP to enter the queue without paying again."
       : "Wallet connected — choose Demo Match or Play PvP."
   ));
-  F10("handleSession: signed in, profile synced — calling refreshFight10Balance", { walletOnProfile: state.profile?.wallet_address ?? null });
-  refreshFight10Balance().catch((e) => { F10("refreshFight10Balance threw", e?.message || e); console.error(e); });
+  refreshFight10Balance().catch(console.error);
 }
 
 async function syncProfile() {
@@ -1877,7 +1824,6 @@ async function depositEntryFee(numPlayers = 2) {
     // with it in their seeds, and each SPL instruction must target it, or a
     // Token-2022 mint's deposit is built against the wrong program and rejected.
     const tokenProgramId = await getTokenProgramId();
-    F10("deposit: token program", tokenProgramId.toBase58());
 
     // Source = the player's ATA, destination = the escrow's ATA for the mint.
     const fromAta = await solana.getAssociatedTokenAddress(mint, owner, false, tokenProgramId);
@@ -1964,7 +1910,6 @@ function isMissingTokenAccountError(err) {
 }
 
 async function getFight10Balance(walletAddress) {
-  F10("getFight10Balance: start", { walletAddress: String(walletAddress), mint: FIGHT10_TOKEN });
   const solana = await loadSolana();
   const connection = await getConnection();
   // Correct FIGHT10_DECIMALS (and ENTRY_FEE_RAW) from the mint before the caller
@@ -1981,12 +1926,10 @@ async function getFight10Balance(walletAddress) {
   // deriving one ATA with the wrong token program points at a nonexistent
   // address and reads a false 0 (the Token-2022 bug that hid real balances).
   const { value: accounts } = await connection.getParsedTokenAccountsByOwner(owner, { mint });
-  const total = accounts.reduce(
+  return accounts.reduce(
     (sum, a) => sum + BigInt(a.account?.data?.parsed?.info?.tokenAmount?.amount ?? "0"),
     0n,
   );
-  F10("getFight10Balance: accounts", { count: accounts.length, total: total.toString() });
-  return total;
 }
 
 function updatePrizePot(numPlayers) {
@@ -2000,26 +1943,21 @@ function updatePrizePot(numPlayers) {
 }
 
 async function refreshFight10Balance() {
-  F10("refreshFight10Balance: called");
   const balEl = document.getElementById("fight10Balance");
-  if (!balEl) { F10("refreshFight10Balance: ABORT — #fight10Balance element not found"); return; }
-  if (!state.user) { F10("refreshFight10Balance: ABORT — not signed in (state.user is null)"); return; }
+  if (!balEl || !state.user) return;
   const addr = await getDisplayWalletAddress();
-  if (!addr) { F10("refreshFight10Balance: ABORT — no wallet address available"); return; }
+  if (!addr) return;
   // Pre-launch: the mint isn't configured yet, so there is no on-chain balance
   // to read. Mirror the holdings tab and leave the chip hidden rather than
   // building an invalid PublicKey (which threw and was swallowed here, so the
   // chip silently "never loaded"). The holdings tab explains the pre-launch state.
-  if (FIGHT10_TOKEN.startsWith("<")) { F10("refreshFight10Balance: ABORT — mint is placeholder", FIGHT10_TOKEN); return; }
+  if (FIGHT10_TOKEN.startsWith("<")) return;
   try {
     const raw = await getFight10Balance(addr);
-    const text = formatTokens(raw, FIGHT10_DECIMALS) + " $FIGHT10";
-    F10("refreshFight10Balance: SUCCESS — rendering chip", { raw: raw.toString(), decimals: FIGHT10_DECIMALS, text });
-    balEl.textContent = text;
+    balEl.textContent = formatTokens(raw, FIGHT10_DECIMALS) + " $FIGHT10";
     balEl.title = "View your $FIGHT10 holdings";
     balEl.classList.remove("hidden");
   } catch (err) {
-    F10("refreshFight10Balance: read failed — showing dash", err?.message || err);
     console.error("[refreshFight10Balance]", err);
     // Make a real read failure VISIBLE instead of leaving the chip invisible: a
     // rate-limited / 403 / timed-out RPC used to fail silently here, so a funded
