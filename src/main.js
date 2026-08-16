@@ -149,11 +149,17 @@ async function getConnection() {
 // Resolved once and cached; on any failure we keep the seed value rather than
 // block money flow on an RPC hiccup. Recomputes ENTRY_FEE_RAW so the deposit
 // amount and the pre-join balance gate use the corrected scale.
+// The token program that OWNS the mint — classic SPL Token or Token-2022. It is
+// part of an ATA's derivation seeds and must be passed to every spl-token call,
+// or a Token-2022 mint's ATA is derived at the wrong (nonexistent) address and
+// every balance reads as 0 / every deposit instruction targets the wrong program.
+// Captured from the mint account's owner alongside decimals; null until resolved.
+let _tokenProgramId = null;
 let _decimalsResolved = false;
 let _decimalsPromise = null;
 async function resolveTokenDecimals() {
   if (_decimalsResolved || FIGHT10_TOKEN.startsWith("<")) {
-    F10("resolveTokenDecimals: skip", { alreadyResolved: _decimalsResolved, placeholder: FIGHT10_TOKEN.startsWith("<"), decimals: FIGHT10_DECIMALS });
+    F10("resolveTokenDecimals: skip", { alreadyResolved: _decimalsResolved, placeholder: FIGHT10_TOKEN.startsWith("<"), decimals: FIGHT10_DECIMALS, tokenProgram: _tokenProgramId?.toBase58?.() ?? null });
     return FIGHT10_DECIMALS;
   }
   if (!_decimalsPromise) {
@@ -163,7 +169,10 @@ async function resolveTokenDecimals() {
       const connection = await getConnection();
       const info = await connection.getParsedAccountInfo(new solana.PublicKey(FIGHT10_TOKEN));
       const d = info?.value?.data?.parsed?.info?.decimals;
-      F10("resolveTokenDecimals: mint account", { found: !!info?.value, ownerProgram: info?.value?.owner?.toBase58?.() ?? null, decimalsFromChain: d });
+      // owner is the token program (classic or Token-2022). Cache it for ATA
+      // derivation and deposit instruction building.
+      if (info?.value?.owner) _tokenProgramId = new solana.PublicKey(info.value.owner);
+      F10("resolveTokenDecimals: mint account", { found: !!info?.value, ownerProgram: _tokenProgramId?.toBase58?.() ?? null, decimalsFromChain: d });
       if (typeof d === "number" && Number.isInteger(d) && d >= 0 && d !== FIGHT10_DECIMALS) {
         F10(`resolveTokenDecimals: correcting ${FIGHT10_DECIMALS} → ${d}`);
         FIGHT10_DECIMALS = d;
@@ -180,12 +189,21 @@ async function resolveTokenDecimals() {
   return _decimalsPromise;
 }
 
-// The player's Associated Token Account (ATA) for $FIGHT10 — the SPL token
-// account that actually holds the balance for a given owner wallet.
+// The mint's token program (classic SPL or Token-2022), resolving the mint
+// first if needed. Falls back to the classic program only if resolution failed.
+async function getTokenProgramId() {
+  await resolveTokenDecimals();
+  const solana = await loadSolana();
+  return _tokenProgramId || new solana.PublicKey("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA");
+}
+
+// The player's Associated Token Account (ATA) for $FIGHT10. Derived with the
+// mint's ACTUAL token program so it resolves correctly for Token-2022 mints too.
 async function getFight10Ata(ownerPubkey) {
   const solana = await loadSolana();
   const mint = new solana.PublicKey(FIGHT10_TOKEN);
-  return solana.getAssociatedTokenAddress(mint, ownerPubkey);
+  const programId = await getTokenProgramId();
+  return solana.getAssociatedTokenAddress(mint, ownerPubkey, false, programId);
 }
 
 // Wallet addresses are compared all over (login wallet vs deposit wallet,
@@ -1855,21 +1873,27 @@ async function depositEntryFee(numPlayers = 2) {
     const owner = new solana.PublicKey(playerAddress);
     const mint = new solana.PublicKey(FIGHT10_TOKEN);
     const escrowOwner = new solana.PublicKey(ESCROW_WALLET);
+    // The mint's token program (classic SPL or Token-2022). ATAs are derived
+    // with it in their seeds, and each SPL instruction must target it, or a
+    // Token-2022 mint's deposit is built against the wrong program and rejected.
+    const tokenProgramId = await getTokenProgramId();
+    F10("deposit: token program", tokenProgramId.toBase58());
 
     // Source = the player's ATA, destination = the escrow's ATA for the mint.
-    const fromAta = await solana.getAssociatedTokenAddress(mint, owner);
-    const toAta = await solana.getAssociatedTokenAddress(mint, escrowOwner);
+    const fromAta = await solana.getAssociatedTokenAddress(mint, owner, false, tokenProgramId);
+    const toAta = await solana.getAssociatedTokenAddress(mint, escrowOwner, false, tokenProgramId);
 
     const instructions = [];
     // Create the escrow's ATA if it doesn't exist yet (idempotent — a no-op if
     // present). The player pays the one-time rent; on an escrow that has already
     // received a deposit this adds nothing. transferChecked binds the mint +
     // decimals so a wrong-mint or wrong-amount transfer can't slip through.
+    // The token program is passed explicitly so Token-2022 mints work.
     instructions.push(
-      solana.createAssociatedTokenAccountIdempotentInstruction(owner, toAta, escrowOwner, mint),
+      solana.createAssociatedTokenAccountIdempotentInstruction(owner, toAta, escrowOwner, mint, tokenProgramId),
     );
     instructions.push(
-      solana.createTransferCheckedInstruction(fromAta, mint, toAta, owner, ENTRY_FEE_RAW, FIGHT10_DECIMALS),
+      solana.createTransferCheckedInstruction(fromAta, mint, toAta, owner, ENTRY_FEE_RAW, FIGHT10_DECIMALS, [], tokenProgramId),
     );
 
     const { blockhash, lastValidBlockHeight } = await connection.getLatestBlockhash("confirmed");
@@ -1950,18 +1974,19 @@ async function getFight10Balance(walletAddress) {
   const owner = walletAddress instanceof solana.PublicKey
     ? walletAddress
     : new solana.PublicKey(walletAddress);
-  const ata = await getFight10Ata(owner);
-  F10("getFight10Balance: derived ATA", ata?.toBase58?.() ?? String(ata));
-  try {
-    const res = await connection.getTokenAccountBalance(ata);
-    F10("getFight10Balance: RPC ok", { amount: res?.value?.amount, decimals: res?.value?.decimals });
-    return BigInt(res?.value?.amount ?? "0");
-  } catch (err) {
-    const missing = isMissingTokenAccountError(err);
-    F10("getFight10Balance: RPC error", { missingAccount: missing, message: err?.message || String(err) }, err);
-    if (missing) return 0n;
-    throw err; // real RPC failure — surface it instead of faking a zero balance
-  }
+  const mint = new solana.PublicKey(FIGHT10_TOKEN);
+  // Enumerate the wallet's token accounts FOR THIS MINT instead of deriving a
+  // single ATA and reading it. Filtering by mint is program-agnostic, so it
+  // returns the real account whether the mint is classic SPL or Token-2022 —
+  // deriving one ATA with the wrong token program points at a nonexistent
+  // address and reads a false 0 (the Token-2022 bug that hid real balances).
+  const { value: accounts } = await connection.getParsedTokenAccountsByOwner(owner, { mint });
+  const total = accounts.reduce(
+    (sum, a) => sum + BigInt(a.account?.data?.parsed?.info?.tokenAmount?.amount ?? "0"),
+    0n,
+  );
+  F10("getFight10Balance: accounts", { count: accounts.length, total: total.toString() });
+  return total;
 }
 
 function updatePrizePot(numPlayers) {
