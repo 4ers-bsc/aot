@@ -1,10 +1,11 @@
 # FIGHT10 — Findings, Feedback & Suggestions Summary
 
 A consolidated review of every finding, piece of feedback, and open suggestion
-recorded across the project's pull requests (#211–#240). There are **no open
-GitHub issues** and **no external review comments** on the PRs — every item
-below was captured and addressed in the PR that introduced it, so this table is
-also the fix log.
+recorded across the project's pull requests (**#202–#241** — the full history to
+date). There are **no open GitHub issues**, and the only PR comments are
+automated Vercel deploy notices — **no human review comments**. Every item below
+was captured and addressed in the PR that introduced it, so this table is also
+the fix log.
 
 Status legend: ✅ fixed & merged · 🟡 open / follow-up · ♻️ later superseded by
 the Solana migration.
@@ -13,8 +14,8 @@ the Solana migration.
 
 ## 1. Security findings (DB, payout & realtime hardening)
 
-These came out of the database-security and payout/reliability audits
-(PRs #223, #224, #229, #230).
+These came out of the database-security, anti-cheat and payout/reliability
+audits (PRs #209, #210, #223, #224, #229, #230).
 
 | # | Finding | Severity | Where | Status | PR |
 |---|---------|----------|-------|--------|-----|
@@ -34,6 +35,8 @@ These came out of the database-security and payout/reliability audits
 | S14 | **Precision loss** — `Number(raw) / 10 ** decimals` silently rounds past Number's safe-integer range. | Medium | Client | ✅ BigInt division (`tokensFromRaw` / `formatTokens`) across `main.js` / `admin.js`. | #223 |
 | S15 | **Case-sensitive replay** — EVM tx hashes are case-insensitive but were stored/compared exact-match. | Medium | DB / edge fn | ♻️ Fixed for EVM (lowercase-normalize + `lower()` unique indexes), then **reversed** for Solana in #232 — base58 is case-sensitive, so `lower()` was dropped and exact-match constraints kept as the replay guard. | #224 → #232 |
 | S16 | **Token-2022 fee-aware deposit verification** — the balance-delta check ("escrow credited exactly the entry fee") breaks on a Token-2022 mint with a transfer fee, where escrow's net credit is `amount − fee`. | High | Edge fn | ✅ Switched to an instruction-level check (player *authorised* an entry-fee transfer into the escrow ATA); scans top-level + CPI instructions, accepts `transfer`/`transferChecked`/`transferCheckedWithFee`, resolves escrow ATA + token program from chain. | #240 (commit `661a10b`) |
+| S17 | **Farmed away-seat dispute freeze** — an away player whose client never loaded still counts as "connected" for the 15s grace (`last_seen` defaults to `now()` at join). P1 farms the idle seat and reports a win, but `finalize_match` holds the match open (`v_unreported > 0`) long enough for the corpse to finish loading inside the grace window, fight back, record its own lethal total, and self-report — two contradictory "I won" reports then trip the corroboration guard and freeze a pot P1 had already earned as `disputed`. | High | DB | ✅ A seat that has recorded **no offense of its own** yet already absorbed a lethal total (≥100) was never in the fight — it no longer blocks settlement, so the win settles before the corpse can retaliate; the away player's later combat writes hit a settled match and are rejected as stale. A real fighter (has recorded offense) still blocks settlement until it reports, so a fabricated-lethal match can't early-settle past the corroboration guard. | #210 |
+| S18 | **Maintenance mode client-only** — the maintenance overlay is client-side DOM and can be deleted from the console, so on its own it didn't stop a determined user from starting new matches. | Medium | Client / DB | ✅ Authoritative server gate: `is_maintenance()` + a `BEFORE INSERT` trigger on `match_players` rejects every new seat while maintenance is on (the consumed-deposit record + pot bump roll back in-transaction, so the deposit stays reusable once lifted); `f10join` also refuses joins early, before any on-chain work. In-flight matches still settle and pay out. | #209 |
 
 ---
 
@@ -69,6 +72,9 @@ Product- and review-feedback that shaped features rather than fixing defects.
 
 | Area | Feedback → change | PR |
 |------|-------------------|-----|
+| Game visual | **Arena backdrop rework** — black-and-gold brick masonry between the wire fence and the aurora + a silhouette-free starry black sky; near-black running-bond walls laced with glowing neon-gold grout (both verified tiling seamlessly in headless Chromium). | #202, #203 |
+| Game UX | **Settlement feedback** — keep the results overlay (spinner + progress bar) up for the whole walkover-settlement wait instead of hiding it after a fixed 2s; a 15s cooldown countdown that mirrors the server's disconnect-grace window; and copy that reads a long wait as "Opponent disconnected" (server replaying the match to settle) instead of a frozen "Finalizing result…". | #204, #206, #207 |
+| Ops UX | **Admin tabs polish + filters.** | #208 |
 | Game perf | **Mobile quality tier** — detect constrained devices and dial back the GPU-heavy scene (1024 shadow map, cheaper PCF, 1.5× pixel-ratio cap, MSAA off by default, re-enableable). | #216 |
 | Game AI | **Diversify demo AI** — extra raiders cycle sword/pistol/sniper instead of all snipers; melee AI closes into swing range (was frozen at a 22-unit stand-off). | #216 |
 | Game UX | **Surface weapon swapping** — add 1–4 swap keys to the hint bar, a per-weapon How-To-Play section, and a first-visit tutorial callout. | #216 |
@@ -110,13 +116,17 @@ EVM-era fixes were deliberately reversed once back on Solana:
   expired) (#232).
 - **Token decimals** — walked `18 → 9 → 6` before settling on the mint's real
   on-chain value read at boot (#232 → #236).
+- **Robinhood-Chain branding** — the arena "LIVE ON ROBINHOOD CHAIN" logo sign
+  and the Robinhood asset on the PvP loading / chain-sign flow (#204, #205) were
+  removed on the migration back to Solana (#232); the chain-sign UI is
+  chain-neutral again.
 
 ---
 
-## 6. Remediation applied in this PR
+## 6. Remediation applied in #241
 
-The still-open items from the sections above were implemented here.
-**Verification:** client `npm run build` passes; all three edge functions parse
+The then-open follow-ups from the sections above were implemented in **PR #241**
+(merged). **Verification:** client `npm run build` passes; all three edge functions parse
 (esbuild); `fresh_setup.sql` + the new migration `20260801_*` load on Postgres 16
 (migration idempotent) and pass functional tests covering the payout lifecycle,
 the queue worker RPCs, and the deadline snapshot-vs-live fallback. The money path
@@ -160,4 +170,23 @@ reconcile) is unchanged — so it is safe to ship dark.
   function folder in isolation; the "edit both together" duplication stands.
 - **Stale README / PR #231** — already moot (the current README has no "2,500").
   PR #231 also carries unrelated additions, so it is left for its author to close
-  rather than merged here.
+  rather than merged here. **Still open** as of this review.
+
+---
+
+## 7. About this revision
+
+This pass **extends coverage back to the full #202–#241 PR history** (the first
+draft scoped only #211–#240) and refreshes statuses. It is **documentation-only —
+no code changed.** Newly captured here:
+
+- Two earlier game-integrity fixes folded into the security table — **S17**
+  (farmed away-seat dispute freeze, #210) and **S18** (client-only maintenance
+  mode, #209).
+- The arena backdrop reworks and settlement-UX polish (#202–#208) added to the
+  feedback section.
+- The Robinhood-Chain branding assets (#204, #205) recorded as superseded by the
+  Solana migration.
+- #241's remediation confirmed **merged**; #231 confirmed **still open** (and
+  moot). No open GitHub issues; the only PR comments are automated Vercel deploy
+  notices.
