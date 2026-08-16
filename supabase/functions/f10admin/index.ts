@@ -215,7 +215,6 @@ async function payoutWinner(admin: any, matchId: string) {
   const escrowPubkey = escrowKeypair.publicKey;
   const escrowAddr = escrowPubkey.toBase58();
   const mint       = new PublicKey(tokenAddr);
-  const escrowAta  = getAssociatedTokenAddressSync(mint, escrowPubkey);
 
   // Pay to the winner's ENTRY snapshot wallet (deposit_wallet, enforced == login
   // wallet at join), never the mutable profile.wallet_address (P1). Fall back to
@@ -237,6 +236,17 @@ async function payoutWinner(admin: any, matchId: string) {
   if (matchRow.chain_id != null && Number(matchRow.chain_id) !== NETWORK.chainId) throw new Error("Cluster changed since match entry — payout blocked");
 
   const rpc = createRpcPool();
+
+  // Detect the mint's token program (classic SPL or Token-2022). ATAs are
+  // derived with it in their seeds and every SPL instruction must target it, or
+  // a Token-2022 mint's payout is built against the wrong (nonexistent) ATA and
+  // the transfer fails on-chain.
+  const TOKEN_2022_PROGRAM_ID = new PublicKey("TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb");
+  const CLASSIC_TOKEN_PROGRAM_ID = new PublicKey("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA");
+  const mintAcctInfo = await rpc.run((c) => c.getAccountInfo(mint));
+  const tokenProgramId = mintAcctInfo?.owner?.equals(TOKEN_2022_PROGRAM_ID)
+    ? TOKEN_2022_PROGRAM_ID : CLASSIC_TOKEN_PROGRAM_ID;
+  const escrowAta  = getAssociatedTokenAddressSync(mint, escrowPubkey, false, tokenProgramId);
 
   const decimals = Number((await rpc.run((c) => c.getTokenSupply(mint))).value.decimals);
   // Entry fee + winner share are frozen onto the match at creation
@@ -334,7 +344,7 @@ async function payoutWinner(admin: any, matchId: string) {
     // Lease one connection for the whole sign + broadcast + confirm sequence.
     const payConn      = rpc.lease();
     const winnerPubkey = new PublicKey(winnerAddr);
-    const winnerAta    = getAssociatedTokenAddressSync(mint, winnerPubkey);
+    const winnerAta    = getAssociatedTokenAddressSync(mint, winnerPubkey, false, tokenProgramId);
 
     // #P0 (persist BEFORE broadcast): build + SIGN the transfer without sending
     // it so the exact signature and blockhash are known up front. Create the
@@ -345,8 +355,8 @@ async function payoutWinner(admin: any, matchId: string) {
     const { blockhash, lastValidBlockHeight } = await payConn.getLatestBlockhash("confirmed");
     const tx = new Transaction({ feePayer: escrowPubkey, blockhash, lastValidBlockHeight });
     tx.add(
-      createAssociatedTokenAccountIdempotentInstruction(escrowPubkey, winnerAta, winnerPubkey, mint),
-      createTransferCheckedInstruction(escrowAta, mint, winnerAta, escrowPubkey, winnerAmountRaw, decimals),
+      createAssociatedTokenAccountIdempotentInstruction(escrowPubkey, winnerAta, winnerPubkey, mint, tokenProgramId),
+      createTransferCheckedInstruction(escrowAta, mint, winnerAta, escrowPubkey, winnerAmountRaw, decimals, [], tokenProgramId),
     );
     tx.sign(escrowKeypair);
     const rawTx = tx.serialize();
