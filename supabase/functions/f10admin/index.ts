@@ -140,6 +140,31 @@ function txHasDeposit(meta: any, mint: string, sender: string, escrow: string, a
          ownerMintDelta(meta, sender, mint) === -amount;
 }
 
+// Instruction-level deposit check (mirrors f10join / f10treasurer): verifies the
+// AUTHORISED transfer amount into the escrow token account rather than escrow's
+// NET credit, so it stays correct on a Token-2022 mint with a transfer fee.
+// Takes a web3.js getParsedTransaction object (instruction `programId` is a
+// PublicKey); scans top-level and CPI-wrapped (inner) instructions.
+function txAuthorizesDeposit(
+  parsed: any, escrowAta: string, sender: string, tokenProgram: string, amountRaw: string,
+): boolean {
+  const top = (parsed?.transaction?.message?.instructions ?? []) as any[];
+  const inner = (parsed?.meta?.innerInstructions ?? []).flatMap((ii: any) => ii?.instructions ?? []);
+  return [...top, ...inner].some((ix: any) => {
+    if (ix?.programId?.toString?.() !== tokenProgram) return false;
+    const p = ix?.parsed;
+    if (!p) return false;
+    const info = p.info ?? {};
+    if ((info.authority ?? info.multisigAuthority) !== sender) return false;
+    if (info.destination !== escrowAta) return false;
+    if (p.type === "transfer") return info.amount === amountRaw;
+    if (p.type === "transferChecked" || p.type === "transferCheckedWithFee") {
+      return info.tokenAmount?.amount === amountRaw;
+    }
+    return false;
+  });
+}
+
 function getRpcUrls(): string[] {
   const urls = [Deno.env.get("RPC_URL"), Deno.env.get("RPC_URL_2"), Deno.env.get("RPC_URL_3")]
     .map((u) => u?.trim()).filter((u): u is string => !!u);
@@ -296,8 +321,12 @@ async function payoutWinner(admin: any, matchId: string) {
     }
   }
 
-  // The token-balance deltas prove the mint, sender, destination, and exact
-  // amount — a confirmed-but-unrelated signature cannot pass.
+  // Instruction-level check (mirrors f10join): confirm each player authorised a
+  // transfer of the entry fee into the escrow token account. Validates the
+  // amount sent (pre-fee), so it stays correct on a Token-2022 mint with a
+  // transfer fee — a confirmed-but-unrelated signature cannot pass.
+  const escrowAtaStr = escrowAta.toBase58();
+  const tokenProgStr = tokenProgramId.toBase58();
   const depositTxs = players.map((p: any) => p.deposit_tx as string);
   const parsedDeposits = await Promise.all(depositTxs.map((tx) => getParsedTx(rpc, tx)));
   for (let i = 0; i < depositTxs.length; i++) {
@@ -306,7 +335,7 @@ async function payoutWinner(admin: any, matchId: string) {
     if (parsed.meta?.err) throw new Error(`Deposit ${i + 1} failed on-chain`);
     const expectedSender = walletByUser.get(players[i].user_id) ?? "";
     if (!isAddress(expectedSender)) throw new Error(`Deposit ${i + 1}: depositing wallet was not recorded at join time`);
-    if (!txHasDeposit(parsed.meta, tokenAddr, expectedSender, escrowAddr, entryFeeRaw)) {
+    if (!txAuthorizesDeposit(parsed, escrowAtaStr, expectedSender, tokenProgStr, entryFeeRaw.toString())) {
       throw new Error(`Deposit ${i + 1} does not contain a valid FIGHT10 transfer from the player to escrow`);
     }
   }

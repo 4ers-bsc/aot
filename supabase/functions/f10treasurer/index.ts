@@ -75,6 +75,31 @@ function txHasDeposit(meta: any, mint: string, sender: string, escrow: string, a
          ownerMintDelta(meta, sender, mint) === -amount;
 }
 
+// Instruction-level deposit check (see f10join for the rationale): verifies the
+// AUTHORISED transfer amount into the escrow token account rather than escrow's
+// NET credit, so it stays correct on a Token-2022 mint with a transfer fee. This
+// takes a web3.js getParsedTransaction object, where instruction `programId` is
+// a PublicKey. Scans top-level and CPI-wrapped (inner) instructions.
+function txAuthorizesDeposit(
+  parsed: any, escrowAta: string, sender: string, tokenProgram: string, amountRaw: string,
+): boolean {
+  const top = (parsed?.transaction?.message?.instructions ?? []) as any[];
+  const inner = (parsed?.meta?.innerInstructions ?? []).flatMap((ii: any) => ii?.instructions ?? []);
+  return [...top, ...inner].some((ix: any) => {
+    if (ix?.programId?.toString?.() !== tokenProgram) return false;
+    const p = ix?.parsed;
+    if (!p) return false;
+    const info = p.info ?? {};
+    if ((info.authority ?? info.multisigAuthority) !== sender) return false;
+    if (info.destination !== escrowAta) return false;
+    if (p.type === "transfer") return info.amount === amountRaw;
+    if (p.type === "transferChecked" || p.type === "transferCheckedWithFee") {
+      return info.tokenAmount?.amount === amountRaw;
+    }
+    return false;
+  });
+}
+
 // ---------------------------------------------------------------------------
 // RPC endpoint pool — spread load across up to 3 keys (RPC_URL, RPC_URL_2,
 // RPC_URL_3; the cluster's public RPC as fallback). Each call grabs the next
@@ -376,9 +401,13 @@ Deno.serve(async (req: Request) => {
     }
 
     // ── Verify each deposit tx succeeded and paid escrow ─────────────────────
-    // The token-balance deltas prove the mint, sender, destination, and exact
-    // amount — a confirmed-but-unrelated signature cannot pass. All fetches run
-    // in parallel to minimise latency.
+    // Instruction-level check (mirrors f10join): confirm each player authorised a
+    // transfer of the entry fee from their wallet into the escrow token account.
+    // Validates the amount sent (pre-fee), so it stays correct on a Token-2022
+    // mint with a transfer fee — a confirmed-but-unrelated signature cannot pass.
+    // All fetches run in parallel to minimise latency.
+    const escrowAtaStr = escrowAta.toBase58();
+    const tokenProgStr = tokenProgramId.toBase58();
     const depositTxs = players.map((p: any) => p.deposit_tx as string);
     const parsedDeposits = await Promise.all(depositTxs.map((tx) => getParsedTx(rpc, tx)));
 
@@ -390,9 +419,10 @@ Deno.serve(async (req: Request) => {
       const expectedSender = walletByUser.get(players[i].user_id) ?? "";
       if (!isAddress(expectedSender)) return errorResponse(`Deposit ${i + 1}: depositing wallet was not recorded at join time`, 400);
 
-      if (!txHasDeposit(parsed.meta, tokenAddr, expectedSender, escrowAddr, entryFeeRaw)) {
+      if (!txAuthorizesDeposit(parsed, escrowAtaStr, expectedSender, tokenProgStr, entryFeeRaw.toString())) {
         console.error(`Deposit ${i + 1} verification failed`, JSON.stringify({
-          expectedSender, escrowAddr, tokenAddr, entryFee: entryFeeRaw.toString(),
+          expectedSender, escrowAddr, escrowAta: escrowAtaStr, tokenAddr, tokenProgram: tokenProgStr,
+          entryFee: entryFeeRaw.toString(),
           escrowDelta: ownerMintDelta(parsed.meta, escrowAddr, tokenAddr).toString(),
           senderDelta: ownerMintDelta(parsed.meta, expectedSender, tokenAddr).toString(),
         }));
