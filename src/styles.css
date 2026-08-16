@@ -6645,6 +6645,15 @@ body.in-game .hs-style-picker { display: none !important; }
 .home-sections.hs-theme-mono .hs-footer-x { color: rgba(255, 255, 255, 0.45); }
 .home-sections.hs-theme-mono .hs-footer-x:hover { color: #ffffff; }
 
+/* ---------------------------------------------------------------------------
+   Monochrome modifier — composes with a base theme (e.g. `hs-theme-terminal`,
+   `hs-theme-deco`) to render that exact design drained to black/white/grey. A
+   single grayscale filter keeps every layout detail, glow and animation intact
+   while stripping all hue; a touch of contrast keeps the greys crisp. The
+   picker chip is a sibling of .home-sections, so it keeps its own colour.
+   --------------------------------------------------------------------------- */
+.home-sections.hs-mono { filter: grayscale(1) contrast(1.06); }
+
 /* Respect reduced-motion: kill every looping theme decoration (entrance
    reveals are already disabled by the .ha reduced-motion rule above). */
 @media (prefers-reduced-motion: reduce) {

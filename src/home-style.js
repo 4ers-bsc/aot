@@ -11,22 +11,30 @@
 
 const STORAGE_KEY = "fight10.hsStyle";
 
-// The theme classes the picker is allowed to set. Anything else — including a
-// stale value written by an older build — is ignored and falls back to the
-// classic (no-class) look.
-const THEMES = [
+// Each selectable option maps to the class — or space-separated classes —
+// applied to #homeSections. Composed entries pair a base theme with the
+// generic monochrome modifier (`.hs-mono`), which drains that exact design to
+// black/white/grey. Anything else (including a stale value from an older
+// build) is ignored and falls back to the classic (no-class) look.
+const OPTIONS = [
   "hs-theme-neon",
   "hs-theme-brutal",
   "hs-theme-aurora",
   "hs-theme-terminal",
   "hs-theme-deco",
   "hs-theme-mono",
+  "hs-theme-terminal hs-mono",
+  "hs-theme-deco hs-mono",
 ];
+
+// Every class the picker might add, flattened from OPTIONS for reliable
+// cleanup before applying a new selection.
+const ALL_CLASSES = [...new Set(OPTIONS.flatMap((o) => o.split(" ")))];
 
 function readSaved() {
   try {
     const v = localStorage.getItem(STORAGE_KEY);
-    return v && THEMES.includes(v) ? v : "";
+    return v && OPTIONS.includes(v) ? v : "";
   } catch {
     return "";
   }
@@ -47,7 +55,8 @@ export function initHomeStylePicker() {
   if (!sections || !select) return;
 
   const apply = (value) => {
-    THEMES.forEach((t) => sections.classList.toggle(t, t === value));
+    ALL_CLASSES.forEach((c) => sections.classList.remove(c));
+    if (value) value.split(" ").forEach((c) => sections.classList.add(c));
   };
 
   const saved = readSaved();
@@ -57,7 +66,7 @@ export function initHomeStylePicker() {
   }
 
   select.addEventListener("change", () => {
-    const value = THEMES.includes(select.value) ? select.value : "";
+    const value = OPTIONS.includes(select.value) ? select.value : "";
     apply(value);
     save(value);
   });
