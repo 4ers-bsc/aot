@@ -28,6 +28,7 @@ const TABS = [
   ["payout_failed",     "Payout failed"],
   ["stale_waiting",     "Stale rooms"],
   ["payouts",           "All payouts"],
+  ["payout_queue",      "Payout queue"],
   ["cashflow",          "Cash flow"],
   ["consumed_deposits", "Consumed deposits"],
   ["banned",            "Banned users"],
@@ -42,7 +43,7 @@ const TAB_LABEL = Object.fromEntries(TABS);
 const TAB_GROUPS = [
   ["",           ["home", "matches"]],
   ["Operations", ["disputed", "integrity", "payout_pending", "payout_failed", "stale_waiting"]],
-  ["Finance",    ["payouts", "cashflow", "consumed_deposits"]],
+  ["Finance",    ["payouts", "payout_queue", "cashflow", "consumed_deposits"]],
   ["Users",      ["banned", "notes"]],
   ["System",     ["db", "functions", "constants", "deployment"]],
 ];
@@ -51,7 +52,7 @@ const INFO_TABS = new Set(["payouts", "consumed_deposits", "notes"]);
 // Tabs that render their own body (own filters / layout) instead of the shared
 // free-text search + row table. Each loads its data lazily on first open and
 // keeps its own loading / error state.
-const CUSTOM_TABS = new Set(["home", "matches", "cashflow", "db", "functions", "constants", "deployment"]);
+const CUSTOM_TABS = new Set(["home", "matches", "cashflow", "db", "functions", "constants", "deployment", "payout_queue"]);
 
 // Wipe-safety classification for the Database tab. Purely advisory — the backend
 // still gates every wipe behind a typed confirmation and refuses to cascade — but
@@ -92,10 +93,10 @@ const SAFETY_META = {
   unknown: ["⚪", "Unknown"],
 };
 
-// Raw on-chain units → whole $FIGHT10. SPL token default is 9 decimals
-// (override with VITE_FIGHT10_DECIMALS); pass decimals 0 for values already
-// stored in whole tokens (matches.pot_tokens).
-const TOKEN_DECIMALS = Number(import.meta.env?.VITE_FIGHT10_DECIMALS ?? 9);
+// Raw on-chain units → whole $FIGHT10. The $FIGHT10 mint uses 6 decimals
+// (Pump.fun; override with VITE_FIGHT10_DECIMALS); pass decimals 0 for values
+// already stored in whole tokens (matches.pot_tokens).
+const TOKEN_DECIMALS = Number(import.meta.env?.VITE_FIGHT10_DECIMALS ?? 6);
 const fmtTokens = (raw, decimals = TOKEN_DECIMALS) => {
   // BigInt division first (exact) — a naive Number(raw)/10**decimals rounds for
   // raw values past Number's safe-integer range (e.g. 2500 tokens @ 18 dp).
@@ -192,6 +193,7 @@ export function initAdmin(supabase) {
   let fnhealth = null, fnhealthLoading = false, fnhealthError = "";
   let config = null,   configLoading = false,   configError = "";
   let deployment = null, deploymentLoading = false, deploymentError = "";
+  let pqueue = null,   pqueueLoading = false,   pqueueError = "";
 
   // ---- DOM shell (built once, on first open) --------------------------------
   function ensureRoot() {
@@ -357,6 +359,7 @@ export function initAdmin(supabase) {
       case "functions": return loadFunctions();
       case "constants": return loadConfig();
       case "deployment": return loadDeployment();
+      case "payout_queue": return loadPayoutQueue();
       default:          return load();
     }
   }
@@ -370,6 +373,7 @@ export function initAdmin(supabase) {
     if (tab === "functions" && !fnhealth  && !fnhealthLoading)  loadFunctions();
     if (tab === "constants" && !config    && !configLoading)    loadConfig();
     if (tab === "deployment" && !deployment && !deploymentLoading) loadDeployment();
+    if (tab === "payout_queue" && !pqueue && !pqueueLoading) loadPayoutQueue();
   }
 
   // Generic on-demand fetch for a monitoring / config action. Sets the given
@@ -411,6 +415,11 @@ export function initAdmin(supabase) {
     if ("data" in s)    deployment = s.data;
     if ("loading" in s) deploymentLoading = s.loading;
     if ("error" in s)   deploymentError = s.error;
+  });
+  const loadPayoutQueue = () => fetchInto("payout_queue", null, "payout_queue", (s) => {
+    if ("data" in s)    pqueue = s.data;
+    if ("loading" in s) pqueueLoading = s.loading;
+    if ("error" in s)   pqueueError = s.error;
   });
 
   // Save an edited static constant, then reload the constants tab.
@@ -1021,6 +1030,7 @@ export function initAdmin(supabase) {
     if (activeTab === "functions") { bodyEl.innerHTML = renderFunctions(); return; }
     if (activeTab === "constants") { bodyEl.innerHTML = renderConstants(); return; }
     if (activeTab === "deployment") { bodyEl.innerHTML = renderDeployment(); return; }
+    if (activeTab === "payout_queue") { bodyEl.innerHTML = renderPayoutQueue(); return; }
     if (countEl) countEl.textContent = "";
     if (loading && !data) { bodyEl.innerHTML = `<div class="admin-msg">Loading…</div>`; return; }
     if (errorMsg)         { bodyEl.innerHTML = `<div class="admin-msg admin-err">${escapeHtml(errorMsg)}</div>`; return; }
@@ -1459,6 +1469,38 @@ export function initAdmin(supabase) {
 
     return `<p class="admin-note">Each function's unauthenticated health probe, pinged just now. “Config” reports whether required secrets are wired up — booleans and public addresses only, never a secret value. Watch for a mismatched escrow wallet / token across functions.</p>` +
       (cards || `<div class="admin-msg">No functions reported.</div>`);
+  }
+
+  // ---- Payout queue ---------------------------------------------------------
+  function renderPayoutQueue() {
+    if (pqueueLoading && !pqueue) return `<div class="admin-msg">Loading payout queue…</div>`;
+    if (pqueueError)              return `<div class="admin-msg admin-err">${escapeHtml(pqueueError)}</div>`;
+    if (!pqueue)                  return `<div class="admin-msg">No data.</div>`;
+
+    const s = pqueue.stats || {};
+    const jobs = pqueue.jobs || [];
+    const chip = (n, label) => `<span class="home-chip"><span class="home-chip-n">${fmtInt(n || 0)}</span>${escapeHtml(label)}</span>`;
+    const badgeCls = (st) => st === "failed" ? "tbl-danger" : st === "running" ? "tbl-prune" : "tbl-safe";
+
+    const rows = jobs.map((j) => `<tr>
+        <td class="admin-mono">${escapeHtml(shortId(j.match_id))}</td>
+        <td><span class="tbl-badge ${badgeCls(j.state)}">${escapeHtml(j.state)}</span></td>
+        <td class="admin-right">${fmtInt(j.attempts || 0)}</td>
+        <td>${j.next_attempt_at ? `${fmtTime(j.next_attempt_at)} <span class="admin-dim">(${ago(j.next_attempt_at)})</span>` : "—"}</td>
+        <td>${j.last_error ? escapeHtml(j.last_error) : "—"}</td>
+      </tr>`).join("");
+
+    return `<p class="admin-note">Durable payout queue (<span class="admin-mono">payout_jobs</span>). A job is enqueued when a match finishes with a winner and closes when a payout ledger row lands. The reconciler (<span class="admin-mono">f10treasurer?reconcile=1</span>) drains it and is OFF until the <span class="admin-mono">RECONCILE_SECRET</span> secret is set; winner-initiated claims work regardless.</p>
+      <div class="home-chips">
+        ${chip(s.queued, " queued")}
+        ${chip(s.running, " running")}
+        ${chip(s.due, " due")}
+        ${chip(s.failed, " failed")}
+        ${chip(s.total_open, " open total")}
+      </div>
+      ${jobs.length
+        ? `<table class="admin-table"><thead><tr><th>Match</th><th>State</th><th>Attempts</th><th>Next attempt</th><th>Last error</th></tr></thead><tbody>${rows}</tbody></table>`
+        : `<div class="admin-msg" style="margin-top:12px">Queue is empty — no open payout jobs.</div>`}`;
   }
 
   // ---- Static constants editor ----------------------------------------------

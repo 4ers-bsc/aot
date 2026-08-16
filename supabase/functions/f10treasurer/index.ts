@@ -8,6 +8,16 @@
 //
 // The escrow must hold a small amount of SOL to pay transaction fees and the
 // one-time rent when a winner's token account has to be created.
+//
+// Two entry points:
+//   • default POST { match_id } — winner-initiated claim (winner JWT required).
+//   • …?reconcile=1             — background reconciler that drains the durable
+//     payout_jobs queue with the SERVICE-role slot claim (no winner JWT). It is
+//     DISABLED unless RECONCILE_SECRET is set and sent as X-Reconcile-Secret, so
+//     nothing auto-moves money until an operator deliberately enables it. Both
+//     paths share the exact same payout core (processPayout) — the only
+//     difference is who reserves the slot and that the reconciler pays the
+//     match's recorded winner rather than the authenticated caller.
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import {
@@ -161,8 +171,15 @@ if (!appOrigin) console.error("WARNING: APP_ORIGIN secret not set — CORS is op
 const corsHeaders = {
   "Access-Control-Allow-Origin": appOrigin || "*",
   "Access-Control-Allow-Methods": "POST, OPTIONS",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-reconcile-secret",
 };
+
+function jsonResponse(body: any, status = 200): Response {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: { "Content-Type": "application/json", ...corsHeaders },
+  });
+}
 
 function errorResponse(message: string, status: number, matchId = ""): Response {
   // Log every rejection with its reason (and match, when known) so a stuck /
@@ -175,75 +192,60 @@ function errorResponse(message: string, status: number, matchId = ""): Response 
   });
 }
 
-Deno.serve(async (req: Request) => {
-  if (req.method === "OPTIONS") {
-    return new Response(null, { status: 204, headers: corsHeaders });
-  }
+// ===========================================================================
+// Payout core — shared by the winner-initiated claim and the reconciler.
+//
+// Returns { status, body } instead of a Response so both callers can wrap it
+// (the winner endpoint → HTTP Response; the reconciler → a job outcome). The
+// sequence, guards, single-flight lock, and persist-BEFORE-broadcast invariant
+// are identical to the original winner-only handler; the ONLY differences are:
+//   • serviceClaim=true reserves the slot via claim_payout_slot_service (no
+//     auth.uid()), for the reconciler which has no winner JWT.
+//   • the winner is the match's recorded winner_user_id (verified == actor on
+//     the winner path), so payouts always go to the seat-snapshot wallet.
+// ===========================================================================
+type PayoutOutcome = { status: number; body: any };
 
-  // Unauthenticated health probe (…/f10treasurer?health=1). Used by the ops
-  // dashboard's "Edge functions" tab to check reachability + report whether the
-  // payout config is wired up. Reports only booleans / the escrow's PUBLIC
-  // address (derived from the key) — the private key itself is never exposed.
-  if (new URL(req.url).searchParams.has("health")) {
-    let escrowAddr: string | null = null;
-    const escrowKey = (Deno.env.get("ESCROW_PRIVATE_KEY") ?? "").trim();
-    if (escrowKey) {
-      try {
-        escrowAddr = loadEscrowKeypair(escrowKey).publicKey.toBase58();
-      } catch (_) { /* malformed key — report as configured-but-invalid below */ }
-    }
-    return new Response(JSON.stringify({
-      ok: true,
-      service: "f10treasurer",
-      time: new Date().toISOString(),
-      config: {
-        escrow_key_set: !!escrowKey,
-        escrow_wallet:  escrowAddr,
-        token:          normAddr(Deno.env.get("FIGHT10_TOKEN")) || null,
-        rpc_endpoints:  getRpcUrls().length,
-        app_origin_set: !!appOrigin,
-      },
-    }), { headers: { "Content-Type": "application/json", ...corsHeaders } });
-  }
+async function processPayout(opts: {
+  adminClient: any;
+  matchId: string;
+  serviceClaim: boolean;
+  // Winner path only: the authenticated caller and a JWT-scoped client for the
+  // auth.uid() slot claim. Ignored when serviceClaim is true.
+  actorUserId?: string | null;
+  userClient?: any;
+}): Promise<PayoutOutcome> {
+  const { adminClient, matchId, serviceClaim } = opts;
+  const reject = (message: string, status: number): PayoutOutcome => {
+    console.error(`[f10treasurer] reject status=${status} match=${matchId || "?"} reason=${message}`);
+    return { status, body: { ok: false, error: message } };
+  };
 
-  const supabaseUrl      = Deno.env.get("SUPABASE_URL")!;
-  const supabaseAnonKey  = Deno.env.get("SUPABASE_ANON_KEY")!;
-  const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-
-  let matchId = "";
   let slotClaimed = false;   // tracks whether we set payout_tx = 'pending'
   let broadcast = false;     // tracks whether the transfer was broadcast
   let escrowLocked = false;  // tracks whether we hold the global escrow lock
   let escrowLockHolder = ""; // our unique holder token for that lock
 
   try {
-    const authHeader = req.headers.get("Authorization");
-    if (!authHeader) return errorResponse("Missing Authorization header", 401);
-
-    const userClient = createClient(supabaseUrl, supabaseAnonKey, {
-      global: { headers: { Authorization: authHeader } },
-    });
-    const { data: { user }, error: authError } = await userClient.auth.getUser();
-    if (authError || !user) return errorResponse("Unauthorized", 401);
-
-    const adminClient = createClient(supabaseUrl, supabaseServiceKey);
-    const body = await req.json();
-    matchId = body?.match_id;
-    if (!matchId) return errorResponse("match_id is required", 400);
-    console.log(`[f10treasurer] claim start match=${matchId} user=${user.id}`);
-
     // ── Validate match state ─────────────────────────────────────────────────
     const { data: matchRow, error: matchErr } = await adminClient
       .from("matches")
       .select("id, status, winner_user_id, payout_tx, payout_blockhash, entry_fee_tokens, winner_share_bps, token_address, chain_id, escrow_wallet")
       .eq("id", matchId).maybeSingle();
-    if (matchErr || !matchRow) return errorResponse("Match not found", 404);
-    if (matchRow.status !== "finished") return errorResponse("Match is not finished", 400);
-    if (matchRow.winner_user_id !== user.id) return errorResponse("Only the winner may claim", 403);
+    if (matchErr || !matchRow) return reject("Match not found", 404);
+    if (matchRow.status !== "finished") return reject("Match is not finished", 400);
+
+    // Resolve WHO we are paying. Winner path: the caller must BE the winner.
+    // Reconciler: pay the match's recorded winner.
+    const winnerUserId = serviceClaim ? matchRow.winner_user_id : opts.actorUserId;
+    if (!serviceClaim && matchRow.winner_user_id !== opts.actorUserId) {
+      return reject("Only the winner may claim", 403);
+    }
+    if (!winnerUserId) return reject("Match has no winner to pay", 400);
     // A real recorded signature (anything other than null / the 'pending'
     // reservation) is reconciled against the chain further down — never blindly
     // rejected as "already claimed" and never blindly re-sent. Stale 'pending'
-    // reservations fall through to claim_payout_slot, which auto-releases them if
+    // reservations fall through to the slot claim, which auto-releases them if
     // >10 min old; with signature+blockhash persisted BEFORE broadcast, a
     // 'pending' row is one that never signed a transfer, so releasing it can't
     // strand an on-chain payout.
@@ -251,9 +253,9 @@ Deno.serve(async (req: Request) => {
     // ── Verify all deposits exist ────────────────────────────────────────────
     const { data: players, error: playersErr } = await adminClient
       .from("match_players").select("user_id, deposit_tx, deposit_wallet").eq("match_id", matchId);
-    if (playersErr || !players) return errorResponse("Could not fetch match players", 500);
+    if (playersErr || !players) return reject("Could not fetch match players", 500);
     const missing = players.filter((p: any) => !p.deposit_tx);
-    if (missing.length > 0) return errorResponse(`${missing.length} player(s) have not deposited`, 400);
+    if (missing.length > 0) return reject(`${missing.length} player(s) have not deposited`, 400);
 
     // ── Resolve each player's *deposit* wallet so we can verify the sender ─────
     // We use deposit_wallet (the wallet that signed the on-chain deposit, recorded
@@ -273,23 +275,23 @@ Deno.serve(async (req: Request) => {
     // editing their profile. deposit_wallet is a per-match snapshot that never
     // changes once the seat is taken (P1: snapshot payout wallet at match entry).
     // Fall back to the login profile only for legacy rows with no snapshot.
-    let winnerAddr = walletByUser.get(user.id) ?? "";
+    let winnerAddr = walletByUser.get(winnerUserId) ?? "";
     if (!isAddress(winnerAddr)) {
       const { data: profile } = await adminClient
-        .from("profiles").select("wallet_address").eq("user_id", user.id).maybeSingle();
+        .from("profiles").select("wallet_address").eq("user_id", winnerUserId).maybeSingle();
       winnerAddr = normAddr(profile?.wallet_address);
     }
-    if (!isAddress(winnerAddr)) return errorResponse("Winner payout wallet not found", 400);
+    if (!isAddress(winnerAddr)) return reject("Winner payout wallet not found", 400);
 
     // ── Escrow / token config ────────────────────────────────────────────────
     const escrowKey = (Deno.env.get("ESCROW_PRIVATE_KEY") ?? "").trim();
     const tokenAddr = normAddr(Deno.env.get("FIGHT10_TOKEN"));
-    if (!escrowKey || !isAddress(tokenAddr)) return errorResponse("Escrow configuration missing", 500);
+    if (!escrowKey || !isAddress(tokenAddr)) return reject("Escrow configuration missing", 500);
 
     const rpc = createRpcPool();
     let escrowKeypair: Keypair;
     try { escrowKeypair = loadEscrowKeypair(escrowKey); }
-    catch { return errorResponse("Escrow key is malformed", 500); }
+    catch { return reject("Escrow key is malformed", 500); }
     const escrowAddr = escrowKeypair.publicKey.toBase58();
 
     const mint         = new PublicKey(tokenAddr);
@@ -315,13 +317,13 @@ Deno.serve(async (req: Request) => {
     const snapToken  = normAddr(matchRow.token_address);
     const snapEscrow = normAddr(matchRow.escrow_wallet);
     if (snapToken && snapToken !== tokenAddr) {
-      return errorResponse("Token mint changed since match entry — payout blocked", 409, matchId);
+      return reject("Token mint changed since match entry — payout blocked", 409);
     }
     if (snapEscrow && snapEscrow !== escrowAddr) {
-      return errorResponse("Escrow wallet changed since match entry — payout blocked", 409, matchId);
+      return reject("Escrow wallet changed since match entry — payout blocked", 409);
     }
     if (matchRow.chain_id != null && Number(matchRow.chain_id) !== NETWORK.chainId) {
-      return errorResponse("Cluster changed since match entry — payout blocked", 409, matchId);
+      return reject("Cluster changed since match entry — payout blocked", 409);
     }
 
     // ── Resolve token decimals → exact entry-fee amount ─────────────────────
@@ -362,15 +364,12 @@ Deno.serve(async (req: Request) => {
       if (parsed && !parsed.meta?.err) {
         // Already paid. Make sure the audit row exists, then report success.
         const { error: ledgerErr } = await adminClient.from("payouts").upsert({
-          match_id: matchId, winner_user_id: user.id, payout_tx: recordedTx,
+          match_id: matchId, winner_user_id: winnerUserId, payout_tx: recordedTx,
           amount_raw: winnerAmountRaw.toString(), decimals, num_players: players.length,
         }, { onConflict: "match_id" });
         if (ledgerErr) console.error("payouts upsert (reconcile) failed (non-fatal):", ledgerErr);
         console.log(`[f10treasurer] reconciled match=${matchId} tx=${recordedTx} already confirmed`);
-        return new Response(
-          JSON.stringify({ ok: true, payout_tx: recordedTx, winner_amount: winnerAmountRaw.toString(), num_players: players.length, decimals, confirmed: true }),
-          { headers: { "Content-Type": "application/json", ...corsHeaders } },
-        );
+        return { status: 200, body: { ok: true, payout_tx: recordedTx, winner_amount: winnerAmountRaw.toString(), num_players: players.length, decimals, confirmed: true } };
       }
       if (parsed && parsed.meta?.err) {
         // Failed on-chain — no tokens moved. Clear only THIS record and resend.
@@ -389,9 +388,9 @@ Deno.serve(async (req: Request) => {
               .then((r: any) => r?.value ?? true).catch(() => true)
           : true;
         if (stillValid) {
-          return errorResponse(
+          return reject(
             `A payout for this match is already in flight (${recordedTx}). Wait for it to confirm before retrying.`,
-            409, matchId,
+            409,
           );
         }
         await adminClient.from("matches")
@@ -413,11 +412,11 @@ Deno.serve(async (req: Request) => {
 
     for (let i = 0; i < depositTxs.length; i++) {
       const parsed = parsedDeposits[i];
-      if (!parsed) return errorResponse(`Deposit ${i + 1} not found on-chain`, 400);
-      if (parsed.meta?.err) return errorResponse(`Deposit ${i + 1} failed on-chain`, 400);
+      if (!parsed) return reject(`Deposit ${i + 1} not found on-chain`, 400);
+      if (parsed.meta?.err) return reject(`Deposit ${i + 1} failed on-chain`, 400);
 
       const expectedSender = walletByUser.get(players[i].user_id) ?? "";
-      if (!isAddress(expectedSender)) return errorResponse(`Deposit ${i + 1}: depositing wallet was not recorded at join time`, 400);
+      if (!isAddress(expectedSender)) return reject(`Deposit ${i + 1}: depositing wallet was not recorded at join time`, 400);
 
       if (!txAuthorizesDeposit(parsed, escrowAtaStr, expectedSender, tokenProgStr, entryFeeRaw.toString())) {
         console.error(`Deposit ${i + 1} verification failed`, JSON.stringify({
@@ -426,7 +425,7 @@ Deno.serve(async (req: Request) => {
           escrowDelta: ownerMintDelta(parsed.meta, escrowAddr, tokenAddr).toString(),
           senderDelta: ownerMintDelta(parsed.meta, expectedSender, tokenAddr).toString(),
         }));
-        return errorResponse(
+        return reject(
           `Deposit ${i + 1} does not contain a valid FIGHT10 transfer from the player to escrow`,
           400,
         );
@@ -434,12 +433,15 @@ Deno.serve(async (req: Request) => {
     }
 
     // ── Atomically reserve the payout slot ───────────────────────────────────
-    // Uses claim_payout_slot() which does UPDATE … WHERE payout_tx IS NULL,
-    // so only one concurrent request can proceed to send a transaction.
-    // We use the user's JWT here (userClient) so the RPC's auth.uid() check passes.
-    const { data: slotOk, error: slotErr } = await userClient.rpc("claim_payout_slot", { p_match_id: matchId });
-    if (slotErr) return errorResponse("Could not reserve payout slot", 500);
-    if (!slotOk) return errorResponse("Prize already claimed", 409);
+    // Winner path uses claim_payout_slot (keys on auth.uid() via the winner's
+    // JWT); the reconciler uses claim_payout_slot_service (service role, winner
+    // read from the row). Both do a single UPDATE … WHERE payout_tx IS NULL, so
+    // only one concurrent caller can proceed to send a transaction.
+    const { data: slotOk, error: slotErr } = serviceClaim
+      ? await adminClient.rpc("claim_payout_slot_service", { p_match_id: matchId })
+      : await opts.userClient.rpc("claim_payout_slot", { p_match_id: matchId });
+    if (slotErr) return reject("Could not reserve payout slot", 500);
+    if (!slotOk) return reject("Prize already claimed", 409);
     slotClaimed = true;
 
     // ── Serialise escrow usage across matches (#6) ───────────────────────────
@@ -461,7 +463,7 @@ Deno.serve(async (req: Request) => {
             .eq("id", matchId).eq("payout_tx", "pending");
         } catch (_) { /* best-effort; stale-'pending' auto-releases after 10 min */ }
         slotClaimed = false;
-        return errorResponse("Another payout is in progress — please retry in a moment", 503, matchId);
+        return reject("Another payout is in progress — please retry in a moment", 503);
       }
       await new Promise((r) => setTimeout(r, 1500));
     }
@@ -554,7 +556,7 @@ Deno.serve(async (req: Request) => {
           .update({ payout_tx: null, payout_blockhash: null, payout_claimed_at: null })
           .eq("id", matchId).eq("payout_tx", payoutSig);
       } catch (_) { /* best-effort */ }
-      return errorResponse("Payout tx failed on-chain: " + payoutSig, 502, matchId);
+      return reject("Payout tx failed on-chain: " + payoutSig, 502);
     }
 
     // Record a durable payout row (audit trail + the explorer link the client
@@ -565,7 +567,7 @@ Deno.serve(async (req: Request) => {
     // check it explicitly or a failed ledger write vanishes without a trace.
     const { error: ledgerErr } = await adminClient.from("payouts").upsert({
       match_id: matchId,
-      winner_user_id: user.id,
+      winner_user_id: winnerUserId,
       payout_tx: payoutSig,
       amount_raw: winnerAmountRaw.toString(),
       decimals,
@@ -574,19 +576,14 @@ Deno.serve(async (req: Request) => {
     if (ledgerErr) console.error("payouts insert failed (non-fatal):", ledgerErr);
 
     console.log(`[f10treasurer] paid match=${matchId} tx=${payoutSig} amount=${winnerAmountRaw.toString()} players=${players.length} confirmed=${confirmed}`);
-    return new Response(
-      JSON.stringify({ ok: true, payout_tx: payoutSig, winner_amount: winnerAmountRaw.toString(), num_players: players.length, decimals, confirmed }),
-      { headers: { "Content-Type": "application/json", ...corsHeaders } },
-    );
+    return { status: 200, body: { ok: true, payout_tx: payoutSig, winner_amount: winnerAmountRaw.toString(), num_players: players.length, decimals, confirmed } };
   } catch (err) {
     console.error("Payout error:", err);
 
     // Release the escrow lock if we still hold it (error before/around broadcast).
     if (escrowLocked && escrowLockHolder) {
-      try {
-        const a = createClient(supabaseUrl, supabaseServiceKey);
-        await a.rpc("end_escrow_payout", { p_holder: escrowLockHolder });
-      } catch (_) { /* best-effort; the TTL will free it anyway */ }
+      try { await adminClient.rpc("end_escrow_payout", { p_holder: escrowLockHolder }); }
+      catch (_) { /* best-effort; the TTL will free it anyway */ }
     }
 
     // Only release the payout slot if the tx was NOT broadcast. Once broadcast,
@@ -594,7 +591,6 @@ Deno.serve(async (req: Request) => {
     // that case keeps the slot and requires manual admin resolution.
     if (slotClaimed && !broadcast && matchId) {
       try {
-        const adminClient = createClient(supabaseUrl, supabaseServiceKey);
         await adminClient.from("matches")
           .update({ payout_tx: null, payout_blockhash: null, payout_claimed_at: null })
           .eq("id", matchId)
@@ -602,6 +598,128 @@ Deno.serve(async (req: Request) => {
       } catch (_) { /* best-effort */ }
     }
 
-    return errorResponse(String(err), 500);
+    return { status: 500, body: { ok: false, error: String(err) } };
+  }
+}
+
+// ===========================================================================
+// Reconciler — drains the durable payout_jobs queue with the service-role slot
+// claim. DISABLED unless RECONCILE_SECRET is set (and sent as X-Reconcile-Secret),
+// so a deploy never auto-moves money: an operator enables it deliberately after
+// validating in staging, then schedules it (e.g. pg_cron → net.http_post, or an
+// external scheduler) to poll every minute or two.
+// ===========================================================================
+async function handleReconcile(req: Request, url: URL, adminClient: any): Promise<Response> {
+  const secret = (Deno.env.get("RECONCILE_SECRET") ?? "").trim();
+  if (!secret) return errorResponse("Reconciler disabled — set the RECONCILE_SECRET secret to enable", 503);
+  if ((req.headers.get("x-reconcile-secret") ?? "") !== secret) return errorResponse("Unauthorized", 401);
+
+  const limRaw = Number(url.searchParams.get("limit") ?? "5");
+  const limit = Math.max(1, Math.min(25, Number.isFinite(limRaw) ? Math.trunc(limRaw) : 5));
+
+  const { data: jobs, error: jobsErr } = await adminClient.rpc("claim_payout_jobs", { p_limit: limit, p_stale_seconds: 300 });
+  if (jobsErr) return errorResponse("Could not claim payout jobs: " + (jobsErr.message ?? String(jobsErr)), 500);
+
+  const results: any[] = [];
+  for (const job of (jobs ?? [])) {
+    const matchId = job.match_id as string;
+    let ok = false;
+    let detail = "";
+    try {
+      const r = await processPayout({ adminClient, matchId, serviceClaim: true });
+      ok = r.status === 200 && r.body?.ok === true;
+      detail = ok ? (r.body?.payout_tx ?? "") : (r.body?.error ?? `status ${r.status}`);
+    } catch (err) {
+      detail = String(err);
+    }
+    // Record the outcome: success → job done; anything else → requeue with
+    // backoff (or 'failed' after enough attempts). A transient "already in
+    // flight" (409) simply backs off and retries later — never a double-pay,
+    // because processPayout refuses to re-send while a blockhash is still valid.
+    try {
+      await adminClient.rpc("complete_payout_job", {
+        p_match_id: matchId, p_ok: ok, p_error: ok ? null : detail.slice(0, 500),
+      });
+    } catch (e) {
+      console.error(`[f10treasurer] complete_payout_job failed match=${matchId}:`, e);
+    }
+    results.push({ match_id: matchId, ok, detail });
+  }
+
+  console.log(`[f10treasurer] reconcile drained=${results.length} ok=${results.filter((r) => r.ok).length}`);
+  return jsonResponse({ ok: true, processed: results.length, results });
+}
+
+Deno.serve(async (req: Request) => {
+  if (req.method === "OPTIONS") {
+    return new Response(null, { status: 204, headers: corsHeaders });
+  }
+
+  const url = new URL(req.url);
+
+  // Unauthenticated health probe (…/f10treasurer?health=1). Used by the ops
+  // dashboard's "Edge functions" tab to check reachability + report whether the
+  // payout config is wired up. Reports only booleans / the escrow's PUBLIC
+  // address (derived from the key) — the private key itself is never exposed.
+  if (url.searchParams.has("health")) {
+    let escrowAddr: string | null = null;
+    const escrowKey = (Deno.env.get("ESCROW_PRIVATE_KEY") ?? "").trim();
+    if (escrowKey) {
+      try {
+        escrowAddr = loadEscrowKeypair(escrowKey).publicKey.toBase58();
+      } catch (_) { /* malformed key — report as configured-but-invalid below */ }
+    }
+    return jsonResponse({
+      ok: true,
+      service: "f10treasurer",
+      time: new Date().toISOString(),
+      config: {
+        escrow_key_set: !!escrowKey,
+        escrow_wallet:  escrowAddr,
+        token:          normAddr(Deno.env.get("FIGHT10_TOKEN")) || null,
+        rpc_endpoints:  getRpcUrls().length,
+        app_origin_set: !!appOrigin,
+        reconciler_enabled: !!(Deno.env.get("RECONCILE_SECRET") ?? "").trim(),
+      },
+    });
+  }
+
+  const supabaseUrl      = Deno.env.get("SUPABASE_URL")!;
+  const supabaseAnonKey  = Deno.env.get("SUPABASE_ANON_KEY")!;
+  const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+
+  // Background reconciler (service-authenticated, no winner JWT).
+  if (url.searchParams.has("reconcile")) {
+    const adminClient = createClient(supabaseUrl, supabaseServiceKey);
+    return handleReconcile(req, url, adminClient);
+  }
+
+  // ── Winner-initiated claim ─────────────────────────────────────────────────
+  let matchId = "";
+  try {
+    const authHeader = req.headers.get("Authorization");
+    if (!authHeader) return errorResponse("Missing Authorization header", 401);
+
+    const userClient = createClient(supabaseUrl, supabaseAnonKey, {
+      global: { headers: { Authorization: authHeader } },
+    });
+    const { data: { user }, error: authError } = await userClient.auth.getUser();
+    if (authError || !user) return errorResponse("Unauthorized", 401);
+
+    const adminClient = createClient(supabaseUrl, supabaseServiceKey);
+    const body = await req.json();
+    matchId = body?.match_id;
+    if (!matchId) return errorResponse("match_id is required", 400);
+    console.log(`[f10treasurer] claim start match=${matchId} user=${user.id}`);
+
+    // processPayout already logs any rejection (with the match id), so return its
+    // structured result straight through — no second log line.
+    const { status, body: payload } = await processPayout({
+      adminClient, matchId, serviceClaim: false, actorUserId: user.id, userClient,
+    });
+    return jsonResponse(payload, status);
+  } catch (err) {
+    console.error("Payout handler error:", err);
+    return errorResponse(String(err), 500, matchId);
   }
 });

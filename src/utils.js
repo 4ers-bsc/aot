@@ -11,8 +11,9 @@ export function escapeHtml(s) {
 // whole-token quotient to Number. `raw` may be a bigint, decimal string, or
 // number; returns a Number of whole tokens (fractional part dropped, matching
 // the app's "maximumFractionDigits: 0" display everywhere). Default decimals is
-// the SPL token standard used by $FIGHT10 (9).
-export function tokensFromRaw(raw, decimals = 9) {
+// the $FIGHT10 mint's on-chain value (6 — Pump.fun mints use 6); callers that
+// know the real decimals (from the mint or a payout row) should pass them.
+export function tokensFromRaw(raw, decimals = 6) {
   let v;
   try {
     if (typeof raw === "bigint") {
@@ -38,6 +39,6 @@ export function tokensFromRaw(raw, decimals = 9) {
 
 // Precision-safe, grouped display string for a raw token amount, e.g.
 // "2,500". Uses tokensFromRaw() so large raw values never lose precision.
-export function formatTokens(raw, decimals = 9) {
+export function formatTokens(raw, decimals = 6) {
   return tokensFromRaw(raw, decimals).toLocaleString(undefined, { maximumFractionDigits: 0 });
 }

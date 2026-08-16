@@ -1083,6 +1083,22 @@ Deno.serve(async (req: Request) => {
           return json({ ok: true, ...data });
         }
 
+        case "payout_queue": {
+          // Durable payout queue (payout_jobs): summary counts + the open rows
+          // (anything not 'done'), newest first. Read-only. Lets operators see
+          // stuck / failed / backing-off payouts that the reconciler owns.
+          const { data: stats, error: statErr } = await admin.rpc("payout_queue_stats");
+          if (statErr) return fail(`payout_queue failed: ${statErr.message}`, 500);
+          const { data: jobs, error: rowErr } = await admin
+            .from("payout_jobs")
+            .select("match_id, state, attempts, last_error, next_attempt_at, updated_at")
+            .neq("state", "done")
+            .order("updated_at", { ascending: false })
+            .limit(100);
+          if (rowErr) return fail(`payout_queue rows failed: ${rowErr.message}`, 500);
+          return json({ ok: true, stats: stats ?? {}, jobs: jobs ?? [] });
+        }
+
         case "db_export": {
           // Snapshot for download. With `table`, returns that table's rows;
           // without it, returns a full { table -> rows } snapshot of every

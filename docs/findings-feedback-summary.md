@@ -110,3 +110,54 @@ EVM-era fixes were deliberately reversed once back on Solana:
   expired) (#232).
 - **Token decimals** — walked `18 → 9 → 6` before settling on the mint's real
   on-chain value read at boot (#232 → #236).
+
+---
+
+## 6. Remediation applied in this PR
+
+The still-open items from the sections above were implemented here.
+**Verification:** client `npm run build` passes; all three edge functions parse
+(esbuild); `fresh_setup.sql` + the new migration `20260801_*` load on Postgres 16
+(migration idempotent) and pass functional tests covering the payout lifecycle,
+the queue worker RPCs, and the deadline snapshot-vs-live fallback. The money path
+that signs/broadcasts on Solana cannot be exercised without a live validator — see
+the reconciler note below.
+
+### Tier A — bounded fixes (enabled)
+
+| Item | Change | Files |
+|------|--------|-------|
+| **Deadline → snapshot** (S7 follow-up) | `finalize_match`, `close_stale_matches`, and the two combat-ledger write guards now use `coalesce(matches.duration_seconds, match_duration_seconds(max_players))`. An admin editing `match_config` mid-match can no longer move an in-flight match's settlement deadline or anti-cheat timestamp window. | `migrations/20260801_*`, `fresh_setup.sql` |
+| **Token decimals seed** (R4 tail) | Admin/utils default `9 → 6` to match the 6-dp Pump.fun mint and `main.js`; fixed a stale EVM `?? 18` fallback in the match-history payout display. | `src/admin.js`, `src/utils.js`, `src/main.js` |
+
+### Tier B — payout architecture (additive; reconciler OFF by default)
+
+Design principle: **additive and backward-compatible.** `matches.payout_tx` stays
+the on-chain source of truth; the new lifecycle column is *derived from it by
+trigger*, so the already-tested edge-function write path is untouched. The
+winner-initiated claim path is unchanged in behavior.
+
+| Item | Change | Files |
+|------|--------|-------|
+| **Payout status column** | `matches.payout_state` (`unpaid → claimed → broadcast → confirmed`), trigger-derived from `payout_tx` and backfilled — cannot drift from the source of truth. | `migrations/20260801_*`, `fresh_setup.sql` |
+| **Durable job queue** | `payout_jobs` table + enqueue trigger (on finished+winner) + auto-close when a `payouts` ledger row lands, so a payout no longer depends on the winner returning to click "claim". Backfilled from existing finished-but-unpaid matches. | `migrations/20260801_*`, `fresh_setup.sql` |
+| **Reconciliation worker** | `f10treasurer?reconcile=1` drains the queue through the **same** payout core (refactored in-file into `processPayout`) using a service-role slot claim (`claim_payout_slot_service`), with capped exponential-backoff retry (`claim_payout_jobs` / `complete_payout_job`). **Gated behind `RECONCILE_SECRET`** — returns `503` until the secret is set — so nothing auto-moves money on deploy. | `supabase/functions/f10treasurer/index.ts`, `migrations/20260801_*` |
+| **Ops visibility** | New **Payout queue** dashboard tab + `f10admin` `payout_queue` action (`payout_queue_stats` + open jobs). | `src/admin.js`, `supabase/functions/f10admin/index.ts` |
+
+**Enabling the reconciler (deliberate, live-environment step):**
+1. Validate end-to-end in staging first — it moves real funds.
+2. Set the `RECONCILE_SECRET` edge-function secret.
+3. Schedule a poll (e.g. `pg_cron` → `net.http_post` to `…/f10treasurer?reconcile=1`
+   with header `X-Reconcile-Secret`, every 1–2 min, or an external scheduler).
+
+Until enabled, the queue is **observability-only** and every double-pay guard
+(single-flight slot claim, escrow lock, persist-before-broadcast, on-chain
+reconcile) is unchanged — so it is safe to ship dark.
+
+### Deliberately not changed
+
+- **Shared escrow-signing module** — still blocked by Supabase bundling each
+  function folder in isolation; the "edit both together" duplication stands.
+- **Stale README / PR #231** — already moot (the current README has no "2,500").
+  PR #231 also carries unrelated additions, so it is left for its author to close
+  rather than merged here.
