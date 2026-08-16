@@ -20,6 +20,7 @@ const THEMES = [
   "hs-theme-aurora",
   "hs-theme-terminal",
   "hs-theme-deco",
+  "hs-theme-mono",
 ];
 
 function readSaved() {

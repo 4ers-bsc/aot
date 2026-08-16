@@ -6530,6 +6530,121 @@ body.in-game .hs-style-picker { display: none !important; }
   50% { left: 120%; }
 }
 
+/* ===========================================================================
+   THEME 6 · MONOCHROME — the same layout as the rest, drained to black, white
+   and grey only. High-contrast noir: faint grey grid, white top-lit cards, a
+   travelling white edge highlight, white-on-black hero button.
+   (Reuses the nx-grid / nx-slide keyframes — they only shift background
+   position, so the colour lives entirely in these rules.)
+   =========================================================================== */
+.home-sections.hs-theme-mono {
+  --mo-white: #f4f4f4;
+  --mo-light: #cfcfcf;
+  --mo-mid: #9a9a9a;
+  color: var(--mo-light);
+  background:
+    radial-gradient(60% 42% at 50% 0%, rgba(255, 255, 255, 0.05), transparent 70%),
+    linear-gradient(180deg, #0b0b0b 0%, #000000 100%);
+  border-top: 1px solid rgba(255, 255, 255, 0.22);
+  box-shadow: 0 -30px 60px rgba(0, 0, 0, 0.7);
+}
+.home-sections.hs-theme-mono::before { /* faint grey grid */
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  background:
+    linear-gradient(rgba(255, 255, 255, 0.035) 1px, transparent 1px) 0 0 / 100% 42px,
+    linear-gradient(90deg, rgba(255, 255, 255, 0.035) 1px, transparent 1px) 0 0 / 42px 100%;
+  -webkit-mask-image: linear-gradient(180deg, transparent, #000 7%, #000 93%, transparent);
+  mask-image: linear-gradient(180deg, transparent, #000 7%, #000 93%, transparent);
+  animation: nx-grid 12s linear infinite;
+}
+.home-sections.hs-theme-mono .hs-kicker { color: var(--mo-mid); letter-spacing: 0.34em; }
+.home-sections.hs-theme-mono .hs-title {
+  background: linear-gradient(180deg, #ffffff, #bdbdbd 55%, #7f7f7f);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  -webkit-text-fill-color: transparent;
+  filter: drop-shadow(0 2px 0 rgba(0, 0, 0, 0.9));
+}
+.home-sections.hs-theme-mono .hs-title::before { height: 1px; background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.7)); box-shadow: none; }
+.home-sections.hs-theme-mono .hs-title::after { height: 1px; background: linear-gradient(90deg, rgba(255, 255, 255, 0.7), transparent); box-shadow: none; }
+.home-sections.hs-theme-mono .hs-card {
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-top: 2px solid rgba(255, 255, 255, 0.4);
+  border-radius: 4px;
+  background: linear-gradient(160deg, rgba(24, 24, 24, 0.92), rgba(10, 10, 10, 0.95));
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.55), inset 0 1px 0 rgba(255, 255, 255, 0.06);
+  transition: transform 0.18s ease, box-shadow 0.18s ease, border-color 0.18s ease;
+}
+.home-sections.hs-theme-mono .hs-card::before { /* travelling white edge */
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.85), transparent);
+  background-size: 200% 100%;
+  animation: nx-slide 4s linear infinite;
+}
+.home-sections.hs-theme-mono .hs-card:hover {
+  transform: translateY(-4px);
+  border-color: rgba(255, 255, 255, 0.45);
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.6), 0 0 22px rgba(255, 255, 255, 0.08);
+}
+.home-sections.hs-theme-mono .hs-card-num {
+  background: linear-gradient(180deg, #ffffff, #8a8a8a);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  -webkit-text-fill-color: transparent;
+  filter: drop-shadow(0 1px 0 rgba(0, 0, 0, 0.85));
+}
+.home-sections.hs-theme-mono .hs-card-label { color: var(--mo-white); }
+.home-sections.hs-theme-mono .hs-card-desc { color: rgba(255, 255, 255, 0.6); }
+.home-sections.hs-theme-mono .hs-mode-name { color: var(--mo-white); }
+.home-sections.hs-theme-mono .hs-mode-sub { color: var(--mo-mid); }
+.home-sections.hs-theme-mono .hs-mode-row { color: rgba(255, 255, 255, 0.58); border-bottom: 1px solid rgba(255, 255, 255, 0.1); }
+.home-sections.hs-theme-mono .hs-mode-row span:last-child { color: var(--mo-white); }
+.home-sections.hs-theme-mono .hs-gold { color: #ffffff; text-shadow: 0 0 12px rgba(255, 255, 255, 0.3); }
+.home-sections.hs-theme-mono .hs-list-row { border-bottom: 1px solid rgba(255, 255, 255, 0.1); }
+.home-sections.hs-theme-mono .hs-list-row span:first-child { color: var(--mo-white); }
+.home-sections.hs-theme-mono .hs-list-row span:last-child { color: rgba(255, 255, 255, 0.55); }
+.home-sections.hs-theme-mono .hs-footnote { color: rgba(255, 255, 255, 0.5); }
+.home-sections.hs-theme-mono .home-btn-secondary {
+  background: rgba(20, 20, 20, 0.8);
+  color: var(--mo-light);
+  border: 1px solid rgba(255, 255, 255, 0.25);
+}
+.home-sections.hs-theme-mono .home-btn-secondary:hover { color: #fff; border-color: rgba(255, 255, 255, 0.6); background: rgba(32, 32, 32, 0.9); }
+.home-sections.hs-theme-mono .home-btn-hero {
+  background: linear-gradient(180deg, #f2f2f2, #c8c8c8);
+  color: #0a0a0a;
+  border: 1px solid rgba(255, 255, 255, 0.7);
+  box-shadow: 0 10px 34px rgba(0, 0, 0, 0.6), 0 0 26px rgba(255, 255, 255, 0.15);
+  text-shadow: none;
+}
+.home-sections.hs-theme-mono .home-btn-hero::after { display: none; }
+.home-sections.hs-theme-mono .hs-cta-title {
+  background: linear-gradient(180deg, #ffffff, #9a9a9a);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  -webkit-text-fill-color: transparent;
+  filter: drop-shadow(0 3px 0 rgba(0, 0, 0, 0.9)) drop-shadow(0 10px 30px rgba(255, 255, 255, 0.12));
+}
+.home-sections.hs-theme-mono .hs-cta-sub { color: rgba(255, 255, 255, 0.6); }
+.home-sections.hs-theme-mono .hs-footer { background: rgba(0, 0, 0, 0.5); border-top: 1px solid rgba(255, 255, 255, 0.12); }
+.home-sections.hs-theme-mono .hs-footer-text,
+.home-sections.hs-theme-mono .hs-footer-disclaimer,
+.home-sections.hs-theme-mono .hs-footer-x { color: rgba(255, 255, 255, 0.45); }
+.home-sections.hs-theme-mono .hs-footer-x:hover { color: #ffffff; }
+
 /* Respect reduced-motion: kill every looping theme decoration (entrance
    reveals are already disabled by the .ha reduced-motion rule above). */
 @media (prefers-reduced-motion: reduce) {

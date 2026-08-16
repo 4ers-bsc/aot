@@ -262,6 +262,7 @@ export const html = `
       <option value="hs-theme-aurora">Aurora Glass</option>
       <option value="hs-theme-terminal">Terminal CRT</option>
       <option value="hs-theme-deco">Luxe Deco</option>
+      <option value="hs-theme-mono">Monochrome</option>
     </select>
   </div>
 
