@@ -678,8 +678,8 @@ export function createArenaGame(options) {
       g.fillText("F10 IS THE FUTURE", W / 2, H * 0.66);
     };
     // Sponsor logo, contained inside the hem with its aspect ratio preserved.
-    // (Asset: assets/robinhood.webp — swap this file for a Solana logo to
-    // re-brand the arena banner; the render path is otherwise chain-agnostic.)
+    // (Asset: assets/solana.png — swap this file to re-brand the arena
+    // banner; the render path is otherwise chain-agnostic.)
     const drawLogo = (g, W, H, state) => {
       if (!state.img) return;
       const pad = Math.min(W, H) * 0.2;
@@ -694,7 +694,7 @@ export function createArenaGame(options) {
     const rhBanner = placeBanner("north", 15, 12, 6.5, drawLogo); // sponsor logo
     const rhImg = new Image();
     rhImg.onload = () => { rhBanner.state.img = rhImg; rhBanner.repaint(); };
-    rhImg.src = "/robinhood.webp";
+    rhImg.src = "/solana.png";
 
 
     scene.add(rampart);
