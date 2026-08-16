@@ -4361,15 +4361,13 @@ body.in-game .log-feed { left: 70px; }
   gap: 4px;
   padding: 9px 12px 7px;
   border-radius: 999px;
-  border: 1px solid rgba(212, 160, 23, 0.35);
+  border: none;
   background: rgba(12, 10, 6, 0.55);
   backdrop-filter: blur(6px);
   -webkit-backdrop-filter: blur(6px);
   color: var(--gold-hi);
   transition: opacity 0.35s ease, transform 0.35s ease;
 }
-
-.scroll-cue:hover { border-color: rgba(212, 160, 23, 0.7); }
 
 .scroll-cue-text {
   font-family: var(--font-head);
