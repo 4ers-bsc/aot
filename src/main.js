@@ -1153,12 +1153,12 @@ function showGameOver(result, reason, standings = [], prizeAmount = null, kills 
   els.gameOver.classList.toggle("is-win", win);
   els.gameOver.classList.toggle("is-loss", !win);
   els.gameOverReason.textContent = reason || (win ? "Your rival fell in the trench." : "You fell in the trench.");
-  // Friendly match number — matches the HUD and match history so the result
-  // can be referenced later (e.g. in a support request).
+  // Match number intentionally not shown on the result screen; keep only the
+  // lobby-size context for a real (pvp) match, hidden for demo.
   const matchNoEl = document.getElementById("gameOverMatchNo");
   if (matchNoEl) {
     const n = state.match?.matchNo;
-    matchNoEl.textContent = n ? `MATCH #${n} · ${state.match?.maxPlayers || 2}-PLAYER` : "";
+    matchNoEl.textContent = n ? `${state.match?.maxPlayers || 2}-PLAYER` : "";
     matchNoEl.classList.toggle("hidden", !n);
   }
   els.gameOverName.textContent = state.profile?.display_name || "Trench Rookie";

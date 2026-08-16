@@ -3138,8 +3138,9 @@ export function createArenaGame(options) {
   // so players can reference the match in support requests / history.
   let matchNumber = null;
   function showMatchNo() {
-    matchNoEl.textContent = matchNumber ? `MATCH #${matchNumber}` : "";
-    matchNoEl.style.display = matchNumber && viewIsGame ? "block" : "none";
+    // Match number intentionally not shown in-game.
+    matchNoEl.textContent = "";
+    matchNoEl.style.display = "none";
   }
   function tickTimer() {
     if (!matchTimerOn || resultSent || matchPhase !== "active") return;
