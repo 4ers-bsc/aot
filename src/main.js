@@ -35,7 +35,14 @@ const SIGN_IN_STATEMENT = "Sign in to FIGHT10 to play realtime PvP duels.";
 // ---------------------------------------------------------------------------
 const FIGHT10_TOKEN   = import.meta.env?.VITE_FIGHT10_TOKEN?.trim()  || "<FIGHT10_TOKEN_MINT>";
 const ESCROW_WALLET   = import.meta.env?.VITE_ESCROW_WALLET?.trim()  || "<ESCROW_WALLET_ADDRESS>";
-const FIGHT10_DECIMALS = Number(import.meta.env?.VITE_FIGHT10_DECIMALS ?? 9); // SPL token decimals
+// SPL token decimals. Pump.fun mints (this token's launchpad) always use 6, so
+// 6 is the default. This is only the SEED value: resolveTokenDecimals() reads
+// the real figure off the mint account on-chain at boot and corrects it, so a
+// wrong/absent VITE_FIGHT10_DECIMALS can never desync the client from the mint.
+// (A stale 9-vs-6 mismatch here silently divides every balance by 1000, makes a
+// funded wallet read as "insufficient", and makes transferChecked fail on-chain
+// because its decimals arg must equal the mint's — hence the self-correction.)
+let FIGHT10_DECIMALS = Number(import.meta.env?.VITE_FIGHT10_DECIMALS ?? 6);
 // Entry fee + winner share are tunables sourced from the pvp_config table via
 // pvp_settings() (loaded at boot by loadPvpConfig). These are the historical
 // literals, used until the DB read lands and as the fallback if it fails — they
@@ -96,6 +103,40 @@ async function getConnection() {
     _connection = new solana.Connection(SOLANA_RPC_URL, "confirmed");
   }
   return _connection;
+}
+
+// Authoritative token decimals come from the mint account itself, not a
+// hardcoded constant or env var — reading them from chain means the client can
+// never disagree with the mint (and matches what the edge functions already do
+// via getTokenSupply). getParsedAccountInfo returns info.decimals for both the
+// classic SPL Token program and Token-2022, so this stays program-agnostic.
+// Resolved once and cached; on any failure we keep the seed value rather than
+// block money flow on an RPC hiccup. Recomputes ENTRY_FEE_RAW so the deposit
+// amount and the pre-join balance gate use the corrected scale.
+let _decimalsResolved = false;
+let _decimalsPromise = null;
+async function resolveTokenDecimals() {
+  if (_decimalsResolved || FIGHT10_TOKEN.startsWith("<")) return FIGHT10_DECIMALS;
+  if (!_decimalsPromise) {
+    _decimalsPromise = (async () => {
+      const solana = await loadSolana();
+      const connection = await getConnection();
+      const info = await connection.getParsedAccountInfo(new solana.PublicKey(FIGHT10_TOKEN));
+      const d = info?.value?.data?.parsed?.info?.decimals;
+      if (typeof d === "number" && Number.isInteger(d) && d >= 0 && d !== FIGHT10_DECIMALS) {
+        console.warn(`[resolveTokenDecimals] correcting decimals ${FIGHT10_DECIMALS} → ${d} from mint`);
+        FIGHT10_DECIMALS = d;
+        ENTRY_FEE_RAW = BigInt(ENTRY_FEE) * BigInt(10) ** BigInt(FIGHT10_DECIMALS);
+      }
+      _decimalsResolved = true;
+      return FIGHT10_DECIMALS;
+    })().catch((err) => {
+      _decimalsPromise = null; // allow a retry on the next call
+      console.error("[resolveTokenDecimals]", err);
+      return FIGHT10_DECIMALS;
+    });
+  }
+  return _decimalsPromise;
 }
 
 // The player's Associated Token Account (ATA) for $FIGHT10 — the SPL token
@@ -831,6 +872,7 @@ async function init() {
   if (await isUnderMaintenance()) { clearInterval(tick); showMaintenance(); return; }
   loadMatchConfig(); // fire-and-forget; ready well before any match starts
   loadPvpConfig();   // fire-and-forget; entry fee + winner share for the UI/deposit
+  resolveTokenDecimals().catch(() => {}); // fire-and-forget; corrects token decimals from the mint (self-heals a wrong seed/env)
   startOnlinePresence(); // fire-and-forget; independent of auth/login state
   supabase.auth.onAuthStateChange((_event, session) => {
     handleSession(session).catch((error) => {
@@ -1746,6 +1788,10 @@ async function depositEntryFee(numPlayers = 2) {
 
     const solana = await loadSolana();
     const connection = await getConnection();
+    // Correct decimals from the mint first: transferChecked's decimals argument
+    // must equal the mint's real decimals or the token program rejects the tx,
+    // and ENTRY_FEE_RAW must be scaled to the same figure.
+    await resolveTokenDecimals();
     const owner = new solana.PublicKey(playerAddress);
     const mint = new solana.PublicKey(FIGHT10_TOKEN);
     const escrowOwner = new solana.PublicKey(ESCROW_WALLET);
@@ -1836,6 +1882,10 @@ function isMissingTokenAccountError(err) {
 async function getFight10Balance(walletAddress) {
   const solana = await loadSolana();
   const connection = await getConnection();
+  // Correct FIGHT10_DECIMALS (and ENTRY_FEE_RAW) from the mint before the caller
+  // formats this balance or compares it to the entry fee, so a seed/env mismatch
+  // can't render a funded wallet as 1000× too small or "insufficient".
+  await resolveTokenDecimals();
   const owner = walletAddress instanceof solana.PublicKey
     ? walletAddress
     : new solana.PublicKey(walletAddress);

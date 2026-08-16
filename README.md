@@ -30,7 +30,7 @@ network" prompt — the cluster follows the RPC endpoint the app uses.
 |---|---|---|
 | `VITE_FIGHT10_TOKEN` | $FIGHT10 SPL token mint address (base58) | placeholder |
 | `VITE_ESCROW_WALLET` | Escrow wallet address (base58, public) | placeholder |
-| `VITE_FIGHT10_DECIMALS` | Token decimals | `9` |
+| `VITE_FIGHT10_DECIMALS` | Token decimals — seed/fallback only; the client reads the mint's real decimals on-chain at boot (Pump.fun mints use 6) | `6` |
 | `VITE_SOLANA_RPC_URL` | Override the cluster's public RPC (e.g. a dedicated key) | mainnet RPC |
 | `VITE_BUY_FIGHT10_URL` | "Buy $FIGHT10" link (e.g. a Jupiter/Raydium swap URL) | token's Solscan page |
 | `VITE_SUPABASE_URL` / `VITE_SUPABASE_ANON_KEY` | Supabase project | — |
