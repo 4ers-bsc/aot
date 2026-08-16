@@ -163,15 +163,6 @@ async function getTokenProgramId() {
   return _tokenProgramId || new solana.PublicKey("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA");
 }
 
-// The player's Associated Token Account (ATA) for $FIGHT10. Derived with the
-// mint's ACTUAL token program so it resolves correctly for Token-2022 mints too.
-async function getFight10Ata(ownerPubkey) {
-  const solana = await loadSolana();
-  const mint = new solana.PublicKey(FIGHT10_TOKEN);
-  const programId = await getTokenProgramId();
-  return solana.getAssociatedTokenAddress(mint, ownerPubkey, false, programId);
-}
-
 // Wallet addresses are compared all over (login wallet vs deposit wallet,
 // leaderboard rows vs the connected wallet). Solana addresses are base58 and
 // CASE-SENSITIVE, so — unlike the old Ethereum 0x addresses — we must NOT
