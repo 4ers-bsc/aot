@@ -33,7 +33,15 @@ const SIGN_IN_STATEMENT = "Sign in to FIGHT10 to play realtime PvP duels.";
 // generating the escrow keypair. The network (mainnet-beta) these live on is
 // defined in network.js. Both are base58 Solana addresses.
 // ---------------------------------------------------------------------------
-const FIGHT10_TOKEN   = import.meta.env?.VITE_FIGHT10_TOKEN?.trim()  || "<FIGHT10_TOKEN_MINT>";
+// $FIGHT10 SPL token mint (base58). Read from VITE_FIGHT10_TOKEN, then the
+// legacy VITE_FIGHT10_MINT name the earlier Solana build used (the Eth→Solana
+// round-trip renamed the var; a deployment still setting the old name would
+// otherwise fall through to the placeholder and hide the balance entirely),
+// then the live mint as a built-in default so the client always has a real mint
+// even with no env configured. A base58 mint is public, so shipping it is safe.
+const FIGHT10_TOKEN   = import.meta.env?.VITE_FIGHT10_TOKEN?.trim()
+  || import.meta.env?.VITE_FIGHT10_MINT?.trim()
+  || "3RgkLMuUGX9vcNp4SbxTmMDBDmn4fRrEAobMhWZWpump";
 const ESCROW_WALLET   = import.meta.env?.VITE_ESCROW_WALLET?.trim()  || "<ESCROW_WALLET_ADDRESS>";
 // SPL token decimals. Pump.fun mints (this token's launchpad) always use 6, so
 // 6 is the default. This is only the SEED value: resolveTokenDecimals() reads
