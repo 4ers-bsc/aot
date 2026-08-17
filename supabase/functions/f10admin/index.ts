@@ -1339,6 +1339,66 @@ Deno.serve(async (req: Request) => {
           return fail(`Unknown set_config target '${target}'`);
         }
 
+        // ── Home chat (host-only) ────────────────────────────────────────────
+        // Reaching any of these means the caller already passed the admin gate
+        // above, so this IS the "only the host may post / run votes" guarantee.
+        case "chat_admin": {
+          // Cheap probe the home-screen chat calls once to decide whether to
+          // reveal the composer + poll controls. Non-admins never get here (403).
+          return json({ ok: true, is_admin: true });
+        }
+
+        case "chat_send": {
+          const text = String(body?.text ?? "").trim();
+          if (!text) return fail("Message is empty");
+          if (text.length > 2000) return fail("Message too long (max 2000 characters)");
+          // Stamp the message with the host's current name + skin for display.
+          const { data: prof } = await admin
+            .from("profiles").select("display_name, skin_id").eq("user_id", user.id).maybeSingle();
+          const { data: msg, error } = await admin
+            .from("chat_messages")
+            .insert({
+              body: text,
+              author_id: user.id,
+              author_name: prof?.display_name ?? "Host",
+              author_skin: prof?.skin_id ?? 1,
+            })
+            .select("id, body, author_id, author_name, author_skin, created_at")
+            .single();
+          if (error) return fail(error.message);
+          return json({ ok: true, message: msg });
+        }
+
+        case "chat_poll": {
+          const op = String(body?.op ?? "").trim();
+          if (op === "open") {
+            const question = String(body?.question ?? "").trim().slice(0, 200) || null;
+            // Close any currently-open poll first (single-open index enforces
+            // this too), then open a fresh one — which resets everyone's vote.
+            await admin.from("chat_poll")
+              .update({ is_open: false, closed_at: new Date().toISOString() })
+              .eq("is_open", true);
+            const { data: poll, error } = await admin
+              .from("chat_poll")
+              .insert({ question, is_open: true, created_by: user.id })
+              .select("id, question, is_open, yes_count, no_count, created_at, closed_at")
+              .single();
+            if (error) return fail(error.message);
+            return json({ ok: true, poll });
+          }
+          if (op === "close") {
+            const { data: poll, error } = await admin
+              .from("chat_poll")
+              .update({ is_open: false, closed_at: new Date().toISOString() })
+              .eq("is_open", true)
+              .select("id, question, is_open, yes_count, no_count, created_at, closed_at")
+              .maybeSingle();
+            if (error) return fail(error.message);
+            return json({ ok: true, poll });
+          }
+          return fail(`Unknown poll op '${op}'`);
+        }
+
         default:
           return fail(`Unknown action '${action}'`);
       }
