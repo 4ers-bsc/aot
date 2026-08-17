@@ -78,7 +78,9 @@ export const html = `
   </div><!-- /.home-screen -->
 
   <!-- ===== Landing sections (below the fold) ===== -->
-  <div class="home-sections" id="homeSections">
+  <!-- Luxe Deco is the shipped look for the landing sections; the alternate
+       hs-theme-* blocks in styles.css remain available by swapping this class. -->
+  <div class="home-sections hs-theme-deco" id="homeSections">
 
     <!-- How a match works -->
     <section class="hs-block">

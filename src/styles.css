@@ -5803,3 +5803,162 @@ body.in-game .log-feed { left: 70px; }
   .tut-body { padding: 22px 18px 14px; min-height: 190px; }
   .tut-foot { padding: 4px 16px 18px; }
 }
+
+/* ===========================================================================
+   HOME-SECTIONS — LUXE DECO
+   ---------------------------------------------------------------------------
+   The landing sections' shipped look: charcoal + refined gold, art-deco double
+   rules, inner card frames and a staggered shimmer sweep. Applied via
+   `hs-theme-deco` on the #homeSections container (see src/views/home.js) and
+   scoped under `.home-sections.hs-theme-deco`, repainting the shared .hs-*
+   markup with no per-section HTML changes.
+   =========================================================================== */
+
+/* Keep real content above the theme's full-bleed background weave
+   (container ::before painted at z-index 0). */
+.home-sections.hs-theme-deco .hs-block,
+.home-sections.hs-theme-deco .hs-footer {
+  position: relative;
+  z-index: 1;
+}
+
+/* ===========================================================================
+   THEME 5 · LUXE DECO — charcoal + refined gold. Art-deco double rules, an
+   inner card frame, a subtle diagonal weave, and a slow shimmer that sweeps
+   each card in a staggered rhythm.
+   =========================================================================== */
+.home-sections.hs-theme-deco {
+  --dc-gold: #d4b46a;
+  --dc-gold-hi: #f2dfa0;
+  --dc-champ: #ece3cf;
+  color: #d8d2c4;
+  background:
+    radial-gradient(70% 50% at 50% 0%, rgba(212, 180, 106, 0.06), transparent 65%),
+    linear-gradient(180deg, #101013 0%, #0a0a0c 100%);
+  border-top: 1px solid rgba(212, 180, 106, 0.4);
+}
+.home-sections.hs-theme-deco::before { /* faint deco weave */
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  opacity: 0.6;
+  background:
+    repeating-linear-gradient(45deg, rgba(212, 180, 106, 0.03) 0 2px, transparent 2px 22px),
+    repeating-linear-gradient(-45deg, rgba(212, 180, 106, 0.03) 0 2px, transparent 2px 22px);
+}
+.home-sections.hs-theme-deco .hs-kicker { color: var(--dc-gold-hi); letter-spacing: 0.42em; }
+.home-sections.hs-theme-deco .hs-kicker::before,
+.home-sections.hs-theme-deco .hs-kicker::after { content: "\25C6"; margin: 0 10px; font-size: 0.5em; color: var(--dc-gold); vertical-align: middle; }
+.home-sections.hs-theme-deco .hs-title {
+  letter-spacing: 0.2em;
+  background: linear-gradient(180deg, var(--dc-gold-hi), var(--dc-gold) 55%, #a5813f);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  -webkit-text-fill-color: transparent;
+  filter: drop-shadow(0 2px 0 rgba(0, 0, 0, 0.8));
+}
+.home-sections.hs-theme-deco .hs-title::before,
+.home-sections.hs-theme-deco .hs-title::after {
+  height: 1px;
+  background: linear-gradient(90deg, transparent, var(--dc-gold));
+  box-shadow: 0 4px 0 -1px rgba(212, 180, 106, 0.4); /* stacked second rule */
+}
+.home-sections.hs-theme-deco .hs-title::after { background: linear-gradient(90deg, var(--dc-gold), transparent); }
+.home-sections.hs-theme-deco .hs-card {
+  overflow: hidden;
+  border: 1px solid rgba(212, 180, 106, 0.35);
+  border-top: 1px solid rgba(212, 180, 106, 0.35);
+  border-radius: 2px;
+  background: linear-gradient(160deg, rgba(24, 22, 16, 0.92), rgba(10, 9, 7, 0.95));
+  box-shadow: inset 0 0 0 1px rgba(212, 180, 106, 0.12), 0 14px 34px rgba(0, 0, 0, 0.55);
+  transition: transform 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease;
+}
+.home-sections.hs-theme-deco .hs-card::before { /* inner frame */
+  content: "";
+  position: absolute;
+  inset: 6px;
+  border: 1px solid rgba(212, 180, 106, 0.18);
+  border-radius: 1px;
+  pointer-events: none;
+}
+.home-sections.hs-theme-deco .hs-card::after { /* shimmer sweep */
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: -60%;
+  width: 42%;
+  background: linear-gradient(100deg, transparent, rgba(242, 223, 160, 0.14), transparent);
+  transform: skewX(-18deg);
+  animation: dc-shimmer 6s ease-in-out infinite;
+  pointer-events: none;
+}
+.home-sections.hs-theme-deco .hs-grid .hs-card:nth-child(2)::after { animation-delay: 1.5s; }
+.home-sections.hs-theme-deco .hs-grid .hs-card:nth-child(3)::after { animation-delay: 3s; }
+.home-sections.hs-theme-deco .hs-grid .hs-card:nth-child(4)::after { animation-delay: 4.5s; }
+.home-sections.hs-theme-deco .hs-card:hover {
+  transform: translateY(-4px);
+  border-color: rgba(212, 180, 106, 0.65);
+  box-shadow: inset 0 0 0 1px rgba(212, 180, 106, 0.25), 0 20px 44px rgba(0, 0, 0, 0.6), 0 0 26px rgba(212, 180, 106, 0.12);
+}
+.home-sections.hs-theme-deco .hs-card-num {
+  background: linear-gradient(180deg, var(--dc-gold-hi), #a5813f);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  -webkit-text-fill-color: transparent;
+  filter: drop-shadow(0 1px 0 rgba(0, 0, 0, 0.7));
+}
+.home-sections.hs-theme-deco .hs-card-label { color: var(--dc-gold-hi); letter-spacing: 0.28em; }
+.home-sections.hs-theme-deco .hs-card-desc { color: rgba(216, 210, 196, 0.66); }
+.home-sections.hs-theme-deco .hs-mode-name { color: var(--dc-champ); letter-spacing: 0.22em; }
+.home-sections.hs-theme-deco .hs-mode-sub { color: var(--dc-gold); }
+.home-sections.hs-theme-deco .hs-mode-row { color: rgba(216, 210, 196, 0.6); border-bottom: 1px solid rgba(212, 180, 106, 0.16); }
+.home-sections.hs-theme-deco .hs-mode-row span:last-child { color: var(--dc-champ); }
+.home-sections.hs-theme-deco .hs-gold { color: var(--dc-gold-hi); text-shadow: 0 0 12px rgba(212, 180, 106, 0.4); }
+.home-sections.hs-theme-deco .hs-list-row { border-bottom: 1px solid rgba(212, 180, 106, 0.16); }
+.home-sections.hs-theme-deco .hs-list-row span:first-child { color: var(--dc-champ); }
+.home-sections.hs-theme-deco .hs-list-row span:last-child { color: rgba(216, 210, 196, 0.6); }
+.home-sections.hs-theme-deco .hs-footnote { color: rgba(216, 210, 196, 0.52); }
+.home-sections.hs-theme-deco .home-btn-secondary {
+  background: rgba(16, 14, 10, 0.8);
+  color: var(--dc-gold-hi);
+  border: 1px solid rgba(212, 180, 106, 0.45);
+}
+.home-sections.hs-theme-deco .home-btn-secondary:hover { color: #fff; border-color: var(--dc-gold); background: rgba(28, 24, 16, 0.9); box-shadow: 0 0 18px rgba(212, 180, 106, 0.25); }
+.home-sections.hs-theme-deco .home-btn-hero {
+  background: linear-gradient(180deg, #e6cd86, #b1893f);
+  color: #241a08;
+  border: 1px solid rgba(242, 223, 160, 0.7);
+  box-shadow: 0 12px 34px rgba(0, 0, 0, 0.55), 0 0 26px rgba(212, 180, 106, 0.3);
+  text-shadow: none;
+}
+.home-sections.hs-theme-deco .hs-cta-title {
+  letter-spacing: 0.14em;
+  background: linear-gradient(180deg, var(--dc-gold-hi), var(--dc-gold) 55%, #a5813f);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  -webkit-text-fill-color: transparent;
+  filter: drop-shadow(0 3px 0 rgba(0, 0, 0, 0.85)) drop-shadow(0 8px 30px rgba(212, 180, 106, 0.3));
+}
+.home-sections.hs-theme-deco .hs-cta-sub { color: rgba(216, 210, 196, 0.66); }
+.home-sections.hs-theme-deco .hs-footer { background: rgba(0, 0, 0, 0.45); border-top: 1px solid rgba(212, 180, 106, 0.2); }
+.home-sections.hs-theme-deco .hs-footer-text,
+.home-sections.hs-theme-deco .hs-footer-disclaimer,
+.home-sections.hs-theme-deco .hs-footer-x { color: rgba(216, 210, 196, 0.5); }
+.home-sections.hs-theme-deco .hs-footer-x:hover { color: var(--dc-gold-hi); }
+
+@keyframes dc-shimmer {
+  0%, 100% { left: -60%; }
+  50% { left: 120%; }
+}
+
+/* Respect reduced-motion: stop the looping shimmer sweep (entrance reveals are
+   already disabled by the .ha reduced-motion rule above). */
+@media (prefers-reduced-motion: reduce) {
+  .home-sections.hs-theme-deco .hs-card::after { animation: none !important; }
+}
