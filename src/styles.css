@@ -5805,75 +5805,22 @@ body.in-game .log-feed { left: 70px; }
 }
 
 /* ===========================================================================
-   HOME-SECTIONS STYLE PREVIEWER + FIVE ALTERNATE THEMES
+   HOME-SECTIONS THEMES
    ---------------------------------------------------------------------------
-   A floating chip (bottom-left) swaps the landing sections (#homeSections)
-   between the classic Gold-Ops look and five wholly distinct designs. Each
-   theme is scoped under `.home-sections.hs-theme-<name>` and only repaints the
-   shared .hs-* markup — no HTML changes per theme. Wiring: src/home-style.js.
+   Luxe Deco is the shipped look — applied via `hs-theme-deco` on the
+   #homeSections container (see src/views/home.js). The other blocks below are
+   alternate designs kept for reference; swap the container's theme class to use
+   one. Each theme is scoped under `.home-sections.hs-theme-<name>` and only
+   repaints the shared .hs-* markup — no HTML changes per theme. Compose any of
+   them with `hs-mono` to render that design in black/white/grey.
 
+     • Luxe Deco     — charcoal + refined gold, art-deco frames + shimmer (default).
      • Neon Arena    — cyber esports, cyan/magenta glow, animated grid.
      • Brutalist     — light editorial press, hard black borders + offset shadows.
      • Aurora Glass  — midnight glassmorphism with drifting aurora.
      • Terminal CRT  — monospace phosphor-green terminal with scanlines.
-     • Luxe Deco     — charcoal + refined gold, art-deco frames + shimmer.
+     • Monochrome    — high-contrast black/white/grey.
    =========================================================================== */
-
-/* ---- The floating switcher chip ---------------------------------------- */
-.hs-style-picker {
-  position: fixed;
-  left: 18px;
-  bottom: 18px;
-  z-index: 12;
-  display: inline-flex;
-  align-items: center;
-  gap: 9px;
-  padding: 7px 10px 7px 13px;
-  border-radius: 999px;
-  border: 1px solid rgba(212, 160, 23, 0.35);
-  background: rgba(12, 10, 6, 0.74);
-  backdrop-filter: blur(10px);
-  -webkit-backdrop-filter: blur(10px);
-  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
-  color: var(--gold-hi);
-}
-.hs-style-picker-ico { flex: none; color: var(--gold); opacity: 0.9; }
-.hs-style-picker-label {
-  font-family: var(--font-head);
-  font-size: 0.5rem;
-  letter-spacing: 0.24em;
-  color: rgba(233, 224, 200, 0.62);
-}
-.hs-style-picker-select {
-  appearance: none;
-  -webkit-appearance: none;
-  margin: 0;
-  border: 1px solid rgba(212, 160, 23, 0.3);
-  border-radius: 999px;
-  background-color: rgba(0, 0, 0, 0.5);
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23d4a017' stroke-width='3' stroke-linecap='round'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
-  background-repeat: no-repeat;
-  background-position: right 9px center;
-  background-size: 9px;
-  color: #f2e8cc;
-  font-family: var(--font-head);
-  font-size: 0.58rem;
-  letter-spacing: 0.08em;
-  padding: 5px 26px 5px 12px;
-  cursor: pointer;
-  transition: border-color 0.15s ease, color 0.15s ease;
-}
-.hs-style-picker-select:hover { border-color: rgba(212, 160, 23, 0.6); color: #fff; }
-.hs-style-picker-select:focus-visible { outline: 2px solid var(--gold); outline-offset: 2px; }
-.hs-style-picker-select option { background: #0c0a07; color: #f2e8cc; }
-
-/* Hide the switcher in a match, alongside the rest of the home chrome. */
-body.in-game .hs-style-picker { display: none !important; }
-
-@media (max-width: 480px) {
-  .hs-style-picker { left: 10px; bottom: 10px; padding: 6px 8px 6px 10px; gap: 6px; }
-  .hs-style-picker-label { display: none; }
-}
 
 /* Keep real content above each theme's full-bleed background decoration
    (container ::before/::after painted at z-index 0). */
