@@ -75,6 +75,18 @@ const LOW_QUALITY = detectLowQuality();
 const MAX_PIXEL_RATIO = LOW_QUALITY ? 1.5 : 2; // cap devicePixelRatio on mobile
 const SHADOW_MAP_SIZE = LOW_QUALITY ? 1024 : 2048;
 
+// Touch-primary devices get tap/drag/pinch controls + wording; everything else
+// keeps mouse wording (click/drag/scroll). A coarse primary pointer covers
+// phones/tablets; the UA check catches devices that under-report pointer type.
+const TOUCH_INPUT = (() => {
+  try {
+    return !!(window.matchMedia?.("(pointer: coarse)")?.matches
+      || /Android|iPhone|iPad|iPod|Mobile|Silk|Kindle/i.test(navigator.userAgent || ""));
+  } catch (_) {
+    return false;
+  }
+})();
+
 const THEMES = {
   game: {
     bg: 0x08090c,
@@ -2719,8 +2731,51 @@ export function createArenaGame(options) {
   let hoverFoe = false; // pointer is over a live enemy — drives the crosshair cursor
   const panRight = new THREE.Vector3(), panUp = new THREE.Vector3();
   const canvas = renderer.domElement;
-  function _onPointerDown(e) { canvas.setPointerCapture(e.pointerId); isDown = true; dragging = false; sx = lx = e.clientX; sy = ly = e.clientY; }
+  // Active pointers keyed by id. One point pans/taps (mouse or single finger);
+  // two points pinch-to-zoom — the touch equivalent of the mouse wheel.
+  const activePointers = new Map();
+  let pinchDist = 0; // finger separation (px) at the previous pinch sample
+
+  function twoFingerDist() {
+    const p = [...activePointers.values()];
+    return p.length < 2 ? 0 : Math.hypot(p[0].x - p[1].x, p[0].y - p[1].y);
+  }
+  function zoomBy(factor) {
+    camera.zoom = Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, camera.zoom * factor));
+    camera.updateProjectionMatrix();
+  }
+  // A pinch ended (a finger lifted or was cancelled). Re-seat so a lone
+  // remaining finger keeps panning from its current spot without a jump, and so
+  // lifting it never fires a stray tap.
+  function resumeAfterMultiTouch() {
+    pinchDist = 0;
+    const rem = [...activePointers.values()][0];
+    if (rem) { isDown = true; dragging = true; sx = lx = rem.x; sy = ly = rem.y; }
+    else { isDown = false; dragging = false; }
+  }
+
+  function _onPointerDown(e) {
+    canvas.setPointerCapture(e.pointerId);
+    activePointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    if (activePointers.size >= 2) {
+      // Second finger down → start a pinch. Abandon the in-progress pan/tap so
+      // the gesture never also moves the fighter or the camera centre.
+      isDown = false; dragging = true; following = false;
+      pinchDist = twoFingerDist();
+      return;
+    }
+    isDown = true; dragging = false; sx = lx = e.clientX; sy = ly = e.clientY;
+  }
   function _onPointerMove(e) {
+    if (activePointers.has(e.pointerId)) activePointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    // Two or more fingers down: pinch to zoom, and nothing else.
+    if (activePointers.size >= 2) {
+      const d = twoFingerDist();
+      if (pinchDist > 0 && d > 0) zoomBy(d / pinchDist);
+      pinchDist = d;
+      hoverFoe = false;
+      return;
+    }
     // Hover pick: show the attack crosshair whenever the pointer is over a live
     // enemy, before any click. Skipped while dragging the camera.
     if (!(isDown && dragging) && controllable && !player.dead) {
@@ -2746,10 +2801,21 @@ export function createArenaGame(options) {
     lx = e.clientX; ly = e.clientY;
   }
   function _onPointerUp(e) {
+    const wasPinch = activePointers.size >= 2;
+    activePointers.delete(e.pointerId);
+    try { canvas.releasePointerCapture(e.pointerId); } catch (_) {}
+    if (wasPinch) { resumeAfterMultiTouch(); return; } // lifting one finger of a pinch never taps
     if (!isDown) return;
     isDown = false;
     if (dragging) return;
     handleTap(e.clientX, e.clientY);
+  }
+  function _onPointerCancel(e) {
+    const wasPinch = activePointers.size >= 2;
+    activePointers.delete(e.pointerId);
+    try { canvas.releasePointerCapture(e.pointerId); } catch (_) {}
+    if (wasPinch) resumeAfterMultiTouch();
+    else { isDown = false; dragging = false; }
   }
   function _onWheel(e) {
     // On the landing page the wheel belongs to the document — it scrolls the
@@ -2757,13 +2823,13 @@ export function createArenaGame(options) {
     // actually in a match.
     if (!viewIsGame) return;
     e.preventDefault();
-    camera.zoom = Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, camera.zoom * Math.exp(-e.deltaY * 0.0012)));
-    camera.updateProjectionMatrix();
+    zoomBy(Math.exp(-e.deltaY * 0.0012));
   }
   function _onPointerLeave() { hoverFoe = false; }
   canvas.addEventListener("pointerdown", _onPointerDown);
   canvas.addEventListener("pointermove", _onPointerMove);
   canvas.addEventListener("pointerup", _onPointerUp);
+  canvas.addEventListener("pointercancel", _onPointerCancel);
   canvas.addEventListener("pointerleave", _onPointerLeave);
   canvas.addEventListener("wheel", _onWheel, { passive: false });
 
@@ -3650,6 +3716,7 @@ export function createArenaGame(options) {
       canvas.removeEventListener("pointerdown", _onPointerDown);
       canvas.removeEventListener("pointermove", _onPointerMove);
       canvas.removeEventListener("pointerup", _onPointerUp);
+      canvas.removeEventListener("pointercancel", _onPointerCancel);
       canvas.removeEventListener("pointerleave", _onPointerLeave);
       canvas.removeEventListener("wheel", _onWheel);
       window.removeEventListener("keydown", _onKeyDown);
@@ -3689,7 +3756,9 @@ function buildHud() {
     return el;
   };
 
-  const hint = add('<div class="hint game-ui"><span class="key">wasd</span> move &middot; <span class="key">click</span> move &middot; <span class="key">click rival</span> attack &middot; <span class="key">1&ndash;4</span> swap weapon &middot; <span class="key">drag</span> pan &middot; <span class="key">scroll</span> zoom &middot; <span class="key">Esc</span> leave</div>');
+  const hint = add(TOUCH_INPUT
+    ? '<div class="hint game-ui"><span class="key">tap</span> move &middot; <span class="key">tap rival</span> attack &middot; <span class="key">hotbar</span> swap weapon &middot; <span class="key">drag</span> pan &middot; <span class="key">pinch</span> zoom</div>'
+    : '<div class="hint game-ui"><span class="key">wasd</span> move &middot; <span class="key">click</span> move &middot; <span class="key">click rival</span> attack &middot; <span class="key">1&ndash;4</span> swap weapon &middot; <span class="key">drag</span> pan &middot; <span class="key">scroll</span> zoom &middot; <span class="key">Esc</span> leave</div>');
   const matchTimerEl = add('<div class="match-timer game-ui">0:00</div>');
   const matchNoEl = add('<div class="match-no game-ui"></div>');
   const coords = add('<div class="coords game-ui">x 0.0 &middot; z 0.0</div>');
@@ -3710,16 +3779,23 @@ function buildHud() {
   const raiderCountEl = raiderCountCtrl.querySelector(".rc-num");
   const scorePanel = add('<div class="score-panel game-ui hidden"></div>');
   const weaponPanel = add('<div class="wpanel game-ui"></div>');
-  const keysInfoPanel = add(`<div class="keys-info-panel game-ui hidden">
-    <div class="ki-title">CONTROLS</div>
-    <div class="ki-row"><span class="ki-key">Click</span><span class="ki-desc">Move / Attack</span></div>
+  const ctrlRows = TOUCH_INPUT
+    ? `<div class="ki-row"><span class="ki-key">Tap</span><span class="ki-desc">Move / Attack</span></div>
+    <div class="ki-row"><span class="ki-key">Drag</span><span class="ki-desc">Pan camera</span></div>
+    <div class="ki-row"><span class="ki-key">Pinch</span><span class="ki-desc">Zoom</span></div>
+    <div class="ki-row"><span class="ki-key">Hotbar 1–4</span><span class="ki-desc">Select weapon</span></div>
+    <div class="ki-row"><span class="ki-key">Frag ring</span><span class="ki-desc">Throw range</span></div>`
+    : `<div class="ki-row"><span class="ki-key">Click</span><span class="ki-desc">Move / Attack</span></div>
     <div class="ki-row"><span class="ki-key">Drag</span><span class="ki-desc">Pan camera</span></div>
     <div class="ki-row"><span class="ki-key">Scroll</span><span class="ki-desc">Zoom</span></div>
     <div class="ki-row"><span class="ki-key">WASD</span><span class="ki-desc">Move</span></div>
     <div class="ki-row"><span class="ki-key">1–4</span><span class="ki-desc">Select weapon</span></div>
     <div class="ki-row"><span class="ki-key">Tab</span><span class="ki-desc">Scoreboard</span></div>
     <div class="ki-row"><span class="ki-key">Esc</span><span class="ki-desc">Leave match</span></div>
-    <div class="ki-row"><span class="ki-key">Frag ring</span><span class="ki-desc">Throw range</span></div>
+    <div class="ki-row"><span class="ki-key">Frag ring</span><span class="ki-desc">Throw range</span></div>`;
+  const keysInfoPanel = add(`<div class="keys-info-panel game-ui hidden">
+    <div class="ki-title">CONTROLS</div>
+    ${ctrlRows}
   </div>`);
   add('<button class="gear game-ui" title="Menu">&#9776;</button>');
   const gearBtn = root.querySelector(".gear");

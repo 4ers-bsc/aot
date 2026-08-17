@@ -942,6 +942,39 @@ function getSolanaWallet() {
   return window.solana || window.phantom?.solana || window.solflare || null;
 }
 
+// True on phones/tablets, where wallet browser-extensions don't exist and
+// Phantom (and friends) ship as native apps instead. iPadOS 13+ reports a
+// desktop Safari UA, so also treat a touch-capable "Macintosh" as mobile.
+// Kept deliberately narrow (UA + iPadOS) so a desktop with a touchscreen — which
+// CAN run the Phantom extension — still gets the install prompt, not a deep link.
+function isMobileDevice() {
+  try {
+    const ua = navigator.userAgent || "";
+    if (/Android|iPhone|iPad|iPod|Mobile|Silk|Kindle/i.test(ua)) return true;
+    if (navigator.platform === "MacIntel" && (navigator.maxTouchPoints || 0) > 1) return true; // iPadOS
+    return false;
+  } catch (_) {
+    return false;
+  }
+}
+
+// Hand a mobile browser off to Phantom's in-app browser via a universal link.
+// On a phone the site has no injected wallet to talk to, but inside Phantom's
+// own browser window.solana IS present — so opening the site there lets the
+// normal SIWS flow (signIn) run and connect. If Phantom isn't installed the
+// universal link resolves to Phantom's install page. Solflare/Backpack users who
+// open the site in their wallet's browser are already served by getSolanaWallet.
+function openPhantomInAppBrowser() {
+  const target = window.location.href;
+  const ref = window.location.origin;
+  // Both params must be URL-encoded (Phantom deeplink spec). Assigning
+  // location.href (rather than window.open) keeps this a user-gesture navigation
+  // so iOS/Android hand off to the Phantom app instead of opening a new tab.
+  const link = `https://phantom.app/ul/browse/${encodeURIComponent(target)}?ref=${encodeURIComponent(ref)}`;
+  setStatus("Opening Phantom…");
+  window.location.href = link;
+}
+
 // The wallet's currently connected address (base58), or null when the site
 // isn't connected yet. Reads the already-exposed publicKey — never pops a
 // prompt (the connect prompt happens in signIn()).
@@ -969,6 +1002,9 @@ async function getDisplayWalletAddress() {
 async function signIn() {
   const wallet = getSolanaWallet();
   if (!wallet) {
+    // Mobile browser: no extension can be injected, so bounce into Phantom's
+    // in-app browser where the wallet IS available and this flow can complete.
+    if (isMobileDevice()) { openPhantomInAppBrowser(); return; }
     setStatus("No Solana wallet found. Install Phantom, Solflare, or Backpack.");
     return;
   }
@@ -1165,7 +1201,9 @@ function startDemo() {
   runMatchStart(() => {
     game.setMatchPhase("active");
     game.setControllable(true);
-    setStatus("Demo match vs the computer. Click the battlefield to move.");
+    setStatus(isMobileDevice()
+      ? "Demo match vs the computer. Tap the battlefield to move."
+      : "Demo match vs the computer. Click the battlefield to move.");
     showGlhf();
   });
 }
