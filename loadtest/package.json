@@ -1,0 +1,13 @@
+{
+  "name": "fight10-loadtest",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Concurrency + anti-cheat load-test harness for FIGHT10, run against an isolated local replica of the Supabase schema.",
+  "scripts": {
+    "test": "node src/run.mjs"
+  },
+  "dependencies": {
+    "pg": "^8.13.1"
+  }
+}
