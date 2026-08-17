@@ -92,6 +92,11 @@ and voting are public RLS + Realtime Postgres Changes (`chat_messages`,
 `chat_poll`); votes go through the `cast_chat_vote` RPC (one per player, per
 poll). See `supabase/migrations/20260817_home_chat.sql`.
 
+The host can drive all of this from **two places**: the chat box on the page, or
+the ops dashboard's **Chat & votes** tab (`#admin` → Community). The dashboard
+tab adds message + vote **history** and per-message moderation (delete) on top of
+the same post / start-vote / close-vote controls.
+
 First sign-in prompts a new player to pick a **name + avatar** (skin). The row is
 created on sign-in with `profiles.onboarded = false`; the picker saves the choice
 via `complete_onboarding` and flips the flag. Existing players are backfilled to

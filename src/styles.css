@@ -5614,6 +5614,53 @@ body.in-game .log-feed { left: 70px; }
   .admin-overlay .cf-summary { grid-template-columns: 1fr; }
 }
 
+/* Chat & votes tab */
+.admin-overlay .admin-tablewrap { overflow-x: auto; }
+.admin-overlay .chat-compose {
+  width: 100%;
+  margin-top: 10px;
+  min-height: 66px;
+  resize: vertical;
+}
+.admin-overlay .chat-poll-q { width: 100%; margin-top: 10px; }
+.admin-overlay .chat-vote-q {
+  font-family: var(--a-font);
+  font-weight: 600;
+  font-size: 16px;
+  color: var(--a-text);
+  margin: 10px 0 12px;
+}
+.admin-overlay .chat-vote-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 10px;
+}
+.admin-overlay .chat-vote-stat {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  padding: 12px 8px;
+  border: 1px solid var(--a-border-2);
+  border-radius: var(--a-radius);
+  background: var(--a-surface-2);
+}
+.admin-overlay .chat-vote-n { font-family: var(--a-font); font-weight: 700; font-size: 26px; color: var(--a-text); }
+.admin-overlay .chat-vote-l { font-size: 12px; letter-spacing: 0.06em; color: var(--a-text-mute); }
+.admin-overlay .chat-vote-yes { border-color: rgba(74, 200, 106, 0.45); background: var(--a-green-bg); }
+.admin-overlay .chat-vote-yes .chat-vote-n { color: var(--a-green); }
+.admin-overlay .chat-vote-no { border-color: rgba(242, 96, 77, 0.5); background: var(--a-red-bg); }
+.admin-overlay .chat-vote-no .chat-vote-n { color: var(--a-red-hi); }
+.admin-overlay .chat-vote-bar {
+  height: 8px;
+  margin-top: 12px;
+  border-radius: 999px;
+  background: var(--a-red-bg);
+  overflow: hidden;
+}
+.admin-overlay .chat-vote-bar-yes { height: 100%; border-radius: 999px; background: var(--a-green); transition: width 0.3s ease; }
+.admin-overlay .chat-msg-cell { color: var(--a-text); max-width: 460px; white-space: normal; word-break: break-word; }
+
 /* ===== Maintenance mode ===== */
 .maintenance-on { overflow: hidden; }
 .maintenance-overlay {
