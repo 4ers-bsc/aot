@@ -37,6 +37,7 @@ const TABS = [
   ["functions",         "Edge functions"],
   ["constants",         "Constants"],
   ["deployment",        "Deployment"],
+  ["chat",              "Chat & votes"],
 ];
 const TAB_LABEL = Object.fromEntries(TABS);
 // Sidebar grouping + vertical order. Empty group name = no header (Home).
@@ -45,6 +46,7 @@ const TAB_GROUPS = [
   ["Operations", ["disputed", "integrity", "payout_pending", "payout_failed", "stale_waiting"]],
   ["Finance",    ["payouts", "payout_queue", "cashflow", "consumed_deposits"]],
   ["Users",      ["banned", "notes"]],
+  ["Community",  ["chat"]],
   ["System",     ["db", "functions", "constants", "deployment"]],
 ];
 // Tabs whose badge count is informational (not an action queue) — no red badge.
@@ -52,7 +54,7 @@ const INFO_TABS = new Set(["payouts", "consumed_deposits", "notes"]);
 // Tabs that render their own body (own filters / layout) instead of the shared
 // free-text search + row table. Each loads its data lazily on first open and
 // keeps its own loading / error state.
-const CUSTOM_TABS = new Set(["home", "matches", "cashflow", "db", "functions", "constants", "deployment", "payout_queue"]);
+const CUSTOM_TABS = new Set(["home", "matches", "cashflow", "db", "functions", "constants", "deployment", "payout_queue", "chat"]);
 
 // Wipe-safety classification for the Database tab. Purely advisory — the backend
 // still gates every wipe behind a typed confirmation and refuses to cascade — but
@@ -194,6 +196,8 @@ export function initAdmin(supabase) {
   let config = null,   configLoading = false,   configError = "";
   let deployment = null, deploymentLoading = false, deploymentError = "";
   let pqueue = null,   pqueueLoading = false,   pqueueError = "";
+  // Chat tab: current/latest poll, poll + message history, totals.
+  let chat = null,     chatLoading = false,     chatError = "";
 
   // ---- DOM shell (built once, on first open) --------------------------------
   function ensureRoot() {
@@ -360,6 +364,7 @@ export function initAdmin(supabase) {
       case "constants": return loadConfig();
       case "deployment": return loadDeployment();
       case "payout_queue": return loadPayoutQueue();
+      case "chat":      return loadChat();
       default:          return load();
     }
   }
@@ -374,6 +379,7 @@ export function initAdmin(supabase) {
     if (tab === "constants" && !config    && !configLoading)    loadConfig();
     if (tab === "deployment" && !deployment && !deploymentLoading) loadDeployment();
     if (tab === "payout_queue" && !pqueue && !pqueueLoading) loadPayoutQueue();
+    if (tab === "chat"      && !chat      && !chatLoading)      loadChat();
   }
 
   // Generic on-demand fetch for a monitoring / config action. Sets the given
@@ -421,6 +427,27 @@ export function initAdmin(supabase) {
     if ("loading" in s) pqueueLoading = s.loading;
     if ("error" in s)   pqueueError = s.error;
   });
+  const loadChat = () => fetchInto("chat_overview", null, "chat", (s) => {
+    if ("data" in s)    chat = s.data;
+    if ("loading" in s) chatLoading = s.loading;
+    if ("error" in s)   chatError = s.error;
+  });
+
+  // Chat mutating actions (post / start / close / delete) reload just the Chat
+  // tab, not the overview — chat isn't one of the operational queues.
+  async function actChat(action, params, okMsg = "Done ✓") {
+    try {
+      const { data: resp, error } = await supabase.functions.invoke("f10admin", {
+        body: { action, ...params },
+      });
+      if (error) throw new Error(await adminErrorReason(error));
+      if (!resp?.ok) throw new Error(resp?.error || "request failed");
+      toast(okMsg);
+      await loadChat();
+    } catch (err) {
+      toast(`Action failed: ${err?.message || err}`, true);
+    }
+  }
 
   // Save an edited static constant, then reload the constants tab.
   async function saveConfig(params) {
@@ -918,6 +945,31 @@ export function initAdmin(supabase) {
       }
       return;
     }
+    // ---- Chat & votes tab ----------------------------------------------------
+    if (a === "chat_send") {
+      const el = root.querySelector("#chatComposeInput");
+      const text = (el?.value || "").trim();
+      if (!text) { toast("Type a message first.", true); return; }
+      actChat("chat_send", { text }, "Message posted ✓");
+      return;
+    }
+    if (a === "chat_start_vote") {
+      const q = (root.querySelector("#chatPollQ")?.value || "").trim();
+      actChat("chat_poll", { op: "open", question: q }, "Vote started ✓");
+      return;
+    }
+    if (a === "chat_close_vote") {
+      if (await askConfirm("Close the current vote? The result stays in vote history and voting stops for everyone.", "Close vote")) {
+        actChat("chat_poll", { op: "close" }, "Vote closed ✓");
+      }
+      return;
+    }
+    if (a === "chat_del_msg") {
+      if (await askConfirm("Delete this message for everyone? It is removed from the chat and history.", "Delete")) {
+        actChat("chat_delete", { id: Number(btn.dataset.id) }, "Message deleted ✓");
+      }
+      return;
+    }
   }
 
   // ---- Render ---------------------------------------------------------------
@@ -1031,6 +1083,7 @@ export function initAdmin(supabase) {
     if (activeTab === "constants") { bodyEl.innerHTML = renderConstants(); return; }
     if (activeTab === "deployment") { bodyEl.innerHTML = renderDeployment(); return; }
     if (activeTab === "payout_queue") { bodyEl.innerHTML = renderPayoutQueue(); return; }
+    if (activeTab === "chat")      { bodyEl.innerHTML = renderChat(); return; }
     if (countEl) countEl.textContent = "";
     if (loading && !data) { bodyEl.innerHTML = `<div class="admin-msg">Loading…</div>`; return; }
     if (errorMsg)         { bodyEl.innerHTML = `<div class="admin-msg admin-err">${escapeHtml(errorMsg)}</div>`; return; }
@@ -1501,6 +1554,114 @@ export function initAdmin(supabase) {
       ${jobs.length
         ? `<table class="admin-table"><thead><tr><th>Match</th><th>State</th><th>Attempts</th><th>Next attempt</th><th>Last error</th></tr></thead><tbody>${rows}</tbody></table>`
         : `<div class="admin-msg" style="margin-top:12px">Queue is empty — no open payout jobs.</div>`}`;
+  }
+
+  // ---- Chat & votes ---------------------------------------------------------
+  // The host side of the home-screen chat: broadcast a message, run a Yes/No
+  // vote, and review message + vote history — all the same channel the on-page
+  // chat box uses. Live counts update on the page; here Refresh pulls a snapshot.
+  function renderChat() {
+    if (chatLoading && !chat) return `<div class="admin-msg">Loading chat…</div>`;
+    if (chatError)            return `<div class="admin-msg admin-err">${escapeHtml(chatError)}</div>`;
+    if (!chat)                return `<div class="admin-msg">No data.</div>`;
+
+    const cp       = chat.current_poll;
+    const polls    = chat.polls || [];
+    const messages = chat.messages || [];
+    const st       = chat.stats || {};
+
+    const chips = `<div class="home-chips">
+      <span class="home-chip"><span class="home-chip-n">${fmtInt(st.messages || 0)}</span> messages</span>
+      <span class="home-chip"><span class="home-chip-n">${fmtInt(st.polls || 0)}</span> votes run</span>
+      <span class="home-chip"><span class="home-chip-n">${cp ? 1 : 0}</span> open now</span>
+    </div>`;
+
+    // Broadcast a message.
+    const composeCard = `
+      <div class="cfg-card">
+        <h3 class="cfg-h">Broadcast a message <span class="admin-dim">chat_messages</span></h3>
+        <span class="cfg-hint">Posts to the home-screen chat as the host — everyone sees it live.</span>
+        <textarea id="chatComposeInput" class="admin-input chat-compose" rows="3" maxlength="2000" placeholder="Message everyone…"></textarea>
+        <div class="cfg-actions">
+          <button class="admin-btn admin-btn-sm admin-primary" data-act="chat_send">Post message</button>
+        </div>
+      </div>`;
+
+    // Vote control — start when idle, live tally + close when a vote is open.
+    let voteCard;
+    if (cp) {
+      const yes = cp.yes_count || 0, no = cp.no_count || 0, tot = yes + no;
+      const pct = tot ? Math.round((yes / tot) * 100) : 0;
+      voteCard = `
+      <div class="cfg-card">
+        <h3 class="cfg-h">Live vote <span class="tbl-badge tbl-safe">OPEN</span></h3>
+        <div class="chat-vote-q">${escapeHtml(cp.question || "Yes or No?")}</div>
+        <div class="chat-vote-grid">
+          <div class="chat-vote-stat chat-vote-yes"><span class="chat-vote-n">${fmtInt(yes)}</span><span class="chat-vote-l">YES</span></div>
+          <div class="chat-vote-stat chat-vote-no"><span class="chat-vote-n">${fmtInt(no)}</span><span class="chat-vote-l">NO</span></div>
+          <div class="chat-vote-stat"><span class="chat-vote-n">${fmtInt(tot)}</span><span class="chat-vote-l">TOTAL</span></div>
+        </div>
+        <div class="chat-vote-bar"><div class="chat-vote-bar-yes" style="width:${pct}%"></div></div>
+        <span class="cfg-hint">${pct}% yes · opened ${escapeHtml(fmtTime(cp.created_at))} (${ago(cp.created_at)}) · counts are live on the page — hit Refresh here for a fresh snapshot.</span>
+        <div class="cfg-actions">
+          <button class="admin-btn admin-btn-sm admin-danger" data-act="chat_close_vote">Close vote</button>
+        </div>
+      </div>`;
+    } else {
+      voteCard = `
+      <div class="cfg-card">
+        <h3 class="cfg-h">Start a vote <span class="admin-dim">chat_poll</span></h3>
+        <span class="cfg-hint">Opens a Yes/No vote on the home-screen chat. Live counts update for everyone as they vote.</span>
+        <input id="chatPollQ" class="cfg-input chat-poll-q" type="text" maxlength="200" placeholder="Ask a yes/no question…" />
+        <div class="cfg-actions">
+          <button class="admin-btn admin-btn-sm admin-primary" data-act="chat_start_vote">Start vote</button>
+        </div>
+      </div>`;
+    }
+
+    // Vote history — every poll run, newest first, with its final tally.
+    const pollRows = polls.map((p) => {
+      const y = p.yes_count || 0, n = p.no_count || 0, t = y + n;
+      const result = y === n ? (t ? "Tie" : "—") : (y > n ? "YES" : "NO");
+      const badge = p.is_open
+        ? `<span class="tbl-badge tbl-safe">open</span>`
+        : `<span class="tbl-badge">closed</span>`;
+      return `<tr>
+        <td>${badge}</td>
+        <td>${escapeHtml(p.question || "—")}</td>
+        <td class="admin-right">${fmtInt(y)}</td>
+        <td class="admin-right">${fmtInt(n)}</td>
+        <td class="admin-right">${fmtInt(t)}</td>
+        <td>${result}</td>
+        <td>${escapeHtml(fmtTime(p.created_at))} <span class="admin-dim">(${ago(p.created_at)})</span></td>
+        <td>${p.closed_at ? escapeHtml(fmtTime(p.closed_at)) : "—"}</td>
+      </tr>`;
+    }).join("");
+    const voteHistoryCard = `
+      <div class="cfg-card">
+        <h3 class="cfg-h">Vote history <span class="admin-dim">${fmtInt(polls.length)} shown</span></h3>
+        ${polls.length
+          ? `<div class="admin-tablewrap"><table class="admin-table">${thead(["", "Question", "Yes", "No", "Total", "Result", "Opened", "Closed"])}${pollRows}</tbody></table></div>`
+          : `<div class="admin-msg">No votes run yet.</div>`}
+      </div>`;
+
+    // Message history — newest first, each removable.
+    const msgRows = messages.map((m) => `<tr>
+        <td class="admin-nowrap">${escapeHtml(fmtTime(m.created_at))} <span class="admin-dim">(${ago(m.created_at)})</span></td>
+        <td>${escapeHtml(m.author_name || "Host")}</td>
+        <td class="chat-msg-cell">${escapeHtml(m.body || "")}</td>
+        <td><button class="admin-btn admin-btn-sm admin-danger" data-act="chat_del_msg" data-id="${m.id}">Delete</button></td>
+      </tr>`).join("");
+    const msgHistoryCard = `
+      <div class="cfg-card">
+        <h3 class="cfg-h">Message history <span class="admin-dim">${fmtInt(messages.length)} shown</span></h3>
+        ${messages.length
+          ? `<div class="admin-tablewrap"><table class="admin-table">${thead(["When", "Author", "Message", ""])}${msgRows}</tbody></table></div>`
+          : `<div class="admin-msg">No messages yet.</div>`}
+      </div>`;
+
+    return `<p class="admin-note">Post to the home-screen chat, run a Yes/No vote, and review message + vote history. This is the same host channel as the on-page chat box; only allow-listed operators can act here.</p>`
+      + chips + composeCard + voteCard + voteHistoryCard + msgHistoryCard;
   }
 
   // ---- Static constants editor ----------------------------------------------

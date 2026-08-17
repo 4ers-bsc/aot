@@ -1399,6 +1399,49 @@ Deno.serve(async (req: Request) => {
           return fail(`Unknown poll op '${op}'`);
         }
 
+        case "chat_overview": {
+          // Everything the dashboard's Chat tab shows: the current/latest poll,
+          // recent poll history (with tallies), recent messages, and totals.
+          const [pollsRes, msgsRes] = await Promise.all([
+            admin.from("chat_poll")
+              .select("id, question, is_open, yes_count, no_count, created_by, created_at, closed_at")
+              .order("id", { ascending: false }).limit(50),
+            admin.from("chat_messages")
+              .select("id, body, author_id, author_name, author_skin, created_at")
+              .order("id", { ascending: false }).limit(100),
+          ]);
+          if (pollsRes.error) return fail(pollsRes.error.message);
+          if (msgsRes.error)  return fail(msgsRes.error.message);
+          const polls = pollsRes.data ?? [];
+          const messages = msgsRes.data ?? [];
+          const names = await resolveNames([
+            ...polls.map((p) => p.created_by),
+            ...messages.map((m) => m.author_id),
+          ]);
+          const pollsOut = polls.map((p) => ({
+            ...p,
+            total: (p.yes_count ?? 0) + (p.no_count ?? 0),
+            created_by_name: names.get(p.created_by)?.name ?? null,
+          }));
+          const current = pollsOut.find((p) => p.is_open) ?? null;
+          return json({
+            ok: true,
+            generated_at: new Date().toISOString(),
+            current_poll: current,
+            polls: pollsOut,
+            messages,
+            stats: { messages: messages.length, polls: polls.length, open: current ? 1 : 0 },
+          });
+        }
+
+        case "chat_delete": {
+          const id = Number(body?.id);
+          if (!Number.isFinite(id)) return fail("Invalid message id");
+          const { error } = await admin.from("chat_messages").delete().eq("id", id);
+          if (error) return fail(error.message);
+          return json({ ok: true });
+        }
+
         default:
           return fail(`Unknown action '${action}'`);
       }

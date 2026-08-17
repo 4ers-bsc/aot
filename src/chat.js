@@ -140,6 +140,15 @@ export function initHomeChat({ supabase, getUser, getProfile, signIn }) {
     if (!collapsed) scrollToBottom();
   }
 
+  // Remove a message the host deleted (realtime DELETE). payload.old carries the
+  // primary key, which is enough to find and drop the node.
+  function removeMessage(id) {
+    if (id == null) return;
+    seen.delete(id);
+    messagesEl?.querySelector(`.hc-msg[data-id="${id}"]`)?.remove();
+    if (messagesEl && !messagesEl.querySelector(".hc-msg")) emptyEl?.classList.remove("hidden");
+  }
+
   async function loadMessages() {
     const { data, error } = await supabase
       .from("chat_messages")
@@ -344,6 +353,8 @@ export function initHomeChat({ supabase, getUser, getProfile, signIn }) {
       .channel("home-chat")
       .on("postgres_changes", { event: "INSERT", schema: "public", table: "chat_messages" },
         (payload) => appendMessage(payload.new, true))
+      .on("postgres_changes", { event: "DELETE", schema: "public", table: "chat_messages" },
+        (payload) => removeMessage(payload.old?.id))
       .on("postgres_changes", { event: "INSERT", schema: "public", table: "chat_poll" },
         (payload) => adoptPollRow(payload.new, true))
       .on("postgres_changes", { event: "UPDATE", schema: "public", table: "chat_poll" },
