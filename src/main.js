@@ -11,6 +11,7 @@ import { mountViews } from "./views/index.js";
 import { initHomeAnimations } from "./home-anim.js";
 import { initHomeTutorial } from "./tutorial.js";
 import { initAdmin } from "./admin.js";
+import { initHomeChat } from "./chat.js";
 import { APPEARANCE_PRESETS } from "./appearance.js";
 
 mountViews();
@@ -267,6 +268,18 @@ const state = {
   presenceChannel: null,
 };
 
+// Home-screen broadcast chat + host-run Yes/No vote. Reads (messages, tally,
+// online count) are public and realtime; posting and running votes are gated to
+// the host via f10admin. refreshAuth() is called on every session change so the
+// host controls appear only for the operator; setOnline() is fed by the same
+// presence count the home screen shows.
+const homeChat = initHomeChat({
+  supabase,
+  getUser: () => state.user,
+  getProfile: () => state.profile,
+  signIn: () => signIn(),
+});
+
 // ---------------------------------------------------------------------------
 // Pending-deposit persistence. A confirmed on-chain deposit that hasn't bought
 // a seat yet must survive reloads/crashes — the fee is non-refundable, and
@@ -422,6 +435,8 @@ function renderOnlineCount(count) {
   if (els.pvpLobbyOnline) {
     els.pvpLobbyOnline.textContent = `${count} player${count === 1 ? "" : "s"} online`;
   }
+  // Mirror the same count into the chat popup header.
+  homeChat.setOnline(count);
 }
 
 // ---------------------------------------------------------------------------
@@ -763,6 +778,14 @@ function bindUi() {
     applySkin(c.dataset.skin);
   }));
   document.getElementById("skinSaveBtn")?.addEventListener("click", () => saveSkin().catch((e) => console.error("skin save error:", e)));
+  // First-sign-in onboarding: pick name + avatar.
+  document.getElementById("onboardContinueBtn")?.addEventListener("click", () => completeOnboarding());
+  document.getElementById("onboardName")?.addEventListener("keydown", (e) => { if (e.key === "Enter") completeOnboarding(); });
+  document.querySelectorAll("#onboardSkins .onboard-skin").forEach((c) => c.addEventListener("click", () => {
+    onboardSkin = c.dataset.skin === "2" ? "2" : "1";
+    renderOnboardSkins();
+    updateOnboardPreview();
+  }));
   els.pvpCancelBtn.addEventListener("click", () => leaveMatch());
   // Returning to the menu after a match fully reloads the page. This guarantees a
   // clean slate (3D scene, realtime channel, match state) for the next game.
@@ -989,6 +1012,7 @@ async function handleSession(session) {
     await teardownMatch();
     game.clearAll();
     showLobby();
+    homeChat.refreshAuth().catch((e) => console.error("chat auth refresh:", e));
     setStatus("Connect a Solana wallet to begin.");
     return;
   }
@@ -1009,6 +1033,11 @@ async function handleSession(session) {
     return;
   }
   showLobby();
+  // Reveal the host chat controls if this wallet is the operator, and load the
+  // player's own vote for any running poll.
+  homeChat.refreshAuth().catch((e) => console.error("chat auth refresh:", e));
+  // First sign-in: no name/avatar chosen yet → prompt the player to pick.
+  maybePromptOnboarding();
   // Restore a deposit that was confirmed on-chain but never spent on a seat
   // (e.g. the tab crashed between payment and queue entry).
   loadPendingDeposit();
@@ -1024,6 +1053,96 @@ async function syncProfile() {
   const { data, error } = await supabase.rpc("sync_my_profile", { p_display_name: null });
   if (error) throw error;
   state.profile = data;
+}
+
+// ---------------------------------------------------------------------------
+// First-sign-in onboarding — pick a name + avatar (skin). Shown once, the first
+// time a freshly-created profile has not been personalised yet
+// (profiles.onboarded = false). Existing players were backfilled to true and
+// are never prompted. The modal is intentionally blocking (no outside-click /
+// close) so a new player always ends up with a name + avatar of their choosing.
+// ---------------------------------------------------------------------------
+let onboardPreview = null;
+let onboardSkin = "1";
+let onboarding = false;
+
+function maybePromptOnboarding() {
+  if (!state.user || !state.profile) return;
+  if (state.profile.onboarded) return;
+  if (onboarding) return;
+  openOnboarding();
+}
+
+function openOnboarding() {
+  const overlay = document.getElementById("onboardOverlay");
+  if (!overlay) return;
+  onboarding = true;
+  const nameInput = document.getElementById("onboardName");
+  const hint = document.getElementById("onboardHint");
+  if (hint) { hint.textContent = ""; hint.classList.remove("error"); }
+  // Seed the input with the auto-generated handle so a player can keep it as-is.
+  if (nameInput) nameInput.value = state.profile?.display_name || "";
+  onboardSkin = state.profile?.skin_id === 2 ? "2" : "1";
+  updateOnboardPreview();
+  renderOnboardSkins();
+  overlay.classList.add("show");
+  setTimeout(() => { nameInput?.focus(); nameInput?.select(); }, 60);
+}
+
+function closeOnboarding() {
+  onboarding = false;
+  document.getElementById("onboardOverlay")?.classList.remove("show");
+}
+
+function updateOnboardPreview() {
+  const host = document.getElementById("onboardPreview");
+  if (!host) return;
+  if (!onboardPreview) onboardPreview = game.mountAppearancePreview(host);
+  onboardPreview?.setAppearance(onboardSkin, APPEARANCE_PRESETS[onboardSkin]);
+}
+
+function renderOnboardSkins() {
+  document.querySelectorAll("#onboardSkins .onboard-skin").forEach((c) => {
+    c.classList.toggle("active", c.dataset.skin === onboardSkin);
+  });
+}
+
+async function completeOnboarding() {
+  const nameInput = document.getElementById("onboardName");
+  const hint = document.getElementById("onboardHint");
+  const btn = document.getElementById("onboardContinueBtn");
+  const name = (nameInput?.value || "").trim();
+  if (name.length < 3 || name.length > 24) {
+    if (hint) { hint.textContent = "Name must be 3–24 characters."; hint.classList.add("error"); }
+    return;
+  }
+  if (btn) btn.disabled = true;
+  try {
+    const { data, error } = await supabase.rpc("complete_onboarding", {
+      p_display_name: name,
+      p_skin_id: Number(onboardSkin),
+    });
+    if (error) throw error;
+    state.profile = data;
+    if (Array.isArray(data?.skins) && data.skins.length) availableSkins = data.skins.map(Number);
+    applySkin(String(data?.skin_id ?? onboardSkin));
+    if (els.profileNameInput) els.profileNameInput.value = data?.display_name || name;
+    closeOnboarding();
+    setStatus(recordSuffix(`Welcome, ${data?.display_name || name}!`));
+  } catch (error) {
+    console.error("[completeOnboarding]", error);
+    // Uniqueness is enforced server-side (complete_onboarding raises
+    // 'username_taken', or the unique index raises a duplicate-key error).
+    const taken = /username_taken|duplicate key/i.test(error?.message || "");
+    if (hint) {
+      hint.textContent = taken
+        ? "That name is taken — try another."
+        : error.message || "Could not save. Try again.";
+      hint.classList.add("error");
+    }
+  } finally {
+    if (btn) btn.disabled = false;
+  }
 }
 
 // ---------------------------------------------------------------------------

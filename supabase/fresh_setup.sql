@@ -90,6 +90,10 @@ create table public.profiles (
   -- Skins available to this player; server-managed (no client update grant)
   skins        smallint[] not null default '{1,2}'
     check (skins <@ array[1, 2]::smallint[]),
+  -- First-run onboarding: false until the player picks a name + avatar on their
+  -- first sign-in (see complete_onboarding, §13). New rows start false so the
+  -- picker appears; nobody is re-prompted once it flips true.
+  onboarded    boolean not null default false,
   created_at   timestamptz not null default timezone('utc', now()),
   -- The saved preference must be a skin the player actually has
   constraint profiles_skin_in_skins check (skin_id = any (skins))
@@ -3398,3 +3402,252 @@ grant execute on function public.claim_payout_jobs(int, int)          to service
 grant execute on function public.complete_payout_job(uuid, boolean, text) to service_role;
 grant execute on function public.claim_payout_slot_service(uuid)      to service_role;
 grant execute on function public.payout_queue_stats()                 to service_role;
+
+-- ---------------------------------------------------------------------------
+-- 13. Home chat + host-run Yes/No poll + first-sign-in onboarding
+-- ---------------------------------------------------------------------------
+-- A broadcast chat that lives on the home screen. ONLY the operator may post,
+-- exclusively through the admin-gated f10admin edge function (service role) —
+-- there is no INSERT grant/policy for anon or authenticated, so a browser can
+-- never write a message. The running Yes/No poll's tally lives on one row
+-- (chat_poll) maintained by a trigger, so every client reads the live count
+-- from a single realtime UPDATE. Kept in sync with migration 20260817_home_chat.
+--
+-- profiles.onboarded (defined in §1) drives the first-run name + avatar picker;
+-- complete_onboarding() saves the choice and flips the flag atomically.
+
+-- First-run save path: sets a unique display name + skin and marks onboarded.
+create or replace function public.complete_onboarding(
+  p_display_name text,
+  p_skin_id      smallint default 1
+)
+returns public.profiles
+language plpgsql
+security definer
+set search_path = public, auth
+as $$
+declare
+  v_uid     uuid     := auth.uid();
+  v_name    text     := nullif(trim(p_display_name), '');
+  v_skin    smallint := coalesce(p_skin_id, 1);
+  v_profile public.profiles%rowtype;
+begin
+  if v_uid is null then
+    raise exception 'not_authenticated';
+  end if;
+
+  if v_name is null or char_length(v_name) < 3 or char_length(v_name) > 24 then
+    raise exception 'invalid_name: username must be 3-24 characters';
+  end if;
+
+  if v_skin not in (1, 2) then
+    v_skin := 1;
+  end if;
+
+  if exists (
+    select 1 from public.profiles
+    where lower(display_name) = lower(v_name) and user_id <> v_uid
+  ) then
+    raise exception 'username_taken: that username is already in use';
+  end if;
+
+  begin
+    update public.profiles
+    set display_name = v_name,
+        skin_id      = v_skin,
+        onboarded    = true
+    where user_id = v_uid
+    returning * into v_profile;
+
+    if not found then
+      insert into public.profiles (user_id, display_name, skin_id, onboarded, wallet_address)
+      values (
+        v_uid, v_name, v_skin, true,
+        (select provider_id from auth.identities
+           where user_id = v_uid
+           order by coalesce(last_sign_in_at, created_at) desc
+           limit 1)
+      )
+      returning * into v_profile;
+    end if;
+  exception when unique_violation then
+    raise exception 'username_taken: that username is already in use';
+  end;
+
+  return v_profile;
+end;
+$$;
+
+grant execute on function public.complete_onboarding(text, smallint) to authenticated;
+
+-- Message log (world-readable; writes only via f10admin / service role).
+create table if not exists public.chat_messages (
+  id          bigint generated always as identity primary key,
+  body        text not null check (char_length(body) between 1 and 2000),
+  author_id   uuid references auth.users(id) on delete set null,
+  author_name text,
+  author_skin smallint,
+  created_at  timestamptz not null default timezone('utc', now())
+);
+create index if not exists idx_chat_messages_created_at
+  on public.chat_messages (created_at desc);
+
+-- Running Yes/No poll (one open at a time; tally maintained by trigger).
+create table if not exists public.chat_poll (
+  id         bigint generated always as identity primary key,
+  question   text,
+  is_open    boolean not null default true,
+  yes_count  integer not null default 0,
+  no_count   integer not null default 0,
+  created_by uuid references auth.users(id) on delete set null,
+  created_at timestamptz not null default timezone('utc', now()),
+  closed_at  timestamptz
+);
+create unique index if not exists idx_chat_poll_single_open
+  on public.chat_poll ((is_open)) where is_open;
+
+-- One vote per (poll, user); changeable while the poll is open.
+create table if not exists public.chat_votes (
+  poll_id    bigint not null references public.chat_poll(id) on delete cascade,
+  user_id    uuid   not null references auth.users(id) on delete cascade,
+  choice     boolean not null,               -- true = Yes, false = No
+  created_at timestamptz not null default timezone('utc', now()),
+  updated_at timestamptz not null default timezone('utc', now()),
+  primary key (poll_id, user_id)
+);
+
+-- Keep chat_poll.yes_count / no_count in step with chat_votes (recompute-based).
+create or replace function public.chat_votes_sync_counts()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_poll bigint := coalesce(new.poll_id, old.poll_id);
+begin
+  update public.chat_poll p set
+    yes_count = (select count(*) from public.chat_votes v where v.poll_id = p.id and v.choice),
+    no_count  = (select count(*) from public.chat_votes v where v.poll_id = p.id and not v.choice)
+  where p.id = v_poll;
+  return null;
+end;
+$$;
+drop trigger if exists chat_votes_sync_counts_trg on public.chat_votes;
+create trigger chat_votes_sync_counts_trg
+after insert or update or delete on public.chat_votes
+for each row execute function public.chat_votes_sync_counts();
+
+-- Cast / change a vote on the open poll.
+create or replace function public.cast_chat_vote(p_choice boolean)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public, auth
+as $$
+declare
+  v_uid  uuid := auth.uid();
+  v_poll public.chat_poll%rowtype;
+begin
+  if v_uid is null then
+    raise exception 'not_authenticated';
+  end if;
+
+  select * into v_poll from public.chat_poll where is_open order by id desc limit 1;
+  if not found then
+    raise exception 'no_open_poll: voting is not open right now';
+  end if;
+
+  insert into public.chat_votes (poll_id, user_id, choice)
+  values (v_poll.id, v_uid, p_choice)
+  on conflict (poll_id, user_id)
+  do update set choice = excluded.choice, updated_at = timezone('utc', now());
+
+  select * into v_poll from public.chat_poll where id = v_poll.id;
+
+  return jsonb_build_object(
+    'poll_id',   v_poll.id,
+    'question',  v_poll.question,
+    'is_open',   v_poll.is_open,
+    'yes_count', v_poll.yes_count,
+    'no_count',  v_poll.no_count,
+    'your_vote', p_choice
+  );
+end;
+$$;
+grant execute on function public.cast_chat_vote(boolean) to authenticated;
+
+-- Latest poll + the caller's own vote, for the initial paint (anon-callable).
+create or replace function public.get_chat_state()
+returns jsonb
+language plpgsql
+security definer
+set search_path = public, auth
+as $$
+declare
+  v_uid    uuid := auth.uid();
+  v_poll   public.chat_poll%rowtype;
+  v_choice boolean;
+begin
+  select * into v_poll from public.chat_poll order by id desc limit 1;
+  if not found then
+    return jsonb_build_object('poll', null, 'your_vote', null);
+  end if;
+
+  if v_uid is not null then
+    select choice into v_choice
+    from public.chat_votes
+    where poll_id = v_poll.id and user_id = v_uid;
+  end if;
+
+  return jsonb_build_object(
+    'poll', jsonb_build_object(
+      'id',        v_poll.id,
+      'question',  v_poll.question,
+      'is_open',   v_poll.is_open,
+      'yes_count', v_poll.yes_count,
+      'no_count',  v_poll.no_count
+    ),
+    'your_vote', v_choice
+  );
+end;
+$$;
+grant execute on function public.get_chat_state() to authenticated, anon;
+
+-- RLS: chat + tally world-readable; a voter reads only their own vote row. No
+-- write policy exists (messages via f10admin service role, votes via definer).
+alter table public.chat_messages enable row level security;
+alter table public.chat_poll     enable row level security;
+alter table public.chat_votes    enable row level security;
+
+create policy "chat_messages_select_all"
+on public.chat_messages for select to authenticated, anon using (true);
+create policy "chat_poll_select_all"
+on public.chat_poll for select to authenticated, anon using (true);
+create policy "chat_votes_select_own"
+on public.chat_votes for select to authenticated using (auth.uid() = user_id);
+
+grant select on public.chat_messages to authenticated, anon;
+grant select on public.chat_poll     to authenticated, anon;
+grant select on public.chat_votes    to authenticated;
+
+-- Realtime: new messages + live vote counts (chat_votes stays unpublished).
+do $$
+begin
+  if not exists (select 1 from pg_publication where pubname = 'supabase_realtime') then
+    create publication supabase_realtime;
+  end if;
+  if not exists (
+    select 1 from pg_publication_tables
+    where pubname = 'supabase_realtime' and schemaname = 'public' and tablename = 'chat_messages'
+  ) then
+    alter publication supabase_realtime add table public.chat_messages;
+  end if;
+  if not exists (
+    select 1 from pg_publication_tables
+    where pubname = 'supabase_realtime' and schemaname = 'public' and tablename = 'chat_poll'
+  ) then
+    alter publication supabase_realtime add table public.chat_poll;
+  end if;
+end
+$$;

@@ -9,6 +9,7 @@ import { html as whitepaperHtml } from './whitepaper.js';
 import { html as leaderboardHtml } from './leaderboard.js';
 import { html as buyFight10Html } from './buyFight10.js';
 import { html as tutorialHtml } from './tutorial.js';
+import { html as chatHtml } from './chat.js';
 
 export function mountViews() {
   document.getElementById('views-root').innerHTML = [
@@ -23,5 +24,6 @@ export function mountViews() {
     leaderboardHtml,
     buyFight10Html,
     tutorialHtml,
+    chatHtml,
   ].join('');
 }

@@ -74,6 +74,29 @@ balance that won't load or a deposit that won't verify — check this tab first.
    payout slot, then signs an SPL transfer of 90% of the pot from escrow to the
    winner and records the confirmed signature.
 
+## Home chat & host-run vote
+
+The landing screen has a broadcast chat box (bottom-right). Everyone — signed in
+or not — reads the message stream, the live **online** count (the same presence
+count the home screen shows), and the running **Yes / No** tally. Only the
+**host** can post messages and open/close votes; any signed-in player casts or
+changes a Yes/No while a vote is open, and the count updates for everyone in
+real time.
+
+"Host" is **not a new role or DB flag** — it reuses the same operator allowlist
+as the ops dashboard: `ADMIN_USER_IDS` / `ADMIN_WALLETS` on the `f10admin` edge
+function. Posting and running votes go through `f10admin` (service role, admin-
+gated), so a browser can never write a message, and the composer + poll controls
+are revealed only after `f10admin` confirms the caller is on the allowlist. Reads
+and voting are public RLS + Realtime Postgres Changes (`chat_messages`,
+`chat_poll`); votes go through the `cast_chat_vote` RPC (one per player, per
+poll). See `supabase/migrations/20260817_home_chat.sql`.
+
+First sign-in prompts a new player to pick a **name + avatar** (skin). The row is
+created on sign-in with `profiles.onboarded = false`; the picker saves the choice
+via `complete_onboarding` and flips the flag. Existing players are backfilled to
+`onboarded = true`, so nobody is re-prompted.
+
 ## Development
 
 ```sh
@@ -84,4 +107,7 @@ npm run build
 
 Database: apply `supabase/migrations/*.sql` in order (or `supabase/fresh_setup.sql`
 on a fresh project). Auth uses Supabase **Sign in with Web3 (Solana / SIWS)** —
-enable the Web3 provider (Solana) in the Supabase dashboard.
+enable the Web3 provider (Solana) in the Supabase dashboard. The home chat +
+running vote use **Realtime Postgres Changes**: the `20260817_home_chat`
+migration adds `chat_messages` and `chat_poll` to the `supabase_realtime`
+publication, so no dashboard toggle is needed.
