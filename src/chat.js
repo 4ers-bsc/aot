@@ -36,7 +36,7 @@ function fmtTime(iso) {
 export function initHomeChat({ supabase, getUser, getProfile, signIn }) {
   // ---- DOM ------------------------------------------------------------------
   const root        = document.getElementById("homeChat");
-  if (!root) return { refreshAuth() {}, setOnline() {} };
+  if (!root) return { refreshAuth() {}, setOnline() {}, open() {} };
   const launcher    = document.getElementById("chatLauncher");
   const badge       = document.getElementById("chatBadge");
   const collapseBtn = document.getElementById("chatCollapse");
@@ -88,6 +88,14 @@ export function initHomeChat({ supabase, getUser, getProfile, signIn }) {
   function setCollapsed(v) {
     collapsed = v;
     try { localStorage.setItem("f10_chat_open", v ? "0" : "1"); } catch { /* private mode */ }
+    applyCollapsed();
+  }
+  // Force the chat expanded without persisting the preference. Used when the
+  // site enters maintenance and the chat is promoted to a full-screen panel —
+  // we want it shown regardless of the saved collapse pref, but must not change
+  // what the user sees on their next normal visit.
+  function forceOpen() {
+    collapsed = false;
     applyCollapsed();
   }
   function renderBadge() {
@@ -380,6 +388,7 @@ export function initHomeChat({ supabase, getUser, getProfile, signIn }) {
 
   return {
     refreshAuth,
+    open: forceOpen,
     setOnline(count) {
       if (onlineEl && count != null) onlineEl.textContent = String(count);
     },

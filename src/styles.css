@@ -6451,3 +6451,46 @@ body.admin-open .home-chat { display: none; }
   .home-chat { right: 12px; bottom: 12px; left: 12px; align-items: flex-end; }
   .home-chat-panel { width: 100%; height: min(68vh, 520px); }
 }
+
+/* -- Broadcast chat during maintenance -------------------------------------- */
+/* When the site is under maintenance (body.maintenance-on, set in main.js) the
+   arena never boots, but the broadcast chat stays live so players can read host
+   updates and the running vote while they wait. It's promoted from the small
+   bottom-right popup to a full-screen panel that sits above the maintenance
+   backdrop. The in-panel banner below carries the "under maintenance" context. */
+.home-chat-maint { display: none; }
+/* Lift the chat above the maintenance backdrop in both states, so the launcher
+   chip stays clickable (and in its usual corner) when minimised. */
+body.maintenance-on .home-chat {
+  z-index: 100001; /* above .maintenance-overlay (100000) */
+}
+/* When open, promote it from the corner popup to a full-screen panel centered
+   over the backdrop. */
+body.maintenance-on .home-chat.open {
+  inset: 0; /* fill the viewport (overrides the corner offsets + mobile inset) */
+  align-items: center;
+  justify-content: center;
+  padding: clamp(12px, 4vh, 40px) 16px;
+}
+body.maintenance-on .home-chat-panel {
+  width: 100%;
+  max-width: 560px;
+  height: 100%;
+  max-height: 100%;
+  /* Opaque (vs the normal translucent --surface-strong) so the maintenance
+     notice behind the panel doesn't bleed through the full-screen surface. */
+  background: var(--bg-deep);
+}
+body.maintenance-on .home-chat-maint {
+  display: flex;
+  gap: 9px;
+  align-items: center;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--line);
+  background: linear-gradient(180deg, rgba(226, 178, 60, 0.10), transparent);
+  font-family: var(--hc-sans);
+  font-size: 0.72rem;
+  line-height: 1.45;
+  color: rgba(233, 224, 200, 0.82);
+}
+body.maintenance-on .home-chat-maint-icon { flex-shrink: 0; font-size: 1rem; }

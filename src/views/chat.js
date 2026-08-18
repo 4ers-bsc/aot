@@ -15,12 +15,20 @@ export const html = `
     <div class="home-chat-panel" id="chatPanel" role="dialog" aria-label="FIGHT10 chat">
       <div class="home-chat-head">
         <div class="home-chat-title">
-          <span class="home-chat-title-main">ARENA CHAT</span>
+          <span class="home-chat-title-main">DEV CHAT</span>
           <span class="home-chat-online"><span class="online-dot"></span><span id="chatOnlineCount">—</span> online</span>
         </div>
         <button class="home-chat-min" id="chatCollapse" type="button" aria-label="Minimise chat">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><line x1="5" y1="12" x2="19" y2="12"/></svg>
         </button>
+      </div>
+
+      <!-- Maintenance banner. Hidden in normal play; revealed by
+           body.maintenance-on (styles.css) when the site is under maintenance
+           and the chat is promoted to a full-screen panel. -->
+      <div class="home-chat-maint" id="chatMaint">
+        <span class="home-chat-maint-icon">🛠️</span>
+        <span class="home-chat-maint-text">FIGHT10 is under maintenance — matches are paused, but chat stays live. We'll be back shortly.</span>
       </div>
 
       <!-- Live Yes/No poll (shown only while the host has a vote open) -->
