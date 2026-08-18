@@ -15,7 +15,7 @@ export const html = `
     <div class="home-chat-panel" id="chatPanel" role="dialog" aria-label="FIGHT10 chat">
       <div class="home-chat-head">
         <div class="home-chat-title">
-          <span class="home-chat-title-main">ARENA CHAT</span>
+          <span class="home-chat-title-main">DEV CHAT</span>
           <span class="home-chat-online"><span class="online-dot"></span><span id="chatOnlineCount">—</span> online</span>
         </div>
         <button class="home-chat-min" id="chatCollapse" type="button" aria-label="Minimise chat">
