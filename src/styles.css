@@ -5692,6 +5692,14 @@ body.in-game .log-feed { left: 70px; }
   color: rgba(233, 224, 200, 0.7);
   margin: 0;
 }
+/* Maintenance stacking order: the .maintenance-overlay backdrop (z 100000) sits
+   above the whole app, with two deliberate exceptions layered on top of it — the
+   broadcast chat (z 100001, see the chat section) and, when opened, the ops
+   dashboard, lifted here so an admin can still reach it during maintenance to
+   broadcast, run votes, or flip the switch back off. Access stays gated by the
+   f10admin allowlist; the shortcut (Ctrl/Cmd+Shift+A) and #admin route already
+   work during maintenance — this only makes the panel visible above the backdrop. */
+body.maintenance-on .admin-overlay { z-index: 100002; }
 
 /* ===== First-visit tutorial ===== */
 .tutorial-overlay { z-index: 40; } /* above the home chrome, below in-match UI */
