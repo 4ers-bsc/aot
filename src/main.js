@@ -333,9 +333,11 @@ async function isUnderMaintenance() {
 }
 
 // Replace the whole page with a blocking "under maintenance" notice. Sits above
-// everything (incl. the ops overlay), so no button, overlay or shortcut works.
+// every other overlay (incl. the ops dashboard) so no game button or shortcut
+// works — the one intentional exception is the broadcast chat, which the caller
+// keeps live and lifts above this backdrop (see the maintenance gate in init()
+// and body.maintenance-on in styles.css) so players can still read host updates.
 function showMaintenance() {
-  try { if (state.presenceChannel) supabase.removeChannel(state.presenceChannel); } catch (_) {}
   document.getElementById("appLoading")?.remove();
   if (document.getElementById("maintenanceOverlay")) return;
   const el = document.createElement("div");
@@ -908,7 +910,17 @@ async function init() {
 
   if (statusEl) statusEl.textContent = "Connecting…";
   // Gate the whole app on the maintenance switch before anything else boots.
-  if (await isUnderMaintenance()) { clearInterval(tick); showMaintenance(); return; }
+  // The arena stays down, but the broadcast chat is kept live and promoted to a
+  // full-screen panel (see showMaintenance + styles.css): force it open so it
+  // shows regardless of the saved collapse pref, and keep the online-count
+  // presence running so its header stays accurate while players wait.
+  if (await isUnderMaintenance()) {
+    clearInterval(tick);
+    showMaintenance();
+    homeChat.open();
+    startOnlinePresence();
+    return;
+  }
   loadMatchConfig(); // fire-and-forget; ready well before any match starts
   loadPvpConfig();   // fire-and-forget; entry fee + winner share for the UI/deposit
   resolveTokenDecimals().catch(() => {}); // fire-and-forget; corrects token decimals from the mint (self-heals a wrong seed/env)

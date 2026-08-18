@@ -23,6 +23,14 @@ export const html = `
         </button>
       </div>
 
+      <!-- Maintenance banner. Hidden in normal play; revealed by
+           body.maintenance-on (styles.css) when the site is under maintenance
+           and the chat is promoted to a full-screen panel. -->
+      <div class="home-chat-maint" id="chatMaint">
+        <span class="home-chat-maint-icon">🛠️</span>
+        <span class="home-chat-maint-text">FIGHT10 is under maintenance — matches are paused, but chat stays live. We'll be back shortly.</span>
+      </div>
+
       <!-- Live Yes/No poll (shown only while the host has a vote open) -->
       <div class="home-chat-poll hidden" id="chatPoll">
         <div class="hc-poll-q" id="chatPollQuestion"></div>
