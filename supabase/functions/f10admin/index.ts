@@ -78,9 +78,11 @@ const LIST_LIMIT = 100;
 const CASHFLOW_ROWS    = 200;   // rows returned per side for the on-screen table
 const CASHFLOW_SUM_CAP = 5000;  // max payout rows summed for the outgoing total
 // Token decimals used only to scale dashboard amounts (the payout path reads
-// the mint's decimals on-chain). SPL $FIGHT10 uses 9; override with the
-// FIGHT10_DECIMALS secret if the deployed token differs.
-const TOKEN_DECIMALS = Number(Deno.env.get("FIGHT10_DECIMALS") ?? "9");
+// the mint's decimals on-chain). The $FIGHT10 Pump.fun mint uses 6 — this must
+// match the client's default (src/admin.js) or the Deployment tab flags a
+// mismatch and the cashflow net/total math mixes 10^6 and 10^9 scales. Override
+// with the FIGHT10_DECIMALS secret if the deployed token differs.
+const TOKEN_DECIMALS = Number(Deno.env.get("FIGHT10_DECIMALS") ?? "6");
 // Fixed historical entry fee for the cashflow/treasury ESTIMATE only (incoming
 // totals across past seats). Deliberately NOT sourced from pvp_config: seats
 // settled at whatever fee applied then, so a mutable current value would skew
