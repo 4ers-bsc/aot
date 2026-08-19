@@ -67,33 +67,29 @@ export function initHomeChat({ supabase, getUser, getProfile, signIn }) {
   let isAdmin   = false;
   let poll      = null;   // { id, question, is_open, yes_count, no_count }
   let yourVote  = null;   // true = yes, false = no, null = not voted
-  let collapsed = true;
+  // Chat starts expanded on every page load — desktop and mobile alike, and
+  // regardless of how the visitor left it last time. The collapse is a
+  // session-only toggle and is intentionally never persisted (see setCollapsed).
+  let collapsed = false;
   let unread    = 0;
   const seen    = new Set(); // message ids already in the DOM
   let voting    = false;
 
   // ---- Collapse / expand ----------------------------------------------------
-  try {
-    const pref = localStorage.getItem("f10_chat_open");
-    collapsed = pref === "1" ? false
-              : pref === "0" ? true
-              : window.matchMedia("(max-width: 820px)").matches; // default: open on desktop
-  } catch { collapsed = false; }
-
   function applyCollapsed() {
     root.classList.toggle("collapsed", collapsed);
     root.classList.toggle("open", !collapsed);
     if (!collapsed) { unread = 0; renderBadge(); scrollToBottom(); }
   }
   function setCollapsed(v) {
+    // Session-only: the collapsed state is intentionally not persisted, so the
+    // chat reopens on the next page load regardless of how the visitor left it.
     collapsed = v;
-    try { localStorage.setItem("f10_chat_open", v ? "0" : "1"); } catch { /* private mode */ }
     applyCollapsed();
   }
-  // Force the chat expanded without persisting the preference. Used when the
-  // site enters maintenance and the chat is promoted to a full-screen panel —
-  // we want it shown regardless of the saved collapse pref, but must not change
-  // what the user sees on their next normal visit.
+  // Force the chat expanded. Used when the site enters maintenance and the chat
+  // is promoted to a full-screen panel — it must be shown even if the visitor
+  // minimised it earlier in this session.
   function forceOpen() {
     collapsed = false;
     applyCollapsed();
