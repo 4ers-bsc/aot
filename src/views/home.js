@@ -24,7 +24,7 @@ export const html = `
         </div>
         <div class="hero-stat-divider"></div>
         <div class="hero-stat">
-          <div class="hero-stat-value">2·5·10</div>
+          <div class="hero-stat-value">2 / 5 / 10</div>
           <div class="hero-stat-label">Player Matches</div>
         </div>
       </div>
@@ -70,7 +70,7 @@ export const html = `
       <div class="info-tile-desc">Last one standing<br>takes 90% of the pot.</div>
     </div>
     <div class="info-tile info-tile-online">
-      <div class="info-tile-multi"><span class="online-dot"></span><span id="onlineCount">—</span></div>
+      <div class="info-tile-multi"><span class="online-dot"></span><span id="onlineCount">0</span></div>
       <div class="info-tile-label">ONLINE NOW</div>
       <div class="info-tile-desc">Players in the<br>game right now.</div>
     </div>
@@ -90,17 +90,17 @@ export const html = `
         <div class="hs-card">
           <div class="hs-card-num">01</div>
           <div class="hs-card-label">CONNECT</div>
-          <div class="hs-card-desc">Link your Solana wallet — Phantom, Solflare, or Backpack. One wallet maps to one active match at a time.</div>
+          <div class="hs-card-desc">Link your Solana wallet. Phantom, Solflare or Backpack, on desktop or mobile. One wallet plays one match at a time.</div>
         </div>
         <div class="hs-card">
           <div class="hs-card-num">02</div>
           <div class="hs-card-label">PAY</div>
-          <div class="hs-card-desc">Put 10,000 $FIGHT10 into the match escrow. Your seat is granted only after the payment is verified on-chain.</div>
+          <div class="hs-card-desc">Put 10,000 $FIGHT10 into the match escrow. Your seat is granted only after the payment clears on chain.</div>
         </div>
         <div class="hs-card">
           <div class="hs-card-num">03</div>
           <div class="hs-card-label">FIGHT</div>
-          <div class="hs-card-desc">Drop into the arena. Everyone spawns with the same health, attack and weapons — the only difference is skill.</div>
+          <div class="hs-card-desc">Drop into the arena. Everyone spawns with the same health, attack and weapons. The only edge is skill.</div>
         </div>
         <div class="hs-card">
           <div class="hs-card-num">04</div>
@@ -124,21 +124,21 @@ export const html = `
         </div>
         <div class="hs-card hs-mode">
           <div class="hs-mode-name">DUEL</div>
-          <div class="hs-mode-sub">2 Players · 5 Min</div>
+          <div class="hs-mode-sub">2 Players, 5 Min</div>
           <div class="hs-mode-row"><span>Entry</span><span>10,000</span></div>
           <div class="hs-mode-row"><span>Pot</span><span>20,000</span></div>
           <div class="hs-mode-row"><span>Winner takes</span><span class="hs-gold">18,000</span></div>
         </div>
         <div class="hs-card hs-mode">
-          <div class="hs-mode-name">5-PLAYER FFA</div>
-          <div class="hs-mode-sub">Free-For-All · 7 Min</div>
+          <div class="hs-mode-name">5 PLAYER FFA</div>
+          <div class="hs-mode-sub">Free For All, 7 Min</div>
           <div class="hs-mode-row"><span>Entry</span><span>10,000</span></div>
           <div class="hs-mode-row"><span>Pot</span><span>50,000</span></div>
           <div class="hs-mode-row"><span>Winner takes</span><span class="hs-gold">45,000</span></div>
         </div>
         <div class="hs-card hs-mode">
-          <div class="hs-mode-name">10-PLAYER FFA</div>
-          <div class="hs-mode-sub">Free-For-All · 10 Min</div>
+          <div class="hs-mode-name">10 PLAYER FFA</div>
+          <div class="hs-mode-sub">Free For All, 10 Min</div>
           <div class="hs-mode-row"><span>Entry</span><span>10,000</span></div>
           <div class="hs-mode-row"><span>Pot</span><span>100,000</span></div>
           <div class="hs-mode-row"><span>Winner takes</span><span class="hs-gold">90,000</span></div>
@@ -155,20 +155,68 @@ export const html = `
         <div class="hs-card hs-list">
           <div class="hs-card-label">CONTROLS</div>
           <div class="hs-list-row"><span>Move</span><span>click a tile</span></div>
-          <div class="hs-list-row"><span>Attack / shoot</span><span>click the rival</span></div>
-          <div class="hs-list-row"><span>Switch weapon</span><span>keys 1 – 4</span></div>
-          <div class="hs-list-row"><span>Pan camera</span><span>click + drag</span></div>
-          <div class="hs-list-row"><span>Zoom</span><span>mouse wheel</span></div>
+          <div class="hs-list-row"><span>Attack or shoot</span><span>click the rival</span></div>
+          <div class="hs-list-row"><span>Switch weapon</span><span>keys 1 to 4</span></div>
+          <div class="hs-list-row"><span>Pan camera</span><span>click and drag</span></div>
+          <div class="hs-list-row"><span>Zoom</span><span>mouse wheel, or pinch on mobile</span></div>
           <div class="hs-list-row"><span>Menu</span><span>Esc</span></div>
         </div>
         <div class="hs-card hs-list">
           <div class="hs-card-label">HAZARDS &amp; RULES</div>
           <div class="hs-list-row"><span>Trees &amp; mountains</span><span>block movement &amp; deflect attacks</span></div>
           <div class="hs-list-row"><span>River</span><span>halves your speed &amp; damage</span></div>
-          <div class="hs-list-row"><span>Loadout</span><span>everyone starts equal — same HP, attack &amp; weapons</span></div>
+          <div class="hs-list-row"><span>Loadout</span><span>everyone starts equal, same HP, attack &amp; weapons</span></div>
           <div class="hs-list-row"><span>Win</span><span>last one standing takes 90% of the pot</span></div>
           <div class="hs-list-row"><span>Time runs out</span><span>highest HP survivor wins</span></div>
-          <div class="hs-list-row"><span>Leaving early</span><span>forfeits your payment to the pot</span></div>
+          <div class="hs-list-row"><span>Leaving early</span><span>forfeits your entry to the pot</span></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Identity & skins -->
+    <section class="hs-block">
+      <div class="hs-kicker">MAKE YOUR MARK</div>
+      <h2 class="hs-title">YOUR NAME, YOUR FIGHTER</h2>
+      <div class="hs-grid hs-grid-4">
+        <div class="hs-card">
+          <div class="hs-card-label">CALL SIGN</div>
+          <div class="hs-card-desc">Claim a name on your first sign in, 3 to 24 characters and one of a kind. It rides with you into every arena and up the leaderboard.</div>
+        </div>
+        <div class="hs-card">
+          <div class="hs-card-label">FIGHTER SKINS</div>
+          <div class="hs-card-desc">Choose your look. FIGHTER or KNIGHT for now, both in black and gold. Swap it anytime from your profile.</div>
+        </div>
+        <div class="hs-card">
+          <div class="hs-card-label">YOUR PROFILE</div>
+          <div class="hs-card-desc">Track wins, losses, win rate, games, current streak and best streak. Your holdings and full match history live here too.</div>
+        </div>
+        <div class="hs-card">
+          <div class="hs-card-label">HOLDER PERKS</div>
+          <div class="hs-card-desc">Holding $FIGHT10 opens more. Exclusive skins, holder tournaments, airdrops and rewards are on the way.</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Community room -->
+    <section class="hs-block">
+      <div class="hs-kicker">NOBODY FIGHTS ALONE</div>
+      <h2 class="hs-title">THE ROOM IS LIVE</h2>
+      <div class="hs-grid hs-grid-4">
+        <div class="hs-card">
+          <div class="hs-card-label">DEV CHAT</div>
+          <div class="hs-card-desc">A broadcast channel sits in the corner of the home screen. Everyone reads the stream, signed in or not.</div>
+        </div>
+        <div class="hs-card">
+          <div class="hs-card-label">WHO IS ONLINE</div>
+          <div class="hs-card-desc">A live count shows how many players are in the game right now, on the home screen and in chat.</div>
+        </div>
+        <div class="hs-card">
+          <div class="hs-card-label">LIVE VOTES</div>
+          <div class="hs-card-desc">The host opens a yes or no question and every signed in player votes. The tally moves for the whole room in real time.</div>
+        </div>
+        <div class="hs-card">
+          <div class="hs-card-label">ALWAYS ON</div>
+          <div class="hs-card-desc">Chat stays live even when matches pause for maintenance, so you always know when the arena is back.</div>
         </div>
       </div>
     </section>
@@ -181,7 +229,7 @@ export const html = `
         <div class="hs-card">
           <div class="hs-card-num">+10</div>
           <div class="hs-card-label">PLAY A MATCH</div>
-          <div class="hs-card-desc">Every fight earns points — win or lose, you're always moving up.</div>
+          <div class="hs-card-desc">Every fight earns points. Win or lose, you are always moving up.</div>
         </div>
         <div class="hs-card">
           <div class="hs-card-num">+60</div>
@@ -191,12 +239,12 @@ export const html = `
         <div class="hs-card">
           <div class="hs-card-num">&times;</div>
           <div class="hs-card-label">WIN STREAK</div>
-          <div class="hs-card-desc">+10 points per consecutive win — the bonus escalates the longer you hold it. One loss resets it.</div>
+          <div class="hs-card-desc">+10 points per win in a row, and the bonus escalates the longer you hold it. One loss resets it.</div>
         </div>
         <div class="hs-card">
           <div class="hs-card-num">L5</div>
           <div class="hs-card-label">LEVEL UP</div>
-          <div class="hs-card-desc">L2 at 100 pts · L3 at 300 · L4 at 600 · L5 at 1000 — and it keeps climbing.</div>
+          <div class="hs-card-desc">L2 at 100 pts, L3 at 300, L4 at 600, L5 at 1000, and it keeps climbing.</div>
         </div>
       </div>
     </section>
@@ -207,20 +255,20 @@ export const html = `
       <h2 class="hs-title">BUILT FAIR</h2>
       <div class="hs-grid hs-grid-4">
         <div class="hs-card">
-          <div class="hs-card-label">ON-CHAIN ESCROW</div>
-          <div class="hs-card-desc">Payments sit in a program-controlled escrow. Payouts are the only outflow — gated by a verified, finished match.</div>
+          <div class="hs-card-label">ESCROW ON CHAIN</div>
+          <div class="hs-card-desc">Your entry sits in escrow on chain. A payout to the winner of a finished match is the only way out.</div>
         </div>
         <div class="hs-card">
           <div class="hs-card-label">VERIFIED ADMISSION</div>
-          <div class="hs-card-desc">A seat is granted only after your payment is re-checked on-chain. No deposit, no entry — the browser can't self-admit.</div>
+          <div class="hs-card-desc">A seat is granted only after your entry clears on chain. No entry, no seat.</div>
         </div>
         <div class="hs-card">
-          <div class="hs-card-label">SERVER-DECIDED RESULTS</div>
-          <div class="hs-card-desc">No client reports its own survival. The server derives every fighter's health from what opponents dealt.</div>
+          <div class="hs-card-label">RESULTS DECIDED FAIRLY</div>
+          <div class="hs-card-desc">No player reports their own survival. The game works out every fighter's health from the fight itself.</div>
         </div>
         <div class="hs-card">
           <div class="hs-card-label">CHEATERS FORFEIT</div>
-          <div class="hs-card-desc">Impossible output excludes a fighter from winning — the best clean player still wins, and the cheater's payment stays in the pot.</div>
+          <div class="hs-card-desc">Do the impossible and you are dropped from winner selection. The best clean player still wins, and the cheat's entry stays in the pot.</div>
         </div>
       </div>
       <div class="hs-center">
@@ -239,8 +287,8 @@ export const html = `
     </section>
 
     <footer class="hs-footer">
-      <div class="hs-footer-disclaimer">FOR ENTERTAINMENT PURPOSES ONLY — FIGHT10 is purely for entertainment. All $FIGHT10 amounts are show values displayed at token scale and carry no guaranteed real-world or monetary value. Nothing here is financial advice.</div>
-      <div class="hs-footer-text">FIGHT10 · LAST ONE STANDING — skill-based arena on Solana. Winner takes 90% of the pot; a 10% protocol fee funds the arena. Entries are non-refundable once a match is joined.</div>
+      <div class="hs-footer-disclaimer">FOR ENTERTAINMENT PURPOSES ONLY. FIGHT10 is purely for entertainment. All $FIGHT10 amounts are show values displayed at token scale and carry no guaranteed real world or monetary value. Nothing here is financial advice.</div>
+      <div class="hs-footer-text">FIGHT10, LAST ONE STANDING. A skill based arena on Solana. Winner takes 90% of the pot and a 10% protocol fee funds the arena. Once you join a match your entry cannot be refunded.</div>
       <a class="hs-footer-x" href="https://x.com/fight10_club" target="_blank" rel="noopener noreferrer" aria-label="FIGHT10 on X">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-4.714-6.231-5.401 6.231H2.748l7.73-8.835L1.254 2.25H8.08l4.259 5.63 5.905-5.63zm-1.161 17.52h1.833L7.084 4.126H5.117z"/></svg>
         @fight10_club
@@ -248,7 +296,7 @@ export const html = `
     </footer>
   </div><!-- /.home-sections -->
 
-  <!-- Scroll cue — bottom-right hint that there's more below the fold -->
+  <!-- Scroll cue: bottom-right hint that there's more below the fold -->
   <button class="scroll-cue" id="scrollCue" type="button" aria-label="Scroll down for details">
     <span class="scroll-cue-text">SCROLL</span>
     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>

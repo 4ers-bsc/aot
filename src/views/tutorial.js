@@ -1,5 +1,5 @@
 export const html = `
-  <!-- First-visit tutorial — a short guided walkthrough shown when the home
+  <!-- First visit tutorial. A short guided walkthrough shown when the home
        page loads. A "Don't show this again" checkbox persists the dismissal to
        localStorage so returning players never see it twice. -->
   <div class="overlay tutorial-overlay" id="tutorialOverlay">
@@ -10,24 +10,32 @@ export const html = `
       </div>
 
       <div class="tut-body">
-        <!-- Steps — only the .is-active step is visible at a time. -->
+        <!-- Steps. Only the .is-active step is visible at a time. -->
         <div class="tut-step is-active" data-tut-step="0">
           <div class="tut-icon" aria-hidden="true">
             <svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M14.5 2l7 7-10 10.5L4 12z"/><path d="M2 22l4-4"/></svg>
           </div>
           <div class="tut-step-title">LAST ONE STANDING</div>
-          <div class="tut-step-text">FIGHT10 is a skill-based arena on Solana. Pay $FIGHT10, drop into a free-for-all, and be the last fighter alive to take <span class="hs-gold">90% of the pot</span>.</div>
+          <div class="tut-step-text">FIGHT10 is a skill based arena on Solana. Pay $FIGHT10, drop into a free for all, and be the last fighter alive to take <span class="hs-gold">90% of the pot</span>.</div>
         </div>
 
         <div class="tut-step" data-tut-step="1">
           <div class="tut-icon" aria-hidden="true">
             <svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="5" width="20" height="14" rx="2"/><path d="M16 12h.01"/><path d="M2 10h20"/></svg>
           </div>
-          <div class="tut-step-title">CONNECT &amp; PAY</div>
-          <div class="tut-step-text">Link your Solana wallet — Phantom, Solflare, or Backpack — and pay <span class="hs-gold">10,000 $FIGHT10</span> to claim your seat. Your entry is verified on-chain before the match begins.</div>
+          <div class="tut-step-title">CONNECT &amp; PLAY</div>
+          <div class="tut-step-text">Link your Solana wallet. Phantom, Solflare and Backpack all work, on desktop and mobile. Pay <span class="hs-gold">10,000 $FIGHT10</span> to claim your seat. Your entry is checked on chain before the match begins.</div>
         </div>
 
         <div class="tut-step" data-tut-step="2">
+          <div class="tut-icon" aria-hidden="true">
+            <svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="12" cy="7" r="4"/><path d="M5.5 21a6.5 6.5 0 0 1 13 0"/></svg>
+          </div>
+          <div class="tut-step-title">CLAIM YOUR IDENTITY</div>
+          <div class="tut-step-text">On your first sign in you pick a <span class="hs-gold">call sign</span> and a fighter, either FIGHTER or KNIGHT. Both ride with you into the arena and up the leaderboard, and you can change them anytime in your profile.</div>
+        </div>
+
+        <div class="tut-step" data-tut-step="3">
           <div class="tut-icon" aria-hidden="true">
             <svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="3"/><line x1="12" y1="2" x2="12" y2="5"/><line x1="12" y1="19" x2="12" y2="22"/><line x1="2" y1="12" x2="5" y2="12"/><line x1="19" y1="12" x2="22" y2="12"/></svg>
           </div>
@@ -35,20 +43,28 @@ export const html = `
           <div class="tut-step-text">
             <div class="tut-controls">
               <div class="tut-ctrl-row"><span>Move</span><span class="k">click a tile</span></div>
-              <div class="tut-ctrl-row"><span>Attack / shoot</span><span class="k">click the rival</span></div>
-              <div class="tut-ctrl-row"><span>Switch weapon</span><span class="k">keys 1 – 4</span></div>
+              <div class="tut-ctrl-row"><span>Attack or shoot</span><span class="k">click the rival</span></div>
+              <div class="tut-ctrl-row"><span>Switch weapon</span><span class="k">keys 1 to 4</span></div>
               <div class="tut-ctrl-row"><span>Menu</span><span class="k">Esc</span></div>
             </div>
-            <div class="tut-step-text" style="margin-top:10px">You carry all four weapons at once — tap <span class="hs-gold">1</span> Frag, <span class="hs-gold">2</span> Sword, <span class="hs-gold">3</span> Pistol, <span class="hs-gold">4</span> Sniper (or click the hotbar) to swap mid-fight and match the range you need.</div>
+            <div class="tut-step-text" style="margin-top:10px">You carry all four weapons at once. Tap <span class="hs-gold">1</span> Frag, <span class="hs-gold">2</span> Sword, <span class="hs-gold">3</span> Pistol, <span class="hs-gold">4</span> Sniper (or click the hotbar) to swap mid fight and match the range you need.</div>
           </div>
         </div>
 
-        <div class="tut-step" data-tut-step="3">
+        <div class="tut-step" data-tut-step="4">
           <div class="tut-icon" aria-hidden="true">
             <svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M6 9H4.5a2.5 2.5 0 0 1 0-5H6"/><path d="M18 9h1.5a2.5 2.5 0 0 0 0-5H18"/><path d="M4 22h16"/><path d="M10 14.66V17c0 .55-.47.98-.97 1.21C7.85 18.75 7 20.24 7 22"/><path d="M14 14.66V17c0 .55.47.98.97 1.21C16.15 18.75 17 20.24 17 22"/><path d="M18 2H6v7a6 6 0 0 0 12 0V2z"/></svg>
           </div>
           <div class="tut-step-title">WIN &amp; CLIMB</div>
-          <div class="tut-step-text">Everyone spawns equal — same health, same weapons. Outplay the arena to win the pot, earn points every match, and climb the leaderboard. Try a <span class="hs-gold">free Demo match</span> first to learn the ropes.</div>
+          <div class="tut-step-text">Everyone spawns equal, same health and same weapons. Outplay the arena to win the pot, earn points every match, and climb the leaderboard. Try a <span class="hs-gold">free Demo match</span> first to learn the ropes.</div>
+        </div>
+
+        <div class="tut-step" data-tut-step="5">
+          <div class="tut-icon" aria-hidden="true">
+            <svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+          </div>
+          <div class="tut-step-title">JOIN THE ROOM</div>
+          <div class="tut-step-text">Open <span class="hs-gold">Dev Chat</span> in the corner to follow the broadcast and see who is online. When the host opens a yes or no vote, every signed in player gets a say and the tally moves in real time.</div>
         </div>
       </div>
 
