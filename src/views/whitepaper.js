@@ -1,105 +1,88 @@
 export const html = `
-  <!-- Whitepaper / Technical -->
+  <!-- Whitepaper / overview -->
   <div class="overlay" id="whitepaperOverlay">
     <div class="panel panel-wide">
       <div class="panel-head">Whitepaper<button class="close" id="whitepaperClose" type="button">&times;</button></div>
       <div class="tab-body wp-body">
 
         <p class="wp-intro">
-          FIGHT10 is a skill-based, last-one-standing arena where every fighter
-          spawns identical and each player pays an equal entry. The winner takes
-          90% of the pot; a 10% protocol fee funds operations. This paper describes
-          how the system stays fair and custodial-safe.
-          Implementation identifiers are intentionally masked.
+          FIGHT10 is a skill based, last one standing arena on Solana. Every
+          fighter spawns identical and every player pays the same entry. The
+          winner takes 90% of the pot and a 10% protocol fee funds the arena.
+          This page walks through how it all works, from your first sign in to
+          the payout.
         </p>
 
-        <div class="wp-section">01 · Economic model</div>
+        <div class="wp-section">01 What FIGHT10 is</div>
         <p class="wp-text">
-          Every player pays a fixed entry of the in-game token. All entries for a
-          match form a single pot. On a verified result the pot is paid to the sole
-          survivor, less a 10% protocol fee. Entries are non-refundable once a
-          match is joined — leaving forfeits the payment to the pot.
+          An arena where the only edge is skill. Everyone drops in with the same
+          health, the same four weapons and the same stats, so nothing you buy
+          can win a fight for you. Play a free Demo against the computer, or jump
+          into PvP as a duel, a five player free for all, or a ten player free
+          for all. Be the last fighter standing to take the pot. If the timer
+          runs out, the survivor with the highest health takes the win.
         </p>
 
-        <div class="wp-section">02 · Custody &amp; escrow</div>
+        <div class="wp-section">02 The token and the pot</div>
         <p class="wp-text">
-          Payments are transferred on-chain into a program-controlled escrow account.
-          The escrow signer is held only by a privileged server process; it is never
-          exposed to the browser. Payouts are the only outflow, and they are gated by
-          a verified, finished match with a single confirmed winner.
+          You enter a PvP match by paying 10,000 $FIGHT10, the in game token.
+          Every entry for a match forms one pot. When the match is settled the
+          pot goes to the sole survivor, less the 10% protocol fee that keeps the
+          arena running. Entries cannot be refunded once you join a match, and
+          leaving early forfeits your entry to the pot.
         </p>
 
-        <div class="wp-section">03 · Deposit-before-join (verified admission)</div>
+        <div class="wp-section">03 How a match runs</div>
         <p class="wp-text">
-          A seat can only be taken <em>after</em> the payment is verified on-chain — the
-          browser cannot self-admit. The flow:
+          Getting into a fight takes three steps:
         </p>
         <div class="wp-flow">
-          <div class="wp-step"><span>1</span> Client signs the payment transfer to escrow.</div>
-          <div class="wp-step"><span>2</span> A verification service re-checks the transaction on-chain: confirmed status, exact amount, correct destination, and that the signer matches the player's own wallet.</div>
-          <div class="wp-step"><span>3</span> Only then does a privileged admission routine grant the seat.</div>
+          <div class="wp-step"><span>1</span> Connect your Solana wallet. Phantom, Solflare and Backpack all work, on desktop and on mobile.</div>
+          <div class="wp-step"><span>2</span> Pay your entry into the match escrow. Your seat is granted only after the payment clears on chain.</div>
+          <div class="wp-step"><span>3</span> Drop into the arena and fight. The last fighter alive wins the pot, paid straight to your wallet.</div>
         </div>
         <p class="wp-text">
-          The admission routine is not callable by clients — it is restricted to the
-          server role. A fabricated transaction reference therefore fails at step 2
-          and never reaches a lobby. One wallet maps to one active match at a time.
+          One wallet plays one match at a time.
         </p>
 
-        <div class="wp-section">04 · Matchmaking &amp; seat allocation</div>
-        <p class="wp-text">
-          Joiners are matched into the oldest open lobby of the requested size under a
-          row lock, so concurrent joins fan out instead of colliding. Seats are
-          assigned to the lowest free index rather than a running count, so a player
-          leaving a waiting lobby never creates a gap or a duplicate seat. A lobby
-          activates the instant its final seat is filled.
-        </p>
-
-        <div class="wp-section">05 · Authoritative settlement</div>
-        <p class="wp-text">
-          The result is decided by the server, never by a client's self-reported
-          outcome. Each player reports only the damage <em>they</em> dealt; the server
-          derives every fighter's surviving health from what <em>others</em> reported,
-          so no client can inflate its own survival. Damage is accepted only within
-          physically-plausible ceilings on rate and total output. The highest-health
-          eligible fighter is crowned. If the ledger cannot produce a clean winner,
-          the match is held for review and nobody is paid.
-        </p>
-
-        <div class="wp-section">06 · Anti-manipulation</div>
-        <p class="wp-text">The browser and its console are treated as hostile. Enforcement lives on the server in layers:</p>
+        <div class="wp-section">04 Fair by design</div>
+        <p class="wp-text">FIGHT10 is built so the game runs the same for everyone and nobody can tilt a result.</p>
         <ul class="wp-list">
-          <li><strong>Write-time validation.</strong> Impossible or out-of-context combat records (wrong match state, non-participants, bad timing, output above a hard ceiling) are rejected at the moment they are written.</li>
-          <li><strong>Rate limiting.</strong> Authoritative actions and the admission service are throttled per player to blunt scripted abuse.</li>
-          <li><strong>Forfeit, not void.</strong> A player flagged for impossible output is excluded from winner selection; the best clean player still wins and the cheater forfeits their payment — honest opponents are never punished for someone else's cheating.</li>
-          <li><strong>Soft telemetry.</strong> Client-side tamper signals are reported for review only. They never auto-penalize, to avoid false-positive bans on honest players.</li>
+          <li><strong>Escrow on chain.</strong> Your entry sits in escrow. A payout to the winner of a finished match is the only way funds leave it.</li>
+          <li><strong>Seats are earned.</strong> You are admitted only after your entry clears on chain, never before.</li>
+          <li><strong>The game calls it.</strong> Results are decided by the game, not by any player's own report of how they did.</li>
+          <li><strong>Cheating does not pay.</strong> A fighter caught doing the impossible is dropped from winner selection. The best clean player still wins, and the cheat loses their entry to the pot.</li>
         </ul>
 
-        <div class="wp-section">07 · Payout integrity</div>
+        <div class="wp-section">05 Your identity and progress</div>
         <p class="wp-text">
-          Before any transfer the payout process re-verifies every payment on-chain,
-          confirms the caller is the recorded winner, and atomically reserves a
-          single payout slot so concurrent or repeated claims cannot double-pay. The
-          escrow transfer is broadcast and then polled to confirmation; the result is
-          recorded with retries so a confirmed transfer is never lost or repeated.
+          Your first sign in sets you up with a call sign and a fighter. Pick a
+          name, 3 to 24 characters and one of a kind, and choose FIGHTER or
+          KNIGHT. Change either one anytime from your profile. Every match adds
+          points, wins push you up faster, and a win streak stacks a growing
+          bonus until you lose. Points raise your level, and the leaderboard
+          ranks everyone by points, wins or $FIGHT10 held. Filter it by name or
+          wallet, or jump straight to your own.
         </p>
 
-        <div class="wp-section">08 · Infrastructure resilience</div>
+        <div class="wp-section">06 The community room</div>
         <p class="wp-text">
-          On-chain reads and writes are spread across multiple independent chain
-          endpoints with round-robin selection and automatic failover, raising
-          throughput at peak join times and surviving a single provider being rate
-          limited or unavailable.
+          The home screen carries a live broadcast, Dev Chat, sitting in the
+          corner. Everyone reads the stream and the live online count, signed in
+          or not. When the host opens a yes or no question, every signed in
+          player gets a vote and the tally updates for the whole room in real
+          time. Chat stays live even while matches are paused for maintenance, so
+          you always know what is going on and when the arena is back.
         </p>
 
-        <div class="wp-section">09 · Security posture</div>
-        <ul class="wp-list">
-          <li>Server authority for everything that touches funds or results.</li>
-          <li>Row-level isolation: a player can only read their own data and only write records attributed to themselves.</li>
-          <li>Least privilege: sensitive routines are restricted to the server role and never granted to clients.</li>
-          <li>Secrets (escrow signer, service credentials, endpoint keys) live only in the server environment.</li>
-        </ul>
+        <div class="wp-section">07 Holder perks</div>
+        <p class="wp-text">
+          Holding $FIGHT10 is set to open more over time. Playing PvP is live
+          today, with exclusive skins, holder tournaments, airdrops and rewards
+          on the way.
+        </p>
 
-        <p class="wp-foot">This document is informational and describes system design at a high level. It is not financial advice. Exact thresholds, identifiers, and parameters are withheld by design.</p>
+        <p class="wp-foot">This page is informational and describes FIGHT10 at a high level. It is for entertainment and is not financial advice. All $FIGHT10 amounts are show values at token scale and carry no guaranteed real world or monetary value.</p>
       </div>
     </div>
   </div>

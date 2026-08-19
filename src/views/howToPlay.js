@@ -4,27 +4,33 @@ export const html = `
     <div class="panel">
       <div class="panel-head">How to Play<button class="close" id="howToClose" type="button">&times;</button></div>
       <div class="tab-body">
+        <div class="section">GET IN</div>
+        <div class="row"><span>Connect wallet</span><span class="k">Phantom, Solflare or Backpack (mobile too)</span></div>
+        <div class="row"><span>First sign in</span><span class="k">pick a call sign and a fighter</span></div>
+        <div class="row"><span>Entry</span><span class="k">pay 10,000 $FIGHT10, checked on chain</span></div>
+        <div class="divider"></div>
+        <div class="section">CONTROLS</div>
         <div class="row"><span>Move</span><span class="k">click a tile</span></div>
-        <div class="row"><span>Attack / shoot</span><span class="k">click the rival</span></div>
-        <div class="row"><span>Pan camera</span><span class="k">click + drag</span></div>
-        <div class="row"><span>Zoom</span><span class="k">mouse wheel</span></div>
-        <div class="row"><span>Switch weapon</span><span class="k">press 1 – 4 (or click the hotbar)</span></div>
+        <div class="row"><span>Attack or shoot</span><span class="k">click the rival</span></div>
+        <div class="row"><span>Pan camera</span><span class="k">click and drag</span></div>
+        <div class="row"><span>Zoom</span><span class="k">mouse wheel, or pinch on mobile</span></div>
+        <div class="row"><span>Switch weapon</span><span class="k">press 1 to 4 (or tap the hotbar)</span></div>
         <div class="row"><span>Menu</span><span class="k">Esc</span></div>
         <div class="divider"></div>
-        <div class="section">WEAPONS — SWAP ANYTIME WITH 1 – 4</div>
-        <div class="row"><span>1 · Frag</span><span class="k">lobbed AoE grenade — clears clustered rivals</span></div>
-        <div class="row"><span>2 · Sword</span><span class="k">fast melee — highest damage, must close in</span></div>
-        <div class="row"><span>3 · Pistol</span><span class="k">quick mid-range shots — no charge-up</span></div>
-        <div class="row"><span>4 · Sniper</span><span class="k">long-range — hold still to charge, then fire</span></div>
+        <div class="section">WEAPONS, SWAP ANYTIME WITH 1 TO 4</div>
+        <div class="row"><span>1 Frag</span><span class="k">lobbed AoE grenade, clears clustered rivals</span></div>
+        <div class="row"><span>2 Sword</span><span class="k">fast melee, highest damage, get in close</span></div>
+        <div class="row"><span>3 Pistol</span><span class="k">quick mid range shots, no wind up</span></div>
+        <div class="row"><span>4 Sniper</span><span class="k">long range, hold still to charge then fire</span></div>
         <div class="divider"></div>
         <div class="section">RULES</div>
-        <div class="row"><span>Loadout</span><span class="k">everyone carries all 4 weapons — same HP &amp; stats</span></div>
-        <div class="row"><span>Win</span><span class="k">last one standing · winner takes 90% of the pot</span></div>
-        <div class="row"><span>Protocol fee</span><span class="k">10% of the pot funds the arena</span></div>
+        <div class="row"><span>Loadout</span><span class="k">everyone carries all 4 weapons, same HP &amp; stats</span></div>
+        <div class="row"><span>Win</span><span class="k">last one standing takes 90% of the pot</span></div>
+        <div class="row"><span>Protocol fee</span><span class="k">10% of the pot keeps the arena running</span></div>
         <div class="divider"></div>
         <div class="section">MODES</div>
-        <div class="row"><span>Demo Match</span><span class="k">vs the computer</span></div>
-        <div class="row"><span>Play PvP</span><span class="k">2 / 5 / 10 players · free-for-all</span></div>
+        <div class="row"><span>Demo Match</span><span class="k">vs the computer, free</span></div>
+        <div class="row"><span>Play PvP</span><span class="k">2, 5 or 10 players, free for all</span></div>
         <div class="divider"></div>
         <div class="section">MATCH TIMER</div>
         <div class="row"><span>2 players</span><span class="k">5 minutes</span></div>
@@ -36,12 +42,24 @@ export const html = `
         <div class="row"><span>Trees &amp; snow mountains</span><span class="k">block movement &amp; deflect attacks</span></div>
         <div class="row"><span>River</span><span class="k">halves your speed &amp; damage</span></div>
         <div class="divider"></div>
+        <div class="section">YOUR FIGHTER</div>
+        <div class="row"><span>Call sign</span><span class="k">your name in the arena, 3 to 24 characters</span></div>
+        <div class="row"><span>Fighter</span><span class="k">pick FIGHTER or KNIGHT, swap it in your profile</span></div>
+        <div class="divider"></div>
+        <div class="section">THE ROOM</div>
+        <div class="row"><span>Dev chat</span><span class="k">read the broadcast and see who is online</span></div>
+        <div class="row"><span>Live votes</span><span class="k">the host opens a yes or no, signed in players vote</span></div>
+        <div class="divider"></div>
+        <div class="section">LEADERBOARD</div>
+        <div class="row"><span>Ranked by</span><span class="k">points, wins or $FIGHT10 held</span></div>
+        <div class="row"><span>Find yourself</span><span class="k">filter by name or wallet, or jump to your wallet</span></div>
+        <div class="divider"></div>
         <div class="section">PROGRESSION</div>
         <div class="row"><span>Play a match</span><span class="k">+10 pts</span></div>
         <div class="row"><span>Win a match</span><span class="k">+60 pts</span></div>
-        <div class="row"><span>Win streak</span><span class="k">+10 pts × streak (escalates)</span></div>
+        <div class="row"><span>Win streak</span><span class="k">+10 pts per win, the bonus escalates</span></div>
         <div class="row"><span>A loss</span><span class="k">resets your streak</span></div>
-        <div class="row"><span>Levels</span><span class="k">L2 100 · L3 300 · L4 600 · L5 1000 · …</span></div>
+        <div class="row"><span>Levels</span><span class="k">L2 100, L3 300, L4 600, L5 1000, and up</span></div>
       </div>
     </div>
   </div>
