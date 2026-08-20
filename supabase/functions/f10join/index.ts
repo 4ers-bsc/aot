@@ -168,12 +168,20 @@ function txAuthorizesDeposit(
 // Resolve the escrow's associated token account for the mint and the mint's
 // owning token program (classic SPL or Token-2022), both needed to check a
 // deposit instruction. Returns nulls if the escrow has no token account yet.
+//
+// Reads at `confirmed` — the SAME commitment as the deposit `getTransaction`
+// above and the client's confirmation poll. The client's deposit tx creates
+// the escrow ATA idempotently in the very same transaction as the transfer, so
+// on the first deposit to a fresh escrow ATA that account exists at `confirmed`
+// but not yet at `finalized`. Omitting the commitment here defaults to Solana's
+// `finalized` level, which would return an empty account list and reject a
+// perfectly valid first deposit with "Escrow token account not found".
 async function resolveEscrowAtaAndProgram(
   rpc: ReturnType<typeof createRpcPool>, escrow: string, mint: string,
 ): Promise<{ escrowAta: string | null; tokenProgram: string | null }> {
   const [mintInfo, escrowAccts] = await Promise.all([
-    rpc.run("getAccountInfo", [mint, { encoding: "jsonParsed" }]),
-    rpc.run("getTokenAccountsByOwner", [escrow, { mint }, { encoding: "jsonParsed" }]),
+    rpc.run("getAccountInfo", [mint, { encoding: "jsonParsed", commitment: "confirmed" }]),
+    rpc.run("getTokenAccountsByOwner", [escrow, { mint }, { encoding: "jsonParsed", commitment: "confirmed" }]),
   ]);
   return {
     escrowAta: escrowAccts?.value?.[0]?.pubkey ?? null,
