@@ -161,3 +161,28 @@ reconcile) is unchanged — so it is safe to ship dark.
 - **Stale README / PR #231** — already moot (the current README has no "2,500").
   PR #231 also carries unrelated additions, so it is left for its author to close
   rather than merged here.
+
+---
+
+## 7. Chain: back to Robinhood Chain
+
+The stack now runs on **Robinhood Chain** (Ethereum L2, chain id 4663) again.
+The conversion kept every post-Solana feature (payout queue + reconciler,
+Deployment tab, maintenance mode, home chat, balance-path fixes) and swapped only
+the chain layer:
+
+| Area | Solana build | Robinhood Chain build |
+|------|--------------|-----------------------|
+| Wallets / sign-in | Phantom / Solflare / Backpack, SIWS | EIP-1193 wallets (MetaMask, Rabby, Brave, Robinhood Wallet), SIWE, `wallet_switchEthereumChain` / `wallet_addEthereumChain` before signing and depositing |
+| Deposit | SPL `transferChecked` into the escrow ATA, signature-status poll | ERC-20 `transfer` to escrow, receipt poll; hash persisted lowercased |
+| Deposit verification (`f10join`) | instruction-level SPL check (Token-2022 aware) | `Transfer` event log from the token contract: sender, escrow, exact amount |
+| Payout (`f10treasurer` / `f10admin`) | escrow `Keypair`, signature + blockhash double-pay guard | escrow `Wallet`, hash + **nonce** persisted before broadcast; un-mined retries re-send only while the nonce is still free |
+| Balances / holdings | `getParsedTokenAccountsByOwner`, batched ATA reads | `balanceOf` (ethers batches the holdings board into one JSON-RPC request); `decimals()` self-check at boot |
+| Database | case-sensitive base58 comparisons, `payout_blockhash` | `lower()` comparisons + `lower(deposit_tx)` unique indexes, `payout_nonce`, `payouts.decimals` default 18 (`20260905_robinhood_chain_return.sql`) |
+| Config | `VITE_SOLANA_RPC_URL`, base58 secrets | `VITE_ROBINHOOD_RPC_URL`, 0x addresses, hex `ESCROW_PRIVATE_KEY` |
+
+Solana-era rows (base58 deposits / payout signatures) are left as they are; the
+payout paths refuse to reconcile a non-`0x` hash rather than misread it, and the
+holdings board skips non-`0x` wallets. The findings above that were "reversed
+for Solana" (S15 lowercase normalisation, the `payout_nonce` guard, 18-decimal
+defaults) are back in force.

@@ -1,26 +1,28 @@
 # FIGHT10 — last one standing
 
-Skill-based PvP arena on **Solana**. Players stake 10,000 $FIGHT10 (an SPL
-token) to enter; the last fighter alive takes 90% of the pot, paid from escrow
-and verified on-chain end to end.
+Skill-based PvP arena on **Robinhood Chain** (an Ethereum L2 built on the
+Arbitrum Orbit stack). Players stake 10,000 $FIGHT10 (a standard ERC-20) to
+enter; the last fighter alive takes 90% of the pot, paid from escrow and
+verified on-chain end to end.
 
-## Network: Solana (mainnet-beta)
+## Network: Robinhood Chain (mainnet)
 
-The whole stack runs on **Solana mainnet-beta**, defined once in
+The whole stack runs on **Robinhood Chain mainnet**, defined once in
 [`src/network.js`](src/network.js) for the client and mirrored in each
 Supabase edge function (`f10join`, `f10treasurer`, `f10admin`):
 
-| | mainnet-beta |
+| | Mainnet |
 |---|---|
-| **Network name** | Solana |
-| **Cluster** | `mainnet-beta` |
-| **RPC URL** | `https://api.mainnet-beta.solana.com` (set a dedicated key for prod) |
-| **Explorer** | `https://solscan.io` |
-| **Native currency (fees)** | SOL |
+| **Network name** | Robinhood Chain |
+| **Chain ID** | `4663` (`0x1237`) |
+| **RPC URL** | `https://rpc.mainnet.chain.robinhood.com` (rate-limited — set a dedicated key for prod) |
+| **Explorer (Blockscout)** | `https://robinhoodchain.blockscout.com` |
+| **Native currency (gas)** | ETH |
 
-Everything downstream (the read RPC, wallet connection, every explorer link)
-follows this definition automatically. Solana wallets have no "switch/add
-network" prompt — the cluster follows the RPC endpoint the app uses.
+Everything downstream (wallet add/switch-chain prompts, the read RPC, every
+Blockscout link) follows this definition automatically. The client asks the
+wallet to switch to — or add — the network before signing in and before every
+deposit, and refuses to sign on any other chain.
 
 ## Configuration
 
@@ -28,51 +30,54 @@ network" prompt — the cluster follows the RPC endpoint the app uses.
 
 | Variable | Purpose | Default |
 |---|---|---|
-| `VITE_FIGHT10_TOKEN` | $FIGHT10 SPL token mint address (base58) | placeholder |
-| `VITE_ESCROW_WALLET` | Escrow wallet address (base58, public) | placeholder |
-| `VITE_FIGHT10_DECIMALS` | Token decimals — seed/fallback only; the client reads the mint's real decimals on-chain at boot (Pump.fun mints use 6) | `6` |
-| `VITE_SOLANA_RPC_URL` | Override the cluster's public RPC (e.g. a dedicated key) | mainnet RPC |
-| `VITE_BUY_FIGHT10_URL` | "Buy $FIGHT10" link (e.g. a Jupiter/Raydium swap URL) | token's Solscan page |
+| `VITE_FIGHT10_TOKEN` | $FIGHT10 ERC-20 contract address (`0x…`) | placeholder (pre-launch state) |
+| `VITE_ESCROW_WALLET` | Escrow wallet address (`0x…`, public) | placeholder |
+| `VITE_FIGHT10_DECIMALS` | Token decimals — seed/fallback only; the client reads the contract's `decimals()` on-chain at boot | `18` |
+| `VITE_ROBINHOOD_RPC_URL` | Override the network's public RPC (e.g. a dedicated key) | mainnet RPC |
+| `VITE_BUY_FIGHT10_URL` | "Buy $FIGHT10" link (e.g. a DEX swap URL) | token's Blockscout page |
 | `VITE_SUPABASE_URL` / `VITE_SUPABASE_ANON_KEY` | Supabase project | — |
 
 ### Edge functions (Supabase secrets)
 
 | Secret | Used by | Purpose |
 |---|---|---|
-| `FIGHT10_TOKEN` | all three | $FIGHT10 SPL token mint address (base58) |
+| `FIGHT10_TOKEN` | all three | $FIGHT10 ERC-20 contract address (`0x…`) |
 | `ESCROW_WALLET` | `f10join` | Escrow **public** address (deposit destination) |
-| `ESCROW_PRIVATE_KEY` | `f10treasurer`, `f10admin` | Escrow signer — base58 secret key OR a JSON byte array (`id.json`); only the payout functions hold it |
-| `RPC_URL`, `RPC_URL_2`, `RPC_URL_3` | all three | Optional RPC pool (round-robin + failover); falls back to the cluster's public RPC |
-| `FIGHT10_DECIMALS` | `f10admin` | Dashboard display decimals (on-chain paths read the mint's decimals live) |
+| `ESCROW_PRIVATE_KEY` | `f10treasurer`, `f10admin` | Escrow signer, 0x-prefixed hex private key — only the payout functions hold it |
+| `RPC_URL`, `RPC_URL_2`, `RPC_URL_3` | all three | Optional RPC pool (round-robin + failover); falls back to the network's public RPC |
+| `FIGHT10_DECIMALS` | `f10admin` | Dashboard display decimals (on-chain paths read `decimals()` live) |
 | `APP_ORIGIN` | all three | Locks CORS to the game origin |
 | `ADMIN_USER_IDS` / `ADMIN_WALLETS` | `f10admin` | Ops dashboard allowlist |
+| `RECONCILE_SECRET` | `f10treasurer` | Enables the background payout reconciler (`…?reconcile=1`); unset = off |
 
-> The escrow account must also hold a little **SOL** to pay transaction fees and
-> the one-time rent when a winner's token account has to be created.
+> The escrow account must also hold a little **ETH** on Robinhood Chain to pay
+> gas for payout transfers.
 
 ### Verifying the deployed config
 
 The ops dashboard (`<app>/#admin` → **System → Deployment**) shows the on-chain
-and environment constants the app is actually running with — the $FIGHT10 mint,
-escrow wallet, RPC pool, network and CORS origin — split into the **client**
-(browser build) and **server** (edge-function) side, and flags any
-**mismatch**. Secrets are never exposed: the escrow wallet is a public address,
-RPC keys are redacted, and the private key shows only as a yes/no. A client vs.
-server mint mismatch (or an unset `VITE_FIGHT10_TOKEN`) is the usual cause of a
-balance that won't load or a deposit that won't verify — check this tab first.
+and environment constants the app is actually running with — the $FIGHT10
+contract, escrow wallet, RPC pool, network/chain id and CORS origin — split into
+the **client** (browser build) and **server** (edge-function) side, and flags
+any **mismatch**. Secrets are never exposed: the escrow wallet is a public
+address, RPC keys are redacted, and the private key shows only as a yes/no. A
+client vs. server token mismatch (or an unset `VITE_FIGHT10_TOKEN`) is the usual
+cause of a balance that won't load or a deposit that won't verify — check this
+tab first.
 
 ## How money moves
 
-1. **Deposit** — the client builds an SPL `transferChecked` of 10,000 $FIGHT10
-   from the player's associated token account (ATA) to the escrow's ATA (created
-   idempotently if it doesn't exist yet), signs it with the connected Solana
-   wallet, and submits it.
-2. **Verified join** — `f10join` fetches the transaction on-chain and checks the
-   token-balance deltas (success, our mint, sender = the player's own wallet,
-   destination = escrow, exact amount) before a seat is taken.
+1. **Deposit** — the client puts the wallet on the configured Robinhood Chain
+   network (`wallet_switchEthereumChain`, adding it from the table if needed)
+   and sends an ERC-20 `transfer` of 10,000 $FIGHT10 to escrow, signed with the
+   connected Ethereum wallet.
+2. **Verified join** — `f10join` checks the transaction receipt on-chain
+   (status, token contract, sender = the player's own wallet, destination =
+   escrow, exact amount via the `Transfer` event log) before a seat is taken.
 3. **Payout** — `f10treasurer` re-verifies every deposit, atomically claims the
-   payout slot, then signs an SPL transfer of 90% of the pot from escrow to the
-   winner and records the confirmed signature.
+   payout slot, then signs an ERC-20 transfer of 90% of the pot from escrow to
+   the winner and records the hash + nonce **before** broadcasting it, so a
+   retry can never double-pay.
 
 ## Home chat & host-run vote
 
@@ -106,13 +111,25 @@ via `complete_onboarding` and flips the flag. Existing players are backfilled to
 
 ```sh
 npm install
-npm run dev    # http://localhost:3000 (port must match Supabase Site URL for SIWS)
+npm run dev    # http://localhost:3000 (port must match Supabase Site URL for SIWE)
 npm run build
 ```
 
 Database: apply `supabase/migrations/*.sql` in order (or `supabase/fresh_setup.sql`
-on a fresh project). Auth uses Supabase **Sign in with Web3 (Solana / SIWS)** —
-enable the Web3 provider (Solana) in the Supabase dashboard. The home chat +
+on a fresh project). Auth uses Supabase **Sign in with Web3 (Ethereum / SIWE)** —
+enable the Web3 provider (Ethereum) in the Supabase dashboard. The home chat +
 running vote use **Realtime Postgres Changes**: the `20260817_home_chat`
 migration adds `chat_messages` and `chat_poll` to the `supabase_realtime`
 publication, so no dashboard toggle is needed.
+
+### Moving from the Solana build
+
+`supabase/migrations/20260905_robinhood_chain_return.sql` carries an existing
+(Solana-era) database across: wallet / deposit comparisons become
+case-insensitive again, the `lower(deposit_tx)` replay indexes return, and new
+payout rows default to 18 decimals. Rows from matches that settled on Solana are
+left untouched; the payout functions refuse to reconcile a non-`0x` deposit or
+payout hash rather than misread it. Go-live steps: enable the Supabase **Web3
+(Ethereum)** provider, apply the migration, set the client `VITE_*` vars and the
+edge-function secrets above to the ERC-20 / escrow on Robinhood Chain, and fund
+the escrow with ETH for gas.

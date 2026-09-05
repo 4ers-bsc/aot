@@ -95,10 +95,10 @@ const SAFETY_META = {
   unknown: ["⚪", "Unknown"],
 };
 
-// Raw on-chain units → whole $FIGHT10. The $FIGHT10 mint uses 6 decimals
-// (Pump.fun; override with VITE_FIGHT10_DECIMALS); pass decimals 0 for values
-// already stored in whole tokens (matches.pot_tokens).
-const TOKEN_DECIMALS = Number(import.meta.env?.VITE_FIGHT10_DECIMALS ?? 6);
+// Raw on-chain units → whole $FIGHT10. ERC-20 default is 18 decimals
+// (override with VITE_FIGHT10_DECIMALS); pass decimals 0 for values already
+// stored in whole tokens (matches.pot_tokens).
+const TOKEN_DECIMALS = Number(import.meta.env?.VITE_FIGHT10_DECIMALS ?? 18);
 const fmtTokens = (raw, decimals = TOKEN_DECIMALS) => {
   // BigInt division first (exact) — a naive Number(raw)/10**decimals rounds for
   // raw values past Number's safe-integer range (e.g. 2500 tokens @ 18 dp).
@@ -146,7 +146,7 @@ const matchRef = (id, label, cls = "") =>
     ? `<button type="button" class="admin-linkish ${cls}" data-act="match_detail" data-match="${id}" title="View match details">${escapeHtml(label ?? shortId(id))}</button>`
     : escapeHtml(label ?? "—");
 
-// Solscan explorer links (network-aware via network.js) so the operator
+// Blockscout explorer links (network-aware via network.js) so the operator
 // can review a transaction / address on-chain.
 const txLink = (sig, label) =>
   sig ? `<a class="admin-link" href="${txExplorerUrl(sig)}" target="_blank" rel="noopener noreferrer" title="${escapeHtml(sig)}">${escapeHtml(label || shortId(sig))} ↗</a>` : "—";
@@ -1756,7 +1756,7 @@ export function initAdmin(supabase) {
     const srvNet = srv.network || {};
 
     // Render a constant value with placeholder / not-set styling; `link` turns a
-    // base58 address into a Solscan link.
+    // 0x address into a Blockscout link.
     const val = (v, { link = false, mono = true } = {}) => {
       const s = (v == null ? "" : String(v)).trim();
       if (!s)                return `<span class="admin-dim">not set</span>`;
@@ -1765,9 +1765,11 @@ export function initAdmin(supabase) {
       return mono ? `<span class="admin-mono">${escapeHtml(s)}</span>` : escapeHtml(s);
     };
     // Match / mismatch flag — "—" when either side is unset (nothing to compare).
+    // Compared case-insensitively: EVM addresses arrive checksummed (mixed case)
+    // on one side and lowercased on the other while being the same address.
     const flag = (a, b) => {
       if (isPlaceholder(a) || isPlaceholder(b)) return `<span class="admin-dim">—</span>`;
-      return String(a).trim() === String(b).trim()
+      return String(a).trim().toLowerCase() === String(b).trim().toLowerCase()
         ? `<span class="fn-ok">match</span>`
         : `<span class="fn-bad">mismatch ✗</span>`;
     };
@@ -1777,26 +1779,32 @@ export function initAdmin(supabase) {
     const cmpTable = `
       <table class="admin-table">
         ${thead(["Constant", "Client (browser)", "Server (edge fns)", ""])}
-          ${cmpRow("$FIGHT10 mint", cMint, srv.token, { link: true })}
+          ${cmpRow("$FIGHT10 token (ERC-20)", cMint, srv.token, { link: true })}
           ${cmpRow("Escrow wallet (payout source)", cEscrow, srv.escrow_wallet, { link: true })}
           ${cmpRow("Token decimals", TOKEN_DECIMALS, srv.token_decimals ?? "")}
-          ${cmpRow("Cluster", NETWORK.cluster, srvNet.cluster ?? "")}
-          ${cmpRow("Chain id (sentinel)", NETWORK.chainId, srvNet.chainId ?? "")}
+          ${cmpRow("Network", NETWORK.name, srvNet.name ?? "")}
+          ${cmpRow("Chain id", NETWORK.chainId, srvNet.chainId ?? "")}
+          ${cmpRow("Public RPC (fallback)", NETWORK.rpcUrl, srvNet.rpcUrl ?? "")}
         </tbody>
       </table>`;
 
     // Warnings surfaced above the tables — each is an actual "this will break"
     // condition, most of which explain a balance/deposit that silently fails.
+    const sameAddr = (a, b) => String(a ?? "").trim().toLowerCase() === String(b ?? "").trim().toLowerCase();
     const warns = [];
     if (isPlaceholder(cMint))
-      warns.push(`Client $FIGHT10 mint is not set (VITE_FIGHT10_TOKEN) — the balance chip and holdings can't read on-chain and the pre-join balance gate is skipped. This is the usual cause of a balance that never loads.`);
+      warns.push(`Client $FIGHT10 token address is not set (VITE_FIGHT10_TOKEN) — the balance chip and holdings can't read on-chain and the pre-join balance gate is skipped. This is the usual cause of a balance that never loads.`);
+    else if (!/^0x[0-9a-fA-F]{40}$/.test(cMint))
+      warns.push(`Client VITE_FIGHT10_TOKEN is not a valid 0x contract address — the client treats it as unconfigured (no balance chip, no paid matches).`);
     if (deployment && srv.token != null && !srv.token_valid)
-      warns.push(`Server FIGHT10_TOKEN is missing or not a valid base58 mint — payouts will fail.`);
-    if (deployment && !isPlaceholder(cMint) && srv.token && cMint !== String(srv.token).trim())
-      warns.push(`Client and server point at DIFFERENT mints — deposits will not verify. Align VITE_FIGHT10_TOKEN with the FIGHT10_TOKEN secret.`);
+      warns.push(`Server FIGHT10_TOKEN is missing or not a valid 0x contract address — deposits will not verify and payouts will fail.`);
+    if (deployment && !isPlaceholder(cMint) && srv.token && !sameAddr(cMint, srv.token))
+      warns.push(`Client and server point at DIFFERENT token contracts — deposits will not verify. Align VITE_FIGHT10_TOKEN with the FIGHT10_TOKEN secret.`);
+    if (deployment && srvNet.chainId != null && Number(srvNet.chainId) !== NETWORK.chainId)
+      warns.push(`Client and server are on DIFFERENT chains (client ${NETWORK.chainId}, server ${srvNet.chainId}) — deposits will not verify and payouts are blocked.`);
     if (srv.escrow_key_error) warns.push(srv.escrow_key_error);
     if (deployment && !srv.escrow_key_set) warns.push(`Server has no ESCROW_PRIVATE_KEY — winners cannot be paid.`);
-    if (srv.escrow_wallet && srv.escrow_wallet_env && srv.escrow_wallet !== srv.escrow_wallet_env)
+    if (srv.escrow_wallet && srv.escrow_wallet_env && !sameAddr(srv.escrow_wallet, srv.escrow_wallet_env))
       warns.push(`Deposit destination (ESCROW_WALLET) ≠ payout source (derived from ESCROW_PRIVATE_KEY) — deposits and payouts use different accounts.`);
     if (srv.rpc_using_public_fallback)
       warns.push(`Server is on the public mainnet RPC (no RPC_URL set) — heavily rate-limited; set a dedicated endpoint for production.`);
@@ -1826,7 +1834,7 @@ export function initAdmin(supabase) {
       <div class="cfg-card">
         <h3 class="cfg-h">Client environment <span class="admin-dim">browser build</span></h3>
         <div class="fn-detail">
-          <div class="fn-kv"><span class="fn-k">Network</span><span class="admin-mono">${escapeHtml(NETWORK.name)} · ${escapeHtml(NETWORK.cluster)}</span></div>
+          <div class="fn-kv"><span class="fn-k">Network</span><span class="admin-mono">${escapeHtml(NETWORK.name)} · chain id ${escapeHtml(String(NETWORK.chainId))} (${escapeHtml(NETWORK.chainIdHex)})</span></div>
           <div class="fn-kv"><span class="fn-k">Read RPC</span><span class="admin-mono">${escapeHtml(CLIENT_RPC_URL)}</span></div>
           <div class="fn-kv"><span class="fn-k">Explorer</span><span class="admin-mono">${escapeHtml(NETWORK.explorerBase)}</span></div>
           <div class="fn-kv"><span class="fn-k">Supabase URL</span>${cSupabase ? `<span class="admin-mono">${escapeHtml(cSupabase)}</span>` : `<span class="admin-dim">not set</span>`}</div>
