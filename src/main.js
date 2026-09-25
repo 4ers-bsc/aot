@@ -1030,7 +1030,17 @@ async function signIn() {
     if (!wallet.publicKey && typeof wallet.connect === "function") {
       await wallet.connect();
     }
-    const { error } = await supabase.auth.signInWithWeb3({ chain: "solana", statement: SIGN_IN_STATEMENT, wallet });
+    // Sign for the site origin, not window.location.href (the SDK default):
+    // Supabase checks the signed URI against the project's Site URL /
+    // Redirect URLs allowlist, and a full href carrying a path, query or
+    // #hash (e.g. /#admin) can fail that match even when the domain is listed
+    // ("…signed for another app"). The domain itself must still be allowlisted.
+    const { error } = await supabase.auth.signInWithWeb3({
+      chain: "solana",
+      statement: SIGN_IN_STATEMENT,
+      wallet,
+      options: { url: window.location.origin },
+    });
     if (error) throw error;
   } catch (error) {
     console.error("[signIn]", error);
