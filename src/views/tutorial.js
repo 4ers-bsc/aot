@@ -5,7 +5,7 @@ export const html = `
   <div class="overlay tutorial-overlay" id="tutorialOverlay">
     <div class="panel tutorial-panel">
       <div class="panel-head">
-        WELCOME TO FIGHT10
+        WELCOME TO THE GULAG
         <button class="close" id="tutorialClose" type="button" aria-label="Close tutorial">&times;</button>
       </div>
 
@@ -16,7 +16,7 @@ export const html = `
             <svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M14.5 2l7 7-10 10.5L4 12z"/><path d="M2 22l4-4"/></svg>
           </div>
           <div class="tut-step-title">LAST ONE STANDING</div>
-          <div class="tut-step-text">FIGHT10 is a skill-based arena on Solana. Pay $FIGHT10, drop into a free-for-all, and be the last fighter alive to take <span class="hs-gold">90% of the pot</span>.</div>
+          <div class="tut-step-text">The Gulag is a skill-based arena on Solana. Pay $GULAG, drop into a free-for-all, and be the last fighter alive to take <span class="hs-gold">90% of the pot</span>.</div>
         </div>
 
         <div class="tut-step" data-tut-step="1">
@@ -24,7 +24,7 @@ export const html = `
             <svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="5" width="20" height="14" rx="2"/><path d="M16 12h.01"/><path d="M2 10h20"/></svg>
           </div>
           <div class="tut-step-title">CONNECT &amp; PAY</div>
-          <div class="tut-step-text">Link your Solana wallet — Phantom, Solflare, or Backpack — and pay <span class="hs-gold">10,000 $FIGHT10</span> to claim your seat. Your entry is verified on-chain before the match begins.</div>
+          <div class="tut-step-text">Link your Solana wallet — Phantom, Solflare, or Backpack — and pay <span class="hs-gold">10,000 $GULAG</span> to claim your seat. Your entry is verified on-chain before the match begins.</div>
         </div>
 
         <div class="tut-step" data-tut-step="2">

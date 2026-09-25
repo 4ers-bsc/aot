@@ -3,11 +3,11 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>FIGHT10 — Last One Standing</title>
+<title>The Gulag — Last One Standing</title>
 <link rel="icon" type="image/png" href="/logo.png" />
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-<link href="https://fonts.googleapis.com/css2?family=Black+Ops+One&family=Oswald:wght@400;500;600;700&family=Rajdhani:wght@500;600;700&display=swap" rel="stylesheet" />
+<link href="https://fonts.googleapis.com/css2?family=Black+Ops+One&family=Cormorant+Garamond:ital,wght@0,500;0,600;1,500&family=Oswald:wght@400;500;600;700&family=Rajdhani:wght@500;600;700&display=swap" rel="stylesheet" />
 <link rel="stylesheet" href="./src/styles.css" />
 <script>
   // Always land at the top on load — never restore a mid-page scroll position
@@ -32,17 +32,17 @@
 
       <!-- ===== Top nav ===== -->
       <nav class="site-nav">
-        <a class="site-nav-brand" href="#" aria-label="FIGHT10 — home">
-          <img src="/logo.png" alt="FIGHT10" class="site-nav-logo" />
+        <a class="site-nav-brand" href="#" aria-label="The Gulag — home">
+          <img src="/logo.png" alt="The Gulag" class="site-nav-logo" />
         </a>
         <div class="site-nav-actions">
-          <button class="fight10-balance hidden" id="fight10Balance" type="button" title="View your $FIGHT10 holdings">— $FIGHT10</button>
+          <button class="gulag-balance hidden" id="gulagBalance" type="button" title="View your $GULAG holdings">— $GULAG</button>
           <button class="nav-profile-btn hidden" id="profileBtn" type="button">
             <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M8 8a3 3 0 1 0 0-6 3 3 0 0 0 0 6zm-5 6a5 5 0 0 1 10 0H3z"/></svg>
             PROFILE
           </button>
           <button class="nav-connect-btn" id="signInWalletBtn" type="button">Connect Wallet</button>
-          <a class="x-nav" href="https://x.com/fight10_club" target="_blank" rel="noopener noreferrer" aria-label="FIGHT10 on X">
+          <a class="x-nav" href="https://x.com/fight10_club" target="_blank" rel="noopener noreferrer" aria-label="The Gulag on X">
             <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor"><path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-4.714-6.231-5.401 6.231H2.748l7.73-8.835L1.254 2.25H8.08l4.259 5.63 5.905-5.63zm-1.161 17.52h1.833L7.084 4.126H5.117z"/></svg>
           </a>
           <button class="nav-hamburger" id="navHamburgerBtn" type="button" aria-label="Menu" aria-expanded="false" aria-controls="navMenu">
@@ -68,10 +68,10 @@
   <div class="app-loading" id="appLoading">
     <div class="app-loading-inner">
       <div class="app-loading-logo-wrap">
-        <img src="/logo.png" alt="FIGHT10" class="app-loading-logo" />
+        <img src="/logo.png" alt="The Gulag" class="app-loading-logo" />
         <div class="app-loading-ring"></div>
       </div>
-      <div class="app-loading-brand">FIGHT10</div>
+      <div class="app-loading-brand">THE GULAG</div>
       <div class="app-loading-tagline">Last One Standing</div>
       <div class="app-loading-bar-track">
         <div class="app-loading-bar-fill" id="loadingBarFill"></div>
@@ -95,7 +95,7 @@
         var retry = document.createElement("button");
         retry.id = "loadingRetryBtn";
         retry.textContent = "RETRY";
-        retry.style.cssText = "margin-top:14px;padding:8px 26px;background:#c8940a;color:#000;" +
+        retry.style.cssText = "margin-top:14px;padding:8px 26px;background:#b80915;color:#000000;" +
           "border:none;border-radius:4px;font:600 13px sans-serif;letter-spacing:0.08em;cursor:pointer";
         retry.onclick = function () { window.location.reload(); };
         var inner = splash.querySelector(".app-loading-inner");

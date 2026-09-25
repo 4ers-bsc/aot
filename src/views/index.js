@@ -7,7 +7,7 @@ import { html as pauseHtml }     from './pause.js';
 import { html as howToHtml }     from './howToPlay.js';
 import { html as whitepaperHtml } from './whitepaper.js';
 import { html as leaderboardHtml } from './leaderboard.js';
-import { html as buyFight10Html } from './buyFight10.js';
+import { html as buyGulagHtml } from './buyGulag.js';
 import { html as tutorialHtml } from './tutorial.js';
 import { html as chatHtml } from './chat.js';
 
@@ -22,7 +22,7 @@ export function mountViews() {
     howToHtml,
     whitepaperHtml,
     leaderboardHtml,
-    buyFight10Html,
+    buyGulagHtml,
     tutorialHtml,
     chatHtml,
   ].join('');

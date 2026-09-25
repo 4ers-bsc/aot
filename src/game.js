@@ -1,4 +1,4 @@
-// 3D isometric voxel arena for FIGHT10.
+// 3D isometric voxel arena for THE GULAG.
 // Two visual views share one scene:
 //   - "lobby": monochrome, shown behind the app chrome before a match.
 //   - "game":  the attached reference look (light battlefield, green/red
@@ -289,7 +289,7 @@ export function createArenaGame(options) {
   const WALL_MID = MAP_HALF + WALL_T / 2; // wall centreline (inner face at the rim)
   const FENCE_H = 9.4;                    // barbed-wire fence top strand height (tall)
   const wallObjects = []; // tracks all wall scene objects for disposal
-  // F10 cloth banner draped over the left map edge. Each entry is animated
+  // GULAG cloth banner draped over the left map edge. Each entry is animated
   // per frame in animate(): an unfurl drop when built, then a continuous
   // fabric wave. { mesh, geo, h, phase, born }
   const clothBanners = [];
@@ -393,12 +393,12 @@ export function createArenaGame(options) {
     // they can be dropped into the merlon gaps at the correct wall height.
   }
 
-  // -- Arena rampart: the "F10 ARENA" fortress -------------------------------
+  // -- Arena rampart: the "GULAG" fortress -------------------------------
   // A tall barbed-wire security fence rings the arena edge (dark-steel posts
   // strung with crossed-barb strands, canted inward on top arms), anchored at
   // its corners by black-brick-and-gold beacon towers with glowing gold
-  // lanterns (palette from WALL_THEME), giant billboard signs (F10 ARENA /
-  // TRADE·FIGHT·EARN / SOLANA) and gold crystal clusters.
+  // lanterns (palette from WALL_THEME), giant billboard signs (GULAG /
+  // ONLY ONE WALKS OUT / SOLANA) and gold crystal clusters.
   // Flame lamps ride the top of the fence. Built once and parented to the
   // scene, so it stays anchored to the map rim in both the lobby backdrop and a
   // live match, and is released with everything else by disposeObject3D(scene)
@@ -431,7 +431,7 @@ export function createArenaGame(options) {
     };
     const goldGlowTex = glowSpriteTex("255,190,70");
 
-    // Gold "F10" crest and the gold F10 hologram face.
+    // Gold "GULAG" crest and the gold GULAG hologram face.
     const crestTex = (() => {
       const c = document.createElement("canvas"); c.width = c.height = 128;
       const g = c.getContext("2d");
@@ -439,8 +439,8 @@ export function createArenaGame(options) {
       grd.addColorStop(0, "#ffd657"); grd.addColorStop(1, "#c8940a");
       g.fillStyle = grd; g.fillRect(0, 0, 128, 128);
       g.strokeStyle = "#3a2600"; g.lineWidth = 8; g.strokeRect(9, 9, 110, 110);
-      g.fillStyle = "#0a0c16"; g.font = "bold 52px Arial"; g.textAlign = "center"; g.textBaseline = "middle";
-      g.fillText("F10", 64, 68);
+      g.fillStyle = "#0a0c16"; g.font = "bold 30px Arial"; g.textAlign = "center"; g.textBaseline = "middle";
+      g.fillText("GULAG", 64, 66);
       return new THREE.CanvasTexture(c);
     })();
     const plaqueMat = signMat(crestTex);
@@ -546,14 +546,14 @@ export function createArenaGame(options) {
     barbedFence("z",  WMID, -WMID, WMID); // east
     barbedFence("x",  WMID, -WMID, WMID); // south (near camera)
 
-    // -- Four corner beacon towers: a tall dark shaft banded with gold, F10
+    // -- Four corner beacon towers: a tall dark shaft banded with gold, GULAG
     //    plaques on every face, a crenellated crown and a glowing gold lantern.
     [[-WMID, -WMID], [WMID, -WMID], [-WMID, WMID], [WMID, WMID]].forEach(([x, z]) => {
       const H = 15.5;
       slab(T_W + 0.6, 0.9, T_W + 0.6, darkMat2, x, 0.45, z);      // base plinth
       slab(T_W, H, T_W, darkMat, x, H / 2, z);                    // shaft
       [3.6, 7.6, 11.6].forEach((ty) => slab(T_W + 0.35, 0.42, T_W + 0.35, goldMat, x, ty, z)); // gold bands
-      const pf = T_W / 2 + 0.05;                                  // F10 plaques
+      const pf = T_W / 2 + 0.05;                                  // GULAG plaques
       [[0, pf, 0], [0, -pf, Math.PI], [pf, 0, Math.PI / 2], [-pf, 0, -Math.PI / 2]].forEach(([ox, oz, ry]) => {
         const pl = new THREE.Mesh(new THREE.PlaneGeometry(2.7, 2.7), plaqueMat);
         pl.position.set(x + ox, 9.6, z + oz); pl.rotation.y = ry; rampart.add(pl);
@@ -676,18 +676,18 @@ export function createArenaGame(options) {
 
     // Content painters (drawn on top of the cloth ground) --------------------
     const bannerFont = (state, px) => `700 ${Math.round(px)}px ${state.fontReady ? '"Black Ops One", serif' : "Arial"}`;
-    const drawF10 = (g, W, H, state) => {
+    const drawGulag = (g, W, H, state) => {
       g.textAlign = "center"; g.textBaseline = "middle";
       g.fillStyle = goldTextFill(g, H * 0.28, H * 0.72);
-      g.font = bannerFont(state, H * 0.46);
-      g.fillText("F10", W / 2, H * 0.52);
+      g.font = bannerFont(state, H * 0.34);
+      g.fillText("GULAG", W / 2, H * 0.52);
     };
     const drawTrade = (g, W, H, state) => {
       g.textAlign = "center"; g.textBaseline = "middle";
       g.fillStyle = goldTextFill(g, H * 0.28, H * 0.48); g.font = bannerFont(state, H * 0.17);
-      g.fillText("TRADE. FIGHT. EARN.", W / 2, H * 0.4);
+      g.fillText("NO ONE ESCAPES", W / 2, H * 0.4);
       g.fillStyle = goldTextFill(g, H * 0.6, H * 0.74); g.font = bannerFont(state, H * 0.13);
-      g.fillText("F10 IS THE FUTURE", W / 2, H * 0.66);
+      g.fillText("ONLY ONE WALKS OUT", W / 2, H * 0.66);
     };
     // Sponsor logo, contained inside the hem with its aspect ratio preserved.
     // (Asset: assets/solana.png — swap this file to re-brand the arena
@@ -701,8 +701,8 @@ export function createArenaGame(options) {
       g.drawImage(state.img, (W - dw) / 2, (H - dh) / 2, dw, dh);
     };
 
-    placeBanner("west",  0,  17, 8, drawF10);          // F10 cloth banner
-    placeBanner("north", -14, 17, 7, drawTrade);       // TRADE. FIGHT. EARN.
+    placeBanner("west",  0,  17, 8, drawGulag);        // GULAG cloth banner
+    placeBanner("north", -14, 17, 7, drawTrade);       // NO ONE ESCAPES
     const rhBanner = placeBanner("north", 15, 12, 6.5, drawLogo); // sponsor logo
     const rhImg = new Image();
     rhImg.onload = () => { rhBanner.state.img = rhImg; rhBanner.repaint(); };
@@ -712,14 +712,14 @@ export function createArenaGame(options) {
     scene.add(rampart);
   }
 
-  // -- Pixelated FIGHT10 ground decals (black pixel squares, random) --------
-  const fight10Groups = [];
-  function makeFight10Decal() {
-    fight10Groups.forEach((g) => {
+  // -- Pixelated GULAG ground decals (black pixel squares, random) --------
+  const gulagGroups = [];
+  function makeGulagDecal() {
+    gulagGroups.forEach((g) => {
       scene.remove(g);
       disposeObject3D(g);
     });
-    fight10Groups.length = 0;
+    gulagGroups.length = 0;
     const CW = 56, CH = 10;
     const dc = document.createElement("canvas");
     dc.width = CW; dc.height = CH;
@@ -730,7 +730,7 @@ export function createArenaGame(options) {
     dctx.font = `bold ${CH}px monospace`;
     dctx.textAlign = "center";
     dctx.textBaseline = "middle";
-    dctx.fillText("FIGHT10", CW / 2, CH / 2);
+    dctx.fillText("THE GULAG", CW / 2, CH / 2);
     const tex = new THREE.CanvasTexture(dc);
     tex.magFilter = THREE.NearestFilter;
     tex.minFilter = THREE.NearestFilter;
@@ -749,7 +749,7 @@ export function createArenaGame(options) {
     grp.rotation.y = Math.floor(Math.random() * 4) * (Math.PI / 2);
     grp.add(mesh);
     scene.add(grp);
-    fight10Groups.push(grp);
+    gulagGroups.push(grp);
   }
 
 
@@ -859,17 +859,17 @@ export function createArenaGame(options) {
     pivot.mesh = mesh;
     return pivot;
   }
-  // Gold "F10" patch printed on the gi chest. One texture per fighter so
+  // Gold "GULAG" patch printed on the gi chest. One texture per fighter so
   // disposeObject3D can release it without pulling it out from under others.
   function makeChestLabelTex() {
     const c = document.createElement("canvas");
     c.width = 128; c.height = 64;
     const x = c.getContext("2d");
     x.fillStyle = "#e8b430";
-    x.font = "bold 54px Arial, sans-serif";
+    x.font = "bold 32px Arial, sans-serif";
     x.textAlign = "center";
     x.textBaseline = "middle";
-    x.fillText("F10", 64, 36);
+    x.fillText("GULAG", 64, 34);
     return new THREE.CanvasTexture(c);
   }
   // glowColor (optional hex) turns the blade into the knight's glowing sword.
@@ -967,7 +967,7 @@ export function createArenaGame(options) {
     // Gold edging down the armholes
     const aTrimL = box(0.06, 0.94, 0.05, P.trim); aTrimL.position.set(-0.47, 1.42, 0.285);
     const aTrimR = box(0.06, 0.94, 0.05, P.trim); aTrimR.position.set( 0.47, 1.42, 0.285);
-    // "F10" chest label
+    // "GULAG" chest label
     const labelTex = makeChestLabelTex();
     const label = new THREE.Mesh(
       new THREE.PlaneGeometry(0.22, 0.11),
@@ -1026,7 +1026,7 @@ export function createArenaGame(options) {
     };
   }
   // Style "2": black/gold armored knight — gold-piped helmet with glowing eyes
-  // and smile, pauldrons, centered F10 chest plate, belted tabard, gauntlets.
+  // and smile, pauldrons, centered GULAG chest plate, belted tabard, gauntlets.
   function buildKnightBody(P) {
     // Glowing gold face features. recolorFighter re-tints emissive for
     // materials flagged userData.glow so they follow the trim color.
@@ -1049,7 +1049,7 @@ export function createArenaGame(options) {
       leg.add(knee, boot, bootTrim, square);
       legTrims.push(knee.material, bootTrim.material); boots.push(boot.material); bootSquares.push(square);
     }
-    // Torso — armor plate with gold piping and centered F10
+    // Torso — armor plate with gold piping and centered GULAG
     const torso = box(1.0, 1.0, 0.58, P.gi); torso.position.y = 1.42;
     const pipeL = box(0.06, 1.0, 0.05, P.trim); pipeL.position.set(-0.28, 1.42, 0.29);
     const pipeR = box(0.06, 1.0, 0.05, P.trim); pipeR.position.set( 0.28, 1.42, 0.29);
@@ -1463,7 +1463,7 @@ export function createArenaGame(options) {
       const bt  = box(1.0, 1.4,  1.0, 0x7a7a7a); bt.position.set(bx, 12.9,  bz); g.add(bt);
       const bsn = box(1.1, 0.22, 1.1, 0xe4eef7); bsn.position.set(bx, 13.71, bz); g.add(bsn);
     });
-    // Gold F10 cloth draped flat on top of the tower
+    // Gold GULAG cloth draped flat on top of the tower
     const clothCanvas = document.createElement("canvas");
     clothCanvas.width = 128; clothCanvas.height = 128;
     const cCtx = clothCanvas.getContext("2d");
@@ -1473,10 +1473,10 @@ export function createArenaGame(options) {
     cCtx.lineWidth = 5;
     cCtx.strokeRect(4, 4, 120, 120);
     cCtx.fillStyle = "#0a0800";
-    cCtx.font = "bold 52px monospace";
+    cCtx.font = "bold 34px monospace";
     cCtx.textAlign = "center";
     cCtx.textBaseline = "middle";
-    cCtx.fillText("F10", 64, 64);
+    cCtx.fillText("GULAG", 64, 64);
     const clothTex = new THREE.CanvasTexture(clothCanvas);
     const cloth = new THREE.Mesh(
       new THREE.PlaneGeometry(4.4, 4.4),
@@ -1789,22 +1789,22 @@ export function createArenaGame(options) {
       }
     };
 
-    rctx.save(); rctx.strokeStyle = "rgba(20,60,100,0.35)";
+    rctx.save(); rctx.strokeStyle = "rgba(94,17,22,0.35)";
     rctx.lineWidth = lw + 10; rctx.lineCap = "round"; rctx.lineJoin = "round";
     drawPath(); rctx.stroke(); rctx.restore();
 
     // Pale foam rim hugging both banks — peeks out from under the water stroke
-    rctx.save(); rctx.strokeStyle = "rgba(224,242,250,0.6)";
+    rctx.save(); rctx.strokeStyle = "rgba(241,167,172,0.6)";
     rctx.lineWidth = lw + 4; rctx.lineCap = "round"; rctx.lineJoin = "round";
     drawPath(); rctx.stroke(); rctx.restore();
 
     // Whole river painted in the deep-water shade, bank to bank
-    rctx.save(); rctx.strokeStyle = "rgba(28,78,128,0.88)";
+    rctx.save(); rctx.strokeStyle = "rgba(122,22,28,0.88)";
     rctx.lineWidth = lw; rctx.lineCap = "round"; rctx.lineJoin = "round";
     drawPath(); rctx.stroke(); rctx.restore();
 
     // Static sun glints on the surface — baked into the texture, zero runtime cost
-    rctx.fillStyle = "rgba(235,248,255,0.5)";
+    rctx.fillStyle = "rgba(255,164,171,0.5)";
     for (let i = 0; i < 110; i++) {
       const sp = sampledPts[Math.floor(rng() * sampledPts.length)];
       const u = toU(sp.x) + (rng() * 2 - 1) * lw * 0.34;
@@ -1830,24 +1830,24 @@ export function createArenaGame(options) {
       const nc  = document.createElement("canvas");
       nc.width  = nc.height = CS;
       const nx  = nc.getContext("2d");
-      // Faint nebula blooms in the river's blue tones.
+      // Faint nebula blooms in the river's blood-red tones.
       for (let i = 0; i < 7; i++) {
         const sp = sampledPts[Math.floor(rng() * sampledPts.length)];
         const bu = toU(sp.x), bv = toV(sp.z), r = lw * (0.5 + rng() * 0.9);
         const g = nx.createRadialGradient(bu, bv, 0, bu, bv, r);
-        const shade = rng() < 0.5 ? "40,110,175" : "28,78,128";
+        const shade = rng() < 0.5 ? "175,28,38" : "128,20,28";
         g.addColorStop(0, `rgba(${shade},0.5)`);
         g.addColorStop(1, `rgba(${shade},0)`);
         nx.fillStyle = g; nx.fillRect(bu - r, bv - r, r * 2, r * 2);
       }
-      // Stars — blue-white, matching the river's foam/glint palette.
+      // Stars — pale red, matching the river's foam/glint palette.
       for (let i = 0; i < 220; i++) {
         const sp = sampledPts[Math.floor(rng() * sampledPts.length)];
         const u  = toU(sp.x) + (rng() * 2 - 1) * lw * 0.42;
         const v  = toV(sp.z) + (rng() * 2 - 1) * lw * 0.42;
         const s  = rng();
         nx.globalAlpha = 0.5 + rng() * 0.5;
-        nx.fillStyle = s < 0.25 ? "rgba(200,228,250,1)" : "rgba(235,248,255,1)";
+        nx.fillStyle = s < 0.25 ? "rgba(245,146,153,1)" : "rgba(255,164,171,1)";
         nx.beginPath(); nx.arc(u, v, s < 0.1 ? 1.7 : 0.9, 0, Math.PI * 2); nx.fill();
       }
       nx.globalAlpha = 1;
@@ -1962,7 +1962,7 @@ export function createArenaGame(options) {
       }
       geo.setAttribute("position", new THREE.BufferAttribute(pos, 3));
       const mat = new THREE.PointsMaterial({
-        size: 0.7 * PROP_SCALE, map: makeFlake(), color: 0xcfe6ff,
+        size: 0.7 * PROP_SCALE, map: makeFlake(), color: 0xff9198,
         transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, opacity: 0.85,
       });
       mapGroup.add(new THREE.Points(geo, mat));
@@ -2033,7 +2033,7 @@ export function createArenaGame(options) {
     }
   }
   // Paints a transparent biome-tint overlay the same size as the arena floor.
-  // Blue-grey near the river banks, darker earth near large mountain bases,
+  // Red-tinted near the river banks, darker earth near large mountain bases,
   // plus soft snow-drift and worn-earth mottling so the open field isn't flat.
   // Called after all solids are placed so it can read the final solid list.
   function buildBiomeOverlay(rng) {
@@ -2053,7 +2053,7 @@ export function createArenaGame(options) {
 
         let r = 0, g = 0, b = 0, a = 0;
 
-        // River zone — blue-grey tint that fades out beyond 2× the river half-width
+        // River zone — blood-red tint that fades out beyond 2× the river half-width
         if (riverSegments.length > 1) {
           let minD = Infinity;
           for (let i = 0; i < riverSegments.length - 1; i++) {
@@ -2068,7 +2068,7 @@ export function createArenaGame(options) {
           const inner = riverHalfW, outer = riverHalfW * 2.4;
           if (minD < outer) {
             const fade = Math.max(0, 1 - (minD - inner) / (outer - inner));
-            r = 62; g = 88; b = 118;
+            r = 118; g = 52; b = 58;
             a = Math.round(fade * 52);
           }
         }
@@ -3032,7 +3032,7 @@ export function createArenaGame(options) {
     if (riverSegments.length > 1) {
       // Smooth river ribbon tracing the sampled centre-line — round caps and
       // joins keep it clean instead of the old blocky grid-snapped stamps.
-      mmSCtx.strokeStyle = "rgba(61,127,176,0.72)";
+      mmSCtx.strokeStyle = "rgba(185,33,43,0.72)";
       mmSCtx.lineWidth = Math.max(2, riverHalfW * 2 * mmScale);
       mmSCtx.lineCap = "round";
       mmSCtx.lineJoin = "round";
@@ -3099,7 +3099,7 @@ export function createArenaGame(options) {
     renderer.setClearColor(theme.bg, 1);
     scene.background = skyTex;
     applyFog();
-    if (name === "game") makeFight10Decal();
+    if (name === "game") makeGulagDecal();
     const newTex = makeGroundTex(theme.ground);
     ground.material.map.dispose();
     ground.material.map = newTex;
@@ -3120,11 +3120,11 @@ export function createArenaGame(options) {
   }
 
   // Home / lobby background: dress the idle arena with the full map — river,
-  // trees, snow peaks, corner towers — plus the FIGHT10 ground mark, so the
+  // trees, snow peaks, corner towers — plus the GULAG ground mark, so the
   // landing page shows the real arena instead of an empty grid.
   function idleArena() {
     generateMap("home-showcase");
-    makeFight10Decal();
+    makeGulagDecal();
     buildMinimapStatic();
   }
 
@@ -3315,7 +3315,7 @@ export function createArenaGame(options) {
     snowGeo.attributes.position.needsUpdate = true;
     snow.position.set(camCenter.x, 0, camCenter.z);
 
-    // F10 edge banners: unfurl drop after build, then a continuous cloth wave.
+    // GULAG edge banners: unfurl drop after build, then a continuous cloth wave.
     // Vertices sway along the wall normal, more the further they hang down.
     const bNow = performance.now() * 0.001;
     for (const b of clothBanners) {

@@ -1,5 +1,5 @@
 -- ============================================================================
--- FIGHT10 — FRESH SETUP (run this on a clean Supabase project)
+-- THE GULAG — FRESH SETUP (run this on a clean Supabase project)
 -- Drop everything first, then rebuild with all fixes applied.
 -- ============================================================================
 
@@ -1045,7 +1045,7 @@ as $$
 $$;
 
 -- ---------------------------------------------------------------------------
--- 6a-bis. get_holdings_wallets — backs the leaderboard's $FIGHT10 tab.
+-- 6a-bis. get_holdings_wallets — backs the leaderboard's $GULAG tab.
 --     Balances live on-chain, so the client ranks wallets by balance itself;
 --     this RPC hands it the wallet addresses to look up. Exposing
 --     wallet_address here is deliberate: a holdings leaderboard only works by
@@ -2891,7 +2891,7 @@ grant execute on function public.join_pvp_match(uuid, smallint, text, text, text
 -- SOLANA FINAL STATE (authoritative). Runs LAST so it overrides the EVM-era
 -- definitions above. Mirrors migrations/20260731_solana_migration.sql: base58
 -- is CASE-SENSITIVE (no lower() around wallet/deposit comparison), payouts are
--- signature+blockhash based, and SPL $FIGHT10 uses 9 decimals. See that
+-- signature+blockhash based, and SPL $GULAG uses 9 decimals. See that
 -- migration's header for the full rationale.
 -- ===========================================================================
 

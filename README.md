@@ -1,6 +1,6 @@
-# FIGHT10 — last one standing
+# THE GULAG — last one standing
 
-Skill-based PvP arena on **Solana**. Players stake 10,000 $FIGHT10 (an SPL
+Skill-based PvP arena on **Solana**. Players stake 10,000 $GULAG (an SPL
 token) to enter; the last fighter alive takes 90% of the pot, paid from escrow
 and verified on-chain end to end.
 
@@ -28,24 +28,40 @@ network" prompt — the cluster follows the RPC endpoint the app uses.
 
 | Variable | Purpose | Default |
 |---|---|---|
-| `VITE_FIGHT10_TOKEN` | $FIGHT10 SPL token mint address (base58) | placeholder |
+| `VITE_GULAG_TOKEN` | $GULAG SPL token mint address (base58) | placeholder |
 | `VITE_ESCROW_WALLET` | Escrow wallet address (base58, public) | placeholder |
-| `VITE_FIGHT10_DECIMALS` | Token decimals — seed/fallback only; the client reads the mint's real decimals on-chain at boot (Pump.fun mints use 6) | `6` |
+| `VITE_GULAG_DECIMALS` | Token decimals — seed/fallback only; the client reads the mint's real decimals on-chain at boot (Pump.fun mints use 6) | `6` |
 | `VITE_SOLANA_RPC_URL` | Override the cluster's public RPC (e.g. a dedicated key) | mainnet RPC |
-| `VITE_BUY_FIGHT10_URL` | "Buy $FIGHT10" link (e.g. a Jupiter/Raydium swap URL) | token's Solscan page |
+| `VITE_BUY_GULAG_URL` | "Buy $GULAG" link (e.g. a Jupiter/Raydium swap URL) | token's Solscan page |
 | `VITE_SUPABASE_URL` / `VITE_SUPABASE_ANON_KEY` | Supabase project | — |
 
 ### Edge functions (Supabase secrets)
 
 | Secret | Used by | Purpose |
 |---|---|---|
-| `FIGHT10_TOKEN` | all three | $FIGHT10 SPL token mint address (base58) |
+| `GULAG_TOKEN` | all three | $GULAG SPL token mint address (base58) |
 | `ESCROW_WALLET` | `f10join` | Escrow **public** address (deposit destination) |
 | `ESCROW_PRIVATE_KEY` | `f10treasurer`, `f10admin` | Escrow signer — base58 secret key OR a JSON byte array (`id.json`); only the payout functions hold it |
 | `RPC_URL`, `RPC_URL_2`, `RPC_URL_3` | all three | Optional RPC pool (round-robin + failover); falls back to the cluster's public RPC |
-| `FIGHT10_DECIMALS` | `f10admin` | Dashboard display decimals (on-chain paths read the mint's decimals live) |
+| `GULAG_DECIMALS` | `f10admin` | Dashboard display decimals (on-chain paths read the mint's decimals live) |
 | `APP_ORIGIN` | all three | Locks CORS to the game origin |
 | `ADMIN_USER_IDS` / `ADMIN_WALLETS` | `f10admin` | Ops dashboard allowlist |
+
+> **Renamed from FIGHT10.** The pre-rebrand names still work as fallbacks, so an
+> existing deployment keeps running until you migrate: `VITE_FIGHT10_TOKEN` /
+> `VITE_FIGHT10_MINT`, `VITE_FIGHT10_DECIMALS`, `VITE_BUY_FIGHT10_URL` on the
+> client and `FIGHT10_TOKEN` / `FIGHT10_DECIMALS` secrets on the edge functions.
+> The new `GULAG_*` names win when both are set. Edge-function names
+> (`f10join`, `f10treasurer`, `f10admin`), DB lock keys and browser storage keys
+> are internal and intentionally unchanged.
+
+## Theme
+
+The website UI is **black and red only**: every colour sits on one crimson
+ramp (hue 356°) — black surfaces, red accents and red-tinted off-whites for
+text. The tokens live at the top of `src/styles.css`; the legacy `--gold-*`
+names are kept for compatibility but hold reds. The 3D arena keeps its
+original palette, except the river, which is blood-red.
 
 > The escrow account must also hold a little **SOL** to pay transaction fees and
 > the one-time rent when a winner's token account has to be created.
@@ -53,17 +69,17 @@ network" prompt — the cluster follows the RPC endpoint the app uses.
 ### Verifying the deployed config
 
 The ops dashboard (`<app>/#admin` → **System → Deployment**) shows the on-chain
-and environment constants the app is actually running with — the $FIGHT10 mint,
+and environment constants the app is actually running with — the $GULAG mint,
 escrow wallet, RPC pool, network and CORS origin — split into the **client**
 (browser build) and **server** (edge-function) side, and flags any
 **mismatch**. Secrets are never exposed: the escrow wallet is a public address,
 RPC keys are redacted, and the private key shows only as a yes/no. A client vs.
-server mint mismatch (or an unset `VITE_FIGHT10_TOKEN`) is the usual cause of a
+server mint mismatch (or an unset `VITE_GULAG_TOKEN`) is the usual cause of a
 balance that won't load or a deposit that won't verify — check this tab first.
 
 ## How money moves
 
-1. **Deposit** — the client builds an SPL `transferChecked` of 10,000 $FIGHT10
+1. **Deposit** — the client builds an SPL `transferChecked` of 10,000 $GULAG
    from the player's associated token account (ATA) to the escrow's ATA (created
    idempotently if it doesn't exist yet), signs it with the connected Solana
    wallet, and submits it.

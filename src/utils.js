@@ -11,7 +11,7 @@ export function escapeHtml(s) {
 // whole-token quotient to Number. `raw` may be a bigint, decimal string, or
 // number; returns a Number of whole tokens (fractional part dropped, matching
 // the app's "maximumFractionDigits: 0" display everywhere). Default decimals is
-// the $FIGHT10 mint's on-chain value (6 — Pump.fun mints use 6); callers that
+// the $GULAG mint's on-chain value (6 — Pump.fun mints use 6); callers that
 // know the real decimals (from the mint or a payout row) should pass them.
 export function tokensFromRaw(raw, decimals = 6) {
   let v;
