@@ -1,8 +1,10 @@
 // Homescreen animations — entrance reveals + scroll effects.
 //
-// The landing sections below the fold are scroll-linked blocks (.sb): each
-// one eases in as it approaches the middle of the viewport and back out as it
-// leaves, in both scroll directions (initScrollBlocks).
+// Below the fold, the landing sections are a pinned scroll story (.story,
+// initStory): six chapters crossfade in place on a sticky stage as the page
+// scrolls, with masked line reveals, counting figures and a progress rail.
+// The closing call-to-action is a scroll-linked block (.sb, initScrollBlocks)
+// that eases in and back out. Both run in either scroll direction.
 //
 // Every marketing element on the landing screen (nav, hero wordmark, tagline,
 // stats, action buttons, info tiles) gets a staggered reveal animation. The
@@ -30,7 +32,8 @@ const GROUPS = [
   [".home-actions-row .home-btn",  "up",    840, 90],
   [".info-tile",                   "up",    940, 80],
   // The landing sections below the fold are NOT in this list: they are
-  // scroll-linked (see initScrollBlocks) so they animate in and back out.
+  // scroll-linked (see initStory / initScrollBlocks) so they animate in and
+  // back out.
 ];
 
 // How long after an entrance starts we still honour the choreographed delays.
@@ -72,6 +75,7 @@ export function initHomeAnimations() {
 
   if (reduced) return;
 
+  initStory();
   initScrollBlocks();
 
   const els = [];
@@ -232,6 +236,98 @@ function initScrollBlocks() {
       el.style.setProperty("--v", v.toFixed(3));
     }
   }
+  const schedule = () => { if (!raf) raf = requestAnimationFrame(update); };
+  window.addEventListener("scroll", schedule, { passive: true });
+  window.addEventListener("resize", schedule, { passive: true });
+  update();
+}
+
+// -- Pinned scroll story ----------------------------------------------------
+// .story is tall; its .story-stage is sticky. Scroll progress through the
+// story (0…1) is mapped onto a continuous chapter position f = prog·(n−1),
+// and every chapter gets d = i − f: 0 when it is the current chapter,
+// positive while it is still coming, negative once passed. The CSS turns
+// d / v / s into the crossfade, masked line reveals, drawn rules and column
+// parallax; this function only writes numbers, so it's cheap per frame.
+// Reduced-motion viewers never reach here and get the static stacked page.
+function initStory() {
+  const story = document.querySelector(".story");
+  if (!story) return;
+  const chapters = Array.from(story.querySelectorAll(".ch"));
+  const n = chapters.length;
+  if (n < 2) return;
+  story.classList.add("story-live");
+
+  const railBtns = Array.from(story.querySelectorAll("[data-ch-go]"));
+  const counters = chapters.map((ch) =>
+    Array.from(ch.querySelectorAll("[data-count]")).map((el) => ({
+      el,
+      target: Number(el.dataset.count) || 0,
+      suffix: el.dataset.suffix || "",
+      shown: -1,
+    })),
+  );
+
+  const clamp01 = (x) => Math.max(0, Math.min(1, x));
+  const smooth = (t) => t * t * (3 - 2 * t);
+  const easeOut = (t) => 1 - (1 - t) ** 3;
+  let active = -1;
+
+  function metrics() {
+    const vh = window.innerHeight || 1;
+    const top = story.getBoundingClientRect().top + (window.scrollY || 0);
+    const travel = Math.max(1, story.offsetHeight - vh);
+    return { top, travel };
+  }
+
+  let raf = 0;
+  function update() {
+    raf = 0;
+    const { top, travel } = metrics();
+    const prog = clamp01(((window.scrollY || 0) - top) / travel);
+    const f = prog * (n - 1);
+    story.style.setProperty("--prog", prog.toFixed(4));
+
+    chapters.forEach((ch, i) => {
+      const d = i - f;
+      // Hold the current chapter fully, then hand off sequentially: the
+      // outgoing chapter has cleared (|d| ≥ 0.5) by the time the next one
+      // starts drawing in, so two chapters never pile on top of each other.
+      const v = 1 - smooth(clamp01((Math.abs(d) - 0.06) / 0.44));
+      ch.style.setProperty("--d", d.toFixed(3));
+      ch.style.setProperty("--v", v.toFixed(3));
+      ch.style.setProperty("--s", d >= 0 ? "1" : "-1");
+      ch.classList.toggle("is-active", v > 0.6);
+      ch.setAttribute("aria-hidden", v > 0.6 ? "false" : "true");
+
+      for (const c of counters[i]) {
+        const val = Math.round(c.target * easeOut(v));
+        if (val !== c.shown) {
+          c.shown = val;
+          c.el.textContent = val.toLocaleString("en-US") + c.suffix;
+        }
+      }
+    });
+
+    const cur = Math.round(f);
+    if (cur !== active) {
+      active = cur;
+      railBtns.forEach((b, i) => {
+        b.classList.toggle("is-on", i === cur);
+        if (i === cur) b.setAttribute("aria-current", "step");
+        else b.removeAttribute("aria-current");
+      });
+    }
+  }
+
+  railBtns.forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const i = Number(btn.dataset.chGo) || 0;
+      const { top, travel } = metrics();
+      window.scrollTo({ top: top + (i / (n - 1)) * travel, behavior: "smooth" });
+    });
+  });
+
   const schedule = () => { if (!raf) raf = requestAnimationFrame(update); };
   window.addEventListener("scroll", schedule, { passive: true });
   window.addEventListener("resize", schedule, { passive: true });

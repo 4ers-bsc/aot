@@ -78,77 +78,91 @@ export const html = `
   </div><!-- /.home-screen -->
 
   <!-- ===== Landing sections (below the fold) ===== -->
-  <!-- One idea per block. Each .sb is scroll-linked by src/home-anim.js: it
-       fades, rises and scales in as it nears the middle of the viewport and
-       drifts back out as it leaves, in both scroll directions. -->
+  <!-- A pinned scroll story. #homeSections is tall; .story-stage sticks to the
+       viewport while src/home-anim.js maps scroll progress onto six chapters
+       that crossfade in place (masked line reveals, drawn rules, counting
+       figures, a progress rail). Without the script — or with reduced
+       motion — .story-live is never added and the chapters simply stack. -->
   <div class="home-sections" id="homeSections">
+   <div class="story" style="--chapters:6">
+    <div class="story-stage">
+      <div class="story-glow" aria-hidden="true"></div>
+      <nav class="story-rail" aria-label="Chapters">
+        <div class="story-rail-track"><div class="story-rail-fill"></div></div>
+        <ol><li><button type="button" data-ch-go="0" aria-label="Chapter I: The Stake">I</button></li><li><button type="button" data-ch-go="1" aria-label="Chapter II: The Equal Start">II</button></li><li><button type="button" data-ch-go="2" aria-label="Chapter III: The Prize">III</button></li><li><button type="button" data-ch-go="3" aria-label="Chapter IV: The Yards">IV</button></li><li><button type="button" data-ch-go="4" aria-label="Chapter V: The Record">V</button></li><li><button type="button" data-ch-go="5" aria-label="Chapter VI: The Rules">VI</button></li></ol>
+      </nav>
 
-    <section class="sb">
-      <div class="sb-ghost" aria-hidden="true">01</div>
-      <div class="sb-inner">
-        <div class="sb-kicker">STEP ONE</div>
-        <h2 class="sb-title">PAY IN</h2>
-        <p class="sb-line"><span class="hs-gold">10,000 $GULAG</span> buys your seat.</p>
-        <p class="sb-sub">Verified on-chain before you drop in.</p>
-      </div>
-    </section>
-
-    <section class="sb">
-      <div class="sb-ghost" aria-hidden="true">02</div>
-      <div class="sb-inner">
-        <div class="sb-kicker">STEP TWO</div>
-        <h2 class="sb-title">FIGHT</h2>
-        <p class="sb-line">Same health. Same weapons. Only skill.</p>
-        <div class="sb-chips">
-          <span class="sb-chip" style="--i:0">FRAG</span>
-          <span class="sb-chip" style="--i:1">SWORD</span>
-          <span class="sb-chip" style="--i:2">PISTOL</span>
-          <span class="sb-chip" style="--i:3">SNIPER</span>
+      <article class="ch" data-ch="0">
+        <div class="ch-copy">
+          <div class="ch-kicker"><span class="ch-num">I</span><span class="ch-rule"></span><span>THE STAKE</span></div>
+          <h2 class="ch-title"><span class="ch-line" style="--k:0"><span>Ten thousand</span></span><span class="ch-line" style="--k:1"><span><em>to enter.</em></span></span></h2>
+          <p class="ch-sub"><span class="hs-gold">$GULAG</span>, verified on-chain before you set foot inside.</p>
         </div>
-      </div>
-    </section>
-
-    <section class="sb">
-      <div class="sb-ghost" aria-hidden="true">03</div>
-      <div class="sb-inner">
-        <div class="sb-kicker">STEP THREE</div>
-        <h2 class="sb-title">OUTLAST</h2>
-        <p class="sb-line">Last one standing takes <span class="hs-gold">90%</span> of the pot.</p>
-      </div>
-    </section>
-
-    <section class="sb">
-      <div class="sb-ghost" aria-hidden="true">2·5·10</div>
-      <div class="sb-inner">
-        <div class="sb-kicker">PICK YOUR BATTLE</div>
-        <div class="sb-tiles">
-          <div class="sb-tile" style="--i:0"><div class="sb-tile-big">2</div><div class="sb-tile-name">DUEL</div><div class="sb-tile-meta">5 min · win 18,000</div></div>
-          <div class="sb-tile" style="--i:1"><div class="sb-tile-big">5</div><div class="sb-tile-name">SKIRMISH</div><div class="sb-tile-meta">7 min · win 45,000</div></div>
-          <div class="sb-tile" style="--i:2"><div class="sb-tile-big">10</div><div class="sb-tile-name">WARZONE</div><div class="sb-tile-meta">10 min · win 90,000</div></div>
+        <div class="ch-aside">
+          <div class="ch-figure"><span class="ch-count" data-count="10000">10,000</span><span class="ch-figure-unit">$GULAG · per seat</span></div>
         </div>
-      </div>
-    </section>
+      </article>
 
-    <section class="sb">
-      <div class="sb-ghost" aria-hidden="true">+60</div>
-      <div class="sb-inner">
-        <div class="sb-kicker">EVERY MATCH COUNTS</div>
-        <h2 class="sb-title">CLIMB</h2>
-        <p class="sb-line">+10 to play. +60 to win. Streaks stack.</p>
-      </div>
-    </section>
-
-    <section class="sb">
-      <div class="sb-ghost" aria-hidden="true">✓</div>
-      <div class="sb-inner">
-        <div class="sb-kicker">NO HOUSE EDGE</div>
-        <h2 class="sb-title">BUILT FAIR</h2>
-        <p class="sb-line">Verified on-chain. Decided by the server. Cheaters forfeit.</p>
-        <div class="sb-actions">
-          <button class="home-btn home-btn-secondary" id="secWhitepaperBtn" type="button">READ THE WHITEPAPER</button>
+      <article class="ch" data-ch="1">
+        <div class="ch-copy">
+          <div class="ch-kicker"><span class="ch-num">II</span><span class="ch-rule"></span><span>THE EQUAL START</span></div>
+          <h2 class="ch-title"><span class="ch-line" style="--k:0"><span>Everyone</span></span><span class="ch-line" style="--k:1"><span><em>walks in equal.</em></span></span></h2>
+          <p class="ch-sub">Same health. Same four weapons. The only difference is you.</p>
         </div>
-      </div>
-    </section>
+        <div class="ch-aside">
+          <ul class="ch-list"><li style="--k:0">Frag</li><li style="--k:1">Sword</li><li style="--k:2">Pistol</li><li style="--k:3">Sniper</li></ul>
+        </div>
+      </article>
+
+      <article class="ch" data-ch="2">
+        <div class="ch-copy">
+          <div class="ch-kicker"><span class="ch-num">III</span><span class="ch-rule"></span><span>THE PRIZE</span></div>
+          <h2 class="ch-title"><span class="ch-line" style="--k:0"><span>One walks out</span></span><span class="ch-line" style="--k:1"><span><em>with the pot.</em></span></span></h2>
+          <p class="ch-sub">The last fighter standing is paid straight from escrow.</p>
+        </div>
+        <div class="ch-aside">
+          <div class="ch-figure"><span class="ch-count" data-count="90" data-suffix="%">90%</span><span class="ch-figure-unit">of every pot</span></div>
+        </div>
+      </article>
+
+      <article class="ch" data-ch="3">
+        <div class="ch-copy">
+          <div class="ch-kicker"><span class="ch-num">IV</span><span class="ch-rule"></span><span>THE YARDS</span></div>
+          <h2 class="ch-title"><span class="ch-line" style="--k:0"><span>Choose</span></span><span class="ch-line" style="--k:1"><span><em>your sentence.</em></span></span></h2>
+          <p class="ch-sub">Free-for-all. The match starts the moment the room is full.</p>
+        </div>
+        <div class="ch-aside">
+          <table class="ch-table">
+            <tr style="--k:0"><th>Duel</th><td>2 players</td><td>5 min</td><td class="hs-gold">18,000</td></tr>
+            <tr style="--k:1"><th>Skirmish</th><td>5 players</td><td>7 min</td><td class="hs-gold">45,000</td></tr>
+            <tr style="--k:2"><th>Warzone</th><td>10 players</td><td>10 min</td><td class="hs-gold">90,000</td></tr>
+          </table>
+        </div>
+      </article>
+
+      <article class="ch" data-ch="4">
+        <div class="ch-copy">
+          <div class="ch-kicker"><span class="ch-num">V</span><span class="ch-rule"></span><span>THE RECORD</span></div>
+          <h2 class="ch-title"><span class="ch-line" style="--k:0"><span>Every fight</span></span><span class="ch-line" style="--k:1"><span><em>is written down.</em></span></span></h2>
+          <p class="ch-sub">Points for showing up, more for winning, and streaks that compound.</p>
+        </div>
+        <div class="ch-aside">
+          <ul class="ch-list"><li style="--k:0">+10 play</li><li style="--k:1">+60 win</li><li style="--k:2">streak bonus</li></ul>
+        </div>
+      </article>
+
+      <article class="ch" data-ch="5">
+        <div class="ch-copy">
+          <div class="ch-kicker"><span class="ch-num">VI</span><span class="ch-rule"></span><span>THE RULES</span></div>
+          <h2 class="ch-title"><span class="ch-line" style="--k:0"><span>The house can’t cheat.</span></span><span class="ch-line" style="--k:1"><span><em>Neither can they.</em></span></span></h2>
+          <p class="ch-sub">Verified entry. Server-decided results. Cheaters forfeit their stake.</p>
+        </div>
+        <div class="ch-aside">
+          <div class="ch-actions"><button class="home-btn home-btn-secondary" id="secWhitepaperBtn" type="button">READ THE WHITEPAPER</button></div>
+        </div>
+      </article>
+    </div>
+   </div><!-- /.story -->
 
     <section class="sb sb-cta">
       <div class="sb-inner">
