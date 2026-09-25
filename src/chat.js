@@ -67,10 +67,16 @@ export function initHomeChat({ supabase, getUser, getProfile, signIn }) {
   let isAdmin   = false;
   let poll      = null;   // { id, question, is_open, yes_count, no_count }
   let yourVote  = null;   // true = yes, false = no, null = not voted
-  // Chat starts expanded on every page load — desktop and mobile alike, and
-  // regardless of how the visitor left it last time. The collapse is a
-  // session-only toggle and is intentionally never persisted (see setCollapsed).
-  let collapsed = false;
+  // Chat starts expanded on every page load on desktop, but collapsed to its
+  // launcher on phones, where the open panel would cover the hero and its
+  // buttons. "Phone" matches the chat's own phone layout (max-width: 560px in
+  // styles.css) plus phones held in landscape. Either way the collapse is a
+  // session-only toggle and is intentionally never persisted (see
+  // setCollapsed); maintenance still force-opens it (see forceOpen).
+  const isPhone = window.matchMedia?.(
+    "(max-width: 560px), (pointer: coarse) and (max-height: 500px)",
+  )?.matches ?? false;
+  let collapsed = isPhone;
   let unread    = 0;
   const seen    = new Set(); // message ids already in the DOM
   let voting    = false;
