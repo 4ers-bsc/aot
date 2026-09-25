@@ -140,6 +140,12 @@ textarea:focus {
      position:sticky for the landing story stage. clip trims the same
      horizontal overflow without creating a scroll container. */
   overflow-x: clip;
+  /* hidden also made the shell a block formatting context, which kept the
+     landing sections' margin-top: 100vh inside it; clip doesn't, so without
+     this the margin collapses up through <body> and shoves the whole page —
+     hero and buttons included — one screen down. flow-root restores the BFC
+     without creating a scroll container, so sticky keeps working. */
+  display: flow-root;
 }
 
 .arena-panel {
