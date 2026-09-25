@@ -84,12 +84,13 @@ create table public.profiles (
   level        integer not null default 1,
   win_streak   integer not null default 0,
   best_streak  integer not null default 0,
-  -- Default character: the saved skin preference (1 = Fighter, 2 = Knight)
+  -- Default character: the saved skin preference
+  -- (1 = Fighter, 2 = Knight, 3 = Degent)
   skin_id      smallint not null default 1
-    check (skin_id in (1, 2)),
+    check (skin_id in (1, 2, 3)),
   -- Skins available to this player; server-managed (no client update grant)
-  skins        smallint[] not null default '{1,2}'
-    check (skins <@ array[1, 2]::smallint[]),
+  skins        smallint[] not null default '{1,2,3}'
+    check (skins <@ array[1, 2, 3]::smallint[]),
   -- First-run onboarding: false until the player picks a name + avatar on their
   -- first sign-in (see complete_onboarding, §13). New rows start false so the
   -- picker appears; nobody is re-prompted once it flips true.
@@ -3440,7 +3441,7 @@ begin
     raise exception 'invalid_name: username must be 3-24 characters';
   end if;
 
-  if v_skin not in (1, 2) then
+  if v_skin not in (1, 2, 3) then
     v_skin := 1;
   end if;
 

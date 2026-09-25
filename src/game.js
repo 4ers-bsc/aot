@@ -9,9 +9,10 @@
 
 import * as THREE from "three";
 import { escapeHtml } from "./utils.js";
-import { APPEARANCE_PRESETS } from "./appearance.js";
+import { APPEARANCE_PRESETS, SKIN_IDS, normalizeSkin } from "./appearance.js";
 import { WALL_THEME } from "./wallThemes.js";
 import { initSfx, setSfxEnabled, playSfx, setWaterLoop } from "./sound.js";
+import { importGLTFLoader } from "./lazy-deps.js";
 
 const TILE = 2;
 const MAP_TILES = 50;
@@ -48,6 +49,34 @@ const aiSpeedFor = (w) => (w.ranged ? 4.6 : 5.6);
 // AI raiders have no real profile — hand them a plausible level so their name
 // tag matches the format shown for real players.
 function randomAiLevel() { return 1 + Math.floor(Math.random() * 15); }
+
+// -- Degent crown -------------------------------------------------------------
+// The Degent skin (style "3") wears the crown from the Degent model, prepared
+// by scripts/build-degent-model.mjs as a unit-width mesh standing on y = 0.
+// The GLB (and three's glTF loader) are fetched on first use; bodies built
+// before it lands get their crown when it does.
+const DEGENT_MODEL_URL = "/models/degent.glb";
+let degentCrown = null;        // the crown's geometry, once loaded
+let degentCrownLoading = null;
+function loadDegentCrown() {
+  if (!degentCrownLoading) {
+    degentCrownLoading = importGLTFLoader()
+      .then(({ GLTFLoader }) => new GLTFLoader().loadAsync(DEGENT_MODEL_URL))
+      .then((gltf) => {
+        const mesh = gltf.scene.getObjectByName("crown");
+        if (!mesh?.isMesh) throw new Error(`${DEGENT_MODEL_URL} has no "crown" mesh`);
+        degentCrown = mesh.geometry;
+        return degentCrown;
+      })
+      .catch((err) => {
+        // The Degent still plays without its crown; a later body retries.
+        console.error("Degent model unavailable:", err);
+        degentCrownLoading = null;
+        return null;
+      });
+  }
+  return degentCrownLoading;
+}
 
 // -- Device quality tier ------------------------------------------------------
 // Phones and low-power tablets can't sustain the full desktop scene — 2K PCF
@@ -1130,17 +1159,122 @@ export function createArenaGame(options) {
       }
     };
   }
+  // Style "3": the Degent — a white-faced, crowned ape in a black suit. The
+  // model's flat PFP silhouette is rebuilt in voxels, with gold where the logo
+  // has negative space (shirt V, pocket square, face lines); the crown is the
+  // model's own 3D mesh (degentCrown).
+  function buildDegentBody(P) {
+    // Legs — suit trousers over black dress shoes
+    const legL = limb(0.36, 0.68, 0.36, P.pants), legR = limb(0.36, 0.68, 0.36, P.pants);
+    legL.position.set(-0.22, 0.94, 0); legR.position.set(0.22, 0.94, 0);
+    const shoeL = box(0.36, 0.16, 0.54, P.hair); shoeL.position.set(0, -0.86, 0.09);
+    const shoeR = box(0.36, 0.16, 0.54, P.hair); shoeR.position.set(0, -0.86, 0.09);
+    legL.add(shoeL); legR.add(shoeR);
+    // Jacket — broad padded shoulders and a skirt over the hips, split at the front
+    const torso = box(1.04, 1.0, 0.60, P.gi); torso.position.y = 1.42;
+    const skirt = box(1.04, 0.26, 0.62, P.gi); skirt.position.y = 0.80;
+    const vent = box(0.04, 0.26, 0.02, P.pants); vent.position.set(0, 0.80, 0.315);
+    const padL = box(0.32, 0.18, 0.34, P.gi); padL.position.set(-0.66, 1.90, 0);
+    const padR = box(0.32, 0.18, 0.34, P.gi); padR.position.set( 0.66, 1.90, 0);
+    // Gold shirt in a deep V between dark satin lapels, two buttons below it and
+    // a peaked pocket square on the left breast
+    const shirt = box(0.36, 0.50, 0.04, P.trim); shirt.position.set(0, 1.67, 0.29);
+    const lapelL = box(0.15, 0.60, 0.05, P.pants); lapelL.position.set(-0.16, 1.68, 0.305); lapelL.rotation.z =  0.33;
+    const lapelR = box(0.15, 0.60, 0.05, P.pants); lapelR.position.set( 0.16, 1.68, 0.305); lapelR.rotation.z = -0.33;
+    const btnA = box(0.06, 0.06, 0.03, P.trim); btnA.position.set(0, 1.30, 0.31);
+    const btnB = box(0.06, 0.06, 0.03, P.trim); btnB.position.set(0, 1.13, 0.31);
+    const pocket = box(0.16, 0.05, 0.04, P.trim); pocket.position.set(0.31, 1.70, 0.31);
+    const pocketPeak = box(0.06, 0.05, 0.04, P.trim); pocketPeak.position.set(0.28, 1.75, 0.31);
+    // Arms — long ape arms in suit sleeves, gold shirt cuffs, bare dark hands
+    // (a fixed tone: the palette's skin is the white face)
+    const armL = limb(0.28, 0.66, 0.28, P.gi), armR = limb(0.28, 0.66, 0.28, P.gi);
+    armL.position.set(-0.66, 1.74, 0); armR.position.set(0.66, 1.74, 0);
+    const cuffL = box(0.30, 0.06, 0.30, P.trim); cuffL.position.y = -0.68;
+    const cuffR = box(0.30, 0.06, 0.30, P.trim); cuffR.position.y = -0.68;
+    const handL = box(0.26, 0.22, 0.28, 0x3a2c25); handL.position.y = -0.81;
+    const handR = box(0.26, 0.22, 0.28, 0x3a2c25); handR.position.y = -0.81;
+    armL.add(cuffL, handL); armR.add(cuffR, handR);
+    // Head — big, hunched low and forward between the shoulders: a white face
+    // with a muzzle, a heavy gold brow, gold eyes under drooping lids, a smirk,
+    // ears with gold inners, and the crown. Features sit relative to the head's centre.
+    const headGroup = new THREE.Group(); headGroup.position.set(0, 2.17, 0.07);
+    const head = box(0.64, 0.54, 0.58, P.hair);
+    const face = box(0.48, 0.24, 0.02, P.skin); face.position.set(0, 0.03, 0.29);
+    const muzzle = box(0.40, 0.22, 0.14, P.skin); muzzle.position.set(0, -0.15, 0.35);
+    const brow = box(0.56, 0.07, 0.06, P.trim); brow.position.set(0, 0.14, 0.31);
+    const eyeL = box(0.11, 0.07, 0.03, P.trim); eyeL.position.set(-0.13, 0.05, 0.295);
+    const eyeR = box(0.11, 0.07, 0.03, P.trim); eyeR.position.set( 0.13, 0.05, 0.295);
+    const lidL = box(0.12, 0.035, 0.04, P.hair); lidL.position.set(-0.13, 0.072, 0.30);
+    const lidR = box(0.12, 0.035, 0.04, P.hair); lidR.position.set( 0.13, 0.072, 0.30);
+    const ink = new THREE.MeshStandardMaterial({ color: 0x0a0806, roughness: 0.85, metalness: 0.05 });
+    const inkBox = (w, h, x, y, z) => {
+      const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, 0.02), ink);
+      m.position.set(x, y, z);
+      return m;
+    };
+    const pupilL = inkBox(0.035, 0.035, -0.11, 0.035, 0.31);
+    const pupilR = inkBox(0.035, 0.035,  0.15, 0.035, 0.31);
+    const nostrilL = inkBox(0.06, 0.035, -0.07, -0.09, 0.42);
+    const nostrilR = inkBox(0.06, 0.035,  0.07, -0.09, 0.42);
+    const mouth = box(0.24, 0.03, 0.02, P.trim); mouth.position.set(-0.01, -0.20, 0.42);
+    const smirk = box(0.05, 0.03, 0.02, P.trim); smirk.position.set(0.12, -0.18, 0.42);
+    const earL = box(0.10, 0.18, 0.14, P.hair); earL.position.set(-0.36, 0.02, -0.03);
+    const earR = box(0.10, 0.18, 0.14, P.hair); earR.position.set( 0.36, 0.02, -0.03);
+    const earInL = box(0.02, 0.11, 0.08, P.trim); earInL.position.set(-0.41, 0.02, -0.03);
+    const earInR = box(0.02, 0.11, 0.08, P.trim); earInR.position.set( 0.41, 0.02, -0.03);
+    const crownMat = new THREE.MeshStandardMaterial({ color: P.trim, emissive: P.trim, emissiveIntensity: 0.2, roughness: 0.45, metalness: 0.3 });
+    crownMat.userData.glow = true;
+    const crown = new THREE.Group(); crown.position.set(0, 0.22, -0.02); crown.scale.setScalar(0.6);
+    headGroup.add(head, face, muzzle, brow, eyeL, eyeR, lidL, lidR, pupilL, pupilR, nostrilL, nostrilR, mouth, smirk,
+                  earL, earR, earInL, earInR, crown);
+    mountDegentCrown(crown, crownMat);
+    return {
+      legL, legR, armL, armR,
+      nodes: [
+        legL, legR, torso, skirt, vent, padL, padR, shirt, lapelL, lapelR, btnA, btnB, pocket, pocketPeak,
+        armL, armR, headGroup
+      ],
+      parts: {
+        skin: [face.material, muzzle.material],
+        gi: [torso.material, skirt.material, padL.material, padR.material, armL.mesh.material, armR.mesh.material],
+        trim: [crownMat, shirt.material, btnA.material, btnB.material, pocket.material, pocketPeak.material,
+               cuffL.material, cuffR.material, brow.material, eyeL.material, eyeR.material, mouth.material,
+               smirk.material, earInL.material, earInR.material],
+        pants: [legL.mesh.material, legR.mesh.material, vent.material, lapelL.material, lapelR.material],
+        hair: [head.material, shoeL.material, shoeR.material, lidL.material, lidR.material, earL.material, earR.material]
+      }
+    };
+  }
+  // Hang the Degent's crown in its mount. Each body gets its own copy of the
+  // shared crown geometry, so disposeObject3D can free a body without pulling
+  // buffers out from under another.
+  function mountDegentCrown(mount, material) {
+    const fill = (geometry) => {
+      const m = new THREE.Mesh(geometry.clone(), material);
+      m.castShadow = true;
+      m.receiveShadow = true;
+      mount.add(m);
+    };
+    if (degentCrown) { fill(degentCrown); return; }
+    loadDegentCrown().then((geometry) => {
+      // Skip a body that was swapped out or removed while the model loaded.
+      let root = mount;
+      while (root.parent) root = root.parent;
+      if (geometry && root.isScene) fill(geometry);
+    });
+  }
+  const BODY_BUILDERS = { 1: buildMartialBody, 2: buildKnightBody, 3: buildDegentBody };
   // Swap a fighter's body in place: dispose the old subtree (weapons included —
   // they hang off the old armR), attach the new one, and re-point every animated
   // reference. The fighter's group, position, bar, and combat state are untouched.
   function applyBody(f, style, P) {
     if (f.body) { f.group.remove(f.body); disposeObject3D(f.body); }
-    const b = style === "2" ? buildKnightBody(P) : buildMartialBody(P);
+    f.bodyStyle = normalizeSkin(style);
+    const b = BODY_BUILDERS[f.bodyStyle](P);
     const body = new THREE.Group();
     body.add(...b.nodes);
     f.group.add(body);
     f.body = body;
-    f.bodyStyle = style === "2" ? "2" : "1";
     f.legL = b.legL; f.legR = b.legR; f.armL = b.armL; f.armR = b.armR;
     f.parts = b.parts;
     // The knight carries the glowing gold blade; other weapons are shared.
@@ -1193,8 +1327,9 @@ export function createArenaGame(options) {
     return {
       setAppearance(style, colors) {
         if (body) { pScene.remove(body); disposeObject3D(body); }
-        const b = style === "2" ? buildKnightBody(colors) : buildMartialBody(colors);
-        b.armR.add(makeSword(style === "2" ? colors.trim : null));
+        const skin = normalizeSkin(style);
+        const b = BODY_BUILDERS[skin](colors);
+        b.armR.add(makeSword(skin === "2" ? colors.trim : null));
         body = new THREE.Group();
         body.add(...b.nodes);
         body.rotation.y = 0.5;
@@ -3434,11 +3569,11 @@ export function createArenaGame(options) {
 
   // -- Public API -----------------------------------------------------------
   return {
-    // Swap the local player's body style ("1" martial artist, "2" knight) and
-    // part colors. Passing null reverts to the theme default.
+    // Swap the local player's body style ("1" martial artist, "2" knight,
+    // "3" Degent) and part colors. Passing null reverts to the theme default.
     setPlayerAppearance(appearance) {
       playerAppearance = appearance
-        ? { style: appearance.style === "2" ? "2" : "1", colors: { ...appearance.colors } }
+        ? { style: normalizeSkin(appearance.style), colors: { ...appearance.colors } }
         : null;
       applyBody(player, playerAppearance?.style || "1", playerAppearance?.colors || theme.player);
     },
@@ -3597,7 +3732,7 @@ export function createArenaGame(options) {
       if (typeof snap.level === "number") f.level = snap.level;
       // Opponents wear their own saved skin. The snapshot carries the skin id;
       // the first one (or a change) swaps the body / recolors from the preset.
-      const skin = snap.skin === "2" ? "2" : snap.skin === "1" ? "1" : null;
+      const skin = SKIN_IDS.includes(snap.skin) ? snap.skin : null;
       if (skin && f.netSkin !== skin) {
         f.netSkin = skin;
         if (f.bodyStyle !== skin) applyBody(f, skin, APPEARANCE_PRESETS[skin]);
