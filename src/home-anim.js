@@ -1,5 +1,9 @@
 // Homescreen animations — entrance reveals + scroll effects.
 //
+// The landing sections below the fold are scroll-linked blocks (.sb): each
+// one eases in as it approaches the middle of the viewport and back out as it
+// leaves, in both scroll directions (initScrollBlocks).
+//
 // Every marketing element on the landing screen (nav, hero wordmark, tagline,
 // stats, action buttons, info tiles) gets a staggered reveal animation. The
 // reveal is driven by an IntersectionObserver, so on the narrow scrolling
@@ -18,24 +22,15 @@
 // intro just because it was below the fold).
 const GROUPS = [
   [".site-nav",                    "down",  0,    0],
-  [".hero-big-fight",              "fight", 100,  0],
-  [".hero-big-10",                 "stamp", 340,  0],
+  [".hero-big-the",                "fight", 100,  0],
+  [".hero-big-gulag",              "stamp", 340,  0],
   [".hero-tagline",                "up",    540,  0],
   [".hero-stats > *",              "up",    660, 70],
   [".home-btn-hero:not(.hs-cta-play)", "rise", 720, 0],
   [".home-actions-row .home-btn",  "up",    840, 90],
   [".info-tile",                   "up",    940, 80],
-  // Landing sections below the fold — revealed by scrolling, so the entrance
-  // delay is irrelevant; only the local scroll stagger matters.
-  [".hs-kicker",                   "up",    0,    0],
-  [".hs-title",                    "up",    0,    0],
-  [".hs-card",                     "up",    0,   60],
-  [".hs-footnote",                 "up",    0,    0],
-  [".hs-center",                   "up",    0,    0],
-  [".hs-cta-title",                "up",    0,    0],
-  [".hs-cta-sub",                  "up",    0,    0],
-  [".hs-cta-actions",              "rise",  0,    0],
-  [".hs-footer",                   "up",    0,    0],
+  // The landing sections below the fold are NOT in this list: they are
+  // scroll-linked (see initScrollBlocks) so they animate in and back out.
 ];
 
 // How long after an entrance starts we still honour the choreographed delays.
@@ -76,6 +71,8 @@ export function initHomeAnimations() {
   updateCue();
 
   if (reduced) return;
+
+  initScrollBlocks();
 
   const els = [];
   GROUPS.forEach(([selector, variant, base, step]) => {
@@ -205,4 +202,38 @@ export function initHomeAnimations() {
     if (!scrollRaf) scrollRaf = requestAnimationFrame(applyScroll);
   }, { passive: true });
   applyScroll();
+}
+
+// -- Scroll-linked landing blocks --------------------------------------------
+// For every .sb, write --p (signed offset of its centre from the viewport
+// centre, in units of ~0.8 viewport heights, clamped to -1…1) and --v (eased
+// visibility 0…1, full across the middle band). The CSS turns those into the
+// fade / rise / scale / parallax, so a block animates in on approach and back
+// out as it leaves, whichever way the page is scrolled. Reduced-motion users
+// never reach here, so their blocks keep the static defaults (--p:0, --v:1).
+function initScrollBlocks() {
+  const blocks = Array.from(document.querySelectorAll(".sb"));
+  if (!blocks.length) return;
+
+  let raf = 0;
+  function update() {
+    raf = 0;
+    const vh = window.innerHeight || 1;
+    const mid = vh / 2;
+    const span = vh * 0.8;
+    for (const el of blocks) {
+      const r = el.getBoundingClientRect();
+      if (r.bottom < -vh || r.top > vh * 2) continue; // far off-screen: skip
+      const p = Math.max(-1, Math.min(1, (r.top + r.height / 2 - mid) / span));
+      // Hold full visibility through the central band, then ease out.
+      const t = Math.max(0, Math.min(1, (Math.abs(p) - 0.18) / 0.72));
+      const v = 1 - t * t * (3 - 2 * t); // smoothstep
+      el.style.setProperty("--p", p.toFixed(3));
+      el.style.setProperty("--v", v.toFixed(3));
+    }
+  }
+  const schedule = () => { if (!raf) raf = requestAnimationFrame(update); };
+  window.addEventListener("scroll", schedule, { passive: true });
+  window.addEventListener("resize", schedule, { passive: true });
+  update();
 }

@@ -78,169 +78,90 @@ export const html = `
   </div><!-- /.home-screen -->
 
   <!-- ===== Landing sections (below the fold) ===== -->
-  <!-- Luxe Deco is the shipped look for the landing sections; the alternate
-       hs-theme-* blocks in styles.css remain available by swapping this class. -->
-  <div class="home-sections hs-theme-deco" id="homeSections">
+  <!-- One idea per block. Each .sb is scroll-linked by src/home-anim.js: it
+       fades, rises and scales in as it nears the middle of the viewport and
+       drifts back out as it leaves, in both scroll directions. -->
+  <div class="home-sections" id="homeSections">
 
-    <!-- How a match works -->
-    <section class="hs-block">
-      <div class="hs-kicker">FROM WALLET TO VICTORY</div>
-      <h2 class="hs-title">HOW A MATCH WORKS</h2>
-      <div class="hs-grid hs-grid-4">
-        <div class="hs-card">
-          <div class="hs-card-num">01</div>
-          <div class="hs-card-label">CONNECT</div>
-          <div class="hs-card-desc">Link your Solana wallet — Phantom, Solflare, or Backpack. One wallet maps to one active match at a time.</div>
-        </div>
-        <div class="hs-card">
-          <div class="hs-card-num">02</div>
-          <div class="hs-card-label">PAY</div>
-          <div class="hs-card-desc">Put 10,000 $GULAG into the match escrow. Your seat is granted only after the payment is verified on-chain.</div>
-        </div>
-        <div class="hs-card">
-          <div class="hs-card-num">03</div>
-          <div class="hs-card-label">FIGHT</div>
-          <div class="hs-card-desc">Drop into the arena. Everyone spawns with the same health, attack and weapons — the only difference is skill.</div>
-        </div>
-        <div class="hs-card">
-          <div class="hs-card-num">04</div>
-          <div class="hs-card-label">GET PAID</div>
-          <div class="hs-card-desc">Be the last one standing and the escrow pays you 90% of the pot, straight to your wallet.</div>
+    <section class="sb">
+      <div class="sb-ghost" aria-hidden="true">01</div>
+      <div class="sb-inner">
+        <div class="sb-kicker">STEP ONE</div>
+        <h2 class="sb-title">PAY IN</h2>
+        <p class="sb-line"><span class="hs-gold">10,000 $GULAG</span> buys your seat.</p>
+        <p class="sb-sub">Verified on-chain before you drop in.</p>
+      </div>
+    </section>
+
+    <section class="sb">
+      <div class="sb-ghost" aria-hidden="true">02</div>
+      <div class="sb-inner">
+        <div class="sb-kicker">STEP TWO</div>
+        <h2 class="sb-title">FIGHT</h2>
+        <p class="sb-line">Same health. Same weapons. Only skill.</p>
+        <div class="sb-chips">
+          <span class="sb-chip" style="--i:0">FRAG</span>
+          <span class="sb-chip" style="--i:1">SWORD</span>
+          <span class="sb-chip" style="--i:2">PISTOL</span>
+          <span class="sb-chip" style="--i:3">SNIPER</span>
         </div>
       </div>
     </section>
 
-    <!-- Modes & pay -->
-    <section class="hs-block">
-      <div class="hs-kicker">PICK YOUR BATTLE</div>
-      <h2 class="hs-title">MODES &amp; PAY</h2>
-      <div class="hs-grid hs-grid-4">
-        <div class="hs-card hs-mode">
-          <div class="hs-mode-name">DEMO</div>
-          <div class="hs-mode-sub">VS The Computer</div>
-          <div class="hs-mode-row"><span>Entry</span><span>Free</span></div>
-          <div class="hs-mode-row"><span>Pay</span><span>None</span></div>
-          <div class="hs-mode-row"><span>For</span><span>Learning the ropes</span></div>
-        </div>
-        <div class="hs-card hs-mode">
-          <div class="hs-mode-name">DUEL</div>
-          <div class="hs-mode-sub">2 Players · 5 Min</div>
-          <div class="hs-mode-row"><span>Entry</span><span>10,000</span></div>
-          <div class="hs-mode-row"><span>Pot</span><span>20,000</span></div>
-          <div class="hs-mode-row"><span>Winner takes</span><span class="hs-gold">18,000</span></div>
-        </div>
-        <div class="hs-card hs-mode">
-          <div class="hs-mode-name">5-PLAYER FFA</div>
-          <div class="hs-mode-sub">Free-For-All · 7 Min</div>
-          <div class="hs-mode-row"><span>Entry</span><span>10,000</span></div>
-          <div class="hs-mode-row"><span>Pot</span><span>50,000</span></div>
-          <div class="hs-mode-row"><span>Winner takes</span><span class="hs-gold">45,000</span></div>
-        </div>
-        <div class="hs-card hs-mode">
-          <div class="hs-mode-name">10-PLAYER FFA</div>
-          <div class="hs-mode-sub">Free-For-All · 10 Min</div>
-          <div class="hs-mode-row"><span>Entry</span><span>10,000</span></div>
-          <div class="hs-mode-row"><span>Pot</span><span>100,000</span></div>
-          <div class="hs-mode-row"><span>Winner takes</span><span class="hs-gold">90,000</span></div>
-        </div>
+    <section class="sb">
+      <div class="sb-ghost" aria-hidden="true">03</div>
+      <div class="sb-inner">
+        <div class="sb-kicker">STEP THREE</div>
+        <h2 class="sb-title">OUTLAST</h2>
+        <p class="sb-line">Last one standing takes <span class="hs-gold">90%</span> of the pot.</p>
       </div>
-      <p class="hs-footnote">All amounts in <span class="hs-gold">$GULAG</span>. If the timer runs out, the survivor with the highest HP takes the win. A <span class="hs-gold">10% protocol fee</span> keeps the arena running.</p>
     </section>
 
-    <!-- Know the battlefield -->
-    <section class="hs-block">
-      <div class="hs-kicker">THE ARENA GIVES NO FAVOURS</div>
-      <h2 class="hs-title">KNOW THE BATTLEFIELD</h2>
-      <div class="hs-grid hs-grid-2">
-        <div class="hs-card hs-list">
-          <div class="hs-card-label">CONTROLS</div>
-          <div class="hs-list-row"><span>Move</span><span>click a tile</span></div>
-          <div class="hs-list-row"><span>Attack / shoot</span><span>click the rival</span></div>
-          <div class="hs-list-row"><span>Switch weapon</span><span>keys 1 – 4</span></div>
-          <div class="hs-list-row"><span>Pan camera</span><span>click + drag</span></div>
-          <div class="hs-list-row"><span>Zoom</span><span>mouse wheel</span></div>
-          <div class="hs-list-row"><span>Menu</span><span>Esc</span></div>
-        </div>
-        <div class="hs-card hs-list">
-          <div class="hs-card-label">HAZARDS &amp; RULES</div>
-          <div class="hs-list-row"><span>Trees &amp; mountains</span><span>block movement &amp; deflect attacks</span></div>
-          <div class="hs-list-row"><span>River</span><span>halves your speed &amp; damage</span></div>
-          <div class="hs-list-row"><span>Loadout</span><span>everyone starts equal — same HP, attack &amp; weapons</span></div>
-          <div class="hs-list-row"><span>Win</span><span>last one standing takes 90% of the pot</span></div>
-          <div class="hs-list-row"><span>Time runs out</span><span>highest HP survivor wins</span></div>
-          <div class="hs-list-row"><span>Leaving early</span><span>forfeits your payment to the pot</span></div>
+    <section class="sb">
+      <div class="sb-ghost" aria-hidden="true">2·5·10</div>
+      <div class="sb-inner">
+        <div class="sb-kicker">PICK YOUR BATTLE</div>
+        <div class="sb-tiles">
+          <div class="sb-tile" style="--i:0"><div class="sb-tile-big">2</div><div class="sb-tile-name">DUEL</div><div class="sb-tile-meta">5 min · win 18,000</div></div>
+          <div class="sb-tile" style="--i:1"><div class="sb-tile-big">5</div><div class="sb-tile-name">SKIRMISH</div><div class="sb-tile-meta">7 min · win 45,000</div></div>
+          <div class="sb-tile" style="--i:2"><div class="sb-tile-big">10</div><div class="sb-tile-name">WARZONE</div><div class="sb-tile-meta">10 min · win 90,000</div></div>
         </div>
       </div>
     </section>
 
-    <!-- Progression -->
-    <section class="hs-block">
-      <div class="hs-kicker">EVERY MATCH COUNTS</div>
-      <h2 class="hs-title">CLIMB THE RANKS</h2>
-      <div class="hs-grid hs-grid-4">
-        <div class="hs-card">
-          <div class="hs-card-num">+10</div>
-          <div class="hs-card-label">PLAY A MATCH</div>
-          <div class="hs-card-desc">Every fight earns points — win or lose, you're always moving up.</div>
-        </div>
-        <div class="hs-card">
-          <div class="hs-card-num">+60</div>
-          <div class="hs-card-label">WIN A MATCH</div>
-          <div class="hs-card-desc">Victories carry the real weight on your ledger.</div>
-        </div>
-        <div class="hs-card">
-          <div class="hs-card-num">&times;</div>
-          <div class="hs-card-label">WIN STREAK</div>
-          <div class="hs-card-desc">+10 points per consecutive win — the bonus escalates the longer you hold it. One loss resets it.</div>
-        </div>
-        <div class="hs-card">
-          <div class="hs-card-num">L5</div>
-          <div class="hs-card-label">LEVEL UP</div>
-          <div class="hs-card-desc">L2 at 100 pts · L3 at 300 · L4 at 600 · L5 at 1000 — and it keeps climbing.</div>
+    <section class="sb">
+      <div class="sb-ghost" aria-hidden="true">+60</div>
+      <div class="sb-inner">
+        <div class="sb-kicker">EVERY MATCH COUNTS</div>
+        <h2 class="sb-title">CLIMB</h2>
+        <p class="sb-line">+10 to play. +60 to win. Streaks stack.</p>
+      </div>
+    </section>
+
+    <section class="sb">
+      <div class="sb-ghost" aria-hidden="true">✓</div>
+      <div class="sb-inner">
+        <div class="sb-kicker">NO HOUSE EDGE</div>
+        <h2 class="sb-title">BUILT FAIR</h2>
+        <p class="sb-line">Verified on-chain. Decided by the server. Cheaters forfeit.</p>
+        <div class="sb-actions">
+          <button class="home-btn home-btn-secondary" id="secWhitepaperBtn" type="button">READ THE WHITEPAPER</button>
         </div>
       </div>
     </section>
 
-    <!-- Fairness -->
-    <section class="hs-block">
-      <div class="hs-kicker">THE HOUSE CAN'T CHEAT. NEITHER CAN THEY.</div>
-      <h2 class="hs-title">BUILT FAIR</h2>
-      <div class="hs-grid hs-grid-4">
-        <div class="hs-card">
-          <div class="hs-card-label">ON-CHAIN ESCROW</div>
-          <div class="hs-card-desc">Payments sit in a program-controlled escrow. Payouts are the only outflow — gated by a verified, finished match.</div>
+    <section class="sb sb-cta">
+      <div class="sb-inner">
+        <h2 class="sb-title">ONLY ONE WALKS OUT</h2>
+        <div class="sb-actions">
+          <button class="home-btn home-btn-hero hs-cta-play" id="secPlayBtn" type="button">PLAY PVP</button>
+          <button class="home-btn home-btn-secondary" id="secHowToBtn" type="button">HOW TO PLAY</button>
         </div>
-        <div class="hs-card">
-          <div class="hs-card-label">VERIFIED ADMISSION</div>
-          <div class="hs-card-desc">A seat is granted only after your payment is re-checked on-chain. No deposit, no entry — the browser can't self-admit.</div>
-        </div>
-        <div class="hs-card">
-          <div class="hs-card-label">SERVER-DECIDED RESULTS</div>
-          <div class="hs-card-desc">No client reports its own survival. The server derives every fighter's health from what opponents dealt.</div>
-        </div>
-        <div class="hs-card">
-          <div class="hs-card-label">CHEATERS FORFEIT</div>
-          <div class="hs-card-desc">Impossible output excludes a fighter from winning — the best clean player still wins, and the cheater's payment stays in the pot.</div>
-        </div>
-      </div>
-      <div class="hs-center">
-        <button class="home-btn home-btn-secondary" id="secWhitepaperBtn" type="button">READ THE WHITEPAPER</button>
-      </div>
-    </section>
-
-    <!-- Final CTA -->
-    <section class="hs-block hs-cta">
-      <h2 class="hs-cta-title">GL, HF!</h2>
-      <p class="hs-cta-sub">10,000 $GULAG buys your seat. Skill pays the rest.</p>
-      <div class="hs-cta-actions">
-        <button class="home-btn home-btn-hero hs-cta-play" id="secPlayBtn" type="button">PLAY PVP</button>
-        <button class="home-btn home-btn-secondary" id="secHowToBtn" type="button">HOW TO PLAY</button>
       </div>
     </section>
 
     <footer class="hs-footer">
-      <div class="hs-footer-disclaimer">FOR ENTERTAINMENT PURPOSES ONLY — The Gulag is purely for entertainment. All $GULAG amounts are show values displayed at token scale and carry no guaranteed real-world or monetary value. Nothing here is financial advice.</div>
-      <div class="hs-footer-text">THE GULAG · LAST ONE STANDING — skill-based arena on Solana. Winner takes 90% of the pot; a 10% protocol fee funds the arena. Entries are non-refundable once a match is joined.</div>
+      <div class="hs-footer-disclaimer">For entertainment only · not financial advice · entries are non-refundable once a match is joined.</div>
       <a class="hs-footer-x" href="https://x.com/fight10_club" target="_blank" rel="noopener noreferrer" aria-label="The Gulag on X">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-4.714-6.231-5.401 6.231H2.748l7.73-8.835L1.254 2.25H8.08l4.259 5.63 5.905-5.63zm-1.161 17.52h1.833L7.084 4.126H5.117z"/></svg>
         @fight10_club

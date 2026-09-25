@@ -4103,205 +4103,178 @@ body.in-game .log-feed { left: 70px; }
   box-shadow: 0 -30px 60px rgba(0, 0, 0, 0.65);
 }
 
-.hs-block {
-  max-width: 1080px;
-  margin: 0 auto;
-  padding: clamp(56px, 9vh, 96px) 24px 0;
+/* ---------------------------------------------------------------------------
+   Scroll blocks — one idea per block. src/home-anim.js writes two custom
+   properties on every .sb as it scrolls: --p (signed distance of the block's
+   centre from the viewport centre, -1 above … 0 centred … 1 below) and --v
+   (visibility 0…1, peaking when centred). Everything below is driven by them,
+   so blocks animate in AND out in both scroll directions. Defaults (--p:0,
+   --v:1) render the static, fully visible layout when the script never runs
+   or the viewer prefers reduced motion.
+   --------------------------------------------------------------------------- */
+.sb {
+  --p: 0;
+  --v: 1;
+  position: relative;
+  min-height: 78vh;
+  min-height: 78svh;
+  display: grid;
+  place-items: center;
+  padding: 10vh 24px;
+  overflow: hidden;
   text-align: center;
 }
 
-.hs-kicker {
-  font-family: var(--font-head);
-  font-size: 0.58rem;
-  letter-spacing: 0.34em;
-  text-transform: uppercase;
-  color: var(--gold);
-  margin-bottom: 12px;
-}
-
-.hs-title {
-  margin: 0 0 clamp(26px, 4.5vh, 40px);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: clamp(14px, 2.4vw, 28px);
-  font-family: var(--font-display);
-  font-size: clamp(1.35rem, 3.4vw, 2.1rem);
-  letter-spacing: 0.1em;
-  background: var(--bone-grad);
-  -webkit-background-clip: text;
-  background-clip: text;
-  color: transparent;
-  -webkit-text-fill-color: transparent;
-  filter: drop-shadow(0 2px 0 rgba(0, 0, 0, 0.9));
-}
-
-/* Flanking gold rules on either side of each section title,
-   matching the LAST ONE STANDING hero treatment. */
-.hs-title::before,
-.hs-title::after {
-  content: "";
-  width: clamp(28px, 7vw, 80px);
-  height: 1px;
-  flex-shrink: 0;
-  background: linear-gradient(90deg, transparent, rgba(195, 21, 33, 0.85));
-}
-.hs-title::after {
-  background: linear-gradient(90deg, rgba(195, 21, 33, 0.85), transparent);
-}
-
-.hs-grid {
-  display: grid;
-  gap: 14px;
-  text-align: left;
-}
-
-.hs-grid-4 { grid-template-columns: repeat(4, minmax(0, 1fr)); }
-.hs-grid-2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-
-.hs-card {
+.sb-inner {
   position: relative;
-  padding: 18px 18px 20px;
-  border: 1px solid rgba(195, 21, 33, 0.24);
-  border-top: 2px solid rgba(195, 21, 33, 0.45);
-  border-radius: 4px;
-  background: linear-gradient(160deg, rgba(23, 4, 5, 0.9) 0%, rgba(9, 2, 2, 0.94) 60%);
-  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5), inset 0 1px 0 rgba(240, 69, 81, 0.08);
+  z-index: 1;
+  max-width: 820px;
+  opacity: var(--v);
+  transform:
+    translateY(calc(var(--p) * 90px))
+    scale(calc(0.9 + var(--v) * 0.1));
+  will-change: transform, opacity;
 }
 
-.hs-card-num {
+/* Huge outlined numeral behind each block, drifting against the scroll. */
+.sb-ghost {
+  position: absolute;
+  inset: 50% auto auto 50%;
+  z-index: 0;
   font-family: var(--font-display);
-  font-size: 1.5rem;
+  font-size: clamp(8rem, 34vw, 26rem);
   line-height: 1;
-  margin-bottom: 10px;
+  white-space: nowrap;
+  color: transparent;
+  -webkit-text-stroke: 1px rgba(225, 52, 63, 0.16);
+  opacity: calc(0.25 + var(--v) * 0.75);
+  transform: translate(-50%, -50%) translateY(calc(var(--p) * -160px));
+  pointer-events: none;
+  user-select: none;
+}
+
+.sb-kicker {
+  font-family: var(--font-head);
+  font-size: clamp(0.62rem, 1.4vw, 0.78rem);
+  letter-spacing: 0.5em;
+  text-indent: 0.5em;
+  color: var(--soft);
+  margin-bottom: 14px;
+}
+
+.sb-title {
+  margin: 0;
+  font-family: var(--font-display);
+  font-weight: 400;
+  font-size: clamp(2.8rem, 10vw, 7.5rem);
+  line-height: 0.95;
+  letter-spacing: 0.06em;
   background: var(--gold-grad-vintage);
   -webkit-background-clip: text;
   background-clip: text;
   color: transparent;
   -webkit-text-fill-color: transparent;
-  filter: drop-shadow(0 1px 0 rgba(0, 0, 0, 0.85));
+  filter: drop-shadow(0 3px 0 rgba(0, 0, 0, 0.9)) drop-shadow(0 10px 36px rgba(0, 0, 0, 0.7));
+  /* Title leads the block in and trails it out. */
+  transform: translateY(calc(var(--p) * -24px));
 }
 
-.hs-card-label {
-  font-family: var(--font-head);
-  font-size: 0.66rem;
-  letter-spacing: 0.22em;
-  color: var(--gold-hi);
-  margin-bottom: 9px;
-}
-
-.hs-card-desc {
+.sb-line {
+  margin: 18px 0 0;
   font-family: var(--font-body);
-  font-size: 0.64rem;
-  line-height: 1.75;
-  letter-spacing: 0.03em;
-  color: rgba(235, 144, 150, 0.68);
-}
-
-/* Mode cards (Modes & Pay) */
-.hs-mode-name {
-  font-family: var(--font-head);
-  font-size: 0.72rem;
-  letter-spacing: 0.16em;
-  color: #ed9aa0;
-  margin-bottom: 4px;
-}
-
-.hs-mode-sub {
-  font-family: var(--font-head);
-  font-size: 0.56rem;
-  letter-spacing: 0.14em;
-  color: var(--gold);
-  margin-bottom: 14px;
-}
-
-.hs-mode-row {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 7px 0;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.07);
-  font-family: var(--font-body);
-  font-size: 0.62rem;
+  font-size: clamp(1rem, 2.4vw, 1.45rem);
   letter-spacing: 0.04em;
-  color: rgba(235, 144, 150, 0.6);
+  line-height: 1.4;
+  color: var(--text);
 }
 
-.hs-mode-row:last-child { border-bottom: none; }
-.hs-mode-row span:last-child { color: #f5ebeb; text-align: right; }
-.hs-mode-row .hs-gold { color: var(--gold-hi); }
+.sb-sub {
+  margin: 10px 0 0;
+  font-size: clamp(0.78rem, 1.6vw, 0.92rem);
+  letter-spacing: 0.06em;
+  color: var(--muted);
+}
+
+/* Weapon chips + mode tiles fan in one after another (--i = index). */
+.sb-chips,
+.sb-tiles {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 12px;
+  margin-top: 28px;
+}
+
+.sb-chip,
+.sb-tile {
+  transform: translateY(calc(var(--p) * (40px + var(--i) * 36px)));
+  opacity: calc(var(--v) * 1.4 - var(--i) * 0.12);
+}
+
+.sb-chip {
+  padding: 9px 18px;
+  font-family: var(--font-head);
+  font-size: 0.78rem;
+  letter-spacing: 0.28em;
+  text-indent: 0.28em;
+  color: var(--gold-hi);
+  border: 1px solid rgba(225, 52, 63, 0.4);
+  border-radius: 999px;
+  background: rgba(20, 6, 8, 0.7);
+}
+
+.sb-tile {
+  width: clamp(150px, 22vw, 210px);
+  padding: 22px 16px 18px;
+  border: 1px solid rgba(225, 52, 63, 0.3);
+  border-top: 2px solid rgba(225, 52, 63, 0.7);
+  border-radius: 6px;
+  background: linear-gradient(180deg, rgba(34, 9, 11, 0.9), rgba(12, 5, 6, 0.9));
+  box-shadow: 0 14px 34px rgba(0, 0, 0, 0.5);
+}
+
+.sb-tile-big {
+  font-family: var(--font-display);
+  font-size: clamp(2.6rem, 6vw, 3.6rem);
+  line-height: 1;
+  background: var(--gold-grad-vintage);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  -webkit-text-fill-color: transparent;
+}
+
+.sb-tile-name {
+  margin-top: 8px;
+  font-family: var(--font-head);
+  font-size: 0.82rem;
+  letter-spacing: 0.3em;
+  text-indent: 0.3em;
+  color: var(--text);
+}
+
+.sb-tile-meta {
+  margin-top: 6px;
+  font-size: 0.72rem;
+  letter-spacing: 0.06em;
+  color: var(--muted);
+}
+
+.sb-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 12px;
+  margin-top: 30px;
+}
+
+.sb-cta .sb-title { font-size: clamp(2.2rem, 7.5vw, 5.6rem); }
+.sb-cta .hs-cta-play { min-width: 220px; }
 
 .hs-gold {
   color: var(--gold-hi);
   text-shadow: 0 0 12px rgba(225, 52, 63, 0.3);
 }
-
-.hs-footnote {
-  margin: 22px auto 0;
-  max-width: 640px;
-  font-family: var(--font-body);
-  font-size: 0.6rem;
-  line-height: 1.8;
-  letter-spacing: 0.04em;
-  color: rgba(235, 144, 150, 0.5);
-}
-
-/* Controls / hazards list cards */
-.hs-list { padding: 20px 22px; }
-.hs-list .hs-card-label { margin-bottom: 12px; }
-
-.hs-list-row {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 18px;
-  padding: 8px 0;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.07);
-  font-family: var(--font-body);
-  font-size: 0.62rem;
-  letter-spacing: 0.04em;
-}
-
-.hs-list-row:last-child { border-bottom: none; }
-.hs-list-row span:first-child { color: #ed9aa0; flex-shrink: 0; }
-.hs-list-row span:last-child { color: rgba(235, 144, 150, 0.6); text-align: right; }
-
-.hs-center { margin-top: clamp(24px, 4vh, 36px); }
-
-/* Final CTA band */
-.hs-cta { padding-bottom: clamp(30px, 5vh, 48px); }
-
-.hs-cta-title {
-  margin: 0 0 14px;
-  font-family: var(--font-display);
-  font-size: clamp(2rem, 5.5vw, 3.4rem);
-  letter-spacing: 0.04em;
-  background: var(--gold-grad);
-  -webkit-background-clip: text;
-  background-clip: text;
-  color: transparent;
-  -webkit-text-fill-color: transparent;
-  filter: drop-shadow(0 3px 0 rgba(0, 0, 0, 0.9)) drop-shadow(0 10px 38px rgba(195, 21, 33, 0.25));
-}
-
-.hs-cta-sub {
-  margin: 0 0 26px;
-  font-family: var(--font-body);
-  font-size: 0.68rem;
-  letter-spacing: 0.06em;
-  color: rgba(235, 144, 150, 0.65);
-}
-
-.hs-cta-actions {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 12px;
-  flex-wrap: wrap;
-}
-
-.hs-cta-play { min-width: 220px; }
 
 /* Footer */
 .hs-footer {
@@ -4418,13 +4391,12 @@ body.in-game .log-feed { left: 70px; }
    naturally instead of being pushed past an absolute first viewport. */
 @media (max-width: 860px) {
   .home-sections { margin-top: 0; }
-  .hs-grid-4 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .hs-grid-2 { grid-template-columns: 1fr; }
+  .sb { min-height: 70vh; min-height: 70svh; padding: 8vh 16px; }
   .scroll-cue { right: 14px; bottom: 14px; }
 }
 
 @media (max-width: 480px) {
-  .hs-grid-4 { grid-template-columns: 1fr; }
+  .sb-tile { width: 100%; max-width: 280px; }
 }
 
 /* ===========================================================================
@@ -5862,165 +5834,6 @@ body.maintenance-on .admin-overlay { z-index: 100002; }
 @media (max-width: 480px) {
   .tut-body { padding: 22px 18px 14px; min-height: 190px; }
   .tut-foot { padding: 4px 16px 18px; }
-}
-
-/* ===========================================================================
-   HOME-SECTIONS — LUXE DECO
-   ---------------------------------------------------------------------------
-   The landing sections' shipped look: charcoal + refined gold, art-deco double
-   rules, inner card frames and a staggered shimmer sweep. Applied via
-   `hs-theme-deco` on the #homeSections container (see src/views/home.js) and
-   scoped under `.home-sections.hs-theme-deco`, repainting the shared .hs-*
-   markup with no per-section HTML changes.
-   =========================================================================== */
-
-/* Keep real content above the theme's full-bleed background weave
-   (container ::before painted at z-index 0). */
-.home-sections.hs-theme-deco .hs-block,
-.home-sections.hs-theme-deco .hs-footer {
-  position: relative;
-  z-index: 1;
-}
-
-/* ===========================================================================
-   THEME 5 · LUXE DECO — charcoal + refined gold. Art-deco double rules, an
-   inner card frame, a subtle diagonal weave, and a slow shimmer that sweeps
-   each card in a staggered rhythm.
-   =========================================================================== */
-.home-sections.hs-theme-deco {
-  --dc-gold: #df4c56;
-  --dc-gold-hi: #ed7981;
-  --dc-champ: #ec969c;
-  color: #e9848a;
-  background:
-    radial-gradient(70% 50% at 50% 0%, rgba(223, 76, 86, 0.06), transparent 65%),
-    linear-gradient(180deg, #160d0d 0%, #0e0808 100%);
-  border-top: 1px solid rgba(223, 76, 86, 0.4);
-}
-.home-sections.hs-theme-deco::before { /* faint deco weave */
-  content: "";
-  position: absolute;
-  inset: 0;
-  z-index: 0;
-  pointer-events: none;
-  opacity: 0.6;
-  background:
-    repeating-linear-gradient(45deg, rgba(223, 76, 86, 0.03) 0 2px, transparent 2px 22px),
-    repeating-linear-gradient(-45deg, rgba(223, 76, 86, 0.03) 0 2px, transparent 2px 22px);
-}
-.home-sections.hs-theme-deco .hs-kicker { color: var(--dc-gold-hi); letter-spacing: 0.42em; }
-.home-sections.hs-theme-deco .hs-kicker::before,
-.home-sections.hs-theme-deco .hs-kicker::after { content: "\25C6"; margin: 0 10px; font-size: 0.5em; color: var(--dc-gold); vertical-align: middle; }
-.home-sections.hs-theme-deco .hs-title {
-  letter-spacing: 0.2em;
-  background: linear-gradient(180deg, var(--dc-gold-hi), var(--dc-gold) 55%, #b21f29);
-  -webkit-background-clip: text;
-  background-clip: text;
-  color: transparent;
-  -webkit-text-fill-color: transparent;
-  filter: drop-shadow(0 2px 0 rgba(0, 0, 0, 0.8));
-}
-.home-sections.hs-theme-deco .hs-title::before,
-.home-sections.hs-theme-deco .hs-title::after {
-  height: 1px;
-  background: linear-gradient(90deg, transparent, var(--dc-gold));
-  box-shadow: 0 4px 0 -1px rgba(223, 76, 86, 0.4); /* stacked second rule */
-}
-.home-sections.hs-theme-deco .hs-title::after { background: linear-gradient(90deg, var(--dc-gold), transparent); }
-.home-sections.hs-theme-deco .hs-card {
-  overflow: hidden;
-  border: 1px solid rgba(223, 76, 86, 0.35);
-  border-top: 1px solid rgba(223, 76, 86, 0.35);
-  border-radius: 2px;
-  background: linear-gradient(160deg, rgba(31, 6, 7, 0.92), rgba(13, 2, 3, 0.95));
-  box-shadow: inset 0 0 0 1px rgba(223, 76, 86, 0.12), 0 14px 34px rgba(0, 0, 0, 0.55);
-  transition: transform 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease;
-}
-.home-sections.hs-theme-deco .hs-card::before { /* inner frame */
-  content: "";
-  position: absolute;
-  inset: 6px;
-  border: 1px solid rgba(223, 76, 86, 0.18);
-  border-radius: 1px;
-  pointer-events: none;
-}
-.home-sections.hs-theme-deco .hs-card::after { /* shimmer sweep */
-  content: "";
-  position: absolute;
-  top: 0;
-  bottom: 0;
-  left: -60%;
-  width: 42%;
-  background: linear-gradient(100deg, transparent, rgba(237, 121, 129, 0.14), transparent);
-  transform: skewX(-18deg);
-  animation: dc-shimmer 6s ease-in-out infinite;
-  pointer-events: none;
-}
-.home-sections.hs-theme-deco .hs-grid .hs-card:nth-child(2)::after { animation-delay: 1.5s; }
-.home-sections.hs-theme-deco .hs-grid .hs-card:nth-child(3)::after { animation-delay: 3s; }
-.home-sections.hs-theme-deco .hs-grid .hs-card:nth-child(4)::after { animation-delay: 4.5s; }
-.home-sections.hs-theme-deco .hs-card:hover {
-  transform: translateY(-4px);
-  border-color: rgba(223, 76, 86, 0.65);
-  box-shadow: inset 0 0 0 1px rgba(223, 76, 86, 0.25), 0 20px 44px rgba(0, 0, 0, 0.6), 0 0 26px rgba(223, 76, 86, 0.12);
-}
-.home-sections.hs-theme-deco .hs-card-num {
-  background: linear-gradient(180deg, var(--dc-gold-hi), #b21f29);
-  -webkit-background-clip: text;
-  background-clip: text;
-  color: transparent;
-  -webkit-text-fill-color: transparent;
-  filter: drop-shadow(0 1px 0 rgba(0, 0, 0, 0.7));
-}
-.home-sections.hs-theme-deco .hs-card-label { color: var(--dc-gold-hi); letter-spacing: 0.28em; }
-.home-sections.hs-theme-deco .hs-card-desc { color: rgba(233, 132, 138, 0.66); }
-.home-sections.hs-theme-deco .hs-mode-name { color: var(--dc-champ); letter-spacing: 0.22em; }
-.home-sections.hs-theme-deco .hs-mode-sub { color: var(--dc-gold); }
-.home-sections.hs-theme-deco .hs-mode-row { color: rgba(233, 132, 138, 0.6); border-bottom: 1px solid rgba(223, 76, 86, 0.16); }
-.home-sections.hs-theme-deco .hs-mode-row span:last-child { color: var(--dc-champ); }
-.home-sections.hs-theme-deco .hs-gold { color: var(--dc-gold-hi); text-shadow: 0 0 12px rgba(223, 76, 86, 0.4); }
-.home-sections.hs-theme-deco .hs-list-row { border-bottom: 1px solid rgba(223, 76, 86, 0.16); }
-.home-sections.hs-theme-deco .hs-list-row span:first-child { color: var(--dc-champ); }
-.home-sections.hs-theme-deco .hs-list-row span:last-child { color: rgba(233, 132, 138, 0.6); }
-.home-sections.hs-theme-deco .hs-footnote { color: rgba(233, 132, 138, 0.52); }
-.home-sections.hs-theme-deco .home-btn-secondary {
-  background: rgba(20, 4, 5, 0.8);
-  color: var(--dc-gold-hi);
-  border: 1px solid rgba(223, 76, 86, 0.45);
-}
-.home-sections.hs-theme-deco .home-btn-secondary:hover { color: #ffffff; border-color: var(--dc-gold); background: rgba(34, 6, 8, 0.9); box-shadow: 0 0 18px rgba(223, 76, 86, 0.25); }
-.home-sections.hs-theme-deco .home-btn-hero {
-  background: linear-gradient(180deg, #e4676f, #bc212b);
-  color: #220608;
-  border: 1px solid rgba(237, 121, 129, 0.7);
-  box-shadow: 0 12px 34px rgba(0, 0, 0, 0.55), 0 0 26px rgba(223, 76, 86, 0.3);
-  text-shadow: none;
-}
-.home-sections.hs-theme-deco .hs-cta-title {
-  letter-spacing: 0.14em;
-  background: linear-gradient(180deg, var(--dc-gold-hi), var(--dc-gold) 55%, #b21f29);
-  -webkit-background-clip: text;
-  background-clip: text;
-  color: transparent;
-  -webkit-text-fill-color: transparent;
-  filter: drop-shadow(0 3px 0 rgba(0, 0, 0, 0.85)) drop-shadow(0 8px 30px rgba(223, 76, 86, 0.3));
-}
-.home-sections.hs-theme-deco .hs-cta-sub { color: rgba(233, 132, 138, 0.66); }
-.home-sections.hs-theme-deco .hs-footer { background: rgba(0, 0, 0, 0.45); border-top: 1px solid rgba(223, 76, 86, 0.2); }
-.home-sections.hs-theme-deco .hs-footer-text,
-.home-sections.hs-theme-deco .hs-footer-disclaimer,
-.home-sections.hs-theme-deco .hs-footer-x { color: rgba(233, 132, 138, 0.5); }
-.home-sections.hs-theme-deco .hs-footer-x:hover { color: var(--dc-gold-hi); }
-
-@keyframes dc-shimmer {
-  0%, 100% { left: -60%; }
-  50% { left: 120%; }
-}
-
-/* Respect reduced-motion: stop the looping shimmer sweep (entrance reveals are
-   already disabled by the .ha reduced-motion rule above). */
-@media (prefers-reduced-motion: reduce) {
-  .home-sections.hs-theme-deco .hs-card::after { animation: none !important; }
 }
 
 /* ===========================================================================
