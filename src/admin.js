@@ -95,15 +95,15 @@ const SAFETY_META = {
   unknown: ["⚪", "Unknown"],
 };
 
-// Raw on-chain units → whole $FIGHT10. The $FIGHT10 mint uses 6 decimals
-// (Pump.fun; override with VITE_FIGHT10_DECIMALS); pass decimals 0 for values
+// Raw on-chain units → whole $GULAG. The $GULAG mint uses 6 decimals
+// (Pump.fun; override with VITE_GULAG_DECIMALS); pass decimals 0 for values
 // already stored in whole tokens (matches.pot_tokens).
-const TOKEN_DECIMALS = Number(import.meta.env?.VITE_FIGHT10_DECIMALS ?? 6);
+const TOKEN_DECIMALS = Number(import.meta.env?.VITE_GULAG_DECIMALS ?? import.meta.env?.VITE_FIGHT10_DECIMALS ?? 6);
 const fmtTokens = (raw, decimals = TOKEN_DECIMALS) => {
   // BigInt division first (exact) — a naive Number(raw)/10**decimals rounds for
   // raw values past Number's safe-integer range (e.g. 2500 tokens @ 18 dp).
   const n = tokensFromRaw(raw, decimals);
-  return `${n.toLocaleString(undefined, { maximumFractionDigits: 0 })} $FIGHT10`;
+  return `${n.toLocaleString(undefined, { maximumFractionDigits: 0 })} $GULAG`;
 };
 const fmtTime = (iso) => {
   if (!iso) return "—";
@@ -498,7 +498,7 @@ export function initAdmin(supabase) {
       } else {
         const tables = resp.tables || {};
         const total = Object.values(tables).reduce((n, r) => n + (r?.length || 0), 0);
-        downloadJson(`fight10-snapshot-${stamp()}.json`,
+        downloadJson(`gulag-snapshot-${stamp()}.json`,
           { generated_at: resp.generated_at, tables });
         toast(`Downloaded snapshot — ${Object.keys(tables).length} tables, ${total} rows ✓`);
       }
@@ -678,14 +678,14 @@ export function initAdmin(supabase) {
       : "paid";
     const payTxHtml = payTx && payTx !== "pending" ? txLink(payTx) : escapeHtml(payState);
     const ledger = d.payout
-      ? `${(Number(d.payout.amount_raw) / 10 ** (d.payout.decimals ?? TOKEN_DECIMALS)).toLocaleString(undefined, { maximumFractionDigits: 0 })} $FIGHT10 · ${d.payout.num_players ?? "—"} players`
+      ? `${(Number(d.payout.amount_raw) / 10 ** (d.payout.decimals ?? TOKEN_DECIMALS)).toLocaleString(undefined, { maximumFractionDigits: 0 })} $GULAG · ${d.payout.num_players ?? "—"} players`
       : "—";
 
     const overview = `<div class="admin-detail-grid">
       ${kv("Status", statusFlag)}
       ${kv("Lobby size", `${m.max_players ?? "—"}-player`)}
-      ${kv("Pot (bookkeeping)", fmtTokens(m.pot_tokens, 0) + " $FIGHT10")}
-      ${kv("Entry fee (snapshot)", m.entry_fee_tokens != null ? `${fmtInt(m.entry_fee_tokens)} $FIGHT10` : "— (pre-snapshot)")}
+      ${kv("Pot (bookkeeping)", fmtTokens(m.pot_tokens, 0) + " $GULAG")}
+      ${kv("Entry fee (snapshot)", m.entry_fee_tokens != null ? `${fmtInt(m.entry_fee_tokens)} $GULAG` : "— (pre-snapshot)")}
       ${kv("Winner share (snapshot)", m.winner_share_bps != null ? `${m.winner_share_bps} bps (${(m.winner_share_bps / 100).toFixed(0)}%)` : "— (pre-snapshot)")}
       ${kv("Duration (snapshot)", m.duration_seconds != null ? fmtDuration(m.duration_seconds) : "— (live match_config)")}
       ${kv("Economics ver.", m.economics_version ?? "—")}
@@ -1146,7 +1146,7 @@ export function initAdmin(supabase) {
 
   function payoutRow(r) {
     const amt = r.amount != null
-      ? `${r.amount.toLocaleString(undefined, { maximumFractionDigits: 0 })} $FIGHT10` : "—";
+      ? `${r.amount.toLocaleString(undefined, { maximumFractionDigits: 0 })} $GULAG` : "—";
     return `<tr class="${readCls("payouts", r.match_id)}">
       ${selCell("payouts", r.match_id)}
       <td class="admin-nowrap" title="${fmtTime(r.created_at)}">${ago(r.created_at)}</td>
@@ -1683,7 +1683,7 @@ export function initAdmin(supabase) {
             <input id="cfgPlayerCap" class="cfg-input" type="number" min="1" max="100000" step="1" value="${escapeHtml(String(pvp.player_cap ?? ""))}" />
             <span class="cfg-hint">Max concurrent players game-wide.</span>
           </label>
-          <label class="cfg-field">Entry fee ($FIGHT10)
+          <label class="cfg-field">Entry fee ($GULAG)
             <input id="cfgEntryFee" class="cfg-input" type="number" min="1" max="100000000" step="1" value="${escapeHtml(String(pvp.entry_fee_tokens ?? ""))}"${locked ? " disabled" : ""} />
             <span class="cfg-hint">${locked
               ? `🔒 Locked — ${fmtInt(config.live_matches)} match${config.live_matches === 1 ? "" : "es"} waiting/active.`
@@ -1746,10 +1746,10 @@ export function initAdmin(supabase) {
     // Client constants are baked into this build from VITE_* env vars — no
     // network needed, so they render even if the server read fails.
     const env = import.meta.env || {};
-    const cMint     = (env.VITE_FIGHT10_TOKEN || "").trim();
+    const cMint     = (env.VITE_GULAG_TOKEN || env.VITE_FIGHT10_TOKEN || env.VITE_FIGHT10_MINT || "").trim();
     const cEscrow   = (env.VITE_ESCROW_WALLET || "").trim();
     const cSupabase = (env.VITE_SUPABASE_URL || "").trim();
-    const cBuy      = (env.VITE_BUY_FIGHT10_URL || "").trim();
+    const cBuy      = (env.VITE_BUY_GULAG_URL || env.VITE_BUY_FIGHT10_URL || "").trim();
     const cDex      = (env.VITE_DEXSCREENER_URL || "").trim();
 
     const srv = deployment || {};
@@ -1777,7 +1777,7 @@ export function initAdmin(supabase) {
     const cmpTable = `
       <table class="admin-table">
         ${thead(["Constant", "Client (browser)", "Server (edge fns)", ""])}
-          ${cmpRow("$FIGHT10 mint", cMint, srv.token, { link: true })}
+          ${cmpRow("$GULAG mint", cMint, srv.token, { link: true })}
           ${cmpRow("Escrow wallet (payout source)", cEscrow, srv.escrow_wallet, { link: true })}
           ${cmpRow("Token decimals", TOKEN_DECIMALS, srv.token_decimals ?? "")}
           ${cmpRow("Cluster", NETWORK.cluster, srvNet.cluster ?? "")}
@@ -1789,11 +1789,11 @@ export function initAdmin(supabase) {
     // condition, most of which explain a balance/deposit that silently fails.
     const warns = [];
     if (isPlaceholder(cMint))
-      warns.push(`Client $FIGHT10 mint is not set (VITE_FIGHT10_TOKEN) — the balance chip and holdings can't read on-chain and the pre-join balance gate is skipped. This is the usual cause of a balance that never loads.`);
+      warns.push(`Client $GULAG mint is not set (VITE_GULAG_TOKEN) — the balance chip and holdings can't read on-chain and the pre-join balance gate is skipped. This is the usual cause of a balance that never loads.`);
     if (deployment && srv.token != null && !srv.token_valid)
-      warns.push(`Server FIGHT10_TOKEN is missing or not a valid base58 mint — payouts will fail.`);
+      warns.push(`Server GULAG_TOKEN is missing or not a valid base58 mint — payouts will fail.`);
     if (deployment && !isPlaceholder(cMint) && srv.token && cMint !== String(srv.token).trim())
-      warns.push(`Client and server point at DIFFERENT mints — deposits will not verify. Align VITE_FIGHT10_TOKEN with the FIGHT10_TOKEN secret.`);
+      warns.push(`Client and server point at DIFFERENT mints — deposits will not verify. Align VITE_GULAG_TOKEN with the GULAG_TOKEN secret.`);
     if (srv.escrow_key_error) warns.push(srv.escrow_key_error);
     if (deployment && !srv.escrow_key_set) warns.push(`Server has no ESCROW_PRIVATE_KEY — winners cannot be paid.`);
     if (srv.escrow_wallet && srv.escrow_wallet_env && srv.escrow_wallet !== srv.escrow_wallet_env)

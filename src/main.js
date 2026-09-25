@@ -25,40 +25,42 @@ const SUPABASE_URL =
 const SUPABASE_ANON_KEY =
   import.meta.env?.VITE_SUPABASE_ANON_KEY?.trim() || "";
 if (!SUPABASE_ANON_KEY) console.error("VITE_SUPABASE_ANON_KEY is not set — Supabase calls will fail.");
-const SIGN_IN_STATEMENT = "Sign in to FIGHT10 to play realtime PvP duels.";
+const SIGN_IN_STATEMENT = "Sign in to The Gulag to play realtime PvP duels.";
 
 // ---------------------------------------------------------------------------
-// FIGHT10 Tokenomics constants
-// Fill in FIGHT10_TOKEN (the SPL token mint address) and ESCROW_WALLET (the
+// $GULAG Tokenomics constants
+// Fill in GULAG_TOKEN (the SPL token mint address) and ESCROW_WALLET (the
 // escrow's Solana account address) after creating the SPL token on Solana +
 // generating the escrow keypair. The network (mainnet-beta) these live on is
 // defined in network.js. Both are base58 Solana addresses.
 // ---------------------------------------------------------------------------
-// $FIGHT10 SPL token mint (base58). Read from VITE_FIGHT10_TOKEN, then the
-// legacy VITE_FIGHT10_MINT name the earlier Solana build used (the Eth→Solana
+// $GULAG SPL token mint (base58). Read from VITE_GULAG_TOKEN, then the
+// pre-rebrand VITE_FIGHT10_TOKEN, then the legacy VITE_FIGHT10_MINT name the
+// earlier Solana build used (the Eth→Solana
 // round-trip renamed the var; a deployment still setting the old name would
 // otherwise fall through to the placeholder and hide the balance entirely),
 // then the live mint as a built-in default so the client always has a real mint
 // even with no env configured. A base58 mint is public, so shipping it is safe.
-const FIGHT10_TOKEN   = import.meta.env?.VITE_FIGHT10_TOKEN?.trim()
+const GULAG_TOKEN     = import.meta.env?.VITE_GULAG_TOKEN?.trim()
+  || import.meta.env?.VITE_FIGHT10_TOKEN?.trim()
   || import.meta.env?.VITE_FIGHT10_MINT?.trim()
   || "3RgkLMuUGX9vcNp4SbxTmMDBDmn4fRrEAobMhWZWpump";
 const ESCROW_WALLET   = import.meta.env?.VITE_ESCROW_WALLET?.trim()  || "<ESCROW_WALLET_ADDRESS>";
 // SPL token decimals. Pump.fun mints (this token's launchpad) always use 6, so
 // 6 is the default. This is only the SEED value: resolveTokenDecimals() reads
 // the real figure off the mint account on-chain at boot and corrects it, so a
-// wrong/absent VITE_FIGHT10_DECIMALS can never desync the client from the mint.
+// wrong/absent VITE_GULAG_DECIMALS can never desync the client from the mint.
 // (A stale 9-vs-6 mismatch here silently divides every balance by 1000, makes a
 // funded wallet read as "insufficient", and makes transferChecked fail on-chain
 // because its decimals arg must equal the mint's — hence the self-correction.)
-let FIGHT10_DECIMALS = Number(import.meta.env?.VITE_FIGHT10_DECIMALS ?? 6);
+let GULAG_DECIMALS = Number(import.meta.env?.VITE_GULAG_DECIMALS ?? import.meta.env?.VITE_FIGHT10_DECIMALS ?? 6);
 // Entry fee + winner share are tunables sourced from the pvp_config table via
 // pvp_settings() (loaded at boot by loadPvpConfig). These are the historical
 // literals, used until the DB read lands and as the fallback if it fails — they
 // MUST match pvp_config's defaults and the edge functions' own fallbacks.
 // ENTRY_FEE_RAW is recomputed whenever ENTRY_FEE changes.
-let ENTRY_FEE       = 10000;          // FIGHT10 tokens per player
-let ENTRY_FEE_RAW   = BigInt(ENTRY_FEE) * BigInt(10) ** BigInt(FIGHT10_DECIMALS);
+let ENTRY_FEE       = 10000;          // $GULAG tokens per player
+let ENTRY_FEE_RAW   = BigInt(ENTRY_FEE) * BigInt(10) ** BigInt(GULAG_DECIMALS);
 // Winner's share of the pot. MUST match the treasurer/admin payout math
 // ((total * winner_share_bps) / 10000): every place the UI promises a prize
 // derives from this.
@@ -131,26 +133,26 @@ let _tokenProgramId = null;
 let _decimalsResolved = false;
 let _decimalsPromise = null;
 async function resolveTokenDecimals() {
-  if (_decimalsResolved || FIGHT10_TOKEN.startsWith("<")) return FIGHT10_DECIMALS;
+  if (_decimalsResolved || GULAG_TOKEN.startsWith("<")) return GULAG_DECIMALS;
   if (!_decimalsPromise) {
     _decimalsPromise = (async () => {
       const solana = await loadSolana();
       const connection = await getConnection();
-      const info = await connection.getParsedAccountInfo(new solana.PublicKey(FIGHT10_TOKEN));
+      const info = await connection.getParsedAccountInfo(new solana.PublicKey(GULAG_TOKEN));
       const d = info?.value?.data?.parsed?.info?.decimals;
       // owner is the token program (classic or Token-2022). Cache it for ATA
       // derivation and deposit instruction building.
       if (info?.value?.owner) _tokenProgramId = new solana.PublicKey(info.value.owner);
-      if (typeof d === "number" && Number.isInteger(d) && d >= 0 && d !== FIGHT10_DECIMALS) {
-        FIGHT10_DECIMALS = d;
-        ENTRY_FEE_RAW = BigInt(ENTRY_FEE) * BigInt(10) ** BigInt(FIGHT10_DECIMALS);
+      if (typeof d === "number" && Number.isInteger(d) && d >= 0 && d !== GULAG_DECIMALS) {
+        GULAG_DECIMALS = d;
+        ENTRY_FEE_RAW = BigInt(ENTRY_FEE) * BigInt(10) ** BigInt(GULAG_DECIMALS);
       }
       _decimalsResolved = true;
-      return FIGHT10_DECIMALS;
+      return GULAG_DECIMALS;
     })().catch((err) => {
       _decimalsPromise = null; // allow a retry on the next call
       console.error("[resolveTokenDecimals]", err);
-      return FIGHT10_DECIMALS;
+      return GULAG_DECIMALS;
     });
   }
   return _decimalsPromise;
@@ -284,7 +286,7 @@ const homeChat = initHomeChat({
 // Pending-deposit persistence. A confirmed on-chain deposit that hasn't bought
 // a seat yet must survive reloads/crashes — the fee is non-refundable, and
 // before this the signature lived only in memory: a reload between "deposit
-// confirmed" and "seat taken" stranded 10,000 $FIGHT10 in escrow with no way to
+// confirmed" and "seat taken" stranded 10,000 $GULAG in escrow with no way to
 // retry. Keyed per user so one wallet's deposit can never leak to another.
 // ---------------------------------------------------------------------------
 function pendingDepositKey() {
@@ -347,7 +349,7 @@ function showMaintenance() {
     <div class="maintenance-box">
       <div class="maintenance-icon">🛠️</div>
       <h1 class="maintenance-title">UNDER MAINTENANCE</h1>
-      <p class="maintenance-text">FIGHT10 is temporarily down for maintenance.<br>We'll be back shortly — thanks for your patience.</p>
+      <p class="maintenance-text">The Gulag is temporarily down for maintenance.<br>We'll be back shortly — thanks for your patience.</p>
     </div>`;
   document.body.appendChild(el);
   document.body.classList.add("maintenance-on");
@@ -382,7 +384,7 @@ async function loadPvpConfig() {
     // against a half-loaded fee. Both fields must be present and sane.
     if (!feeOk || !shareOk) return false;
     ENTRY_FEE = data.entry_fee_tokens;
-    ENTRY_FEE_RAW = BigInt(ENTRY_FEE) * BigInt(10) ** BigInt(FIGHT10_DECIMALS);
+    ENTRY_FEE_RAW = BigInt(ENTRY_FEE) * BigInt(10) ** BigInt(GULAG_DECIMALS);
     WINNER_SHARE = data.winner_share_bps / 10000;
     pvpConfigReady = true;
     return true;
@@ -500,7 +502,7 @@ function kickForManipulation(reason) {
     const el = document.createElement("div");
     el.style.cssText =
       "position:fixed;inset:0;z-index:99999;display:flex;align-items:center;justify-content:center;" +
-      "background:rgba(0,0,0,0.9);color:#fff;font-family:var(--font-head);font-size:18px;" +
+      "background:rgba(0,0,0,0.9);color:#ffffff;font-family:var(--font-head);font-size:18px;" +
       "text-align:center;padding:24px;letter-spacing:0.04em";
     el.textContent = reason || "You were removed from the match.";
     document.body.appendChild(el);
@@ -760,9 +762,9 @@ function bindUi() {
     if (e.target === els.whitepaperOverlay) els.whitepaperOverlay.classList.remove("show");
   });
   els.profileBtn.addEventListener("click", () => openProfile());
-  // The nav $FIGHT10 balance chip jumps straight to the profile's $FIGHT10 tab.
-  document.getElementById("fight10Balance")?.addEventListener("click", () => openProfile("holdings"));
-  // Holder perk "PLAY FIGHT10 PVP": close the profile and enter the PvP flow.
+  // The nav $GULAG balance chip jumps straight to the profile's $GULAG tab.
+  document.getElementById("gulagBalance")?.addEventListener("click", () => openProfile("holdings"));
+  // Holder perk "PLAY THE GULAG PVP": close the profile and enter the PvP flow.
   document.getElementById("perkPlayPvpBtn")?.addEventListener("click", () => {
     els.profileOverlay.classList.remove("show");
     startPvp();
@@ -855,7 +857,7 @@ function bindUi() {
     const left = await leaveMatch({ skipConfirm: true });
     if (left) window.location.reload();
   });
-  // Leaderboard tab strip (points / wins / $FIGHT10 holdings).
+  // Leaderboard tab strip (points / wins / $GULAG holdings).
   document.querySelectorAll("[data-lbtab]").forEach((btn) =>
     btn.addEventListener("click", () => { selectLeaderboardTab(btn.dataset.lbtab).catch((e) => console.error(e)); })
   );
@@ -869,8 +871,8 @@ function bindUi() {
     e.currentTarget.classList.toggle("active", lbMineOnly);
     renderLeaderboardList();
   });
-  // Leaderboard + Buy-$FIGHT10 overlays: close button and backdrop click.
-  [["leaderboardOverlay", "leaderboardClose"], ["buyFight10Overlay", "buyFight10Close"]].forEach(([ovId, closeId]) => {
+  // Leaderboard + Buy-$GULAG overlays: close button and backdrop click.
+  [["leaderboardOverlay", "leaderboardClose"], ["buyGulagOverlay", "buyGulagClose"]].forEach(([ovId, closeId]) => {
     const ov = document.getElementById(ovId);
     document.getElementById(closeId)?.addEventListener("click", () => ov?.classList.remove("show"));
     ov?.addEventListener("pointerdown", (e) => { if (e.target === ov) ov.classList.remove("show"); });
@@ -1094,7 +1096,7 @@ async function handleSession(session) {
       ? "You have a confirmed, unused entry deposit — click Play PvP to enter the queue without paying again."
       : "Wallet connected — choose Demo Match or Play PvP."
   ));
-  refreshFight10Balance().catch(console.error);
+  refreshGulagBalance().catch(console.error);
 }
 
 async function syncProfile() {
@@ -1345,7 +1347,7 @@ function showGameOver(result, reason, standings = [], prizeAmount = null, kills 
   if (prizeEl && prizeAmt) {
     if (win) {
       prizeAmt.textContent = prizeAmount === "pending" ? "Processing payout…" : prizeAmount !== null
-        ? prizeAmount.toLocaleString(undefined, { maximumFractionDigits: 0 }) + " $FIGHT10"
+        ? prizeAmount.toLocaleString(undefined, { maximumFractionDigits: 0 }) + " $GULAG"
         : "Payout failed — contact support";
       setGameOverTxLink(null); // revealed once the payout confirms
       prizeEl.classList.remove("hidden");
@@ -1388,7 +1390,7 @@ function updateGameOverPrize(prizeAmount, payoutTx = null, failReason = null) {
   const retryBtn  = document.getElementById("gameOverRetryBtn");
   if (!prizeEl || !prizeAmt) return;
   if (prizeAmount !== null) {
-    prizeAmt.textContent = prizeAmount.toLocaleString(undefined, { maximumFractionDigits: 0 }) + " $FIGHT10";
+    prizeAmt.textContent = prizeAmount.toLocaleString(undefined, { maximumFractionDigits: 0 }) + " $GULAG";
     // Big gold-number styling for a real prize; drop any error styling from a
     // previous failed attempt.
     prizeAmt.classList.remove("go-prize-amount--error");
@@ -1538,21 +1540,21 @@ async function startPvp() {
     return;
   }
   // Balance gate BEFORE the lobby-size picker: entering PvP costs 10,000
-  // $FIGHT10, so a wallet that can't cover it gets the buy prompt right away
+  // $GULAG, so a wallet that can't cover it gets the buy prompt right away
   // instead of a payment flow that would only fail later. A held (already
   // confirmed) deposit skips the check, and an unreadable balance falls
   // through to the authoritative re-check inside depositEntryFee — this gate
   // must never block a legitimate join on an RPC hiccup.
-  if (!state.pendingDepositTx && !FIGHT10_TOKEN.startsWith("<")) {
+  if (!state.pendingDepositTx && !GULAG_TOKEN.startsWith("<")) {
     const addr = await getWalletAddress();
     if (addr) {
       try {
-        setStatus("Checking $FIGHT10 balance…");
-        const raw = await getFight10Balance(addr);
+        setStatus("Checking $GULAG balance…");
+        const raw = await getGulagBalance(addr);
         if (raw < ENTRY_FEE_RAW) {
-          const have = tokensFromRaw(raw, FIGHT10_DECIMALS);
-          setStatus(`Insufficient $FIGHT10 — need ${ENTRY_FEE.toLocaleString()}, have ${have.toFixed(0)}.`);
-          showBuyFight10(have);
+          const have = tokensFromRaw(raw, GULAG_DECIMALS);
+          setStatus(`Insufficient $GULAG — need ${ENTRY_FEE.toLocaleString()}, have ${have.toFixed(0)}.`);
+          showBuyGulag(have);
           return;
         }
       } catch (err) {
@@ -1564,48 +1566,49 @@ async function startPvp() {
   fetchLobbyCounts().catch(() => {});
 }
 
-// Where to buy $FIGHT10 — override with VITE_BUY_FIGHT10_URL (e.g. a Jupiter /
+// Where to buy $GULAG — override with VITE_BUY_GULAG_URL (e.g. a Jupiter /
 // Raydium swap link); defaults to the token's Solscan page once the mint is
 // configured, the explorer home before launch.
-const BUY_FIGHT10_URL =
+const BUY_GULAG_URL =
+  import.meta.env?.VITE_BUY_GULAG_URL?.trim() ||
   import.meta.env?.VITE_BUY_FIGHT10_URL?.trim() ||
-  (FIGHT10_TOKEN.startsWith("<")
+  (GULAG_TOKEN.startsWith("<")
     ? NETWORK.explorerBase
-    : `${NETWORK.explorerBase}/token/${FIGHT10_TOKEN}`);
+    : `${NETWORK.explorerBase}/token/${GULAG_TOKEN}`);
 
-// DEX Screener page for $FIGHT10 — override with VITE_DEXSCREENER_URL; defaults
+// DEX Screener page for $GULAG — override with VITE_DEXSCREENER_URL; defaults
 // to the token's DEX Screener page once the mint is configured, the DEX Screener
 // home before launch.
 const DEXSCREENER_URL =
   import.meta.env?.VITE_DEXSCREENER_URL?.trim() ||
-  (FIGHT10_TOKEN.startsWith("<")
+  (GULAG_TOKEN.startsWith("<")
     ? "https://dexscreener.com"
-    : `https://dexscreener.com/solana/${FIGHT10_TOKEN}`);
+    : `https://dexscreener.com/solana/${GULAG_TOKEN}`);
 
-// "Not enough $FIGHT10" popup with a buy link. haveTokens (optional) is the
+// "Not enough $GULAG" popup with a buy link. haveTokens (optional) is the
 // wallet's current balance in whole tokens, shown for context.
-function showBuyFight10(haveTokens = null) {
-  const balEl = document.getElementById("buyFight10Balance");
+function showBuyGulag(haveTokens = null) {
+  const balEl = document.getElementById("buyGulagBalance");
   if (balEl) {
     balEl.textContent = haveTokens != null
-      ? `Your balance: ${haveTokens.toLocaleString(undefined, { maximumFractionDigits: 0 })} $FIGHT10`
+      ? `Your balance: ${haveTokens.toLocaleString(undefined, { maximumFractionDigits: 0 })} $GULAG`
       : "";
   }
-  const link = document.getElementById("buyFight10Link");
-  if (link) link.href = BUY_FIGHT10_URL;
-  document.getElementById("buyFight10Overlay")?.classList.add("show");
+  const link = document.getElementById("buyGulagLink");
+  if (link) link.href = BUY_GULAG_URL;
+  document.getElementById("buyGulagOverlay")?.classList.add("show");
 }
 
 // ---------------------------------------------------------------------------
-// Leaderboard — three boards: points, wins / win%, and $FIGHT10 held. The two
+// Leaderboard — three boards: points, wins / win%, and $GULAG held. The two
 // stat tabs come from the get_leaderboard RPC (the profiles table itself is
 // RLS'd to own-row reads); the holdings tab ranks the wallets returned by
-// get_holdings_wallets by their on-chain $FIGHT10 balance.
+// get_holdings_wallets by their on-chain $GULAG balance.
 // ---------------------------------------------------------------------------
 const LB_TITLES = {
   points:   "TOP FIGHTERS · POINTS",
   wins:     "TOP FIGHTERS · WINS",
-  holdings: "TOP HOLDERS · $FIGHT10",
+  holdings: "TOP HOLDERS · $GULAG",
 };
 let lbTab = "points";
 let lbRows = [];        // last loaded rows for the active tab
@@ -1682,7 +1685,7 @@ async function loadStatsBoard(tab) {
 // Holdings tab — balances live on-chain, so rank client-side: one SPL token
 // balance read per wallet, all in parallel against the RPC connection.
 async function loadHoldingsBoard() {
-  if (FIGHT10_TOKEN.startsWith("<")) return { empty: '<div class="lb-empty">Holder rankings go live at token launch.</div>' };
+  if (GULAG_TOKEN.startsWith("<")) return { empty: '<div class="lb-empty">Holder rankings go live at token launch.</div>' };
   const { data, error } = await supabase.rpc("get_holdings_wallets", { p_limit: 100 });
   if (error || !Array.isArray(data)) throw error ?? new Error("bad get_holdings_wallets response");
   const solana = await loadSolana();
@@ -1694,7 +1697,7 @@ async function loadHoldingsBoard() {
     .filter((r) => {
       try { new solana.PublicKey(r.addr); return true; } catch { return false; }
     });
-  if (!holders.length) return { empty: '<div class="lb-empty">No holders ranked yet — connect a wallet and grab some $FIGHT10.</div>' };
+  if (!holders.length) return { empty: '<div class="lb-empty">No holders ranked yet — connect a wallet and grab some $GULAG.</div>' };
   // Batch every holder's balance into a SINGLE getMultipleParsedAccounts call by
   // deriving each wallet's ATA, instead of one getParsedTokenAccountsByOwner per
   // holder (up to 100 RPC calls that rate-limited and partially failed). Derive
@@ -1704,7 +1707,7 @@ async function loadHoldingsBoard() {
   try {
     const connection = await getConnection();
     const programId  = await getTokenProgramId();
-    const mintPk     = new solana.PublicKey(FIGHT10_TOKEN);
+    const mintPk     = new solana.PublicKey(GULAG_TOKEN);
     const atas = await Promise.all(
       holders.map((r) => solana.getAssociatedTokenAddress(mintPk, new solana.PublicKey(r.addr), false, programId)),
     );
@@ -1720,15 +1723,15 @@ async function loadHoldingsBoard() {
   const ranked = entries.filter((e) => e.balance > 0n)
     .sort((a, b) => (b.balance > a.balance ? 1 : b.balance < a.balance ? -1 : 0))
     .slice(0, 20);
-  if (!ranked.length) return { empty: '<div class="lb-empty">No holders ranked yet — grab some $FIGHT10 to top this board.</div>' };
+  if (!ranked.length) return { empty: '<div class="lb-empty">No holders ranked yet — grab some $GULAG to top this board.</div>' };
   return { rows: ranked.map((e, i) => {
-    const amt = formatTokens(e.balance, FIGHT10_DECIMALS);
+    const amt = formatTokens(e.balance, GULAG_DECIMALS);
     const w = e.r.addr;
     return {
       rank: i + 1,
       r: e.r,
       mid: `${w.slice(0, 4)}…${w.slice(-4)}`,
-      value: `${amt} F10`,
+      value: `${amt} GULAG`,
       search: `${(e.r.display_name ?? "").toLowerCase()} ${w.toLowerCase()}`,
     };
   }) };
@@ -1837,7 +1840,7 @@ async function joinPvp(maxPlayers) {
       // Warn BEFORE payment — the entry fee is non-refundable once paid.
       // Uses the non-blocking confirmDialog (window.confirm freezes the render loop).
       const ok = await confirmDialog(
-        `Heads up: the ${ENTRY_FEE.toLocaleString()} $FIGHT10 entry fee is NON-REFUNDABLE. ` +
+        `Heads up: the ${ENTRY_FEE.toLocaleString()} $GULAG entry fee is NON-REFUNDABLE. ` +
         "Once you pay, leaving the queue or the match will NOT refund your entry. " +
         "Continue and pay the entry fee?"
       );
@@ -1903,7 +1906,7 @@ async function joinPvp(maxPlayers) {
 }
 
 // ---------------------------------------------------------------------------
-// FIGHT10 deposit — transfer ENTRY_FEE from player wallet to escrow on-chain
+// $GULAG deposit — transfer ENTRY_FEE from player wallet to escrow on-chain
 // Poll getSignatureStatuses over HTTP — no WebSocket subscriptions needed.
 // Errors are tagged so callers can tell a DEFINITIVE on-chain failure (the tx
 // executed with an error — tokens never moved, safe to forget the signature)
@@ -1932,7 +1935,7 @@ async function pollTxConfirmation(connection, signature, timeoutMs = 90000) {
   throw e;
 }
 
-// Transfers 10000 FIGHT10 to the escrow on-chain and waits for confirmation.
+// Transfers 10000 $GULAG to the escrow on-chain and waits for confirmation.
 // Returns the confirmed tx signature on success, or null if cancelled/failed.
 // Does NOT record the deposit in the DB — that happens inside join_pvp_match().
 async function depositEntryFee(numPlayers = 2) {
@@ -1954,7 +1957,7 @@ async function depositEntryFee(numPlayers = 2) {
     return null;
   }
 
-  if (FIGHT10_TOKEN.startsWith("<") || ESCROW_WALLET.startsWith("<")) {
+  if (GULAG_TOKEN.startsWith("<") || ESCROW_WALLET.startsWith("<")) {
     setStatus("Game not configured for live deposits yet (missing token/escrow address).");
     return null;
   }
@@ -1967,25 +1970,25 @@ async function depositEntryFee(numPlayers = 2) {
     return null;
   }
 
-  setStatus("Checking $FIGHT10 balance…");
+  setStatus("Checking $GULAG balance…");
   let balance;
   try {
-    balance = await getFight10Balance(playerAddress);
+    balance = await getGulagBalance(playerAddress);
   } catch (err) {
-    console.error("[getFight10Balance]", err);
-    setStatus("Could not check $FIGHT10 balance — " + (err?.message || "try again."));
+    console.error("[getGulagBalance]", err);
+    setStatus("Could not check $GULAG balance — " + (err?.message || "try again."));
     return null;
   }
   if (balance < ENTRY_FEE_RAW) {
-    const have = tokensFromRaw(balance, FIGHT10_DECIMALS);
-    setStatus(`Insufficient $FIGHT10 balance — need ${ENTRY_FEE.toLocaleString()}, have ${have.toFixed(0)}.`);
-    showBuyFight10(have);
+    const have = tokensFromRaw(balance, GULAG_DECIMALS);
+    setStatus(`Insufficient $GULAG balance — need ${ENTRY_FEE.toLocaleString()}, have ${have.toFixed(0)}.`);
+    showBuyGulag(have);
     return null;
   }
 
   try {
     updatePrizePot(numPlayers);
-    setStatus(`Depositing ${ENTRY_FEE.toLocaleString()} $FIGHT10… approve in wallet.`);
+    setStatus(`Depositing ${ENTRY_FEE.toLocaleString()} $GULAG… approve in wallet.`);
     els.pvpLobbyStatus.textContent = "Approve deposit in your wallet…";
 
     const solana = await loadSolana();
@@ -1995,7 +1998,7 @@ async function depositEntryFee(numPlayers = 2) {
     // and ENTRY_FEE_RAW must be scaled to the same figure.
     await resolveTokenDecimals();
     const owner = new solana.PublicKey(playerAddress);
-    const mint = new solana.PublicKey(FIGHT10_TOKEN);
+    const mint = new solana.PublicKey(GULAG_TOKEN);
     const escrowOwner = new solana.PublicKey(ESCROW_WALLET);
     // The mint's token program (classic SPL or Token-2022). ATAs are derived
     // with it in their seeds, and each SPL instruction must target it, or a
@@ -2016,7 +2019,7 @@ async function depositEntryFee(numPlayers = 2) {
       solana.createAssociatedTokenAccountIdempotentInstruction(owner, toAta, escrowOwner, mint, tokenProgramId),
     );
     instructions.push(
-      solana.createTransferCheckedInstruction(fromAta, mint, toAta, owner, ENTRY_FEE_RAW, FIGHT10_DECIMALS, [], tokenProgramId),
+      solana.createTransferCheckedInstruction(fromAta, mint, toAta, owner, ENTRY_FEE_RAW, GULAG_DECIMALS, [], tokenProgramId),
     );
 
     const { blockhash, lastValidBlockHeight } = await connection.getLatestBlockhash("confirmed");
@@ -2071,7 +2074,7 @@ async function depositEntryFee(numPlayers = 2) {
   }
 }
 
-// A wallet that never held $FIGHT10 has no SPL token account for the mint, and
+// A wallet that never held $GULAG has no SPL token account for the mint, and
 // the RPC answers getTokenAccountBalance with "could not find account" — that is
 // a genuine zero balance, not a failure. Every OTHER error (rate-limit, 403/429,
 // timeout, node behind) is a real read failure that must NOT be papered over as
@@ -2086,17 +2089,17 @@ function isMissingTokenAccountError(err) {
     msg.includes("does not exist");
 }
 
-async function getFight10Balance(walletAddress) {
+async function getGulagBalance(walletAddress) {
   const solana = await loadSolana();
   const connection = await getConnection();
-  // Correct FIGHT10_DECIMALS (and ENTRY_FEE_RAW) from the mint before the caller
+  // Correct GULAG_DECIMALS (and ENTRY_FEE_RAW) from the mint before the caller
   // formats this balance or compares it to the entry fee, so a seed/env mismatch
   // can't render a funded wallet as 1000× too small or "insufficient".
   await resolveTokenDecimals();
   const owner = walletAddress instanceof solana.PublicKey
     ? walletAddress
     : new solana.PublicKey(walletAddress);
-  const mint = new solana.PublicKey(FIGHT10_TOKEN);
+  const mint = new solana.PublicKey(GULAG_TOKEN);
   // Enumerate the wallet's token accounts FOR THIS MINT instead of deriving a
   // single ATA and reading it. Filtering by mint is program-agnostic, so it
   // returns the real account whether the mint is classic SPL or Token-2022 —
@@ -2119,8 +2122,8 @@ function updatePrizePot(numPlayers) {
   potEl.classList.remove("hidden");
 }
 
-async function refreshFight10Balance() {
-  const balEl = document.getElementById("fight10Balance");
+async function refreshGulagBalance() {
+  const balEl = document.getElementById("gulagBalance");
   if (!balEl || !state.user) return;
   const addr = await getDisplayWalletAddress();
   if (!addr) return;
@@ -2128,25 +2131,25 @@ async function refreshFight10Balance() {
   // to read. Mirror the holdings tab and leave the chip hidden rather than
   // building an invalid PublicKey (which threw and was swallowed here, so the
   // chip silently "never loaded"). The holdings tab explains the pre-launch state.
-  if (FIGHT10_TOKEN.startsWith("<")) return;
+  if (GULAG_TOKEN.startsWith("<")) return;
   try {
-    const raw = await getFight10Balance(addr);
-    balEl.textContent = formatTokens(raw, FIGHT10_DECIMALS) + " $FIGHT10";
-    balEl.title = "View your $FIGHT10 holdings";
+    const raw = await getGulagBalance(addr);
+    balEl.textContent = formatTokens(raw, GULAG_DECIMALS) + " $GULAG";
+    balEl.title = "View your $GULAG holdings";
     balEl.classList.remove("hidden");
   } catch (err) {
-    console.error("[refreshFight10Balance]", err);
+    console.error("[refreshGulagBalance]", err);
     // Make a real read failure VISIBLE instead of leaving the chip invisible: a
     // rate-limited / 403 / timed-out RPC used to fail silently here, so a funded
     // wallet looked like it simply never loaded. Show a dash the player can hover
     // for the reason and click to retry via the holdings tab.
-    balEl.textContent = "— $FIGHT10";
+    balEl.textContent = "— $GULAG";
     balEl.title = `Balance unavailable — ${err?.message || "tap to retry"}`;
     balEl.classList.remove("hidden");
   }
 }
 
-// Fills the profile "$FIGHT10" tab: on-chain balance plus the wallet it came from.
+// Fills the profile "$GULAG" tab: on-chain balance plus the wallet it came from.
 async function loadHoldings() {
   const amtEl    = document.getElementById("holdingsAmount");
   const walletEl = document.getElementById("holdingsWallet");
@@ -2161,7 +2164,7 @@ async function loadHoldings() {
     if (noteEl) noteEl.textContent = "Connect your wallet to see your holdings.";
     return;
   }
-  if (FIGHT10_TOKEN.startsWith("<")) {
+  if (GULAG_TOKEN.startsWith("<")) {
     amtEl.textContent = "—";
     if (noteEl) noteEl.textContent = "Live balances go on-chain at token launch.";
     return;
@@ -2169,8 +2172,8 @@ async function loadHoldings() {
   amtEl.textContent = "…";
   if (noteEl) noteEl.textContent = "";
   try {
-    const raw = await getFight10Balance(addr);
-    amtEl.textContent = formatTokens(raw, FIGHT10_DECIMALS);
+    const raw = await getGulagBalance(addr);
+    amtEl.textContent = formatTokens(raw, GULAG_DECIMALS);
   } catch (err) {
     console.error("[loadHoldings]", err);
     amtEl.textContent = "—";
@@ -2731,7 +2734,7 @@ function showLobby() {
   toggle(els.pvpBtn, true);
   els.pvpBtn.textContent = connected ? "PLAY PVP" : "CONNECT WALLET";
   toggle(els.signOutBtn, connected);
-  const balEl = document.getElementById("fight10Balance");
+  const balEl = document.getElementById("gulagBalance");
   if (balEl && !connected) balEl.classList.add("hidden");
   // Show the living showcase arena behind the landing chrome.
   game.showHomeScene();
@@ -2985,8 +2988,8 @@ function confirmDialog(message) {
       "justify-content:center;z-index:9999;font-family:var(--font-body)";
     const box = document.createElement("div");
     box.style.cssText =
-      "background:#111;border:1px solid rgba(255,255,255,.18);border-radius:8px;" +
-      "padding:28px 32px;max-width:380px;text-align:center;color:#f3f3f3;line-height:1.5";
+      "background:#160c0d;border:1px solid rgba(255,255,255,.18);border-radius:8px;" +
+      "padding:28px 32px;max-width:380px;text-align:center;color:#f7efef;line-height:1.5";
     const msg = document.createElement("p");
     msg.style.cssText = "margin:0 0 20px;font-size:14px;";
     msg.textContent = message;
@@ -2995,11 +2998,11 @@ function confirmDialog(message) {
     const btnOk = document.createElement("button");
     btnOk.textContent = "Confirm";
     btnOk.style.cssText =
-      "padding:8px 22px;background:#c8940a;color:#000;border:none;border-radius:5px;cursor:pointer;font-size:13px;";
+      "padding:8px 22px;background:#b80915;color:#000000;border:none;border-radius:5px;cursor:pointer;font-size:13px;";
     const btnCancel = document.createElement("button");
     btnCancel.textContent = "Stay";
     btnCancel.style.cssText =
-      "padding:8px 22px;background:rgba(255,255,255,.12);color:#f3f3f3;border:1px solid rgba(255,255,255,.2);border-radius:5px;cursor:pointer;font-size:13px;";
+      "padding:8px 22px;background:rgba(255,255,255,.12);color:#f7efef;border:1px solid rgba(255,255,255,.2);border-radius:5px;cursor:pointer;font-size:13px;";
     row.append(btnOk, btnCancel);
     box.append(msg, row);
     backdrop.appendChild(box);
@@ -3023,8 +3026,8 @@ function retryDialog(title, message) {
       "justify-content:center;z-index:9999;font-family:var(--font-body)";
     const box = document.createElement("div");
     box.style.cssText =
-      "background:#111;border:1px solid rgba(255,255,255,.18);border-radius:8px;" +
-      "padding:28px 32px;max-width:380px;text-align:center;color:#f3f3f3;line-height:1.5";
+      "background:#160c0d;border:1px solid rgba(255,255,255,.18);border-radius:8px;" +
+      "padding:28px 32px;max-width:380px;text-align:center;color:#f7efef;line-height:1.5";
     const heading = document.createElement("h3");
     heading.style.cssText = "margin:0 0 12px;font-size:16px;";
     heading.textContent = title;
@@ -3036,11 +3039,11 @@ function retryDialog(title, message) {
     const btnRetry = document.createElement("button");
     btnRetry.textContent = "Retry";
     btnRetry.style.cssText =
-      "padding:8px 22px;background:#c8940a;color:#000;border:none;border-radius:5px;cursor:pointer;font-size:13px;";
+      "padding:8px 22px;background:#b80915;color:#000000;border:none;border-radius:5px;cursor:pointer;font-size:13px;";
     const btnCancel = document.createElement("button");
     btnCancel.textContent = "Close";
     btnCancel.style.cssText =
-      "padding:8px 22px;background:rgba(255,255,255,.12);color:#f3f3f3;border:1px solid rgba(255,255,255,.2);border-radius:5px;cursor:pointer;font-size:13px;";
+      "padding:8px 22px;background:rgba(255,255,255,.12);color:#f7efef;border:1px solid rgba(255,255,255,.2);border-radius:5px;cursor:pointer;font-size:13px;";
     row.append(btnRetry, btnCancel);
     box.append(heading, msg, row);
     backdrop.appendChild(box);

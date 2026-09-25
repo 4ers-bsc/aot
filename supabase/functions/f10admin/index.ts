@@ -78,11 +78,11 @@ const LIST_LIMIT = 100;
 const CASHFLOW_ROWS    = 200;   // rows returned per side for the on-screen table
 const CASHFLOW_SUM_CAP = 5000;  // max payout rows summed for the outgoing total
 // Token decimals used only to scale dashboard amounts (the payout path reads
-// the mint's decimals on-chain). The $FIGHT10 Pump.fun mint uses 6 — this must
+// the mint's decimals on-chain). The $GULAG Pump.fun mint uses 6 — this must
 // match the client's default (src/admin.js) or the Deployment tab flags a
 // mismatch and the cashflow net/total math mixes 10^6 and 10^9 scales. Override
-// with the FIGHT10_DECIMALS secret if the deployed token differs.
-const TOKEN_DECIMALS = Number(Deno.env.get("FIGHT10_DECIMALS") ?? "6");
+// with the GULAG_DECIMALS secret if the deployed token differs.
+const TOKEN_DECIMALS = Number(Deno.env.get("GULAG_DECIMALS") ?? Deno.env.get("FIGHT10_DECIMALS") ?? "6");
 // Fixed historical entry fee for the cashflow/treasury ESTIMATE only (incoming
 // totals across past seats). Deliberately NOT sourced from pvp_config: seats
 // settled at whatever fee applied then, so a mutable current value would skew
@@ -125,7 +125,7 @@ function loadEscrowKeypair(raw: string): Keypair {
 }
 
 // SPL transfer verification via token-balance deltas (mirrors f10join /
-// f10treasurer). A valid deposit is: escrow's holding of FIGHT10 went UP by
+// f10treasurer). A valid deposit is: escrow's holding of $GULAG went UP by
 // exactly the entry fee AND the sender's holding went DOWN by exactly the entry
 // fee — proving mint, from, to, and amount together.
 type TokenBalance = { mint?: string; owner?: string; uiTokenAmount?: { amount?: string } };
@@ -233,8 +233,8 @@ async function payoutWinner(admin: any, matchId: string) {
   );
 
   const escrowKey = (Deno.env.get("ESCROW_PRIVATE_KEY") ?? "").trim();
-  const tokenAddr = norm(Deno.env.get("FIGHT10_TOKEN"));
-  if (!escrowKey || !isAddress(tokenAddr)) throw new Error("Escrow configuration missing (ESCROW_PRIVATE_KEY / FIGHT10_TOKEN)");
+  const tokenAddr = norm(Deno.env.get("GULAG_TOKEN") ?? Deno.env.get("FIGHT10_TOKEN"));
+  if (!escrowKey || !isAddress(tokenAddr)) throw new Error("Escrow configuration missing (ESCROW_PRIVATE_KEY / GULAG_TOKEN)");
 
   let escrowKeypair: Keypair;
   try { escrowKeypair = loadEscrowKeypair(escrowKey); }
@@ -338,7 +338,7 @@ async function payoutWinner(admin: any, matchId: string) {
     const expectedSender = walletByUser.get(players[i].user_id) ?? "";
     if (!isAddress(expectedSender)) throw new Error(`Deposit ${i + 1}: depositing wallet was not recorded at join time`);
     if (!txAuthorizesDeposit(parsed, escrowAtaStr, expectedSender, tokenProgStr, entryFeeRaw.toString())) {
-      throw new Error(`Deposit ${i + 1} does not contain a valid FIGHT10 transfer from the player to escrow`);
+      throw new Error(`Deposit ${i + 1} does not contain a valid $GULAG transfer from the player to escrow`);
     }
   }
 
@@ -492,7 +492,7 @@ Deno.serve(async (req: Request) => {
       config: {
         escrow_key_set: !!escrowKey,
         escrow_wallet:  escrowAddr,
-        token:          norm(Deno.env.get("FIGHT10_TOKEN")) || null,
+        token:          norm(Deno.env.get("GULAG_TOKEN") ?? Deno.env.get("FIGHT10_TOKEN")) || null,
         rpc_endpoints:  getRpcUrls().length,
         admins_configured: csv(Deno.env.get("ADMIN_USER_IDS")).length + csv(Deno.env.get("ADMIN_WALLETS")).length,
         app_origin_set: !!appOrigin,
@@ -951,7 +951,7 @@ Deno.serve(async (req: Request) => {
             const winnerAmt = (Number(result.winner_amount) / 10 ** result.decimals)
               .toLocaleString(undefined, { maximumFractionDigits: 0 });
             await logNote("payout", matchId,
-              `Admin paid winner: ${winnerAmt} $FIGHT10 — tx ${result.payout_tx}`, "admin_pay_winner");
+              `Admin paid winner: ${winnerAmt} $GULAG — tx ${result.payout_tx}`, "admin_pay_winner");
             return json({ ok: true, ...result });
           } catch (err) {
             console.error(`[f10admin] admin_pay_winner failed match=${matchId}:`, err);
@@ -984,7 +984,7 @@ Deno.serve(async (req: Request) => {
           // the transfer manually) so the match reads as paid and can't be
           // re-claimed. Only overwrites an unpaid ('pending' / null) match, and
           // the supplied signature is VERIFIED on-chain first — it must be a
-          // confirmed FIGHT10 transfer from escrow to the winner for at least the
+          // confirmed $GULAG transfer from escrow to the winner for at least the
           // winner's share, so an arbitrary/typo'd string can never mark a match
           // paid.
           const matchId = String(body?.match_id ?? "");
@@ -1018,8 +1018,8 @@ Deno.serve(async (req: Request) => {
             if (numPlayers <= 0) return fail("Could not determine the match's player count.");
 
             const escrowKey = (Deno.env.get("ESCROW_PRIVATE_KEY") ?? "").trim();
-            const tokenAddr = norm(Deno.env.get("FIGHT10_TOKEN"));
-            if (!escrowKey || !isAddress(tokenAddr)) return fail("Escrow configuration missing (ESCROW_PRIVATE_KEY / FIGHT10_TOKEN)");
+            const tokenAddr = norm(Deno.env.get("GULAG_TOKEN") ?? Deno.env.get("FIGHT10_TOKEN"));
+            if (!escrowKey || !isAddress(tokenAddr)) return fail("Escrow configuration missing (ESCROW_PRIVATE_KEY / GULAG_TOKEN)");
             let escrowAddr: string;
             try { escrowAddr = loadEscrowKeypair(escrowKey).publicKey.toBase58(); }
             catch { return fail("Escrow key is malformed"); }
@@ -1041,7 +1041,7 @@ Deno.serve(async (req: Request) => {
             const winnerDelta = ownerMintDelta(parsed.meta, winnerAddr, tokenAddr);
             const escrowDelta = ownerMintDelta(parsed.meta, escrowAddr, tokenAddr);
             if (winnerDelta < expectedRaw || escrowDelta > -expectedRaw) {
-              return fail(`On-chain verification failed: not a FIGHT10 transfer from escrow to the winner for at least the expected payout (${expectedRaw})`);
+              return fail(`On-chain verification failed: not a $GULAG transfer from escrow to the winner for at least the expected payout (${expectedRaw})`);
             }
           } catch (err) {
             return fail(`On-chain verification failed: ${String(err?.message ?? err)}`);
@@ -1236,7 +1236,7 @@ Deno.serve(async (req: Request) => {
             catch { escrowKeyError = "ESCROW_PRIVATE_KEY is set but could not be parsed (bad base58 / JSON)."; }
           }
           const rpcUrls = getRpcUrls();
-          const tokenAddr = norm(Deno.env.get("FIGHT10_TOKEN"));
+          const tokenAddr = norm(Deno.env.get("GULAG_TOKEN") ?? Deno.env.get("FIGHT10_TOKEN"));
           // f10join verifies deposits land at ESCROW_WALLET (a public env var);
           // the payout functions sign from ESCROW_PRIVATE_KEY. Surface both so a
           // deposit-destination ≠ payout-source misconfig is visible.

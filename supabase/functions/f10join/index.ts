@@ -4,7 +4,7 @@
 // confirmed deposit tx signature here; this function:
 //   1. authenticates the caller (JWT),
 //   2. verifies the tx on-chain (confirmed + succeeded + an SPL transfer of the
-//      exact FIGHT10 amount from the player's own wallet to escrow),
+//      exact $GULAG amount from the player's own wallet to escrow),
 //   3. ONLY THEN calls the service-role `join_pvp_match` RPC to take a seat.
 //
 // Because join_pvp_match is no longer granted to `authenticated`, a malicious
@@ -14,7 +14,7 @@
 // client's src/network.js. Verification runs on raw Solana JSON-RPC
 // (getTransaction / getTokenSupply), no web3 library needed.
 //
-// Required Supabase secrets: ESCROW_WALLET (base58 address), FIGHT10_TOKEN
+// Required Supabase secrets: ESCROW_WALLET (base58 address), GULAG_TOKEN
 // (SPL mint, base58), and optionally RPC_URL(_2, _3).
 // Verifying a deposit only needs the escrow's PUBLIC address — the private
 // key stays with f10treasurer, the only function that signs payouts.
@@ -115,7 +115,7 @@ async function getTokenDecimals(rpc: ReturnType<typeof createRpcPool>, mint: str
 // Solana has no ERC-20 "Transfer" event log; instead every confirmed tx carries
 // pre/postTokenBalances snapshots. Summing the balance change for a given
 // (owner, mint) pair tells us exactly how much that owner's holding of the mint
-// moved. A valid deposit is: escrow's holding of FIGHT10 went UP by exactly the
+// moved. A valid deposit is: escrow's holding of $GULAG went UP by exactly the
 // entry fee AND the sender's holding went DOWN by exactly the entry fee — which
 // together prove mint, from, to, and amount, just like the old Transfer-log
 // check. Works for direct transfers and router/CPI-wrapped ones.
@@ -230,7 +230,7 @@ Deno.serve(async (req: Request) => {
       time: new Date().toISOString(),
       config: {
         escrow_wallet: normAddr(Deno.env.get("ESCROW_WALLET")) || null,
-        token:         normAddr(Deno.env.get("FIGHT10_TOKEN")) || null,
+        token:         normAddr(Deno.env.get("GULAG_TOKEN") ?? Deno.env.get("FIGHT10_TOKEN")) || null,
         rpc_endpoints: getRpcUrls().length,
         app_origin_set: !!appOrigin,
       },
@@ -316,7 +316,7 @@ Deno.serve(async (req: Request) => {
     // it — the same address the client pays into. Never load the private key
     // here; f10treasurer is the only function that signs with it.
     const escrowAddr = normAddr(Deno.env.get("ESCROW_WALLET"));
-    const tokenAddr  = normAddr(Deno.env.get("FIGHT10_TOKEN"));
+    const tokenAddr  = normAddr(Deno.env.get("GULAG_TOKEN") ?? Deno.env.get("FIGHT10_TOKEN"));
     if (!isAddress(escrowAddr) || !isAddress(tokenAddr)) {
       return jsonResponse({ ok: false, error: "Escrow configuration missing" }, 500);
     }
@@ -368,7 +368,7 @@ Deno.serve(async (req: Request) => {
         escrowDelta: ownerMintDelta(tx.meta, escrowAddr, tokenAddr).toString(),
         senderDelta: ownerMintDelta(tx.meta, expectedSender, tokenAddr).toString(),
       }));
-      return fail("Deposit does not contain a valid FIGHT10 transfer from your wallet to escrow");
+      return fail("Deposit does not contain a valid $GULAG transfer from your wallet to escrow");
     }
 
     // ── Deposit verified → admit the player via the service-role RPC ──────────

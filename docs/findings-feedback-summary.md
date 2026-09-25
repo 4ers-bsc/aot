@@ -1,4 +1,4 @@
-# FIGHT10 — Findings, Feedback & Suggestions Summary
+# THE GULAG — Findings, Feedback & Suggestions Summary
 
 A consolidated review of every finding, piece of feedback, and open suggestion
 recorded across the project's pull requests (#211–#240). There are **no open

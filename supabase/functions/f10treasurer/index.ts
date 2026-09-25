@@ -1,7 +1,7 @@
 
 /// Payout Edge Function
 // Required Supabase secrets: ESCROW_PRIVATE_KEY (base58 secret key OR a JSON
-// byte array), FIGHT10_TOKEN (SPL mint, base58), and optionally RPC_URL(_2, _3).
+// byte array), GULAG_TOKEN (SPL mint, base58), and optionally RPC_URL(_2, _3).
 //
 // Chain: Solana (mainnet-beta). The network is defined below and matches the
 // client's src/network.js.
@@ -66,7 +66,7 @@ function loadEscrowKeypair(raw: string): Keypair {
 
 // ---------------------------------------------------------------------------
 // SPL transfer verification via token-balance deltas (mirrors f10join). A valid
-// deposit is: escrow's holding of FIGHT10 went UP by exactly the entry fee AND
+// deposit is: escrow's holding of $GULAG went UP by exactly the entry fee AND
 // the sender's holding went DOWN by exactly the entry fee — proving mint, from,
 // to, and amount together. Shared shape with f10join — edit both together if
 // the deposit format changes.
@@ -285,7 +285,7 @@ async function processPayout(opts: {
 
     // ── Escrow / token config ────────────────────────────────────────────────
     const escrowKey = (Deno.env.get("ESCROW_PRIVATE_KEY") ?? "").trim();
-    const tokenAddr = normAddr(Deno.env.get("FIGHT10_TOKEN"));
+    const tokenAddr = normAddr(Deno.env.get("GULAG_TOKEN") ?? Deno.env.get("FIGHT10_TOKEN"));
     if (!escrowKey || !isAddress(tokenAddr)) return reject("Escrow configuration missing", 500);
 
     const rpc = createRpcPool();
@@ -426,7 +426,7 @@ async function processPayout(opts: {
           senderDelta: ownerMintDelta(parsed.meta, expectedSender, tokenAddr).toString(),
         }));
         return reject(
-          `Deposit ${i + 1} does not contain a valid FIGHT10 transfer from the player to escrow`,
+          `Deposit ${i + 1} does not contain a valid $GULAG transfer from the player to escrow`,
           400,
         );
       }
@@ -676,7 +676,7 @@ Deno.serve(async (req: Request) => {
       config: {
         escrow_key_set: !!escrowKey,
         escrow_wallet:  escrowAddr,
-        token:          normAddr(Deno.env.get("FIGHT10_TOKEN")) || null,
+        token:          normAddr(Deno.env.get("GULAG_TOKEN") ?? Deno.env.get("FIGHT10_TOKEN")) || null,
         rpc_endpoints:  getRpcUrls().length,
         app_origin_set: !!appOrigin,
         reconciler_enabled: !!(Deno.env.get("RECONCILE_SECRET") ?? "").trim(),

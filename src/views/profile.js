@@ -5,7 +5,7 @@ export const html = `
       <div class="panel-head">Profile<button class="close" id="profileClose" type="button">&times;</button></div>
       <div class="tabs">
         <button class="tab active" data-ptab="stats">STATS</button>
-        <button class="tab" data-ptab="holdings">$FIGHT10</button>
+        <button class="tab" data-ptab="holdings">$GULAG</button>
         <button class="tab" data-ptab="appearance">APPEARANCE</button>
         <button class="tab" data-ptab="history">MATCH HISTORY</button>
       </div>
@@ -41,20 +41,20 @@ export const html = `
       <div class="tab-body hidden" data-pbody="holdings">
         <div class="section">YOUR HOLDINGS</div>
         <div class="holdings-card">
-          <div class="holdings-coin">F10</div>
+          <div class="holdings-coin">GULAG</div>
           <div class="holdings-amount" id="holdingsAmount">&mdash;</div>
-          <div class="holdings-token">$FIGHT10</div>
+          <div class="holdings-token">$GULAG</div>
           <div class="holdings-wallet" id="holdingsWallet"></div>
           <div class="holdings-note" id="holdingsNote"></div>
         </div>
 
-        <a class="buyf10-btn" id="holdingsBuyLink" href="https://dexscreener.com" target="_blank" rel="noopener noreferrer">BUY $FIGHT10</a>
+        <a class="buygulag-btn" id="holdingsBuyLink" href="https://dexscreener.com" target="_blank" rel="noopener noreferrer">BUY $GULAG</a>
 
         <div class="section">HOLDER PERKS</div>
         <div class="perks-card">
           <button class="perk-row perk-row-unlocked" id="perkPlayPvpBtn" type="button">
             <svg class="perk-check" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><polyline points="20 6 9 17 4 12"/></svg>
-            <span class="perk-name">PLAY FIGHT10 PVP</span>
+            <span class="perk-name">PLAY THE GULAG PVP</span>
             <span class="coming-soon-pill">UNLOCKED</span>
           </button>
           <div class="perk-row">

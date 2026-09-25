@@ -1,12 +1,12 @@
 export const html = `
-  <!-- Leaderboard — top fighters by points, wins / win%, and $FIGHT10 held -->
+  <!-- Leaderboard — top fighters by points, wins / win%, and $GULAG held -->
   <div class="overlay" id="leaderboardOverlay">
     <div class="panel">
       <div class="panel-head">Leaderboard<button class="close" id="leaderboardClose" type="button">&times;</button></div>
       <div class="tabs">
         <button class="tab active" data-lbtab="points">POINTS</button>
         <button class="tab" data-lbtab="wins">WINS</button>
-        <button class="tab" data-lbtab="holdings">$FIGHT10</button>
+        <button class="tab" data-lbtab="holdings">$GULAG</button>
       </div>
       <div class="tab-body">
         <div class="lb-filter">

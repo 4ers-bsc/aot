@@ -6,8 +6,8 @@ export const html = `
   <!-- ===== Hero ===== -->
   <section class="hero-section">
     <div class="hero-title-block">
-      <div class="hero-big-fight">FIGHT</div>
-      <div class="hero-big-10">10</div>
+      <div class="hero-big-the">THE</div>
+      <div class="hero-big-gulag">GULAG</div>
       <div class="hero-beta">BETA</div>
     </div>
     <div class="hero-tagline">
@@ -15,7 +15,7 @@ export const html = `
       <div class="hero-stats">
         <div class="hero-stat">
           <div class="hero-stat-value">10,000</div>
-          <div class="hero-stat-label">$FIGHT10 Entry</div>
+          <div class="hero-stat-label">$GULAG Entry</div>
         </div>
         <div class="hero-stat-divider"></div>
         <div class="hero-stat">
@@ -65,7 +65,7 @@ export const html = `
       <div class="info-tile-desc">Climb the leaderboard.<br>Prove yourself.</div>
     </div>
     <div class="info-tile info-tile-multiplier">
-      <div class="info-tile-multi">10,000 $FIGHT10</div>
+      <div class="info-tile-multi">10,000 $GULAG</div>
       <div class="info-tile-label">ENTRY PER PLAYER</div>
       <div class="info-tile-desc">Last one standing<br>takes 90% of the pot.</div>
     </div>
@@ -95,7 +95,7 @@ export const html = `
         <div class="hs-card">
           <div class="hs-card-num">02</div>
           <div class="hs-card-label">PAY</div>
-          <div class="hs-card-desc">Put 10,000 $FIGHT10 into the match escrow. Your seat is granted only after the payment is verified on-chain.</div>
+          <div class="hs-card-desc">Put 10,000 $GULAG into the match escrow. Your seat is granted only after the payment is verified on-chain.</div>
         </div>
         <div class="hs-card">
           <div class="hs-card-num">03</div>
@@ -144,7 +144,7 @@ export const html = `
           <div class="hs-mode-row"><span>Winner takes</span><span class="hs-gold">90,000</span></div>
         </div>
       </div>
-      <p class="hs-footnote">All amounts in <span class="hs-gold">$FIGHT10</span>. If the timer runs out, the survivor with the highest HP takes the win. A <span class="hs-gold">10% protocol fee</span> keeps the arena running.</p>
+      <p class="hs-footnote">All amounts in <span class="hs-gold">$GULAG</span>. If the timer runs out, the survivor with the highest HP takes the win. A <span class="hs-gold">10% protocol fee</span> keeps the arena running.</p>
     </section>
 
     <!-- Know the battlefield -->
@@ -231,7 +231,7 @@ export const html = `
     <!-- Final CTA -->
     <section class="hs-block hs-cta">
       <h2 class="hs-cta-title">GL, HF!</h2>
-      <p class="hs-cta-sub">10,000 $FIGHT10 buys your seat. Skill pays the rest.</p>
+      <p class="hs-cta-sub">10,000 $GULAG buys your seat. Skill pays the rest.</p>
       <div class="hs-cta-actions">
         <button class="home-btn home-btn-hero hs-cta-play" id="secPlayBtn" type="button">PLAY PVP</button>
         <button class="home-btn home-btn-secondary" id="secHowToBtn" type="button">HOW TO PLAY</button>
@@ -239,9 +239,9 @@ export const html = `
     </section>
 
     <footer class="hs-footer">
-      <div class="hs-footer-disclaimer">FOR ENTERTAINMENT PURPOSES ONLY — FIGHT10 is purely for entertainment. All $FIGHT10 amounts are show values displayed at token scale and carry no guaranteed real-world or monetary value. Nothing here is financial advice.</div>
-      <div class="hs-footer-text">FIGHT10 · LAST ONE STANDING — skill-based arena on Solana. Winner takes 90% of the pot; a 10% protocol fee funds the arena. Entries are non-refundable once a match is joined.</div>
-      <a class="hs-footer-x" href="https://x.com/fight10_club" target="_blank" rel="noopener noreferrer" aria-label="FIGHT10 on X">
+      <div class="hs-footer-disclaimer">FOR ENTERTAINMENT PURPOSES ONLY — The Gulag is purely for entertainment. All $GULAG amounts are show values displayed at token scale and carry no guaranteed real-world or monetary value. Nothing here is financial advice.</div>
+      <div class="hs-footer-text">THE GULAG · LAST ONE STANDING — skill-based arena on Solana. Winner takes 90% of the pot; a 10% protocol fee funds the arena. Entries are non-refundable once a match is joined.</div>
+      <a class="hs-footer-x" href="https://x.com/fight10_club" target="_blank" rel="noopener noreferrer" aria-label="The Gulag on X">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-4.714-6.231-5.401 6.231H2.748l7.73-8.835L1.254 2.25H8.08l4.259 5.63 5.905-5.63zm-1.161 17.52h1.833L7.084 4.126H5.117z"/></svg>
         @fight10_club
       </a>

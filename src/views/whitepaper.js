@@ -6,7 +6,7 @@ export const html = `
       <div class="tab-body wp-body">
 
         <p class="wp-intro">
-          FIGHT10 is a skill-based, last-one-standing arena where every fighter
+          The Gulag is a skill-based, last-one-standing arena where every fighter
           spawns identical and each player pays an equal entry. The winner takes
           90% of the pot; a 10% protocol fee funds operations. This paper describes
           how the system stays fair and custodial-safe.

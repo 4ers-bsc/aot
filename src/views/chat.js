@@ -12,7 +12,7 @@ export const html = `
     </button>
 
     <!-- Expanded panel -->
-    <div class="home-chat-panel" id="chatPanel" role="dialog" aria-label="FIGHT10 chat">
+    <div class="home-chat-panel" id="chatPanel" role="dialog" aria-label="The Gulag chat">
       <div class="home-chat-head">
         <div class="home-chat-title">
           <span class="home-chat-title-main">DEV CHAT</span>
@@ -28,7 +28,7 @@ export const html = `
            and the chat is promoted to a full-screen panel. -->
       <div class="home-chat-maint" id="chatMaint">
         <span class="home-chat-maint-icon">🛠️</span>
-        <span class="home-chat-maint-text">FIGHT10 is under maintenance — matches are paused, but chat stays live. We'll be back shortly.</span>
+        <span class="home-chat-maint-text">The Gulag is under maintenance — matches are paused, but chat stays live. We'll be back shortly.</span>
       </div>
 
       <!-- Live Yes/No poll (shown only while the host has a vote open) -->
@@ -79,7 +79,7 @@ export const html = `
   <!-- ===== First-sign-in onboarding: pick name + avatar ===== -->
   <div class="onboard-overlay" id="onboardOverlay">
     <div class="onboard-box">
-      <div class="onboard-kicker">WELCOME TO FIGHT10</div>
+      <div class="onboard-kicker">WELCOME TO THE GULAG</div>
       <h2 class="onboard-title">CLAIM YOUR IDENTITY</h2>
       <p class="onboard-sub">Pick a call sign and a fighter. You can change both later in your profile.</p>
 

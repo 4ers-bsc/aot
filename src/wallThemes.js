@@ -25,7 +25,7 @@ function roundRectPath(g, x, y, w, h, r) {
 // seamlessly left-to-right.
 function neonBricks(g, W, H, { rows, cols, gap, tones }) {
   // 1) Black base — becomes the dark mortar channels behind the gold.
-  g.fillStyle = "#040405";
+  g.fillStyle = "#060303";
   g.fillRect(0, 0, W, H);
 
   const bw = W / cols, bh = H / rows;
@@ -43,7 +43,7 @@ function neonBricks(g, W, H, { rows, cols, gap, tones }) {
 
       const grd = g.createLinearGradient(x, y, x, y + bhei);
       grd.addColorStop(0, t);
-      grd.addColorStop(1, "#050506");
+      grd.addColorStop(1, "#070404");
       g.fillStyle = grd;
       roundRectPath(g, x, y, bwid, bhei, 3);
       g.fill();
@@ -93,15 +93,15 @@ function neonBricks(g, W, H, { rows, cols, gap, tones }) {
   g.lineCap = "round";
 
   // Soft outer halo.
-  g.shadowColor = "rgba(235,240,250,0.95)";
+  g.shadowColor = "rgba(241,175,179,0.95)";
   g.shadowBlur = 11;
-  g.strokeStyle = "rgba(220,226,238,0.85)";
+  g.strokeStyle = "rgba(238,159,164,0.85)";
   g.lineWidth = gap;
   hSeam(); vSeams();
 
   // Brighter mid glow.
   g.shadowBlur = 6;
-  g.strokeStyle = "#e9edf5";
+  g.strokeStyle = "#f0abb0";
   g.lineWidth = gap * 0.6;
   hSeam(); vSeams();
 
@@ -116,15 +116,15 @@ function neonBricks(g, W, H, { rows, cols, gap, tones }) {
 
 export const WALL_THEME = {
   id: "neon-vault", name: "Neon Vault",
-  stone: 0x0d0d10, stoneEmissive: 0x050506, stone2: 0x151519,
-  trim: 0xffc21a, trimEmissive: 0x6a4300,
-  glow: 0xffd23a, glowEmissive: 0xffb400,
-  crystal: 0xffc84a, crystalEmissive: 0xd2920a,
+  stone: 0x130a0b, stoneEmissive: 0x070404, stone2: 0x1d1111,
+  trim: 0xff1222, trimEmissive: 0x620007,
+  glow: 0xff2937, glowEmissive: 0xeb0010,
+  crystal: 0xff3441, crystalEmissive: 0xc10915,
   drawFace(g, W, H) {
     // Near-black bricks in a running bond, every seam a glowing white neon line.
     neonBricks(g, W, H, {
       rows: 4, cols: 4, gap: 6,
-      tones: ["#0e0e12", "#111116", "#0b0b0e", "#141419"],
+      tones: ["#140c0c", "#190e0f", "#100909", "#1d1011"],
     });
   },
 };

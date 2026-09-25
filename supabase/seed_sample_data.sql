@@ -6,7 +6,7 @@
 -- editor or run:  psql "$DATABASE_URL" -f supabase/seed_sample_data.sql
 -- Run AFTER fresh_setup.sql (the schema must already exist).
 --
--- Entry fee is 10,000 $FIGHT10 per player.
+-- Entry fee is 10,000 $GULAG per player.
 -- ============================================================================
 
 -- Global PvP tunables (single-row). The entry-fee guard trigger blocks changes
