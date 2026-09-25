@@ -911,13 +911,11 @@ export function createArenaGame(options) {
     }
     x.putImageData(img, 0, 0);
   }
-  // Rainbow TV static — the king's skin (the glittery grey hand and ape face of
-  // the character art). A higher floor `lo` gives the paler static of his
-  // facial features.
-  function paintStatic(x, size, lo = 70) {
+  // Rainbow TV static — the king's glittery grey gloves.
+  function paintStatic(x, size) {
     const img = x.createImageData(size, size), d = img.data;
     for (let i = 0; i < d.length; i += 4) {
-      d[i] = lo + Math.random() * (255 - lo); d[i + 1] = lo + Math.random() * (255 - lo); d[i + 2] = lo + Math.random() * (255 - lo);
+      d[i] = 70 + Math.random() * 185; d[i + 1] = 70 + Math.random() * 185; d[i + 2] = 70 + Math.random() * 185;
       d[i + 3] = 255;
     }
     x.putImageData(img, 0, 0);
@@ -937,13 +935,13 @@ export function createArenaGame(options) {
   // the box's proportions. Each face starts on a random whole cell so
   // neighbouring boxes don't repeat the same corner of the pattern.
   const MOSAIC_TILE = 0.8; // world units per texture repeat (16 cells)
-  function mosaicUv(mesh, w, h, d, tex, tile = MOSAIC_TILE) {
+  function mosaicUv(mesh, w, h, d, tex) {
     const uv = mesh.geometry.attributes.uv;
     // BoxGeometry face order: +x, -x, +y, -y, +z, -z; 4 vertices each.
     [[d, h], [d, h], [w, d], [w, d], [w, h], [w, h]].forEach(([fu, fv], f) => {
       const ou = Math.floor(Math.random() * 16) / 16, ov = Math.floor(Math.random() * 16) / 16;
       for (let i = f * 4; i < f * 4 + 4; i++) {
-        uv.setXY(i, ou + uv.getX(i) * fu / tile, ov + uv.getY(i) * fv / tile);
+        uv.setXY(i, ou + uv.getX(i) * fu / MOSAIC_TILE, ov + uv.getY(i) * fv / MOSAIC_TILE);
       }
     });
     mesh.material.map = tex;
@@ -992,52 +990,42 @@ export function createArenaGame(options) {
       ((c0 + c1 + 1) / 2 - cols / 2) * cell, (rows / 2 - (r0 + r1 + 1) / 2) * cell, 0
     ]);
   }
-  // pixelMapBoxes for one glyph inside a boxCluster: centred on `at` (relative
-  // to the cluster origin) and swung `turn` about the vertical, e.g. onto a side
-  // of the head. boxCluster rotates positions by `turn` too, so `at` is
-  // pre-rotated the other way.
-  function glyphSpecs(map, cell, depth, at, turn = 0) {
-    const c = Math.cos(turn), s = Math.sin(turn);
-    const px = at[0] * c - at[2] * s, pz = at[0] * s + at[2] * c;
-    return pixelMapBoxes(map, cell, depth).map(([w, h, d, x, y]) => [w, h, d, x + px, y + at[1], pz, 0, turn]);
-  }
-  const mirrorMap = (map) => map.map((row) => [...row].reverse().join(""));
-  // The king's "?" ear, nostril curl and two-stroke smirk, cut from the face
-  // traced off the character art ("#" = pale pixel). The rest of that face —
-  // brow ridge, lidded eyes, cheek rims — is sculpted directly in buildKingBody.
-  const KING_NOSTRIL = [
-    "....###..",
-    ".########",
-    ".###..###",
-    "###...#..",
-    "....###..",
-    ".#####...",
-    ".#####..."
-  ];
-  const KING_EAR = [
-    "...#####.",
-    "..######.",
-    "########.",
-    "###..####",
-    "###..####",
-    "###..####",
-    "###..####",
-    ".....####",
-    "...######",
-    "...#####.",
-    "...#####.",
-    "...#####.",
-    "...###..."
-  ];
-  const KING_MOUTH = [
-    "...........####",
-    ".........#####.",
-    "........###....",
-    "#...####....###",
-    ".###.......####",
-    ".........####..",
-    "........####...",
-    "....######....."
+  // The king's face, traced from the character art: a brow that sweeps down
+  // into the nose, lidded square eyes, the "?" ear, the nostril curl and a
+  // two-stroke smirk. It is the head's shape — each "#" extrudes into a white
+  // column, with the gold core filling the gaps between them.
+  const KING_FACE = [
+    "...###..########..............#####.",
+    "..#################..........######.",
+    "###################........########.",
+    "###########..#######.......###..####",
+    ".....#####.....#####.......###..####",
+    "..###......###..######.....###..####",
+    "................######.....###..####",
+    "...###.....###..######..........####",
+    "...###.....###..######........######",
+    "...###.....###..######........#####.",
+    "................######........#####.",
+    "................######........#####.",
+    "......###.......#####.........###...",
+    "...########.....####................",
+    "...###..###......##.................",
+    "..###...#...........................",
+    "......###...........................",
+    "...#####............................",
+    "...#####............................",
+    "....................................",
+    "....................................",
+    "....................................",
+    "....................................",
+    ".............####...................",
+    "...........#####....................",
+    "..........###.......................",
+    "..#...####....###...................",
+    "...###.......####...................",
+    "...........####.....................",
+    "..........####......................",
+    "......######........................"
   ];
   // glowColor (optional hex) turns the blade into the knight's glowing sword.
   function makeSword(glowColor) {
@@ -1297,11 +1285,11 @@ export function createArenaGame(options) {
       }
     };
   }
-  // Style "3": the crowned king — an ape in a gold pixel-mosaic suit: static
-  // skin (head and hands) with pale static features, gold fleur-de-lis crown,
-  // sequinned emerald bow tie, white shirt V and pocket square. Small
-  // same-material details are batched with boxCluster, so it costs fewer draw
-  // calls than the others.
+  // Style "3": the crowned king — gold pixel-mosaic suit, a head that is the
+  // traced face itself (KING_FACE, extruded white on a gold core), gold
+  // fleur-de-lis crown, sequinned emerald bow tie, white shirt V and pocket
+  // square, rainbow-static gloves. Small same-material details are batched
+  // with boxCluster, so it costs fewer draw calls than the others.
   function buildKingBody(P) {
     const mosaic = makePixelTex(64, paintMosaic);
     const suit = (w, h, d, color) => mosaicUv(box(w, h, d, color), w, h, d, mosaic);
@@ -1334,7 +1322,7 @@ export function createArenaGame(options) {
       [0.09, 0.10, 0.05, -0.075, 0, 0], [0.09, 0.10, 0.05, 0.075, 0, 0],
       [0.07, 0.16, 0.05, -0.15, 0, 0], [0.07, 0.16, 0.05, 0.15, 0, 0]
     ]);
-    // Arms — mosaic sleeves, white shirt cuffs, rainbow-static hands
+    // Arms — mosaic sleeves, white shirt cuffs, static-glitter gloves
     const armL = suitLimb(0.28, 0.54, 0.28, P.gi), armR = suitLimb(0.28, 0.54, 0.28, P.gi);
     armL.position.set(-0.64, 1.68, 0); armR.position.set(0.64, 1.68, 0);
     const glitter = makePixelTex(32, paintStatic);
@@ -1343,33 +1331,16 @@ export function createArenaGame(options) {
     const gloveL = box(0.29, 0.24, 0.29, P.hair); gloveL.position.y = -0.72; gloveL.material.map = glitter;
     const gloveR = box(0.29, 0.24, 0.29, P.hair); gloveR.position.y = -0.72; gloveR.material.map = glitter;
     armL.add(cuffL, gloveL); armR.add(cuffR, gloveR);
-    // Head — a solid ape head, as in the character art (whose flat face shapes
-    // are this head's pale features seen in 3/4 view). Static skin like his
-    // hands: cranium, jaw, a muzzle jutting forward and ears standing off the
-    // sides. Pale static relief: a brow ridge over deep-set lidded eyes, cheek
-    // rims, the traced nostril curls and smirk on the muzzle, a "?" on each ear.
-    const skinBox = (w, h, d) => mosaicUv(box(w, h, d, P.skin), w, h, d, glitter, 0.3);
-    const cranium = skinBox(0.52, 0.30, 0.50); cranium.position.set(0, 2.27, -0.03);
-    const skull = skinBox(0.44, 0.22, 0.04); skull.position.set(0, 2.26, -0.30);
-    const jaw = skinBox(0.44, 0.20, 0.44); jaw.position.set(0, 2.02, -0.01);
-    const muzzle = skinBox(0.34, 0.22, 0.16); muzzle.position.set(0, 2.07, 0.29);
-    const earL = skinBox(0.06, 0.20, 0.16); earL.position.set(-0.29, 2.26, -0.04);
-    const earR = skinBox(0.06, 0.20, 0.16); earR.position.set(0.29, 2.26, -0.04);
-    const pale = new THREE.MeshStandardMaterial({ map: makePixelTex(16, (x, n) => paintStatic(x, n, 200)), roughness: 0.8, metalness: 0 });
-    const features = boxCluster(pale, [0, 2.17, 0.1], [
-      // brow ridge overhanging the eyes (in segments, so the static on these
-      // unit-box instances isn't stretched), cheek rims down the front corners
-      ...[-0.2, -0.1, 0, 0.1, 0.2].map((x) => [0.1, 0.07, 0.08, x, 0.165, 0.14]),
-      [0.05, 0.16, 0.06, -0.235, 0.05, 0.11], [0.05, 0.16, 0.06, 0.235, 0.05, 0.11],
-      // lidded square eyes, set back under the brow
-      [0.07, 0.018, 0.02, -0.1, 0.115, 0.125], [0.07, 0.018, 0.02, 0.1, 0.115, 0.125],
-      [0.055, 0.05, 0.02, -0.1, 0.065, 0.125], [0.055, 0.05, 0.02, 0.1, 0.065, 0.125],
-      ...glyphSpecs(KING_NOSTRIL, 0.012, 0.02, [0.075, -0.04, 0.275]),
-      ...glyphSpecs(mirrorMap(KING_NOSTRIL), 0.012, 0.02, [-0.075, -0.04, 0.275]),
-      ...glyphSpecs(KING_MOUTH, 0.012, 0.02, [0, -0.15, 0.275]),
-      ...glyphSpecs(KING_EAR, 0.014, 0.02, [0.33, 0.09, -0.14], Math.PI / 2),
-      ...glyphSpecs(mirrorMap(KING_EAR), 0.014, 0.02, [-0.33, 0.09, -0.14], -Math.PI / 2)
-    ]);
+    // Head — the traced face itself, extruded: white pixel columns running back
+    // from the front, set into a gold core that fills every gap between them.
+    // The core stops 0.16 short of the front, so the face stands out in deep
+    // relief, and the columns stop short of the back, so the back of the head
+    // is plain gold. The core steps in over the last four rows for a rounded
+    // chin and is inset a hair elsewhere so none of its faces meet a column's.
+    const face = boxCluster(shirt, [0, 2.165, 0.02], pixelMapBoxes(KING_FACE, 0.0158, 0.46));
+    const core = suit(0.563, 0.424, 0.34, P.skin); core.position.set(0, 2.195, -0.08);
+    const coreChin = suit(0.537, 0.032, 0.34, P.skin); coreChin.position.set(0, 1.967, -0.08);
+    const coreChinTip = suit(0.506, 0.028, 0.34, P.skin); coreChinTip.position.set(0, 1.937, -0.08);
     // Crown — band with a fleur-de-lis on each side, a low cap under crossed
     // arches, orb with a fleur finial, pale-gold rope rims and rosettes. One
     // gold material so recolorFighter re-tints the whole crown via the trim
@@ -1406,10 +1377,10 @@ export function createArenaGame(options) {
       legL, legR, armL, armR,
       nodes: [
         legL, legR, torso, padL, padR, shirtV, pocket, pocketTip, bow, armL, armR,
-        cranium, skull, jaw, muzzle, earL, earR, features, crown, crownTrim, ...arches
+        face, core, coreChin, coreChinTip, crown, crownTrim, ...arches
       ],
       parts: {
-        skin: [cranium.material, skull.material, jaw.material, muzzle.material, earL.material, earR.material],
+        skin: [core.material, coreChin.material, coreChinTip.material],
         gi: [torso.material, padL.material, padR.material, armL.mesh.material, armR.mesh.material],
         trim: [gold],
         pants: [legL.mesh.material, legR.mesh.material],
