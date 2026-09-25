@@ -118,6 +118,18 @@ created on sign-in with `profiles.onboarded = false`; the picker saves the choic
 via `complete_onboarding` and flips the flag. Existing players are backfilled to
 `onboarded = true`, so nobody is re-prompted.
 
+## Skins
+
+Players pick a skin at first sign-in or in **Profile → Appearance**: **Fighter**
+(1), **Knight** (2) or **Degent** (3), a crowned ape in a black suit carrying a
+whiskey bottle. All three are built from boxes in `src/game.js`. The Degent's
+crown and bottle are the real 3D meshes from the Degent model. They ship as
+`assets/models/degent.glb` (64 KB, loaded only when a Degent is on screen),
+generated from `art/degent-source.gltf` by `scripts/build-degent-model.mjs`.
+The script header says how to re-run it after editing the model. Which skins a
+player owns is server-managed (`profiles.skins`); the `20260925_degent_skin`
+migration adds skin 3 for everyone.
+
 ## Development
 
 ```sh
