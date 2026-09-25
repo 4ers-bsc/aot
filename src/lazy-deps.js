@@ -16,5 +16,5 @@ export const importSplToken = () => import("@solana/spl-token");
 export const importBuffer = () => import("buffer");
 export const importDevtoolsDetector = () => import("devtools-detector");
 // three.js' glTF loader — only needed once a Degent (skin 3) is on screen, to
-// load that skin's crown + bottle (assets/models/degent.glb).
+// load that skin's crown (assets/models/degent.glb).
 export const importGLTFLoader = () => import("three/examples/jsm/loaders/GLTFLoader.js");

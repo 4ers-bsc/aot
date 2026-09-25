@@ -1,20 +1,19 @@
 #!/usr/bin/env node
-// Builds assets/models/degent.glb, the runtime props for the Degent skin
+// Builds assets/models/degent.glb, the runtime crown for the Degent skin
 // (skin 3), from the source model in art/degent-source.gltf.
 //
 // The source is a Blender export of the Degent PFP: a flat, extruded
-// ape-in-a-suit silhouette plus real 3D props — a spiky crown, a whiskey
-// bottle and the hand gripping it. A flat cut-out can't stand in for a 3D
-// fighter (edge-on it's a plank, and it has no legs or rig), so the game
-// rebuilds the body in its own voxel style (buildDegentBody in src/game.js)
-// and takes the two signature props straight from the model. This script:
-//   1. decodes the Draco source and pulls out the crown and the bottle,
-//   2. bakes the model's own scaling (and the crown's tilt) into the vertices,
-//   3. welds + simplifies them (the bottle alone is ~44k triangles),
-//   4. recomputes crease-aware normals so flat faces stay crisp,
-//   5. splits the bottle into glass and a dark label + cap part,
-//   6. normalizes each prop to unit size, standing on y = 0,
-//   7. writes a small, uncompressed GLB (no decoder needed at runtime).
+// ape-in-a-suit silhouette plus a few real 3D props (a spiky crown, a bottle
+// and the hand gripping it). A flat cut-out can't stand in for a 3D fighter
+// (edge-on it's a plank, and it has no legs or rig), so the game rebuilds the
+// body in its own voxel style (buildDegentBody in src/game.js) and takes the
+// signature crown straight from the model. This script:
+//   1. decodes the Draco source and pulls out the crown,
+//   2. bakes the model's own scale and tilt into its vertices,
+//   3. welds + simplifies it,
+//   4. recomputes crease-aware normals so the spike edges stay crisp,
+//   5. normalizes it to unit width, standing on y = 0,
+//   6. writes a small, uncompressed GLB (no decoder needed at runtime).
 //
 // The tooling is not a project dependency; install it ad hoc, then run:
 //   npm i --no-save @gltf-transform/core@4 @gltf-transform/extensions@4 draco3dgltf@1 meshoptimizer@1
@@ -28,10 +27,9 @@ import { MeshoptSimplifier } from "meshoptimizer";
 const SRC = process.argv[2] || "art/degent-source.gltf";
 const OUT = process.argv[3] || "assets/models/degent.glb";
 
-// Triangle budgets: detailed enough for the APPEARANCE preview close-up, cheap
+// Triangle budget: detailed enough for the APPEARANCE preview close-up, cheap
 // enough for ten fighters (plus the shadow pass) in a PvP match.
 const CROWN_TRIS = 900;
-const BOTTLE_TRIS = 700;
 const CREASE_DEG = 40;
 
 const io = new NodeIO()
@@ -55,16 +53,16 @@ function rotate([qx, qy, qz, qw], [x, y, z]) {
   ];
 }
 
-// Pull one node's triangles out of the source, with its scale (and optionally
-// its rotation) baked in. Translation is dropped: each prop is re-centred.
-function extract(nodeName, { bakeRotation }) {
+// Pull one node's triangles out of the source with its scale and rotation
+// baked in. Translation is dropped: the mesh is re-centred by normalize().
+function extract(nodeName) {
   const node = src.getRoot().listNodes().find((n) => n.getName() === nodeName);
   if (!node?.getMesh()) throw new Error(`source has no mesh node named "${nodeName}"`);
   const prim = node.getMesh().listPrimitives()[0];
   const pos = prim.getAttribute("POSITION").getArray();
   const idx = prim.getIndices()?.getArray() ?? Uint32Array.from({ length: pos.length / 3 }, (_, i) => i);
   const [sx, sy, sz] = node.getScale();
-  const q = bakeRotation ? node.getRotation() : [0, 0, 0, 1];
+  const q = node.getRotation();
   const positions = new Float32Array(pos.length);
   for (let i = 0; i < pos.length; i += 3) {
     positions.set(rotate(q, [pos[i] * sx, pos[i + 1] * sy, pos[i + 2] * sz]), i);
@@ -109,11 +107,12 @@ function weld({ positions, indices }) {
   return { positions: Float32Array.from(out), indices: Uint32Array.from(tris) };
 }
 
-// Keep only the vertices `tris` references, renumbered.
-function compact(positions, tris) {
+// Simplify towards targetTris, then keep only the vertices still referenced.
+function simplify({ positions, indices }, targetTris) {
+  const [tris, error] = MeshoptSimplifier.simplify(indices, positions, 3, targetTris * 3, 0.02);
   const used = new Map();
   const out = [];
-  const indices = new Uint32Array(tris.length);
+  const remapped = new Uint32Array(tris.length);
   tris.forEach((v, i) => {
     let id = used.get(v);
     if (id === undefined) {
@@ -121,46 +120,9 @@ function compact(positions, tris) {
       used.set(v, id);
       out.push(positions[3 * v], positions[3 * v + 1], positions[3 * v + 2]);
     }
-    indices[i] = id;
+    remapped[i] = id;
   });
-  return { positions: Float32Array.from(out), indices };
-}
-
-// Simplify a mesh whose faces are split into material groups (group[f]).
-// Each group gets its own copy of the vertices on a group boundary, which the
-// simplifier treats as a seam: it can slide collapses along the boundary but
-// never across it, so every part keeps a clean edge and the parts still meet
-// exactly. Returns one compacted mesh per group.
-function simplifyGroups({ positions, indices }, group, groupCount, targetTris) {
-  const ids = new Map();
-  const pos = [];
-  const vertexGroup = [];
-  const split = new Uint32Array(indices.length);
-  for (let f = 0; f < indices.length / 3; f++) {
-    for (let k = 0; k < 3; k++) {
-      const v = indices[3 * f + k];
-      const key = v * groupCount + group[f];
-      let id = ids.get(key);
-      if (id === undefined) {
-        id = pos.length / 3;
-        ids.set(key, id);
-        pos.push(positions[3 * v], positions[3 * v + 1], positions[3 * v + 2]);
-        vertexGroup.push(group[f]);
-      }
-      split[3 * f + k] = id;
-    }
-  }
-  const splitPos = Float32Array.from(pos);
-  const [out, error] = MeshoptSimplifier.simplify(split, splitPos, 3, targetTris * 3, 0.02);
-  const parts = [];
-  for (let g = 0; g < groupCount; g++) {
-    const tris = [];
-    for (let t = 0; t < out.length; t += 3) {
-      if (vertexGroup[out[t]] === g) tris.push(out[t], out[t + 1], out[t + 2]);
-    }
-    parts.push({ ...compact(splitPos, tris), error });
-  }
-  return parts;
+  return { positions: Float32Array.from(out), indices: remapped, error };
 }
 
 // Cross product of triangle f's edges: its normal, scaled by twice its area.
@@ -171,14 +133,8 @@ function faceCross({ positions, indices }, f) {
   return [e1[1] * e2[2] - e1[2] * e2[1], e1[2] * e2[0] - e1[0] * e2[2], e1[0] * e2[1] - e1[1] * e2[0]];
 }
 
-function faceNormal(mesh, f) {
-  const n = faceCross(mesh, f);
-  const len = Math.hypot(...n) || 1;
-  return n.map((v) => v / len);
-}
-
 // Area-weighted vertex normals that only average faces within CREASE_DEG of
-// each other, splitting vertices along hard edges (the bottle's flat faces).
+// each other, splitting vertices along hard edges (the spikes' ridges).
 function creasedNormals(mesh) {
   const { positions, indices } = mesh;
   const faces = indices.length / 3;
@@ -186,8 +142,10 @@ function creasedNormals(mesh) {
   const weighted = new Float32Array(faces * 3);
   const around = Array.from({ length: positions.length / 3 }, () => []);
   for (let f = 0; f < faces; f++) {
-    weighted.set(faceCross(mesh, f), 3 * f);
-    unit.set(faceNormal(mesh, f), 3 * f);
+    const n = faceCross(mesh, f);
+    const len = Math.hypot(...n) || 1;
+    weighted.set(n, 3 * f);
+    unit.set(n.map((v) => v / len), 3 * f);
     for (let k = 0; k < 3; k++) around[indices[3 * f + k]].push(f);
   }
   const cos = Math.cos((CREASE_DEG * Math.PI) / 180);
@@ -218,10 +176,11 @@ function creasedNormals(mesh) {
   return { positions: Float32Array.from(outPos), normals: Float32Array.from(outNrm), indices: tris };
 }
 
-// Re-centre on X/Z, stand on y = 0 and scale uniformly so `measure(size)` = 1.
-function normalize(mesh, measure) {
+// Re-centre on X/Z, stand on y = 0 and scale uniformly to unit width (the
+// wider of X and Z).
+function normalize(mesh) {
   const { min, max, size } = bounds(mesh.positions);
-  const s = 1 / measure(size);
+  const s = 1 / Math.max(size[0], size[2]);
   const cx = (min[0] + max[0]) / 2, cz = (min[2] + max[2]) / 2;
   for (let i = 0; i < mesh.positions.length; i += 3) {
     mesh.positions[i] = (mesh.positions[i] - cx) * s;
@@ -231,79 +190,29 @@ function normalize(mesh, measure) {
   return mesh;
 }
 
-function prepare(nodeName, { bakeRotation, swapXZ = false }) {
-  const raw = extract(nodeName, { bakeRotation });
-  if (swapXZ) {
-    // Turn the prop a quarter about Y (x, z) -> (z, -x).
-    for (let i = 0; i < raw.positions.length; i += 3) {
-      const x = raw.positions[i];
-      raw.positions[i] = raw.positions[i + 2];
-      raw.positions[i + 2] = -x;
-    }
-  }
-  return weld(raw);
-}
-
-function report(label, source, parts) {
-  const tris = parts.reduce((n, p) => n + p.indices.length / 3, 0);
-  console.log(`${label}: ${source.indices.length / 3} -> ${tris} tris (error ${parts[0].error.toFixed(4)})`);
-}
-
 // -- Crown --------------------------------------------------------------------
 // Keeps the model's own tilt and spin, so the spikes read exactly as they do
-// on the PFP from the front. Unit width (the wider of X/Z).
-const crownSrc = normalize(prepare("head - spikey-crown", { bakeRotation: true }), (s) => Math.max(s[0], s[2]));
-const [crownSimple] = simplifyGroups(crownSrc, new Uint8Array(crownSrc.indices.length / 3), 1, CROWN_TRIS);
-report("crown", crownSrc, [crownSimple]);
+// on the PFP from the front.
+const crownSrc = normalize(weld(extract("head - spikey-crown")));
+const crownSimple = simplify(crownSrc, CROWN_TRIS);
+console.log(`crown: ${crownSrc.indices.length / 3} -> ${crownSimple.indices.length / 3} tris (error ${crownSimple.error.toFixed(4)})`);
 const crown = creasedNormals(crownSimple);
-
-// -- Bottle -------------------------------------------------------------------
-// Upright (the held tilt is posed in code), turned so the broad faces look
-// along ±Z, i.e. the label faces the camera from the fighter's side. Unit height.
-const bottle = normalize(prepare("hand - bottle - carafe", { bakeRotation: false, swapXZ: true }), (s) => s[1]);
-// Split into glass and a dark label + cap on the full-resolution mesh, where
-// the boundaries are exact: the cap is everything above the neck (which ends
-// at 218.5 of the source's 245 units); the label is the recessed band on the
-// broad front/back faces (source units 24–134).
-const CAP_FROM = 218.5 / 245, LABEL_FROM = 20 / 245, LABEL_TO = 136 / 245;
-function isDark(f) {
-  let minY = Infinity, y = 0;
-  for (let k = 0; k < 3; k++) {
-    const vy = bottle.positions[3 * bottle.indices[3 * f + k] + 1];
-    minY = Math.min(minY, vy);
-    y += vy / 3;
-  }
-  if (minY >= CAP_FROM - 1e-4) return true;
-  return y > LABEL_FROM && y < LABEL_TO && Math.abs(faceNormal(bottle, f)[2]) > 0.9;
-}
-const bottleGroups = Uint8Array.from({ length: bottle.indices.length / 3 }, (_, f) => (isDark(f) ? 1 : 0));
-const [glassSimple, darkSimple] = simplifyGroups(bottle, bottleGroups, 2, BOTTLE_TRIS);
-report("bottle", bottle, [glassSimple, darkSimple]);
-const bottleGlass = creasedNormals(glassSimple);
-const bottleDark = creasedNormals(darkSimple);
 
 // -- Write --------------------------------------------------------------------
 const doc = new Document();
 doc.createBuffer();
-const scene = doc.createScene("degent");
-function addMesh(name, mesh, color, { metallic = 0, roughness = 0.6 } = {}) {
-  const material = doc.createMaterial(name)
-    .setBaseColorFactor([...color, 1])
-    .setMetallicFactor(metallic)
-    .setRoughnessFactor(roughness);
-  const prim = doc.createPrimitive()
-    .setAttribute("POSITION", doc.createAccessor().setType("VEC3").setArray(mesh.positions))
-    .setAttribute("NORMAL", doc.createAccessor().setType("VEC3").setArray(mesh.normals))
-    .setIndices(doc.createAccessor().setType("SCALAR").setArray(
-      mesh.positions.length / 3 > 65535 ? mesh.indices : Uint16Array.from(mesh.indices)))
-    .setMaterial(material);
-  scene.addChild(doc.createNode(name).setMesh(doc.createMesh(name).addPrimitive(prim)));
-  console.log(`  ${name}: ${mesh.indices.length / 3} tris, ${mesh.positions.length / 3} verts`);
-}
-// Colours only matter for viewing the GLB on its own; the game re-materials
-// every part from the skin preset (APPEARANCE_PRESETS[3]).
-addMesh("crown", crown, [0.69, 0.5, 0.02], { metallic: 0.6, roughness: 0.35 });
-addMesh("bottleGlass", bottleGlass, [0.35, 0.12, 0.02], { roughness: 0.25 });
-addMesh("bottleDark", bottleDark, [0.02, 0.02, 0.02], { roughness: 0.5 });
+// The colour only matters for viewing the GLB on its own; the game re-materials
+// the crown with the skin's gold (APPEARANCE_PRESETS[3].trim).
+const material = doc.createMaterial("crown")
+  .setBaseColorFactor([0.69, 0.5, 0.02, 1])
+  .setMetallicFactor(0.6)
+  .setRoughnessFactor(0.35);
+const prim = doc.createPrimitive()
+  .setAttribute("POSITION", doc.createAccessor().setType("VEC3").setArray(crown.positions))
+  .setAttribute("NORMAL", doc.createAccessor().setType("VEC3").setArray(crown.normals))
+  .setIndices(doc.createAccessor().setType("SCALAR").setArray(
+    crown.positions.length / 3 > 65535 ? crown.indices : Uint16Array.from(crown.indices)))
+  .setMaterial(material);
+doc.createScene("degent").addChild(doc.createNode("crown").setMesh(doc.createMesh("crown").addPrimitive(prim)));
 await io.write(OUT, doc);
-console.log(`wrote ${OUT}`);
+console.log(`wrote ${OUT}: ${crown.indices.length / 3} tris, ${crown.positions.length / 3} verts`);

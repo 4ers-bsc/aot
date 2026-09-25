@@ -50,35 +50,32 @@ const aiSpeedFor = (w) => (w.ranged ? 4.6 : 5.6);
 // tag matches the format shown for real players.
 function randomAiLevel() { return 1 + Math.floor(Math.random() * 15); }
 
-// -- Degent props -------------------------------------------------------------
-// The Degent skin (style "3") wears the crown and carries the bottle from the
-// Degent model, prepared by scripts/build-degent-model.mjs: unit-sized meshes
-// standing on y = 0. The GLB (and three's glTF loader) are fetched on first
-// use; bodies built before it lands get their props attached when it does.
+// -- Degent crown -------------------------------------------------------------
+// The Degent skin (style "3") wears the crown from the Degent model, prepared
+// by scripts/build-degent-model.mjs as a unit-width mesh standing on y = 0.
+// The GLB (and three's glTF loader) are fetched on first use; bodies built
+// before it lands get their crown when it does.
 const DEGENT_MODEL_URL = "/models/degent.glb";
-let degentProps = null;        // { crown, bottleGlass, bottleDark } geometries
-let degentPropsLoading = null;
-function loadDegentProps() {
-  if (!degentPropsLoading) {
-    degentPropsLoading = importGLTFLoader()
+let degentCrown = null;        // the crown's geometry, once loaded
+let degentCrownLoading = null;
+function loadDegentCrown() {
+  if (!degentCrownLoading) {
+    degentCrownLoading = importGLTFLoader()
       .then(({ GLTFLoader }) => new GLTFLoader().loadAsync(DEGENT_MODEL_URL))
       .then((gltf) => {
-        const geometry = (name) => {
-          const mesh = gltf.scene.getObjectByName(name);
-          if (!mesh?.isMesh) throw new Error(`${DEGENT_MODEL_URL} has no "${name}" mesh`);
-          return mesh.geometry;
-        };
-        degentProps = { crown: geometry("crown"), bottleGlass: geometry("bottleGlass"), bottleDark: geometry("bottleDark") };
-        return degentProps;
+        const mesh = gltf.scene.getObjectByName("crown");
+        if (!mesh?.isMesh) throw new Error(`${DEGENT_MODEL_URL} has no "crown" mesh`);
+        degentCrown = mesh.geometry;
+        return degentCrown;
       })
       .catch((err) => {
-        // The Degent still plays without its props; a later body retries.
+        // The Degent still plays without its crown; a later body retries.
         console.error("Degent model unavailable:", err);
-        degentPropsLoading = null;
+        degentCrownLoading = null;
         return null;
       });
   }
-  return degentPropsLoading;
+  return degentCrownLoading;
 }
 
 // -- Device quality tier ------------------------------------------------------
@@ -1162,10 +1159,10 @@ export function createArenaGame(options) {
       }
     };
   }
-  // Style "3": the Degent — a crowned ape in a black suit, swinging a whiskey
-  // bottle. The model's flat PFP silhouette is rebuilt in voxels, with gold
-  // where the logo has negative space (shirt V, pocket square, face lines);
-  // the crown and the bottle are the model's own 3D meshes (degentProps).
+  // Style "3": the Degent — a white-faced, crowned ape in a black suit. The
+  // model's flat PFP silhouette is rebuilt in voxels, with gold where the logo
+  // has negative space (shirt V, pocket square, face lines); the crown is the
+  // model's own 3D mesh (degentCrown).
   function buildDegentBody(P) {
     // Legs — suit trousers over black dress shoes
     const legL = limb(0.36, 0.68, 0.36, P.pants), legR = limb(0.36, 0.68, 0.36, P.pants);
@@ -1188,15 +1185,16 @@ export function createArenaGame(options) {
     const btnB = box(0.06, 0.06, 0.03, P.trim); btnB.position.set(0, 1.13, 0.31);
     const pocket = box(0.16, 0.05, 0.04, P.trim); pocket.position.set(0.31, 1.70, 0.31);
     const pocketPeak = box(0.06, 0.05, 0.04, P.trim); pocketPeak.position.set(0.28, 1.75, 0.31);
-    // Arms — long ape arms in suit sleeves, gold shirt cuffs, bare hands
+    // Arms — long ape arms in suit sleeves, gold shirt cuffs, bare dark hands
+    // (a fixed tone: the palette's skin is the white face)
     const armL = limb(0.28, 0.66, 0.28, P.gi), armR = limb(0.28, 0.66, 0.28, P.gi);
     armL.position.set(-0.66, 1.74, 0); armR.position.set(0.66, 1.74, 0);
     const cuffL = box(0.30, 0.06, 0.30, P.trim); cuffL.position.y = -0.68;
     const cuffR = box(0.30, 0.06, 0.30, P.trim); cuffR.position.y = -0.68;
-    const handL = box(0.26, 0.22, 0.28, P.skin); handL.position.y = -0.81;
-    const handR = box(0.26, 0.22, 0.28, P.skin); handR.position.y = -0.81;
+    const handL = box(0.26, 0.22, 0.28, 0x3a2c25); handL.position.y = -0.81;
+    const handR = box(0.26, 0.22, 0.28, 0x3a2c25); handR.position.y = -0.81;
     armL.add(cuffL, handL); armR.add(cuffR, handR);
-    // Head — big, hunched low and forward between the shoulders: a bare face
+    // Head — big, hunched low and forward between the shoulders: a white face
     // with a muzzle, a heavy gold brow, gold eyes under drooping lids, a smirk,
     // ears with gold inners, and the crown. Features sit relative to the head's centre.
     const headGroup = new THREE.Group(); headGroup.position.set(0, 2.17, 0.07);
@@ -1229,16 +1227,7 @@ export function createArenaGame(options) {
     const crown = new THREE.Group(); crown.position.set(0, 0.22, -0.02); crown.scale.setScalar(0.6);
     headGroup.add(head, face, muzzle, brow, eyeL, eyeR, lidL, lidR, pupilL, pupilR, nostrilL, nostrilR, mouth, smirk,
                   earL, earR, earInL, earInR, crown);
-    // The bottle, gripped at the base of its neck in the left hand: the neck
-    // pokes out in front of the fist and the body swings out and back
-    const bottle = new THREE.Group(); bottle.position.set(0, -0.84, 0.08); bottle.rotation.set(0.4, 0, -0.25); bottle.scale.setScalar(0.72);
-    armL.add(bottle);
-    // The bottle is unit height and its neck starts 70% up: sink it that far.
-    mountDegentProps([
-      { mount: crown, key: "crown", material: crownMat },
-      { mount: bottle, key: "bottleGlass", y: -0.7, material: new THREE.MeshStandardMaterial({ color: 0x8c3e12, roughness: 0.3, metalness: 0.1 }) },
-      { mount: bottle, key: "bottleDark", y: -0.7, material: new THREE.MeshStandardMaterial({ color: 0x0c0c0e, roughness: 0.55, metalness: 0.05 }) }
-    ]);
+    mountDegentCrown(crown, crownMat);
     return {
       legL, legR, armL, armR,
       nodes: [
@@ -1246,7 +1235,7 @@ export function createArenaGame(options) {
         armL, armR, headGroup
       ],
       parts: {
-        skin: [face.material, muzzle.material, handL.material, handR.material],
+        skin: [face.material, muzzle.material],
         gi: [torso.material, skirt.material, padL.material, padR.material, armL.mesh.material, armR.mesh.material],
         trim: [crownMat, shirt.material, btnA.material, btnB.material, pocket.material, pocketPeak.material,
                cuffL.material, cuffR.material, brow.material, eyeL.material, eyeR.material, mouth.material,
@@ -1256,25 +1245,22 @@ export function createArenaGame(options) {
       }
     };
   }
-  // Hang the Degent's crown/bottle meshes in their mounts, `y` above each
-  // mount's origin. Each body gets its own copy of the shared prop geometry, so
-  // disposeObject3D can free a body without pulling buffers out from another.
-  function mountDegentProps(slots) {
-    const fill = (props) => {
-      for (const { mount, key, material, y = 0 } of slots) {
-        const m = new THREE.Mesh(props[key].clone(), material);
-        m.position.y = y;
-        m.castShadow = true;
-        m.receiveShadow = true;
-        mount.add(m);
-      }
+  // Hang the Degent's crown in its mount. Each body gets its own copy of the
+  // shared crown geometry, so disposeObject3D can free a body without pulling
+  // buffers out from under another.
+  function mountDegentCrown(mount, material) {
+    const fill = (geometry) => {
+      const m = new THREE.Mesh(geometry.clone(), material);
+      m.castShadow = true;
+      m.receiveShadow = true;
+      mount.add(m);
     };
-    if (degentProps) { fill(degentProps); return; }
-    loadDegentProps().then((props) => {
+    if (degentCrown) { fill(degentCrown); return; }
+    loadDegentCrown().then((geometry) => {
       // Skip a body that was swapped out or removed while the model loaded.
-      let root = slots[0].mount;
+      let root = mount;
       while (root.parent) root = root.parent;
-      if (props && root.isScene) fill(props);
+      if (geometry && root.isScene) fill(geometry);
     });
   }
   const BODY_BUILDERS = { 1: buildMartialBody, 2: buildKnightBody, 3: buildDegentBody };
