@@ -176,9 +176,9 @@ export const html = `
 
     <footer class="hs-footer">
       <div class="hs-footer-disclaimer">For entertainment only · not financial advice · entries are non-refundable once a match is joined.</div>
-      <a class="hs-footer-x" href="https://x.com/fight10_club" target="_blank" rel="noopener noreferrer" aria-label="The Gulag on X">
+      <a class="hs-footer-x" href="https://x.com/onedot6one8" target="_blank" rel="noopener noreferrer" aria-label="The Gulag on X">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-4.714-6.231-5.401 6.231H2.748l7.73-8.835L1.254 2.25H8.08l4.259 5.63 5.905-5.63zm-1.161 17.52h1.833L7.084 4.126H5.117z"/></svg>
-        @fight10_club
+        @onedot6one8
       </a>
     </footer>
   </div><!-- /.home-sections -->
