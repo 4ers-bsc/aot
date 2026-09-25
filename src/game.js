@@ -935,13 +935,13 @@ export function createArenaGame(options) {
   // the box's proportions. Each face starts on a random whole cell so
   // neighbouring boxes don't repeat the same corner of the pattern.
   const MOSAIC_TILE = 0.8; // world units per texture repeat (16 cells)
-  function mosaicUv(mesh, w, h, d, tex) {
+  function mosaicUv(mesh, w, h, d, tex, tile = MOSAIC_TILE) {
     const uv = mesh.geometry.attributes.uv;
     // BoxGeometry face order: +x, -x, +y, -y, +z, -z; 4 vertices each.
     [[d, h], [d, h], [w, d], [w, d], [w, h], [w, h]].forEach(([fu, fv], f) => {
       const ou = Math.floor(Math.random() * 16) / 16, ov = Math.floor(Math.random() * 16) / 16;
       for (let i = f * 4; i < f * 4 + 4; i++) {
-        uv.setXY(i, ou + uv.getX(i) * fu / MOSAIC_TILE, ov + uv.getY(i) * fv / MOSAIC_TILE);
+        uv.setXY(i, ou + uv.getX(i) * fu / tile, ov + uv.getY(i) * fv / tile);
       }
     });
     mesh.material.map = tex;
@@ -968,6 +968,64 @@ export function createArenaGame(options) {
     });
     return mesh;
   }
+  // Pixel map → boxCluster specs. Each row's runs of "#" become boxes, merged
+  // down the rows while the run below spans exactly the same columns; the map
+  // is centred on the cluster origin, `cell` world units per pixel.
+  function pixelMapBoxes(map, cell, depth) {
+    const cols = map[0].length, rows = map.length, runs = [];
+    let above = [];
+    map.forEach((line, r) => {
+      const here = [];
+      for (const m of line.matchAll(/#+/g)) {
+        const c0 = m.index, c1 = m.index + m[0].length - 1;
+        let run = above.find((a) => a.c0 === c0 && a.c1 === c1);
+        if (run) run.r1 = r;
+        else runs.push(run = { c0, c1, r0: r, r1: r });
+        here.push(run);
+      }
+      above = here;
+    });
+    return runs.map(({ c0, c1, r0, r1 }) => [
+      (c1 - c0 + 1) * cell, (r1 - r0 + 1) * cell, depth,
+      ((c0 + c1 + 1) / 2 - cols / 2) * cell, (rows / 2 - (r0 + r1 + 1) / 2) * cell, 0
+    ]);
+  }
+  // The king's face, traced from the character art: a brow that sweeps down
+  // into the nose, lidded square eyes, the "?" ear, the nostril curl and a
+  // two-stroke smirk. "#" = raised white pixel on the gold mosaic face.
+  const KING_FACE = [
+    "...###..########..............#####.",
+    "..#################..........######.",
+    "###################........########.",
+    "###########..#######.......###..####",
+    ".....#####.....#####.......###..####",
+    "..###......###..######.....###..####",
+    "................######.....###..####",
+    "...###.....###..######..........####",
+    "...###.....###..######........######",
+    "...###.....###..######........#####.",
+    "................######........#####.",
+    "................######........#####.",
+    "......###.......#####.........###...",
+    "...########.....####................",
+    "...###..###......##.................",
+    "..###...#...........................",
+    "......###...........................",
+    "...#####............................",
+    "...#####............................",
+    "....................................",
+    "....................................",
+    "....................................",
+    "....................................",
+    ".............####...................",
+    "...........#####....................",
+    "..........###.......................",
+    "..#...####....###...................",
+    "...###.......####...................",
+    "...........####.....................",
+    "..........####......................",
+    "......######........................"
+  ];
   // glowColor (optional hex) turns the blade into the knight's glowing sword.
   function makeSword(glowColor) {
     const s = new THREE.Group();
@@ -1226,11 +1284,11 @@ export function createArenaGame(options) {
       }
     };
   }
-  // Style "3": the crowned king — gold pixel-mosaic suit and face, gold
-  // fleur-de-lis crown, round pink-rimmed glasses with lime lenses, white brows
-  // and handlebar moustache, sequinned emerald bow tie, white shirt V and
-  // pocket square, rainbow-static gloves. Small same-material details are
-  // batched with boxCluster, so it costs fewer draw calls than the others.
+  // Style "3": the crowned king — gold pixel-mosaic suit and head, the traced
+  // white pixel face (KING_FACE), gold fleur-de-lis crown, sequinned emerald
+  // bow tie, white shirt V and pocket square, rainbow-static gloves. Small
+  // same-material details are batched with boxCluster, so it costs fewer draw
+  // calls than the others.
   function buildKingBody(P) {
     const mosaic = makePixelTex(64, paintMosaic);
     const suit = (w, h, d, color) => mosaicUv(box(w, h, d, color), w, h, d, mosaic);
@@ -1272,29 +1330,10 @@ export function createArenaGame(options) {
     const gloveL = box(0.29, 0.24, 0.29, P.hair); gloveL.position.y = -0.72; gloveL.material.map = glitter;
     const gloveR = box(0.29, 0.24, 0.29, P.hair); gloveR.position.y = -0.72; gloveR.material.map = glitter;
     armL.add(cuffL, gloveL); armR.add(cuffR, gloveR);
-    // Head — mosaic face and nose, white brows and handlebar moustache
-    const head = suit(0.58, 0.54, 0.54, P.skin); head.position.y = 2.19;
-    const nose = suit(0.09, 0.12, 0.08, P.skin); nose.position.set(0, 2.16, 0.30);
-    const whiskers = boxCluster(shirt, [0, 2.2, 0.29], [
-      [0.15, 0.055, 0.035, -0.135, 0.185, 0, 0.12], [0.15, 0.055, 0.035, 0.135, 0.185, 0, -0.12],
-      [0.13, 0.055, 0.04, 0, -0.12, 0.01],
-      [0.10, 0.05, 0.04, -0.10, -0.135, 0.005, 0.3], [0.10, 0.05, 0.04, 0.10, -0.135, 0.005, -0.3],
-      [0.035, 0.06, 0.04, -0.16, -0.12, 0.005, 0.6], [0.035, 0.06, 0.04, 0.16, -0.12, 0.005, -0.6]
-    ]);
-    // Round glasses — pink rims, lime lenses, bridge, hinges and temples
-    const rimMat = new THREE.MeshStandardMaterial({ color: 0xf0679e, roughness: 0.5, metalness: 0.1 });
-    const lensMat = new THREE.MeshStandardMaterial({ color: 0xeef23a, emissive: 0x3c3a00, roughness: 0.25, metalness: 0.1 });
-    const glasses = [];
-    for (const sx of [-1, 1]) {
-      const rim = new THREE.Mesh(new THREE.TorusGeometry(0.088, 0.017, 6, 18), rimMat); rim.position.set(sx * 0.135, 2.25, 0.285);
-      const lens = new THREE.Mesh(new THREE.CircleGeometry(0.08, 18), lensMat); lens.position.set(sx * 0.135, 2.25, 0.279);
-      glasses.push(rim, lens);
-    }
-    const frame = boxCluster(rimMat, [0, 2.265, 0.15], [
-      [0.06, 0.02, 0.02, 0, 0, 0.135],
-      [0.06, 0.02, 0.02, -0.26, 0, 0.135], [0.06, 0.02, 0.02, 0.26, 0, 0.135],
-      [0.02, 0.02, 0.28, -0.297, 0, 0], [0.02, 0.02, 0.28, 0.297, 0, 0]
-    ]);
+    // Head — a finer mosaic than the suit so the face reads as solid shapes, with
+    // the traced face raised in white pixels between the crown's rim and chin
+    const head = mosaicUv(box(0.58, 0.54, 0.54, P.skin), 0.58, 0.54, 0.54, mosaic, 0.6); head.position.y = 2.19;
+    const face = boxCluster(shirt, [0, 2.165, 0.275], pixelMapBoxes(KING_FACE, 0.0158, 0.014));
     // Crown — band with a fleur-de-lis on each side, a low cap under crossed
     // arches, orb with a fleur finial, pale-gold rope rims and rosettes. One
     // gold material so recolorFighter re-tints the whole crown via the trim
@@ -1331,10 +1370,10 @@ export function createArenaGame(options) {
       legL, legR, armL, armR,
       nodes: [
         legL, legR, torso, padL, padR, shirtV, pocket, pocketTip, bow, armL, armR,
-        head, nose, whiskers, ...glasses, frame, crown, crownTrim, ...arches
+        head, face, crown, crownTrim, ...arches
       ],
       parts: {
-        skin: [head.material, nose.material],
+        skin: [head.material],
         gi: [torso.material, padL.material, padR.material, armL.mesh.material, armR.mesh.material],
         trim: [gold],
         pants: [legL.mesh.material, legR.mesh.material],
