@@ -57,11 +57,11 @@ network" prompt — the cluster follows the RPC endpoint the app uses.
 
 ## Theme
 
-The palette is **black and red only**: every colour sits on one crimson ramp
-(hue 356°) — black surfaces, red accents and red-tinted off-whites for text.
-The tokens live at the top of `src/styles.css`; the legacy `--gold-*` names are
-kept for compatibility but hold reds. The only exceptions are fighters' skin
-tones in the 3D arena.
+The website UI is **black and red only**: every colour sits on one crimson
+ramp (hue 356°) — black surfaces, red accents and red-tinted off-whites for
+text. The tokens live at the top of `src/styles.css`; the legacy `--gold-*`
+names are kept for compatibility but hold reds. The 3D arena keeps its
+original palette, except the river, which is blood-red.
 
 > The escrow account must also hold a little **SOL** to pay transaction fees and
 > the one-time rent when a winner's token account has to be created.
