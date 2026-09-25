@@ -92,6 +92,7 @@ export const html = `
       <div class="onboard-skins" id="onboardSkins">
         <button class="onboard-skin" type="button" data-skin="1"><span class="onboard-skin-num">1</span><span class="onboard-skin-name">FIGHTER</span></button>
         <button class="onboard-skin" type="button" data-skin="2"><span class="onboard-skin-num">2</span><span class="onboard-skin-name">KNIGHT</span></button>
+        <button class="onboard-skin" type="button" data-skin="3"><span class="onboard-skin-num">3</span><span class="onboard-skin-name">KING</span></button>
       </div>
 
       <button class="onboard-continue" id="onboardContinueBtn" type="button">ENTER THE ARENA</button>

@@ -12,7 +12,7 @@ import { initHomeAnimations } from "./home-anim.js";
 import { initHomeTutorial } from "./tutorial.js";
 import { initAdmin } from "./admin.js";
 import { initHomeChat } from "./chat.js";
-import { APPEARANCE_PRESETS } from "./appearance.js";
+import { APPEARANCE_PRESETS, skinKey } from "./appearance.js";
 
 mountViews();
 initHomeAnimations();
@@ -690,17 +690,17 @@ const game = createArenaGame({
 });
 
 // -- Player skin (profile → APPEARANCE tab) ----------------------------------
-// Two fixed skins. Picking a card applies the skin live and remembers it on
+// Three fixed skins. Picking a card applies the skin live and remembers it on
 // this device; the Save button writes the preference to the wallet profile
 // (profiles.skin_id — the "default character"). Which skins a player has at
-// all comes from profiles.skins (server-managed; everyone has 1 and 2 today).
+// all comes from profiles.skins (server-managed; everyone has 1, 2 and 3 today).
 const SKIN_KEY = "f10_skin";
 let activeSkin = "1";
-let availableSkins = [1, 2];
-try { if (JSON.parse(localStorage.getItem(SKIN_KEY) || "null") === "2") activeSkin = "2"; } catch { /* corrupted storage → default */ }
+let availableSkins = [1, 2, 3];
+try { activeSkin = skinKey(JSON.parse(localStorage.getItem(SKIN_KEY) || "null")) || "1"; } catch { /* corrupted storage → default */ }
 
 function applySkin(id) {
-  activeSkin = id === "2" ? "2" : "1";
+  activeSkin = skinKey(id) || "1";
   game.setPlayerAppearance({ style: activeSkin, colors: APPEARANCE_PRESETS[activeSkin] });
   if (appearancePreview) appearancePreview.setAppearance(activeSkin, APPEARANCE_PRESETS[activeSkin]);
   try { localStorage.setItem(SKIN_KEY, JSON.stringify(activeSkin)); } catch { /* private mode */ }
@@ -786,7 +786,7 @@ function bindUi() {
   document.getElementById("onboardContinueBtn")?.addEventListener("click", () => completeOnboarding());
   document.getElementById("onboardName")?.addEventListener("keydown", (e) => { if (e.key === "Enter") completeOnboarding(); });
   document.querySelectorAll("#onboardSkins .onboard-skin").forEach((c) => c.addEventListener("click", () => {
-    onboardSkin = c.dataset.skin === "2" ? "2" : "1";
+    onboardSkin = skinKey(c.dataset.skin) || "1";
     renderOnboardSkins();
     updateOnboardPreview();
   }));
@@ -1074,8 +1074,8 @@ async function handleSession(session) {
     if (Array.isArray(state.profile?.skins) && state.profile.skins.length) {
       availableSkins = state.profile.skins.map(Number);
     }
-    const serverSkin = state.profile?.skin_id;
-    if (serverSkin === 1 || serverSkin === 2) applySkin(String(serverSkin));
+    const serverSkin = skinKey(state.profile?.skin_id);
+    if (serverSkin) applySkin(serverSkin);
     else renderSkinCards();
   } catch (error) {
     console.error("[handleSession]", error);
@@ -1132,7 +1132,7 @@ function openOnboarding() {
   if (hint) { hint.textContent = ""; hint.classList.remove("error"); }
   // Seed the input with the auto-generated handle so a player can keep it as-is.
   if (nameInput) nameInput.value = state.profile?.display_name || "";
-  onboardSkin = state.profile?.skin_id === 2 ? "2" : "1";
+  onboardSkin = skinKey(state.profile?.skin_id) || "1";
   updateOnboardPreview();
   renderOnboardSkins();
   overlay.classList.add("show");
