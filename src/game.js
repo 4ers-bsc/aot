@@ -935,13 +935,13 @@ export function createArenaGame(options) {
   // the box's proportions. Each face starts on a random whole cell so
   // neighbouring boxes don't repeat the same corner of the pattern.
   const MOSAIC_TILE = 0.8; // world units per texture repeat (16 cells)
-  function mosaicUv(mesh, w, h, d, tex, tile = MOSAIC_TILE) {
+  function mosaicUv(mesh, w, h, d, tex) {
     const uv = mesh.geometry.attributes.uv;
     // BoxGeometry face order: +x, -x, +y, -y, +z, -z; 4 vertices each.
     [[d, h], [d, h], [w, d], [w, d], [w, h], [w, h]].forEach(([fu, fv], f) => {
       const ou = Math.floor(Math.random() * 16) / 16, ov = Math.floor(Math.random() * 16) / 16;
       for (let i = f * 4; i < f * 4 + 4; i++) {
-        uv.setXY(i, ou + uv.getX(i) * fu / tile, ov + uv.getY(i) * fv / tile);
+        uv.setXY(i, ou + uv.getX(i) * fu / MOSAIC_TILE, ov + uv.getY(i) * fv / MOSAIC_TILE);
       }
     });
     mesh.material.map = tex;
@@ -992,7 +992,8 @@ export function createArenaGame(options) {
   }
   // The king's face, traced from the character art: a brow that sweeps down
   // into the nose, lidded square eyes, the "?" ear, the nostril curl and a
-  // two-stroke smirk. "#" = raised white pixel on the gold mosaic face.
+  // two-stroke smirk. It is the whole head — each "#" extrudes into a column
+  // of the solid, so the head's shape is the face itself.
   const KING_FACE = [
     "...###..########..............#####.",
     "..#################..........######.",
@@ -1284,11 +1285,11 @@ export function createArenaGame(options) {
       }
     };
   }
-  // Style "3": the crowned king — gold pixel-mosaic suit and head, the traced
-  // white pixel face (KING_FACE), gold fleur-de-lis crown, sequinned emerald
-  // bow tie, white shirt V and pocket square, rainbow-static gloves. Small
-  // same-material details are batched with boxCluster, so it costs fewer draw
-  // calls than the others.
+  // Style "3": the crowned king — gold pixel-mosaic suit, a head that is the
+  // traced face itself (KING_FACE, extruded; no block), gold fleur-de-lis
+  // crown, sequinned emerald bow tie, white shirt V and pocket square,
+  // rainbow-static gloves. Small same-material details are batched with
+  // boxCluster, so it costs fewer draw calls than the others.
   function buildKingBody(P) {
     const mosaic = makePixelTex(64, paintMosaic);
     const suit = (w, h, d, color) => mosaicUv(box(w, h, d, color), w, h, d, mosaic);
@@ -1330,10 +1331,10 @@ export function createArenaGame(options) {
     const gloveL = box(0.29, 0.24, 0.29, P.hair); gloveL.position.y = -0.72; gloveL.material.map = glitter;
     const gloveR = box(0.29, 0.24, 0.29, P.hair); gloveR.position.y = -0.72; gloveR.material.map = glitter;
     armL.add(cuffL, gloveL); armR.add(cuffR, gloveR);
-    // Head — a finer mosaic than the suit so the face reads as solid shapes, with
-    // the traced face raised in white pixels between the crown's rim and chin
-    const head = mosaicUv(box(0.58, 0.54, 0.54, P.skin), 0.58, 0.54, 0.54, mosaic, 0.6); head.position.y = 2.19;
-    const face = boxCluster(shirt, [0, 2.165, 0.275], pixelMapBoxes(KING_FACE, 0.0158, 0.014));
+    // Head — no block: the traced face itself, extruded back into a solid,
+    // between the crown's rim and the collar
+    const headMat = new THREE.MeshStandardMaterial({ color: P.skin, roughness: 0.8, metalness: 0 });
+    const head = boxCluster(headMat, [0, 2.165, 0], pixelMapBoxes(KING_FACE, 0.0158, 0.5));
     // Crown — band with a fleur-de-lis on each side, a low cap under crossed
     // arches, orb with a fleur finial, pale-gold rope rims and rosettes. One
     // gold material so recolorFighter re-tints the whole crown via the trim
@@ -1370,10 +1371,10 @@ export function createArenaGame(options) {
       legL, legR, armL, armR,
       nodes: [
         legL, legR, torso, padL, padR, shirtV, pocket, pocketTip, bow, armL, armR,
-        head, face, crown, crownTrim, ...arches
+        head, crown, crownTrim, ...arches
       ],
       parts: {
-        skin: [head.material],
+        skin: [headMat],
         gi: [torso.material, padL.material, padR.material, armL.mesh.material, armR.mesh.material],
         trim: [gold],
         pants: [legL.mesh.material, legR.mesh.material],
