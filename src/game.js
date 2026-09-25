@@ -89,17 +89,17 @@ const TOUCH_INPUT = (() => {
 
 const THEMES = {
   game: {
-    bg: 0x100304,
-    ground: ["#ffffff", "#ffffff", "#ffffff", "#f8f0f1", "#f8f0f1", "#e7ddde", "#dfd3d4", "#dfd3d4", "#cdbbbc", "#b69a9c", "#a17d7f", "#815d60"],
-    grid: [0x911a22, 0xc2222d], gridOpacity: 0.38,
-    border: 0xff2230,
-    player: { skin: 0xd69a55, gi: 0x211213, trim: 0xc81e2a, pants: 0x170d0e, hair: 0x0f0909 },
-    enemy: { skin: 0xd0a884, gi: 0xaa1e27, trim: 0x621117, pants: 0x34090c, hair: 0x1f0607 },
-    bullet: 0xff616b,
-    markerMove: [0xdccacb, 0xa68486], markerAttack: [0xda2f3a, 0x961a23],
-    playerBar: "#f2dcdd", enemyBar: "#df3440",
-    cursor: "%23df3440",
-    mm: { grid: "rgba(138,100,102,0.16)", border: "rgba(128,23,30,0.8)", cam: "rgba(145,26,33,0.5)", enemy: "#da2f3a", player: "#f2dcdd" }
+    bg: 0x08090c,
+    ground: ["#ffffff", "#ffffff", "#ffffff", "#f4f4f4", "#f4f4f4", "#e2e2e2", "#d9d9d9", "#d9d9d9", "#c4c4c4", "#a8a8a8", "#8f8f8f", "#6f6f6f"],
+    grid: [0x8a7030, 0xb89040], gridOpacity: 0.38,
+    border: 0xffc830,
+    player: { skin: 0xd69a55, gi: 0x17181c, trim: 0xd9a821, pants: 0x101114, hair: 0x0b0b0d },
+    enemy: { skin: 0xd0a884, gi: 0xa83a32, trim: 0x611c1c, pants: 0x2e1414, hair: 0x1a0e0e },
+    bullet: 0xffe08a,
+    markerMove: [0x2f8a2f, 0x1f6f1f], markerAttack: [0xd23b3b, 0xa02020],
+    playerBar: "#33b14a", enemyBar: "#e0473c",
+    cursor: "%23e0473c",
+    mm: { grid: "rgba(110,120,128,0.16)", border: "rgba(58,106,58,0.8)", cam: "rgba(47,138,47,0.5)", enemy: "#d23b3b", player: "#2f8a2f" }
   },
 };
 // The landing/lobby arena shows the exact same white-ground look as a real
@@ -165,7 +165,7 @@ export function createArenaGame(options) {
     c.width = 1024; c.height = 512;
     const x = c.getContext("2d");
     const g = x.createLinearGradient(0, 0, 0, 512);
-    g.addColorStop(0.0, "#000000"); g.addColorStop(0.6, "#060101"); g.addColorStop(1.0, "#0c0203");
+    g.addColorStop(0.0, "#000000"); g.addColorStop(0.6, "#050403"); g.addColorStop(1.0, "#0a0805");
     x.fillStyle = g; x.fillRect(0, 0, 1024, 512);
     // Golden stars, spread across the whole field with a few brighter ones
     // wearing a soft gold halo.
@@ -175,10 +175,10 @@ export function createArenaGame(options) {
       const s = bright ? 2.4 : 1.2;
       if (bright) {
         const halo = x.createRadialGradient(px, py, 0, px, py, 6);
-        halo.addColorStop(0, "rgba(255,56,69,0.5)"); halo.addColorStop(1, "rgba(255,56,69,0)");
+        halo.addColorStop(0, "rgba(255,205,80,0.5)"); halo.addColorStop(1, "rgba(255,205,80,0)");
         x.fillStyle = halo; x.fillRect(px - 6, py - 6, 12, 12);
       }
-      x.fillStyle = `rgba(255,${(40 + Math.random() * 50) | 0},${(50 + Math.random() * 30) | 0},${(0.35 + Math.random() * 0.6).toFixed(2)})`;
+      x.fillStyle = `rgba(255,${(190 + Math.random() * 50) | 0},${(70 + Math.random() * 60) | 0},${(0.35 + Math.random() * 0.6).toFixed(2)})`;
       x.fillRect(px, py, s, s);
     }
     return new THREE.CanvasTexture(c);
@@ -316,7 +316,7 @@ export function createArenaGame(options) {
     const addObj = (obj) => { scene.add(obj); wallObjects.push(obj); return obj; };
 
     // Near-black underside slab behind each wall (matches the fortress rampart).
-    const sideMat = new THREE.MeshStandardMaterial({ color: 0x100909, roughness: 0.92, metalness: 0.12 });
+    const sideMat = new THREE.MeshStandardMaterial({ color: 0x0b0b0e, roughness: 0.92, metalness: 0.12 });
     [
       { x: 0,         z: -MAP_HALF, ry: 0 },
       { x: 0,         z:  MAP_HALF, ry: Math.PI },
@@ -332,7 +332,7 @@ export function createArenaGame(options) {
     // Bottom cap
     const btm = new THREE.Mesh(
       new THREE.PlaneGeometry(MAP_WORLD, MAP_WORLD),
-      new THREE.MeshStandardMaterial({ color: 0x040101, roughness: 1 })
+      new THREE.MeshStandardMaterial({ color: 0x030302, roughness: 1 })
     );
     btm.rotation.x = Math.PI / 2;
     btm.position.y = -DEPTH;
@@ -343,7 +343,7 @@ export function createArenaGame(options) {
       new THREE.Vector3(-MAP_HALF, -0.02, -MAP_HALF), new THREE.Vector3(MAP_HALF, -0.02, -MAP_HALF),
       new THREE.Vector3( MAP_HALF, -0.02,  MAP_HALF), new THREE.Vector3(-MAP_HALF, -0.02,  MAP_HALF),
       new THREE.Vector3(-MAP_HALF, -0.02, -MAP_HALF),
-    ]), new THREE.LineBasicMaterial({ color: 0xff1222, transparent: true, opacity: 0.3 })));
+    ]), new THREE.LineBasicMaterial({ color: 0xffc21a, transparent: true, opacity: 0.3 })));
 
     // The near (camera-facing) underside edges keep the same plain near-black
     // slab as the far sides — the arena reads as a solid platform floating in
@@ -362,7 +362,7 @@ export function createArenaGame(options) {
   const edgeLamps = []; // { sprite, glow, phase } — flickered in animate()
   {
     const ledgeMat = new THREE.MeshStandardMaterial({
-      color: 0x11090a, roughness: 0.16, metalness: 0.72, // black polished stone
+      color: 0x0c0c0e, roughness: 0.16, metalness: 0.72, // black polished stone
     });
     const ledgeCY = LEDGE_TOP - LEDGE_H / 2;
     const L_OUT = MAP_HALF + LEDGE_W;
@@ -385,7 +385,7 @@ export function createArenaGame(options) {
         new THREE.Vector3( L_OUT, LEDGE_TOP + 0.02,  L_OUT), new THREE.Vector3(-L_OUT, LEDGE_TOP + 0.02,  L_OUT),
         new THREE.Vector3(-L_OUT, LEDGE_TOP + 0.02, -L_OUT),
       ]),
-      new THREE.LineBasicMaterial({ color: 0xeb0010, transparent: true, opacity: 0.45 })
+      new THREE.LineBasicMaterial({ color: 0xffaa00, transparent: true, opacity: 0.45 })
     ));
 
     // The flickering flame lamps that used to line this ledge now ride the top
@@ -398,7 +398,7 @@ export function createArenaGame(options) {
   // strung with crossed-barb strands, canted inward on top arms), anchored at
   // its corners by black-brick-and-gold beacon towers with glowing gold
   // lanterns (palette from WALL_THEME), giant billboard signs (GULAG /
-  // ONLY ONE WALKS OUT / SOLANA) and crystal clusters.
+  // ONLY ONE WALKS OUT / SOLANA) and gold crystal clusters.
   // Flame lamps ride the top of the fence. Built once and parented to the
   // scene, so it stays anchored to the map rim in both the lobby backdrop and a
   // live match, and is released with everything else by disposeObject3D(scene)
@@ -413,7 +413,7 @@ export function createArenaGame(options) {
     const darkMat2 = new THREE.MeshStandardMaterial({ color: WALL_THEME.stone2, roughness: 0.55, metalness: 0.35 });
     const goldMat  = new THREE.MeshStandardMaterial({ color: WALL_THEME.trim, emissive: WALL_THEME.trimEmissive, emissiveIntensity: 0.55, roughness: 0.32, metalness: 0.85 });
     const goldGlowMat = new THREE.MeshStandardMaterial({ color: WALL_THEME.glow, emissive: WALL_THEME.glowEmissive, emissiveIntensity: 1.6, roughness: 0.3, metalness: 0.5 });
-    const signMat = (tex) => new THREE.MeshStandardMaterial({ map: tex, roughness: 0.55, metalness: 0.2, emissive: 0x1b0f10, emissiveIntensity: 0.35 });
+    const signMat = (tex) => new THREE.MeshStandardMaterial({ map: tex, roughness: 0.55, metalness: 0.2, emissive: 0x141416, emissiveIntensity: 0.35 });
 
     // Dimensions. WMID is the wall centreline; its inner face sits flush with
     // the arena edge (±MAP_HALF). WALL_T/WALL_H/WALL_MID come from up top.
@@ -429,17 +429,17 @@ export function createArenaGame(options) {
       g.fillStyle = rad; g.fillRect(0, 0, 64, 64);
       return new THREE.CanvasTexture(c);
     };
-    const goldGlowTex = glowSpriteTex("255,56,69");
+    const goldGlowTex = glowSpriteTex("255,190,70");
 
-    // Red "GULAG" crest and the GULAG hologram face.
+    // Gold "GULAG" crest and the gold GULAG hologram face.
     const crestTex = (() => {
       const c = document.createElement("canvas"); c.width = c.height = 128;
       const g = c.getContext("2d");
       const grd = g.createLinearGradient(0, 0, 0, 128);
-      grd.addColorStop(0, "#ff3d4a"); grd.addColorStop(1, "#b80915");
+      grd.addColorStop(0, "#ffd657"); grd.addColorStop(1, "#c8940a");
       g.fillStyle = grd; g.fillRect(0, 0, 128, 128);
-      g.strokeStyle = "#350004"; g.lineWidth = 8; g.strokeRect(9, 9, 110, 110);
-      g.fillStyle = "#190406"; g.font = "bold 30px Arial"; g.textAlign = "center"; g.textBaseline = "middle";
+      g.strokeStyle = "#3a2600"; g.lineWidth = 8; g.strokeRect(9, 9, 110, 110);
+      g.fillStyle = "#0a0c16"; g.font = "bold 30px Arial"; g.textAlign = "center"; g.textBaseline = "middle";
       g.fillText("GULAG", 64, 66);
       return new THREE.CanvasTexture(c);
     })();
@@ -466,7 +466,7 @@ export function createArenaGame(options) {
     })();
     const brickWallMat = new THREE.MeshStandardMaterial({
       map: brickFaceTex, roughness: 0.6, metalness: 0.35,
-      emissive: 0x100909, emissiveIntensity: 0.35,
+      emissive: 0x0b0b0e, emissiveIntensity: 0.35,
     });
     // Brick texture only on the four upright faces; the top and bottom get the
     // plain dark stone so the wall's top edge doesn't show a grey textured strip.
@@ -491,8 +491,8 @@ export function createArenaGame(options) {
     //    side (one draw call); posts and arms are thin cylinders. The fence sits
     //    on the arena rim exactly where the curtain wall stood, so it never
     //    overlaps the play floor.
-    const postMat = new THREE.MeshStandardMaterial({ color: 0x361f20, roughness: 0.5, metalness: 0.72 });
-    const wireMat = new THREE.LineBasicMaterial({ color: 0xcbb6b8, transparent: true, opacity: 0.9 });
+    const postMat = new THREE.MeshStandardMaterial({ color: 0x26292f, roughness: 0.5, metalness: 0.72 });
+    const wireMat = new THREE.LineBasicMaterial({ color: 0xb9c0c8, transparent: true, opacity: 0.9 });
     const STRAND_YS = [1.5, 3.1, 4.7, 6.3, 7.9, FENCE_H]; // horizontal strand heights
     const ARM_YS = [FENCE_H + 0.7, FENCE_H + 1.4];        // inward-canted top strands
     const CANT = 1.3;                                     // inward lean of the top arm
@@ -546,7 +546,7 @@ export function createArenaGame(options) {
     barbedFence("z",  WMID, -WMID, WMID); // east
     barbedFence("x",  WMID, -WMID, WMID); // south (near camera)
 
-    // -- Four corner beacon towers: a tall dark shaft banded with red, GULAG
+    // -- Four corner beacon towers: a tall dark shaft banded with gold, GULAG
     //    plaques on every face, a crenellated crown and a glowing gold lantern.
     [[-WMID, -WMID], [WMID, -WMID], [-WMID, WMID], [WMID, WMID]].forEach(([x, z]) => {
       const H = 15.5;
@@ -578,23 +578,23 @@ export function createArenaGame(options) {
     // Shared cloth ground: dark woven fabric with a gold hem + accent bands.
     const bannerGround = (g, W, H) => {
       const grd = g.createLinearGradient(0, 0, 0, H);
-      grd.addColorStop(0, "#1f1112"); grd.addColorStop(0.55, "#1a0506"); grd.addColorStop(1, "#0f0303");
+      grd.addColorStop(0, "#15151b"); grd.addColorStop(0.55, "#0e0e13"); grd.addColorStop(1, "#08080b");
       g.fillStyle = grd; g.fillRect(0, 0, W, H);
       // Faint horizontal weave.
       g.globalAlpha = 0.05; g.strokeStyle = "#ffffff"; g.lineWidth = 1;
       for (let y = 0; y < H; y += 3) { g.beginPath(); g.moveTo(0, y); g.lineTo(W, y); g.stroke(); }
       g.globalAlpha = 1;
       // Gold hem around the edge + top/bottom accent bands.
-      g.strokeStyle = "#e7313d"; g.lineWidth = Math.max(6, H * 0.03);
+      g.strokeStyle = "#e8b23a"; g.lineWidth = Math.max(6, H * 0.03);
       g.strokeRect(g.lineWidth, g.lineWidth, W - 2 * g.lineWidth, H - 2 * g.lineWidth);
-      g.fillStyle = "rgba(231,49,61,0.9)";
+      g.fillStyle = "rgba(232,178,58,0.9)";
       g.fillRect(W * 0.08, H * 0.13, W * 0.84, H * 0.016);
       g.fillRect(W * 0.08, H * 0.855, W * 0.84, H * 0.016);
     };
     // A gold fill gradient for banner lettering.
     const goldTextFill = (g, y0, y1) => {
       const tg = g.createLinearGradient(0, y0, 0, y1);
-      tg.addColorStop(0, "#ff6c76"); tg.addColorStop(0.5, "#ff3441"); tg.addColorStop(1, "#b80915");
+      tg.addColorStop(0, "#ffe89a"); tg.addColorStop(0.5, "#ffcf4a"); tg.addColorStop(1, "#c8940a");
       return tg;
     };
     // A rippled, swallowtailed cloth mesh (custom grid so the fabric can wave and
@@ -644,7 +644,7 @@ export function createArenaGame(options) {
       const tex = new THREE.CanvasTexture(c);
       const repaint = () => { paint(); tex.needsUpdate = true; };
       try { document.fonts?.load('700 100px "Black Ops One"').then(() => { state.fontReady = true; repaint(); }).catch(() => {}); } catch (_) {}
-      const clothMat = new THREE.MeshStandardMaterial({ map: tex, roughness: 0.9, metalness: 0.05, emissive: 0x1c1011, emissiveIntensity: 0.32, side: THREE.DoubleSide });
+      const clothMat = new THREE.MeshStandardMaterial({ map: tex, roughness: 0.9, metalness: 0.05, emissive: 0x161616, emissiveIntensity: 0.32, side: THREE.DoubleSide });
 
       const grp = new THREE.Group();
       const banner = new THREE.Mesh(makeClothBanner(w, h), clothMat);
@@ -698,15 +698,7 @@ export function createArenaGame(options) {
       const availW = W - pad * 2, availH = H - pad * 2;
       const scale = Math.min(availW / state.img.width, availH / state.img.height);
       const dw = state.img.width * scale, dh = state.img.height * scale;
-      // Paint the logo on a scratch canvas and flood it red (keeping its
-      // alpha) so the sponsor mark stays inside the black/red palette.
-      const t = document.createElement("canvas");
-      t.width = Math.max(1, Math.round(dw)); t.height = Math.max(1, Math.round(dh));
-      const tg = t.getContext("2d");
-      tg.drawImage(state.img, 0, 0, t.width, t.height);
-      tg.globalCompositeOperation = "source-atop";
-      tg.fillStyle = "#e0303c"; tg.fillRect(0, 0, t.width, t.height);
-      g.drawImage(t, (W - dw) / 2, (H - dh) / 2, dw, dh);
+      g.drawImage(state.img, (W - dw) / 2, (H - dh) / 2, dw, dh);
     };
 
     placeBanner("west",  0,  17, 8, drawGulag);        // GULAG cloth banner
@@ -839,7 +831,7 @@ export function createArenaGame(options) {
   // Frag range ring — shown when frag weapon is active
   const fragRing = new THREE.Mesh(
     new THREE.RingGeometry(WEAPONS.frag.range - 0.18, WEAPONS.frag.range + 0.18, 72),
-    new THREE.MeshBasicMaterial({ color: 0xff2432, transparent: true, opacity: 0.55, side: THREE.DoubleSide, depthWrite: false })
+    new THREE.MeshBasicMaterial({ color: 0xff8833, transparent: true, opacity: 0.55, side: THREE.DoubleSide, depthWrite: false })
   );
   fragRing.rotation.x = -Math.PI / 2;
   fragRing.position.y = 0.09;
@@ -867,13 +859,13 @@ export function createArenaGame(options) {
     pivot.mesh = mesh;
     return pivot;
   }
-  // Red "GULAG" patch printed on the gi chest. One texture per fighter so
+  // Gold "GULAG" patch printed on the gi chest. One texture per fighter so
   // disposeObject3D can release it without pulling it out from under others.
   function makeChestLabelTex() {
     const c = document.createElement("canvas");
     c.width = 128; c.height = 64;
     const x = c.getContext("2d");
-    x.fillStyle = "#e72936";
+    x.fillStyle = "#e8b430";
     x.font = "bold 32px Arial, sans-serif";
     x.textAlign = "center";
     x.textBaseline = "middle";
@@ -883,13 +875,13 @@ export function createArenaGame(options) {
   // glowColor (optional hex) turns the blade into the knight's glowing sword.
   function makeSword(glowColor) {
     const s = new THREE.Group();
-    const blade = box(0.1, 0.06, 0.95, 0xea888e); blade.position.set(0, 0, 0.55);
+    const blade = box(0.1, 0.06, 0.95, 0xc9d2da); blade.position.set(0, 0, 0.55);
     if (glowColor != null) {
       blade.material.dispose();
-      blade.material = new THREE.MeshStandardMaterial({ color: 0xff424e, emissive: glowColor, emissiveIntensity: 0.85, roughness: 0.4, metalness: 0.3 });
+      blade.material = new THREE.MeshStandardMaterial({ color: 0xffd75e, emissive: glowColor, emissiveIntensity: 0.85, roughness: 0.4, metalness: 0.3 });
     }
-    const guard = box(0.34, 0.08, 0.09, glowColor != null ? 0x241415 : 0x512e30); guard.position.set(0, 0, 0.05);
-    const grip = box(0.09, 0.09, 0.26, glowColor != null ? 0x241415 : 0x75151b); grip.position.set(0, 0, -0.14);
+    const guard = box(0.34, 0.08, 0.09, glowColor != null ? 0x1a1a1e : 0x3a3f45); guard.position.set(0, 0, 0.05);
+    const grip = box(0.09, 0.09, 0.26, glowColor != null ? 0x1a1a1e : 0x6b4a2a); grip.position.set(0, 0, -0.14);
     s.add(blade, guard, grip);
     s.position.set(0, -0.8, 0.05);
     s.rotation.x = -0.15;
@@ -897,9 +889,9 @@ export function createArenaGame(options) {
   }
   function makePistol() {
     const g = new THREE.Group();
-    const body = box(0.12, 0.18, 0.3, 0x3c2123); body.position.set(0, 0, 0.04);
-    const barrel = box(0.09, 0.1, 0.32, 0x201213); barrel.position.set(0, 0.04, 0.26);
-    const grip = box(0.11, 0.22, 0.12, 0x420c0f); grip.position.set(0, -0.16, -0.06); grip.rotation.x = 0.35;
+    const body = box(0.12, 0.18, 0.3, 0x2a2e33); body.position.set(0, 0, 0.04);
+    const barrel = box(0.09, 0.1, 0.32, 0x16181c); barrel.position.set(0, 0.04, 0.26);
+    const grip = box(0.11, 0.22, 0.12, 0x3a2a1a); grip.position.set(0, -0.16, -0.06); grip.rotation.x = 0.35;
     g.add(body, barrel, grip);
     g.position.set(0, -0.78, 0.08);
     g.rotation.x = -0.05;
@@ -907,13 +899,13 @@ export function createArenaGame(options) {
   }
   function makeSniper() {
     const g = new THREE.Group();
-    const body   = box(0.10, 0.12, 0.50, 0x261617); body.position.set(0,     0,     0.15);
-    const barrel = box(0.06, 0.06, 0.50, 0x180406); barrel.position.set(0,   0.02,  0.52);
-    const stock  = box(0.10, 0.10, 0.28, 0x5f1116); stock.position.set(0,    0,    -0.22);
-    const cheek  = box(0.10, 0.06, 0.16, 0x5f1116); cheek.position.set(0,    0.08, -0.14);
-    const scope  = box(0.07, 0.07, 0.30, 0x200607); scope.position.set(0,    0.12,  0.10);
-    const lens   = box(0.07, 0.07, 0.04, 0x510e13); lens.position.set(0,     0.12,  0.28);
-    const grip   = box(0.10, 0.18, 0.10, 0x3c2123); grip.position.set(0,    -0.10,  0.05); grip.rotation.x = 0.35;
+    const body   = box(0.10, 0.12, 0.50, 0x1a1c22); body.position.set(0,     0,     0.15);
+    const barrel = box(0.06, 0.06, 0.50, 0x0d0f12); barrel.position.set(0,   0.02,  0.52);
+    const stock  = box(0.10, 0.10, 0.28, 0x5c3d1e); stock.position.set(0,    0,    -0.22);
+    const cheek  = box(0.10, 0.06, 0.16, 0x5c3d1e); cheek.position.set(0,    0.08, -0.14);
+    const scope  = box(0.07, 0.07, 0.30, 0x111418); scope.position.set(0,    0.12,  0.10);
+    const lens   = box(0.07, 0.07, 0.04, 0x1e3a4a); lens.position.set(0,     0.12,  0.28);
+    const grip   = box(0.10, 0.18, 0.10, 0x2a2e33); grip.position.set(0,    -0.10,  0.05); grip.rotation.x = 0.35;
     g.add(body, barrel, stock, cheek, scope, lens, grip);
     g.position.set(-0.05, -0.82, 0.05);
     g.rotation.x = -0.08;
@@ -924,14 +916,14 @@ export function createArenaGame(options) {
     // Same dark shell as the thrown projectile in fireGrenade(), hand-sized
     const body = new THREE.Mesh(
       new THREE.SphereGeometry(0.17, 8, 6),
-      new THREE.MeshStandardMaterial({ color: 0x2c181a, roughness: 0.8, metalness: 0.15 })
+      new THREE.MeshStandardMaterial({ color: 0x222222, roughness: 0.8, metalness: 0.15 })
     );
     body.castShadow = true;
-    const cap = box(0.11, 0.09, 0.11, 0x512e30); cap.position.y = 0.18;
-    const lever = box(0.05, 0.18, 0.05, 0xa27e81); lever.position.set(0.08, 0.12, 0.06); lever.rotation.x = 0.5;
+    const cap = box(0.11, 0.09, 0.11, 0x3a3f45); cap.position.y = 0.18;
+    const lever = box(0.05, 0.18, 0.05, 0x8a8f96); lever.position.set(0.08, 0.12, 0.06); lever.rotation.x = 0.5;
     const pin = new THREE.Mesh(
       new THREE.TorusGeometry(0.06, 0.016, 6, 10),
-      new THREE.MeshStandardMaterial({ color: 0xe25b64, roughness: 0.5, metalness: 0.6 })
+      new THREE.MeshStandardMaterial({ color: 0xb8b0a0, roughness: 0.5, metalness: 0.6 })
     );
     pin.position.set(-0.09, 0.19, 0);
     g.add(body, cap, lever, pin);
@@ -1000,7 +992,7 @@ export function createArenaGame(options) {
     armL.add(wristL, gloveL); armR.add(wristR, gloveR);
     // Head — bare face, headband with gold stripe and tails, spiky hair
     const head = box(0.58, 0.46, 0.54, P.skin); head.position.y = 2.18;
-    const faceInk = new THREE.MeshStandardMaterial({ color: 0x190406, roughness: 0.85, metalness: 0.05 });
+    const faceInk = new THREE.MeshStandardMaterial({ color: 0x14100c, roughness: 0.85, metalness: 0.05 });
     const eyeL = new THREE.Mesh(new THREE.BoxGeometry(0.09, 0.06, 0.03), faceInk); eyeL.position.set(-0.13, 2.20, 0.275);
     const eyeR = new THREE.Mesh(new THREE.BoxGeometry(0.09, 0.06, 0.03), faceInk); eyeR.position.set( 0.13, 2.20, 0.275);
     const browL = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.045, 0.03), faceInk); browL.position.set(-0.135, 2.27, 0.275); browL.rotation.z = -0.18;
@@ -1177,7 +1169,7 @@ export function createArenaGame(options) {
     const pCam = new THREE.PerspectiveCamera(30, 1, 0.1, 50);
     pCam.position.set(0, 2.0, 7.4);
     pCam.lookAt(0, 1.4, 0);
-    pScene.add(new THREE.HemisphereLight(0xffffff, 0x4a2a2c, 1.0));
+    pScene.add(new THREE.HemisphereLight(0xffffff, 0x3a3a3a, 1.0));
     const key = new THREE.DirectionalLight(0xffffff, 0.75);
     key.position.set(2.5, 4, 3);
     pScene.add(key);
@@ -1438,17 +1430,17 @@ export function createArenaGame(options) {
     const stoneCanvas = document.createElement("canvas");
     stoneCanvas.width = stoneCanvas.height = 128;
     const scx = stoneCanvas.getContext("2d");
-    scx.fillStyle = "#926a6d"; scx.fillRect(0, 0, 128, 128);
+    scx.fillStyle = "#7c7d80"; scx.fillRect(0, 0, 128, 128);
     // Fine grain speckle — lighter and darker flecks.
     for (let i = 0; i < 2600; i++) {
       const v = Math.random();
       scx.fillStyle = v < 0.5
-        ? `rgba(169,137,139,${(0.15 + Math.random() * 0.3).toFixed(2)})`
-        : `rgba(84,60,62,${(0.15 + Math.random() * 0.3).toFixed(2)})`;
+        ? `rgba(150,152,156,${(0.15 + Math.random() * 0.3).toFixed(2)})`
+        : `rgba(70,71,74,${(0.15 + Math.random() * 0.3).toFixed(2)})`;
       scx.fillRect(Math.random() * 128, Math.random() * 128, 1.2, 1.2);
     }
     // A few faint cracks/mortar lines.
-    scx.strokeStyle = "rgba(69,39,41,0.5)"; scx.lineWidth = 1; scx.lineCap = "round";
+    scx.strokeStyle = "rgba(52,53,56,0.5)"; scx.lineWidth = 1; scx.lineCap = "round";
     for (let n = 0; n < 7; n++) {
       let px = Math.random() * 128, py = Math.random() * 128;
       scx.beginPath(); scx.moveTo(px, py);
@@ -1457,7 +1449,7 @@ export function createArenaGame(options) {
     }
     const stoneTex = new THREE.CanvasTexture(stoneCanvas);
     const stoneMat = new THREE.MeshStandardMaterial({
-      map: stoneTex, color: 0xac8d8f, roughness: 0.95, metalness: 0.0,
+      map: stoneTex, color: 0x9a9c9f, roughness: 0.95, metalness: 0.0,
     });
     const stoneMesh = (w, h, d) => {
       const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), stoneMat);
@@ -1466,21 +1458,21 @@ export function createArenaGame(options) {
     const base  = stoneMesh(4.0, 0.5,  4.0); base.position.y  = 0.25;
     const body  = stoneMesh(3.2, 11.0, 3.2); body.position.y  = 6.0;
     const par   = stoneMesh(3.8, 0.6,  3.8); par.position.y   = 11.8;
-    const psnow = box(3.9, 0.22, 3.9, 0xefa4a9); psnow.position.y = 12.22;
+    const psnow = box(3.9, 0.22, 3.9, 0xdde9f5); psnow.position.y = 12.22;
     [[-1.3,-1.3],[-1.3,1.3],[1.3,-1.3],[1.3,1.3]].forEach(([bx, bz]) => {
-      const bt  = box(1.0, 1.4,  1.0, 0x8e6669); bt.position.set(bx, 12.9,  bz); g.add(bt);
-      const bsn = box(1.1, 0.22, 1.1, 0xf0a9ae); bsn.position.set(bx, 13.71, bz); g.add(bsn);
+      const bt  = box(1.0, 1.4,  1.0, 0x7a7a7a); bt.position.set(bx, 12.9,  bz); g.add(bt);
+      const bsn = box(1.1, 0.22, 1.1, 0xe4eef7); bsn.position.set(bx, 13.71, bz); g.add(bsn);
     });
-    // Red GULAG cloth draped flat on top of the tower
+    // Gold GULAG cloth draped flat on top of the tower
     const clothCanvas = document.createElement("canvas");
     clothCanvas.width = 128; clothCanvas.height = 128;
     const cCtx = clothCanvas.getContext("2d");
-    cCtx.fillStyle = "#b80915";
+    cCtx.fillStyle = "#c8940a";
     cCtx.fillRect(0, 0, 128, 128);
-    cCtx.strokeStyle = "#700007";
+    cCtx.strokeStyle = "#7a5800";
     cCtx.lineWidth = 5;
     cCtx.strokeRect(4, 4, 120, 120);
-    cCtx.fillStyle = "#090001";
+    cCtx.fillStyle = "#0a0800";
     cCtx.font = "bold 34px monospace";
     cCtx.textAlign = "center";
     cCtx.textBaseline = "middle";
@@ -1496,7 +1488,7 @@ export function createArenaGame(options) {
     // Warm-lit arrow-slit windows, two storeys on every face. Instanced —
     // all eight slits on a tower cost a single draw call.
     const winMat = new THREE.MeshStandardMaterial({
-      color: 0x190406, emissive: 0xff2b3a, emissiveIntensity: 1.15, roughness: 0.6,
+      color: 0x1a1206, emissive: 0xffb23e, emissiveIntensity: 1.15, roughness: 0.6,
     });
     const wins = new THREE.InstancedMesh(new THREE.BoxGeometry(0.26, 0.62, 0.1), winMat, 8);
     {
@@ -1563,7 +1555,7 @@ export function createArenaGame(options) {
       for (let j = 0; j < bladeCount; j++) {
         const ox = (rng() * 2 - 1) * 0.4, oz = (rng() * 2 - 1) * 0.4;
         const h  = 0.28 + rng() * 0.32;
-        const col = rng() < 0.5 ? 0xea8b91 : 0xe56972;
+        const col = rng() < 0.5 ? 0xc8dce0 : 0xa8c8b8;
         pushDecoBox(px + ox, h / 2, pz + oz, 0.12, h, 0.12, rng() * Math.PI, col);
       }
     }
@@ -1573,15 +1565,15 @@ export function createArenaGame(options) {
     for (let i = 0; i < count; i++) {
       const ox = (rng() * 2 - 1) * 0.4, oz = (rng() * 2 - 1) * 0.4;
       const h  = 0.3 + rng() * 0.35;
-      const col = rng() < 0.5 ? 0x8b1920 : 0xa01c25;
+      const col = rng() < 0.5 ? 0x4a7a38 : 0x5a8a42;
       pushDecoBox(x + ox, h / 2, z + oz, 0.12, h, 0.12, rng() * Math.PI, col);
     }
     // Occasional wildflower poking out of a tuft
     if (rng() < 0.3) {
       const stemH = 0.5 + rng() * 0.25;
       const fx = x + (rng() * 2 - 1) * 0.3, fz = z + (rng() * 2 - 1) * 0.3;
-      const bloomCol = [0xe6404b, 0xe04f59, 0xed9aa0][Math.floor(rng() * 3)];
-      pushDecoBox(fx, stemH / 2, fz, 0.06, stemH, 0.06, 0, 0x78151c);
+      const bloomCol = [0xe8d44f, 0xd9736b, 0xe8e6da][Math.floor(rng() * 3)];
+      pushDecoBox(fx, stemH / 2, fz, 0.06, stemH, 0.06, 0, 0x4a6a30);
       pushDecoBox(fx, stemH + 0.04, fz, 0.15, 0.1, 0.15, 0, bloomCol);
     }
     // No solid entry — grass is purely decorative
@@ -1612,7 +1604,7 @@ export function createArenaGame(options) {
       stones.setMatrixAt(placed, m4);
       // Mostly grey shale, the odd snow-dusted white
       const l = rng() < 0.22 ? 0.82 + rng() * 0.1 : 0.42 + rng() * 0.25;
-      stones.setColorAt(placed, col.setHSL(356 / 360, 0.16, l));
+      stones.setColorAt(placed, col.setHSL(0.08, 0.04, l));
       placed++;
     }
     stones.count = placed;
@@ -1622,15 +1614,15 @@ export function createArenaGame(options) {
     const rand = rng || Math.random.bind(Math);
     const sc = 0.68 + rand() * 0.66;            // 0.68 – 1.34 scale
     const g = new THREE.Group();
-    const trunk = box(0.5, 1.6, 0.5, 0x5f1116); trunk.position.y = 0.8;
+    const trunk = box(0.5, 1.6, 0.5, 0x5c3d1e); trunk.position.y = 0.8;
     // Two foliage shades so a stand of trees doesn't read as copy-paste
     const dark = rand() < 0.45;
-    const f1 = box(2.0, 1.4, 2.0, dark ? 0x5f1116 : 0x6a1319); f1.position.y = 2.0;
-    const f2 = box(1.3, 1.2, 1.3, dark ? 0x4d0e12 : 0x581014); f2.position.y = 3.0;
+    const f1 = box(2.0, 1.4, 2.0, dark ? 0x27522a : 0x2d5e2a); f1.position.y = 2.0;
+    const f2 = box(1.3, 1.2, 1.3, dark ? 0x1f451e : 0x254f22); f2.position.y = 3.0;
     // Snow resting on each canopy tier — ties the trees to the falling snow,
     // snow-capped peaks and towers. Tiny slabs, so they skip the shadow pass.
-    const s1 = box(2.06, 0.16, 2.06, 0xf0aaae); s1.position.y = 2.76; s1.castShadow = false;
-    const s2 = box(1.36, 0.14, 1.36, 0xf2b3b7); s2.position.y = 3.65; s2.castShadow = false;
+    const s1 = box(2.06, 0.16, 2.06, 0xe6eef6); s1.position.y = 2.76; s1.castShadow = false;
+    const s2 = box(1.36, 0.14, 1.36, 0xf1f6fb); s2.position.y = 3.65; s2.castShadow = false;
     g.add(trunk, f1, f2, s1, s2);
     g.scale.setScalar(sc * PROP_SCALE);
     g.position.set(x, 0, z);
@@ -1645,12 +1637,12 @@ export function createArenaGame(options) {
     // Rocky base + snow-capped cone.
     const rock = new THREE.Mesh(
       new THREE.ConeGeometry(2.6, 2.2, 7),
-      new THREE.MeshStandardMaterial({ color: 0xa27f81, roughness: 1, flatShading: true })
+      new THREE.MeshStandardMaterial({ color: 0x8b8f96, roughness: 1, flatShading: true })
     );
     rock.position.y = 1.1; rock.castShadow = true; rock.receiveShadow = true;
     const snow = new THREE.Mesh(
       new THREE.ConeGeometry(1.7, 2.4, 7),
-      new THREE.MeshStandardMaterial({ color: 0xf2b5b9, roughness: 0.9, flatShading: true })
+      new THREE.MeshStandardMaterial({ color: 0xf4f8fb, roughness: 0.9, flatShading: true })
     );
     snow.position.y = 2.6; snow.castShadow = true;
     g.add(rock, snow);
@@ -1667,12 +1659,12 @@ export function createArenaGame(options) {
     const sz = (1.1 + rng() * 0.8) * PROP_SCALE;
     const rock = new THREE.Mesh(
       new THREE.SphereGeometry(sz, 6, 5),
-      new THREE.MeshStandardMaterial({ color: 0x8b6467, roughness: 1, flatShading: true }),
+      new THREE.MeshStandardMaterial({ color: 0x7a7875, roughness: 1, flatShading: true }),
     );
     rock.position.y = sz * 0.45;
     rock.rotation.set(rng() * 0.6, rng() * Math.PI * 2, rng() * 0.6);
     rock.castShadow = true;
-    const snowCap = box(sz * 1.3, sz * 0.32, sz * 1.3, 0xefa4a9);
+    const snowCap = box(sz * 1.3, sz * 0.32, sz * 1.3, 0xdde9f5);
     snowCap.position.y = sz * 1.0;
     g.add(rock, snowCap);
     g.position.set(x, 0, z);
@@ -1688,7 +1680,7 @@ export function createArenaGame(options) {
     // Cylinder lying on its side: rotate so axis runs along local X, then spin in Y.
     const logMesh = new THREE.Mesh(
       new THREE.CylinderGeometry(thick, thick * 1.12, len, 7),
-      new THREE.MeshStandardMaterial({ color: 0x480d11, roughness: 1, metalness: 0 })
+      new THREE.MeshStandardMaterial({ color: 0x4a2e12, roughness: 1, metalness: 0 })
     );
     logMesh.rotation.z = Math.PI / 2;  // lay flat
     logMesh.position.y = thick;         // sit on ground
@@ -1848,7 +1840,7 @@ export function createArenaGame(options) {
         g.addColorStop(1, `rgba(${shade},0)`);
         nx.fillStyle = g; nx.fillRect(bu - r, bv - r, r * 2, r * 2);
       }
-      // Stars — blue-white, matching the river's foam/glint palette.
+      // Stars — pale red, matching the river's foam/glint palette.
       for (let i = 0; i < 220; i++) {
         const sp = sampledPts[Math.floor(rng() * sampledPts.length)];
         const u  = toU(sp.x) + (rng() * 2 - 1) * lw * 0.42;
@@ -1861,7 +1853,7 @@ export function createArenaGame(options) {
       nx.globalAlpha = 1;
       // Keep only what falls inside the river band (mask by the stroked path).
       nx.globalCompositeOperation = "destination-in";
-      nx.strokeStyle = "#ffffff";
+      nx.strokeStyle = "#fff";
       nx.lineWidth = lw; nx.lineCap = "round"; nx.lineJoin = "round";
       nx.beginPath();
       nx.moveTo(pts[0].u, pts[0].v);
@@ -1922,7 +1914,7 @@ export function createArenaGame(options) {
       return { x: a.x + dx * t, z: a.z + dz * t, dirx: dx / len, dirz: dz / len };
     };
 
-    const FISH_COLORS = [0xe7323e, 0xc31521, 0xf04551];
+    const FISH_COLORS = [0xe8963c, 0xd4a017, 0xf2ce5b];
     const fishCount = 8 + Math.floor(rng() * 4); // 8–11 per river
     for (let i = 0; i < fishCount; i++) {
       const mat = new THREE.MeshStandardMaterial({
@@ -2007,7 +1999,7 @@ export function createArenaGame(options) {
         q.setFromEuler(e.set((rng() * 2 - 1) * 0.14, rng() * Math.PI, (rng() * 2 - 1) * 0.14));
         m4.compose(p.set(rx, 0, rz), q, s.set(PROP_SCALE, (0.7 + rng() * 0.9) * PROP_SCALE, PROP_SCALE));
         reeds.setMatrixAt(placed, m4);
-        reeds.setColorAt(placed, col.setHex(rng() < 0.4 ? 0xa11c25 : 0x82171e));
+        reeds.setColorAt(placed, col.setHex(rng() < 0.4 ? 0x7d8a44 : 0x5d7036));
         placed++;
       }
       reeds.count = placed;
@@ -2033,7 +2025,7 @@ export function createArenaGame(options) {
         // Sits above the water plane (0.05) and below the fish (0.09)
         m4.compose(p.set(px, 0.07, pz), q, s.set(sc, sc, 1));
         pads.setMatrixAt(padCount, m4);
-        pads.setColorAt(padCount, col.setHex(rng() < 0.5 ? 0x7e161d : 0x8d1921));
+        pads.setColorAt(padCount, col.setHex(rng() < 0.5 ? 0x3f6e33 : 0x4a7a3a));
         padCount++;
       }
       pads.count = padCount;
@@ -2041,7 +2033,7 @@ export function createArenaGame(options) {
     }
   }
   // Paints a transparent biome-tint overlay the same size as the arena floor.
-  // Blue-grey near the river banks, darker earth near large mountain bases,
+  // Red-tinted near the river banks, darker earth near large mountain bases,
   // plus soft snow-drift and worn-earth mottling so the open field isn't flat.
   // Called after all solids are placed so it can read the final solid list.
   function buildBiomeOverlay(rng) {
@@ -2061,7 +2053,7 @@ export function createArenaGame(options) {
 
         let r = 0, g = 0, b = 0, a = 0;
 
-        // River zone — blue-grey tint that fades out beyond 2× the river half-width
+        // River zone — blood-red tint that fades out beyond 2× the river half-width
         if (riverSegments.length > 1) {
           let minD = Infinity;
           for (let i = 0; i < riverSegments.length - 1; i++) {
@@ -2076,7 +2068,7 @@ export function createArenaGame(options) {
           const inner = riverHalfW, outer = riverHalfW * 2.4;
           if (minD < outer) {
             const fade = Math.max(0, 1 - (minD - inner) / (outer - inner));
-            r = 62; g = 88; b = 118;
+            r = 118; g = 52; b = 58;
             a = Math.round(fade * 52);
           }
         }
@@ -2104,8 +2096,8 @@ export function createArenaGame(options) {
       const u = rng() * CS, v = rng() * CS, rad = 12 + rng() * 26;
       const snowy = rng() < 0.5;
       const grad = bctx.createRadialGradient(u, v, 0, u, v, rad);
-      grad.addColorStop(0, snowy ? "rgba(241,177,181,0.17)" : "rgba(109,19,25,0.13)");
-      grad.addColorStop(1, snowy ? "rgba(241,177,181,0)" : "rgba(109,19,25,0)");
+      grad.addColorStop(0, snowy ? "rgba(238,243,250,0.17)" : "rgba(88,74,52,0.13)");
+      grad.addColorStop(1, snowy ? "rgba(238,243,250,0)" : "rgba(88,74,52,0)");
       bctx.fillStyle = grad;
       bctx.beginPath(); bctx.arc(u, v, rad, 0, Math.PI * 2); bctx.fill();
     }
@@ -2294,11 +2286,11 @@ export function createArenaGame(options) {
     const bGroup = new THREE.Group();
     const baseM = new THREE.Mesh(
       new THREE.SphereGeometry(bulletSize * 1.35, 6, 5),
-      new THREE.MeshBasicMaterial({ color: 0x0d0708 })
+      new THREE.MeshBasicMaterial({ color: 0x0a0a0a })
     );
     const tipM = new THREE.Mesh(
       new THREE.SphereGeometry(bulletSize, 6, 5),
-      new THREE.MeshBasicMaterial({ color: 0xeb0010 })
+      new THREE.MeshBasicMaterial({ color: 0xFFD700 })
     );
     bGroup.add(baseM, tipM);
     const fx = Math.sin(att.facing), fz = Math.cos(att.facing);
@@ -2333,7 +2325,7 @@ export function createArenaGame(options) {
     const duration = Math.max(0.5, dist / 22);
     const mesh = new THREE.Mesh(
       new THREE.SphereGeometry(0.24, 6, 5),
-      new THREE.MeshBasicMaterial({ color: 0x2c181a })
+      new THREE.MeshBasicMaterial({ color: 0x222222 })
     );
     mesh.position.set(sx, 1.3, sz);
     scene.add(mesh);
@@ -2377,7 +2369,7 @@ export function createArenaGame(options) {
           }
           // Explosion flash
           const flashGeo = new THREE.SphereGeometry(blastR, 8, 6);
-          const flashMat = new THREE.MeshBasicMaterial({ color: 0xeb0010, transparent: true, opacity: 0.75 });
+          const flashMat = new THREE.MeshBasicMaterial({ color: 0xff8800, transparent: true, opacity: 0.75 });
           const flash = new THREE.Mesh(flashGeo, flashMat);
           flash.position.set(g.tx, 1, g.tz);
           scene.add(flash);
@@ -2651,7 +2643,7 @@ export function createArenaGame(options) {
     f.bar.el.style.left = (rect.left + (_bv.x * 0.5 + 0.5) * rect.width) + "px";
     f.bar.el.style.top = (rect.top + (-_bv.y * 0.5 + 0.5) * rect.height) + "px";
     f.bar.fill.style.width = (Math.max(0, f.hp / f.maxHp) * 100) + "%";
-    f.bar.fill.style.background = f.hurt > 0 ? "#ff4b57" : f.bar.color;
+    f.bar.fill.style.background = f.hurt > 0 ? "#ff6b6b" : f.bar.color;
     f.bar.name.textContent = f.name;
     f.bar.level.textContent = "LVL " + (f.level ?? 1);
   }
@@ -2694,7 +2686,7 @@ export function createArenaGame(options) {
         player.atkAnim = 0.32;
         fireGrenade(player, tx, tz, dmg);
         options.onAttack?.({ fromId: localUserId, targetId: foe.userId, weapon: "frag", dmg, ranged: false, isGrenade: true, tx, tz });
-        setMarker(tx, tz, 0xeb0010, 0xbc000d);
+        setMarker(tx, tz, 0xff8800, 0xcc5500);
         selectSlot(prevSlot !== 1 ? prevSlot : 2);
         return;
       }
@@ -2725,7 +2717,7 @@ export function createArenaGame(options) {
         player.atkAnim = 0.32;
         fireGrenade(player, tx, tz, dmg);
         options.onAttack?.({ fromId: localUserId, targetId: null, weapon: "frag", dmg, ranged: false, isGrenade: true, tx, tz });
-        setMarker(tx, tz, 0xeb0010, 0xbc000d);
+        setMarker(tx, tz, 0xff8800, 0xcc5500);
         selectSlot(prevSlot !== 1 ? prevSlot : 2);
         return;
       }
@@ -2909,7 +2901,7 @@ export function createArenaGame(options) {
       scorePanel.innerHTML = '<div class="sp-title">SCOREBOARD</div>' +
         all.filter((f) => f.connected).map((f) => {
           const pct = Math.round(Math.max(0, f.hp) / f.maxHp * 100);
-          const barCol = f === player ? "#b21f29" : "#df3440";
+          const barCol = f === player ? "#33b14a" : "#e0473c";
           return `<div class="sp-row">
             <span class="sp-name">${escapeHtml(f.name || "Player")}</span>
             <div class="sp-bar-wrap"><div class="sp-bar" style="width:${pct}%;background:${barCol}"></div></div>
@@ -3052,7 +3044,7 @@ export function createArenaGame(options) {
       mmSCtx.stroke();
     }
     // Obstacles — small round olive dots.
-    mmSCtx.fillStyle = "rgba(55,31,33,0.72)";
+    mmSCtx.fillStyle = "rgba(40,46,40,0.72)";
     for (const s of solids) {
       mmSCtx.beginPath();
       mmSCtx.arc(wToMM(s.x), wToMM(s.z), 1.6, 0, Math.PI * 2);
@@ -3366,7 +3358,7 @@ export function createArenaGame(options) {
       if (elapsed >= 500) {
         const fps = Math.round(fpsFrames / (elapsed / 1000));
         fpsEl.textContent = "FPS " + fps;
-        fpsEl.style.color = fps >= 50 ? "#df4c56" : fps >= 30 ? "#ef323f" : "#df3743";
+        fpsEl.style.color = fps >= 50 ? "#6fcf6f" : fps >= 30 ? "#f0c040" : "#e04040";
         fpsFrames = 0;
         fpsLastTime = now;
       }
@@ -3713,7 +3705,7 @@ export function createArenaGame(options) {
       if (!pingEl) return;
       if (ms == null) { pingEl.textContent = "-- ms"; pingEl.style.color = ""; return; }
       pingEl.textContent = ms + " ms";
-      pingEl.style.color = ms < 80 ? "#df4c56" : ms < 160 ? "#ef323f" : "#df3743";
+      pingEl.style.color = ms < 80 ? "#6fcf6f" : ms < 160 ? "#f0c040" : "#e04040";
     },
     openSettings() { overlay.classList.add("show"); },
     destroy() {
