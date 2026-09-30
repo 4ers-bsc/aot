@@ -113,6 +113,18 @@ the ops dashboard's **Chat & votes** tab (`#admin` → Community). The dashboard
 tab adds message + vote **history** and per-message moderation (delete) on top of
 the same post / start-vote / close-vote controls.
 
+The dashboard tab also holds the chat's **visibility switch** (**Chat
+visibility → Hide chat / Show chat**). Hiding it removes the chat box for every
+visitor — the host included — and open pages follow the switch live over
+Realtime, no reload. Messages and votes are kept, and the dashboard can still
+post and run votes while it's hidden, so the host can prepare before showing it
+again. The switch is the single-row `chat_config` table (world-readable, written
+only by `f10admin`, audited as a review note, protected from dashboard wipes);
+see `supabase/migrations/20260930_chat_visibility.sql`. It controls display, not
+access: the chat tables stay publicly readable through the API. The box stays
+hidden until the switch has been read (so a hidden chat never flashes at boot)
+and fails open — it shows if the switch can't be read.
+
 First sign-in prompts a new player to pick a **name + avatar** (skin). The row is
 created on sign-in with `profiles.onboarded = false`; the picker saves the choice
 via `complete_onboarding` and flips the flag. Existing players are backfilled to
@@ -130,5 +142,6 @@ Database: apply `supabase/migrations/*.sql` in order (or `supabase/fresh_setup.s
 on a fresh project). Auth uses Supabase **Sign in with Web3 (Solana / SIWS)** —
 enable the Web3 provider (Solana) in the Supabase dashboard. The home chat +
 running vote use **Realtime Postgres Changes**: the `20260817_home_chat`
-migration adds `chat_messages` and `chat_poll` to the `supabase_realtime`
-publication, so no dashboard toggle is needed.
+migration adds `chat_messages` and `chat_poll` (and `20260930_chat_visibility`
+adds `chat_config`) to the `supabase_realtime` publication, so no dashboard
+toggle is needed.

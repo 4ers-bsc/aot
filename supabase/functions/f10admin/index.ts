@@ -19,7 +19,8 @@
 //   • db_stats          database health snapshot (admin_db_stats RPC)
 //   • functions_health  pings each edge function's ?health=1 probe
 //   • get_config        reads pvp_config / match_config / maintain
-//   • set_config        edits those static constants (audited via review_notes)
+//   • set_config        edits those static constants, plus the home-chat
+//                        visibility switch (chat_config) — audited via review_notes
 //   • get_deployment    read-only on-chain / env constants (mint, escrow, RPC,
 //                        network, CORS) — booleans + public addresses only
 //   • db_export         JSON snapshot of one table / the whole schema (download)
@@ -1338,6 +1339,19 @@ Deno.serve(async (req: Request) => {
             return json({ ok: true });
           }
 
+          if (target === "chat_config") {
+            // Show / hide the home-screen chat for every visitor. Open pages
+            // follow the switch live (chat_config is realtime-published).
+            const visible = body?.visible;
+            if (typeof visible !== "boolean") return fail("visible must be true or false");
+            // Upsert so a missing singleton row is recreated.
+            const { error } = await admin.from("chat_config").upsert({ id: true, visible }, { onConflict: "id" });
+            if (error) return fail(error.message);
+            await logNote("general", "chat_config",
+              visible ? "Home chat shown to everyone" : "Home chat hidden from everyone", "set_config");
+            return json({ ok: true, visible });
+          }
+
           return fail(`Unknown set_config target '${target}'`);
         }
 
@@ -1402,15 +1416,17 @@ Deno.serve(async (req: Request) => {
         }
 
         case "chat_overview": {
-          // Everything the dashboard's Chat tab shows: the current/latest poll,
-          // recent poll history (with tallies), recent messages, and totals.
-          const [pollsRes, msgsRes] = await Promise.all([
+          // Everything the dashboard's Chat tab shows: the visibility switch,
+          // the current/latest poll, recent poll history (with tallies), recent
+          // messages, and totals.
+          const [pollsRes, msgsRes, cfgRes] = await Promise.all([
             admin.from("chat_poll")
               .select("id, question, is_open, yes_count, no_count, created_by, created_at, closed_at")
               .order("id", { ascending: false }).limit(50),
             admin.from("chat_messages")
               .select("id, body, author_id, author_name, author_skin, created_at")
               .order("id", { ascending: false }).limit(100),
+            admin.from("chat_config").select("visible").limit(1).maybeSingle(),
           ]);
           if (pollsRes.error) return fail(pollsRes.error.message);
           if (msgsRes.error)  return fail(msgsRes.error.message);
@@ -1429,6 +1445,11 @@ Deno.serve(async (req: Request) => {
           return json({
             ok: true,
             generated_at: new Date().toISOString(),
+            // Non-fatal: until the chat_config migration is applied the chat
+            // simply shows (the client fails open too) and the tab says why the
+            // switch is unavailable. A missing row means the default: visible.
+            visible: cfgRes.error ? true : cfgRes.data?.visible !== false,
+            visibility_error: cfgRes.error?.message ?? null,
             current_poll: current,
             polls: pollsOut,
             messages,

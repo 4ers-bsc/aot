@@ -4434,14 +4434,16 @@ body.in-game .log-feed { left: 70px; }
 .story-rail button.is-on { color: var(--gold-hi); transform: translateX(4px) scale(1.3); }
 
 /* The desktop chat panel (fixed bottom-right, ~340px) would sit over the
-   right-hand column; while it is open, keep the chapter clear of it. */
+   right-hand column; while it is open, keep the chapter clear of it. Not when
+   the chat is switched off from the ops dashboard (.hidden) — there's nothing
+   to clear. */
 @media (min-width: 861px) {
-  body:has(.home-chat.open) .story-live .ch { max-width: none; margin: 0; padding-right: 400px; }
-  body:has(.home-chat.open) .story-live .ch-aside { justify-self: start; text-align: left; }
-  body:has(.home-chat.open) .story-live .ch-figure { align-items: flex-start; }
+  body:has(.home-chat.open:not(.hidden)) .story-live .ch { max-width: none; margin: 0; padding-right: 400px; }
+  body:has(.home-chat.open:not(.hidden)) .story-live .ch-aside { justify-self: start; text-align: left; }
+  body:has(.home-chat.open:not(.hidden)) .story-live .ch-figure { align-items: flex-start; }
 }
 @media (min-width: 861px) and (max-width: 1280px) {
-  body:has(.home-chat.open) .story-live .ch { grid-template-columns: 1fr; gap: 30px; }
+  body:has(.home-chat.open:not(.hidden)) .story-live .ch { grid-template-columns: 1fr; gap: 30px; }
 }
 
 @media (max-width: 860px) {
@@ -6051,6 +6053,8 @@ body.maintenance-on .admin-overlay { z-index: 100002; }
   pointer-events: none; /* children re-enable; keeps the empty corner click-through */
 }
 .home-chat > * { pointer-events: auto; }
+/* Also hidden site-wide while the ops-dashboard switch is off: chat.js puts the
+   global .hidden utility on the root (chat_config.visible = false). */
 body.in-game .home-chat,
 body.admin-open .home-chat { display: none; }
 

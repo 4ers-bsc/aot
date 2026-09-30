@@ -2448,13 +2448,14 @@ grant execute on function public.join_pvp_match(uuid, smallint, text, text, text
 
 -- ============================================================================
 -- 17. Config-table wipe guard + timed-out lobby refund review. Mirrors
---     migration 20260727_lobby_refund_review_and_wipe_guard.sql. Idempotent;
---     supersedes the §13 admin_truncate_* and §15 close_stale_matches defs.
+--     migration 20260727_lobby_refund_review_and_wipe_guard.sql, plus
+--     chat_config + the derived `preserved` list from 20260930_chat_visibility.
+--     Idempotent; supersedes the §13 admin_truncate_* and §15 close_stale_matches defs.
 -- ============================================================================
 
 create or replace function public.admin_is_protected_table(p_table text)
 returns boolean language sql immutable set search_path = public as $$
-  select p_table in ('pvp_config', 'match_config', 'maintain', 'escrow_payout_lock');
+  select p_table in ('pvp_config', 'match_config', 'maintain', 'escrow_payout_lock', 'chat_config');
 $$;
 
 create or replace function public.admin_truncate_table(p_table text)
@@ -2482,14 +2483,18 @@ $$;
 
 create or replace function public.admin_truncate_all()
 returns jsonb language plpgsql security definer set search_path = public, pg_catalog as $$
-declare v_list text; v_names text[]; v_total bigint := 0; v_count bigint;
+declare v_list text; v_names text[]; v_preserved text[]; v_total bigint := 0; v_count bigint;
 begin
+  select coalesce(array_agg(table_name order by table_name), '{}') into v_preserved
+  from information_schema.tables
+  where table_schema = 'public' and table_type = 'BASE TABLE'
+    and public.admin_is_protected_table(table_name);
   select array_agg(table_name order by table_name) into v_names
   from information_schema.tables
   where table_schema = 'public' and table_type = 'BASE TABLE'
     and not public.admin_is_protected_table(table_name);
   if v_names is null or array_length(v_names, 1) is null then
-    return jsonb_build_object('tables', '[]'::jsonb, 'rows', 0, 'preserved', to_jsonb(array['pvp_config','match_config','maintain','escrow_payout_lock']));
+    return jsonb_build_object('tables', '[]'::jsonb, 'rows', 0, 'preserved', to_jsonb(v_preserved));
   end if;
   foreach v_list in array v_names loop
     execute format('select count(*) from public.%I', v_list) into v_count;
@@ -2501,7 +2506,7 @@ begin
     and not public.admin_is_protected_table(table_name);
   execute 'truncate table ' || v_list || ' restart identity cascade';
   return jsonb_build_object('tables', to_jsonb(v_names), 'rows', v_total,
-    'preserved', to_jsonb(array['pvp_config','match_config','maintain','escrow_payout_lock']));
+    'preserved', to_jsonb(v_preserved));
 end;
 $$;
 
@@ -3648,6 +3653,35 @@ begin
     where pubname = 'supabase_realtime' and schemaname = 'public' and tablename = 'chat_poll'
   ) then
     alter publication supabase_realtime add table public.chat_poll;
+  end if;
+end
+$$;
+
+-- Ops visibility switch (mirrors migration 20260930_chat_visibility). Single row
+-- like `maintain`; visible = false hides the chat box for every visitor. Flipped
+-- only by f10admin (service role) from the dashboard's Chat & votes tab — no write
+-- policy. World-readable + realtime-published so open pages follow it live.
+-- Protected from dashboard wipes (see admin_is_protected_table, §17).
+create table if not exists public.chat_config (
+  id      boolean primary key default true check (id), -- single-row guard
+  visible boolean not null default true
+);
+insert into public.chat_config (id, visible) values (true, true)
+on conflict (id) do nothing;
+
+alter table public.chat_config enable row level security;
+drop policy if exists "chat_config_select_all" on public.chat_config;
+create policy "chat_config_select_all"
+on public.chat_config for select to authenticated, anon using (true);
+grant select on public.chat_config to authenticated, anon;
+
+do $$
+begin
+  if not exists (
+    select 1 from pg_publication_tables
+    where pubname = 'supabase_realtime' and schemaname = 'public' and tablename = 'chat_config'
+  ) then
+    alter publication supabase_realtime add table public.chat_config;
   end if;
 end
 $$;
