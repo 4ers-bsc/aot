@@ -1810,6 +1810,13 @@ using (public.is_match_member(match_id));
 -- ---------------------------------------------------------------------------
 -- 12. Grants
 -- ---------------------------------------------------------------------------
+-- Supabase's default privileges give anon + authenticated ALL on every public
+-- table, and a column GRANT only adds rights — so without this REVOKE the
+-- row-level update policy would let a player rewrite ANY column of their own
+-- profile (wallet_address, wins, points …). REVOKE also drops column
+-- privileges, so the column grant must come after it (see migration
+-- 20260930_profile_write_guard).
+revoke all on public.profiles from anon, authenticated;
 grant select, update(display_name, skin_id) on public.profiles to authenticated;
 grant select on public.matches      to authenticated;
 grant select on public.match_players to authenticated;
@@ -2448,13 +2455,14 @@ grant execute on function public.join_pvp_match(uuid, smallint, text, text, text
 
 -- ============================================================================
 -- 17. Config-table wipe guard + timed-out lobby refund review. Mirrors
---     migration 20260727_lobby_refund_review_and_wipe_guard.sql. Idempotent;
---     supersedes the §13 admin_truncate_* and §15 close_stale_matches defs.
+--     migration 20260727_lobby_refund_review_and_wipe_guard.sql, plus
+--     chat_config + the derived `preserved` list from 20260930_chat_visibility.
+--     Idempotent; supersedes the §13 admin_truncate_* and §15 close_stale_matches defs.
 -- ============================================================================
 
 create or replace function public.admin_is_protected_table(p_table text)
 returns boolean language sql immutable set search_path = public as $$
-  select p_table in ('pvp_config', 'match_config', 'maintain', 'escrow_payout_lock');
+  select p_table in ('pvp_config', 'match_config', 'maintain', 'escrow_payout_lock', 'chat_config');
 $$;
 
 create or replace function public.admin_truncate_table(p_table text)
@@ -2482,14 +2490,18 @@ $$;
 
 create or replace function public.admin_truncate_all()
 returns jsonb language plpgsql security definer set search_path = public, pg_catalog as $$
-declare v_list text; v_names text[]; v_total bigint := 0; v_count bigint;
+declare v_list text; v_names text[]; v_preserved text[]; v_total bigint := 0; v_count bigint;
 begin
+  select coalesce(array_agg(table_name order by table_name), '{}') into v_preserved
+  from information_schema.tables
+  where table_schema = 'public' and table_type = 'BASE TABLE'
+    and public.admin_is_protected_table(table_name);
   select array_agg(table_name order by table_name) into v_names
   from information_schema.tables
   where table_schema = 'public' and table_type = 'BASE TABLE'
     and not public.admin_is_protected_table(table_name);
   if v_names is null or array_length(v_names, 1) is null then
-    return jsonb_build_object('tables', '[]'::jsonb, 'rows', 0, 'preserved', to_jsonb(array['pvp_config','match_config','maintain','escrow_payout_lock']));
+    return jsonb_build_object('tables', '[]'::jsonb, 'rows', 0, 'preserved', to_jsonb(v_preserved));
   end if;
   foreach v_list in array v_names loop
     execute format('select count(*) from public.%I', v_list) into v_count;
@@ -2501,7 +2513,7 @@ begin
     and not public.admin_is_protected_table(table_name);
   execute 'truncate table ' || v_list || ' restart identity cascade';
   return jsonb_build_object('tables', to_jsonb(v_names), 'rows', v_total,
-    'preserved', to_jsonb(array['pvp_config','match_config','maintain','escrow_payout_lock']));
+    'preserved', to_jsonb(v_preserved));
 end;
 $$;
 
@@ -3651,3 +3663,85 @@ begin
   end if;
 end
 $$;
+
+-- Ops visibility switch (mirrors migration 20260930_chat_visibility). Single row
+-- like `maintain`; visible = false hides the chat box for every visitor. Flipped
+-- only by f10admin (service role) from the dashboard's Chat & votes tab — no write
+-- policy. World-readable + realtime-published so open pages follow it live.
+-- Protected from dashboard wipes (see admin_is_protected_table, §17).
+create table if not exists public.chat_config (
+  id      boolean primary key default true check (id), -- single-row guard
+  visible boolean not null default true
+);
+insert into public.chat_config (id, visible) values (true, true)
+on conflict (id) do nothing;
+
+alter table public.chat_config enable row level security;
+drop policy if exists "chat_config_select_all" on public.chat_config;
+create policy "chat_config_select_all"
+on public.chat_config for select to authenticated, anon using (true);
+grant select on public.chat_config to authenticated, anon;
+
+do $$
+begin
+  if not exists (
+    select 1 from pg_publication_tables
+    where pubname = 'supabase_realtime' and schemaname = 'public' and tablename = 'chat_config'
+  ) then
+    alter publication supabase_realtime add table public.chat_config;
+  end if;
+end
+$$;
+
+-- ---------------------------------------------------------------------------
+-- 21. Sign-in wallet lookup for the ops-dashboard allowlist (mirrors migration
+--     20260930_profile_write_guard). f10admin matches ADMIN_WALLETS against the
+--     wallet(s) a user actually signed in with — auth.identities, the same
+--     source join_pvp_match trusts — never against profiles.wallet_address.
+-- ---------------------------------------------------------------------------
+create or replace function public.login_wallets_of(p_user_id uuid)
+returns text[]
+language sql
+stable
+security definer
+set search_path = public, auth
+as $$
+  select coalesce(array_agg(distinct regexp_replace(trim(provider_id), '^.*:', '')), '{}')
+  from auth.identities
+  where user_id = p_user_id
+    and provider_id is not null;
+$$;
+revoke all on function public.login_wallets_of(uuid) from public, anon, authenticated;
+grant execute on function public.login_wallets_of(uuid) to service_role;
+
+-- ---------------------------------------------------------------------------
+-- 22. Cash-flow incoming total at each match's own entry fee (mirrors migration
+--     20260930_cashflow_match_fees). Summed server-side so the dashboard total
+--     is exact for any number of seats; pre-snapshot matches count at 10,000.
+-- ---------------------------------------------------------------------------
+create or replace function public.admin_cashflow_incoming(
+  p_from      timestamptz default null,
+  p_to        timestamptz default null,
+  p_wallet    text        default null,
+  p_match_ids uuid[]      default null
+)
+returns jsonb
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select jsonb_build_object(
+    'count',        count(*),
+    'total_tokens', coalesce(sum(coalesce(m.entry_fee_tokens, 10000)), 0)
+  )
+  from public.match_players mp
+  join public.matches m on m.id = mp.match_id
+  where mp.deposit_tx is not null
+    and (p_from      is null or mp.joined_at >= p_from)
+    and (p_to        is null or mp.joined_at <= p_to)
+    and (p_wallet    is null or mp.deposit_wallet ilike '%' || p_wallet || '%')
+    and (p_match_ids is null or mp.match_id = any (p_match_ids));
+$$;
+revoke all on function public.admin_cashflow_incoming(timestamptz, timestamptz, text, uuid[]) from public, anon, authenticated;
+grant execute on function public.admin_cashflow_incoming(timestamptz, timestamptz, text, uuid[]) to service_role;

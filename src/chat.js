@@ -10,6 +10,9 @@
 //     probe confirms the caller is the allow-listed operator.
 //   • Any signed-in player casts / changes a Yes or No while a vote is open
 //     (cast_chat_vote RPC); the count updates for everyone in real time.
+//   • The operator can hide the whole box for everyone from the ops dashboard
+//     (the chat_config switch — see migration 20260930_chat_visibility.sql);
+//     open pages follow it live.
 //
 // Wiring lives in main.js: it feeds the presence online count in via
 // setOnline(), and calls refreshAuth() whenever the session changes so the
@@ -67,10 +70,13 @@ export function initHomeChat({ supabase, getUser, getProfile, signIn }) {
   let isAdmin   = false;
   let poll      = null;   // { id, question, is_open, yes_count, no_count }
   let yourVote  = null;   // true = yes, false = no, null = not voted
-  // Chat starts expanded on every page load — desktop and mobile alike, and
-  // regardless of how the visitor left it last time. The collapse is a
+  // Chat starts expanded on every page load on desktop, regardless of how the
+  // visitor left it last time. On phones and small tablets (≤820px wide, or a
+  // phone in landscape ≤500px tall) the open panel would bury the landing page,
+  // so it starts collapsed to the launcher chip instead — new messages and new
+  // votes still raise its unread badge. Either way the collapse is a
   // session-only toggle and is intentionally never persisted (see setCollapsed).
-  let collapsed = false;
+  let collapsed = !!window.matchMedia?.("(max-width: 820px), (max-height: 500px)").matches;
   let unread    = 0;
   const seen    = new Set(); // message ids already in the DOM
   let voting    = false;
@@ -102,6 +108,38 @@ export function initHomeChat({ supabase, getUser, getProfile, signIn }) {
 
   launcher?.addEventListener("click", () => setCollapsed(false));
   collapseBtn?.addEventListener("click", () => setCollapsed(true));
+
+  // ---- Visibility (ops switch) ----------------------------------------------
+  // The operator can hide the chat for everyone from the ops dashboard (Chat &
+  // votes → Chat visibility), which flips the single-row chat_config table. The
+  // box stays hidden until that switch has been read — so a hidden chat never
+  // flashes on screen at boot — then follows it live over Realtime. Fails OPEN:
+  // if the first read fails (network hiccup, migration not applied yet) the chat
+  // shows, exactly as it did before the switch existed.
+  let visible = null; // null until the switch is first read
+  let liveSeq = 0;    // bumped per realtime change, so a slower in-flight read can't undo one
+  root.classList.add("hidden");
+
+  function applyVisible(v) {
+    visible = v !== false; // only an explicit false hides it
+    root.classList.toggle("hidden", !visible);
+    // Messages that arrived while hidden couldn't scroll a display:none list.
+    if (visible && !collapsed) scrollToBottom();
+  }
+
+  async function loadVisibility() {
+    const seq = liveSeq;
+    try {
+      const { data, error } = await supabase
+        .from("chat_config").select("visible").limit(1).maybeSingle();
+      if (error) throw error;
+      if (seq === liveSeq) applyVisible(data?.visible); // no row → the default (visible)
+    } catch (e) {
+      console.error("chat: visibility", e);
+      // A failed first read fails open; a failed later refresh keeps the last state.
+      if (visible == null) applyVisible(true);
+    }
+  }
 
   // ---- Messages -------------------------------------------------------------
   function scrollToBottom() {
@@ -200,9 +238,11 @@ export function initHomeChat({ supabase, getUser, getProfile, signIn }) {
   function adoptPollRow(row, isInsert) {
     if (!row) return;
     if (isInsert) {
-      // A brand-new poll opened — nobody has voted it yet.
+      // A brand-new poll opened — nobody has voted it yet. Flag it on the
+      // launcher like a new message when the chat is minimised.
       poll = row;
       yourVote = null;
+      if (collapsed && row.is_open) { unread += 1; renderBadge(); }
     } else if (poll && row.id === poll.id) {
       poll = row; // same poll: refreshed counts / open flag
     } else if (row.is_open) {
@@ -363,21 +403,35 @@ export function initHomeChat({ supabase, getUser, getProfile, signIn }) {
         (payload) => adoptPollRow(payload.new, true))
       .on("postgres_changes", { event: "UPDATE", schema: "public", table: "chat_poll" },
         (payload) => adoptPollRow(payload.new, false))
+      // The ops visibility switch. A DELETE carries only the key; with the row
+      // gone the default (visible) applies.
+      .on("postgres_changes", { event: "*", schema: "public", table: "chat_config" }, (payload) => {
+        liveSeq += 1;
+        applyVisible(payload.eventType === "DELETE" ? true : payload.new?.visible);
+      })
       .subscribe((status) => {
         // On (re)connect, reconcile in case events were missed while away.
-        if (status === "SUBSCRIBED") { loadMessages().catch(() => {}); loadPollState().catch(() => {}); }
+        if (status === "SUBSCRIBED") {
+          loadVisibility();
+          loadMessages().catch(() => {});
+          loadPollState().catch(() => {});
+        }
       });
   }
 
   // Catch up after the tab was backgrounded (realtime may have dropped events).
   document.addEventListener("visibilitychange", () => {
-    if (document.visibilityState === "visible") loadPollState().catch(() => {});
+    if (document.visibilityState === "visible") {
+      loadVisibility();
+      loadPollState().catch(() => {});
+    }
   });
 
   // ---- Boot -----------------------------------------------------------------
   applyCollapsed();
   renderBadge();
   applyAuthUi();
+  loadVisibility();
   loadMessages().catch((e) => console.error(e));
   loadPollState().catch((e) => console.error(e));
   subscribe();

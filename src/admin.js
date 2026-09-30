@@ -83,6 +83,7 @@ const TABLE_SAFETY = {
   pvp_config:        ["locked", "Global PvP tunables (entry fee, winner share, cap). Constant config — never wiped."],
   match_config:      ["locked", "Per-lobby match durations. Constant config — never wiped."],
   maintain:          ["locked", "Maintenance switch. Constant config — never wiped."],
+  chat_config:       ["locked", "Home chat visibility switch. Constant config — never wiped."],
   escrow_payout_lock:["locked", "Escrow payout single-flight lock (static). Never wiped."],
 };
 const safetyOf = (name) => TABLE_SAFETY[name] || ["unknown", "Unclassified — treat as sensitive; wipe only if you're sure."];
@@ -833,8 +834,9 @@ export function initAdmin(supabase) {
       return;
     }
     if (a === "db_wipe_all") {
+      const kept = Object.keys(TABLE_SAFETY).filter(isLockedTable).join(", ");
       if (await askExact(
-        `⚠ DELETE EVERY ROW IN EVERY TABLE. This empties the database (matches, payouts, deposits, profiles — everything) EXCEPT the protected config tables (pvp_config, match_config, maintain, escrow_payout_lock), which are preserved. Cannot be undone. Download a snapshot first. Type WIPE ALL to confirm.`,
+        `⚠ DELETE EVERY ROW IN EVERY TABLE. This empties the database (matches, payouts, deposits, profiles — everything) EXCEPT the protected config tables (${kept}), which are preserved. Cannot be undone. Download a snapshot first. Type WIPE ALL to confirm.`,
         "WIPE ALL", "Wipe everything", "WIPE ALL")) {
         dbWipe(null, "WIPE ALL");
       }
@@ -906,7 +908,7 @@ export function initAdmin(supabase) {
     }
     if (a === "pay_winner") {
       if (await askConfirm(
-        "Pay the winner now from the escrow wallet? This verifies every deposit on-chain, then sends 90% of the pot and records the transaction. Only proceed if no payout has already landed.",
+        "Pay the winner now from the escrow wallet? This verifies every deposit on-chain, then sends the winner's share of the pot (as frozen on the match) to their seat wallet and records the transaction. Only proceed if no payout has already landed.",
         "Pay winner")) {
         act("admin_pay_winner", { match_id: match });
       }
@@ -946,6 +948,20 @@ export function initAdmin(supabase) {
       return;
     }
     // ---- Chat & votes tab ----------------------------------------------------
+    if (a === "chat_visibility") {
+      const show = btn.dataset.value === "show";
+      const openVote = !show && chat?.current_poll
+        ? " The open vote stays open, but players won't see it until you show the chat again."
+        : "";
+      if (await askConfirm(
+        show
+          ? "Show the chat to everyone again? It reappears on every open page right away."
+          : `Hide the chat for everyone? It disappears from every open page right away — yours included. Messages and vote history are kept, and you can still post and run votes from this tab.${openVote}`,
+        show ? "Show chat" : "Hide chat")) {
+        actChat("set_config", { target: "chat_config", visible: show }, show ? "Chat is visible ✓" : "Chat hidden ✓");
+      }
+      return;
+    }
     if (a === "chat_send") {
       const el = root.querySelector("#chatComposeInput");
       const text = (el?.value || "").trim();
@@ -1317,7 +1333,7 @@ export function initAdmin(supabase) {
           <div class="cf-card-sub">incoming − outgoing</div>
         </div>
       </div>
-      <p class="admin-note">${scope}. Incoming = player entry-fee deposits recorded on seats; outgoing = winner payouts.${out.truncated ? " ⚠ Outgoing total is summed over the most recent payouts only — narrow the date range for an exact figure." : ""}</p>`;
+      <p class="admin-note">${scope}. Incoming = player entry-fee deposits recorded on seats, each at its match's own entry fee; outgoing = winner payouts.${inc.estimated ? " ⚠ Incoming total is estimated at a flat 10,000 $GULAG per seat — apply migration 20260930_cashflow_match_fees.sql for the exact per-match figure." : ""}${out.truncated ? " ⚠ Outgoing total is summed over the most recent payouts only — narrow the date range for an exact figure." : ""}</p>`;
 
     const inTable = inc.rows.length
       ? `<h3 class="cf-h">Incoming deposits <span class="admin-dim">showing ${inc.rows.length} of ${Number(inc.count).toLocaleString()}</span></h3>
@@ -1503,7 +1519,8 @@ export function initAdmin(supabase) {
         let val;
         if (v === true)  val = `<span class="fn-ok">yes</span>`;
         else if (v === false || v == null) val = `<span class="fn-bad">no</span>`;
-        else if (typeof v === "string" && /^0x[0-9a-f]{40}$/i.test(v)) val = `<span class="admin-mono">${addrLink(v)}</span>`;
+        // Solana address (base58, case-sensitive) → Solscan link.
+        else if (typeof v === "string" && /^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(v)) val = `<span class="admin-mono">${addrLink(v)}</span>`;
         else val = `<span class="admin-mono">${escapeHtml(String(v))}</span>`;
         return `<div class="fn-kv"><span class="fn-k">${escapeHtml(k)}</span>${val}</div>`;
       }).join("");
@@ -1557,9 +1574,10 @@ export function initAdmin(supabase) {
   }
 
   // ---- Chat & votes ---------------------------------------------------------
-  // The host side of the home-screen chat: broadcast a message, run a Yes/No
-  // vote, and review message + vote history — all the same channel the on-page
-  // chat box uses. Live counts update on the page; here Refresh pulls a snapshot.
+  // The host side of the home-screen chat: show / hide it, broadcast a message,
+  // run a Yes/No vote, and review message + vote history — all the same channel
+  // the on-page chat box uses. Live counts update on the page; here Refresh
+  // pulls a snapshot.
   function renderChat() {
     if (chatLoading && !chat) return `<div class="admin-msg">Loading chat…</div>`;
     if (chatError)            return `<div class="admin-msg admin-err">${escapeHtml(chatError)}</div>`;
@@ -1569,18 +1587,35 @@ export function initAdmin(supabase) {
     const polls    = chat.polls || [];
     const messages = chat.messages || [];
     const st       = chat.stats || {};
+    const visible  = chat.visible !== false;
 
-    const chips = `<div class="home-chips">
+    const chips = `<div class="home-chips" style="margin-bottom:14px">
       <span class="home-chip"><span class="home-chip-n">${fmtInt(st.messages || 0)}</span> messages</span>
       <span class="home-chip"><span class="home-chip-n">${fmtInt(st.polls || 0)}</span> votes run</span>
       <span class="home-chip"><span class="home-chip-n">${cp ? 1 : 0}</span> open now</span>
     </div>`;
 
+    // Master switch — shows / hides the whole chat box on the site. Same state
+    // styling as the maintenance switch: is-on flags the non-default state.
+    const visCard = `
+      <div class="cfg-card">
+        <h3 class="cfg-h">Chat visibility <span class="admin-dim">chat_config</span></h3>
+        <div class="cfg-maint">
+          <span class="cfg-maint-state ${visible ? "is-off" : "is-on"}">${visible ? "● VISIBLE — the chat box shows on the site" : "● HIDDEN — no one sees the chat box"}</span>
+          ${chat.visibility_error ? "" : `<button class="admin-btn admin-btn-sm ${visible ? "admin-danger" : "admin-primary"}" data-act="chat_visibility" data-value="${visible ? "hide" : "show"}">${visible ? "Hide chat" : "Show chat"}</button>`}
+        </div>
+        <span class="cfg-hint">${chat.visibility_error
+          ? `Switch unavailable — ${escapeHtml(chat.visibility_error)}. Apply migration 20260930_chat_visibility.sql to enable it.`
+          : "Applies to every visitor, you included; open pages update live. Messages and votes are kept while it's hidden."}</span>
+      </div>`;
+
     // Broadcast a message.
     const composeCard = `
       <div class="cfg-card">
         <h3 class="cfg-h">Broadcast a message <span class="admin-dim">chat_messages</span></h3>
-        <span class="cfg-hint">Posts to the home-screen chat as the host — everyone sees it live.</span>
+        <span class="cfg-hint">${visible
+          ? "Posts to the home-screen chat as the host — everyone sees it live."
+          : "⚠ The chat is hidden — this is saved and shows for everyone once you turn the chat back on."}</span>
         <textarea id="chatComposeInput" class="admin-input chat-compose" rows="3" maxlength="2000" placeholder="Message everyone…"></textarea>
         <div class="cfg-actions">
           <button class="admin-btn admin-btn-sm admin-primary" data-act="chat_send">Post message</button>
@@ -1602,7 +1637,7 @@ export function initAdmin(supabase) {
           <div class="chat-vote-stat"><span class="chat-vote-n">${fmtInt(tot)}</span><span class="chat-vote-l">TOTAL</span></div>
         </div>
         <div class="chat-vote-bar"><div class="chat-vote-bar-yes" style="width:${pct}%"></div></div>
-        <span class="cfg-hint">${pct}% yes · opened ${escapeHtml(fmtTime(cp.created_at))} (${ago(cp.created_at)}) · counts are live on the page — hit Refresh here for a fresh snapshot.</span>
+        <span class="cfg-hint">${visible ? "" : "⚠ Hidden from players while the chat is off · "}${pct}% yes · opened ${escapeHtml(fmtTime(cp.created_at))} (${ago(cp.created_at)}) · counts are live on the page — hit Refresh here for a fresh snapshot.</span>
         <div class="cfg-actions">
           <button class="admin-btn admin-btn-sm admin-danger" data-act="chat_close_vote">Close vote</button>
         </div>
@@ -1611,7 +1646,9 @@ export function initAdmin(supabase) {
       voteCard = `
       <div class="cfg-card">
         <h3 class="cfg-h">Start a vote <span class="admin-dim">chat_poll</span></h3>
-        <span class="cfg-hint">Opens a Yes/No vote on the home-screen chat. Live counts update for everyone as they vote.</span>
+        <span class="cfg-hint">${visible
+          ? "Opens a Yes/No vote on the home-screen chat. Live counts update for everyone as they vote."
+          : "⚠ The chat is hidden — players won't see a vote you start until you turn the chat back on."}</span>
         <input id="chatPollQ" class="cfg-input chat-poll-q" type="text" maxlength="200" placeholder="Ask a yes/no question…" />
         <div class="cfg-actions">
           <button class="admin-btn admin-btn-sm admin-primary" data-act="chat_start_vote">Start vote</button>
@@ -1660,8 +1697,8 @@ export function initAdmin(supabase) {
           : `<div class="admin-msg">No messages yet.</div>`}
       </div>`;
 
-    return `<p class="admin-note">Post to the home-screen chat, run a Yes/No vote, and review message + vote history. This is the same host channel as the on-page chat box; only allow-listed operators can act here.</p>`
-      + chips + composeCard + voteCard + voteHistoryCard + msgHistoryCard;
+    return `<p class="admin-note">Show or hide the home-screen chat, post to it, run a Yes/No vote, and review message + vote history. This is the same host channel as the on-page chat box; only allow-listed operators can act here.</p>`
+      + chips + visCard + composeCard + voteCard + voteHistoryCard + msgHistoryCard;
   }
 
   // ---- Static constants editor ----------------------------------------------

@@ -45,7 +45,7 @@ network" prompt — the cluster follows the RPC endpoint the app uses.
 | `RPC_URL`, `RPC_URL_2`, `RPC_URL_3` | all three | Optional RPC pool (round-robin + failover); falls back to the cluster's public RPC |
 | `GULAG_DECIMALS` | `f10admin` | Dashboard display decimals (on-chain paths read the mint's decimals live) |
 | `APP_ORIGIN` | all three | Locks CORS to the game origin |
-| `ADMIN_USER_IDS` / `ADMIN_WALLETS` | `f10admin` | Ops dashboard allowlist |
+| `ADMIN_USER_IDS` / `ADMIN_WALLETS` | `f10admin` | Ops dashboard allowlist (wallets are matched against the wallet the admin **signs in** with, via `login_wallets_of`) |
 
 > **Renamed from FIGHT10.** The pre-rebrand names still work as fallbacks, so an
 > existing deployment keeps running until you migrate: `VITE_FIGHT10_TOKEN` /
@@ -97,7 +97,9 @@ or not — reads the message stream, the live **online** count (the same presenc
 count the home screen shows), and the running **Yes / No** tally. Only the
 **host** can post messages and open/close votes; any signed-in player casts or
 changes a Yes/No while a vote is open, and the count updates for everyone in
-real time.
+real time. The box opens by default on desktop; on phones and small tablets
+(≤820px wide, or ≤500px tall) it starts collapsed to its launcher chip, which
+badges new messages and newly opened votes.
 
 "Host" is **not a new role or DB flag** — it reuses the same operator allowlist
 as the ops dashboard: `ADMIN_USER_IDS` / `ADMIN_WALLETS` on the `f10admin` edge
@@ -112,6 +114,18 @@ The host can drive all of this from **two places**: the chat box on the page, or
 the ops dashboard's **Chat & votes** tab (`#admin` → Community). The dashboard
 tab adds message + vote **history** and per-message moderation (delete) on top of
 the same post / start-vote / close-vote controls.
+
+The dashboard tab also holds the chat's **visibility switch** (**Chat
+visibility → Hide chat / Show chat**). Hiding it removes the chat box for every
+visitor — the host included — and open pages follow the switch live over
+Realtime, no reload. Messages and votes are kept, and the dashboard can still
+post and run votes while it's hidden, so the host can prepare before showing it
+again. The switch is the single-row `chat_config` table (world-readable, written
+only by `f10admin`, audited as a review note, protected from dashboard wipes);
+see `supabase/migrations/20260930_chat_visibility.sql`. It controls display, not
+access: the chat tables stay publicly readable through the API. The box stays
+hidden until the switch has been read (so a hidden chat never flashes at boot)
+and fails open — it shows if the switch can't be read.
 
 First sign-in prompts a new player to pick a **name + avatar** (skin). The row is
 created on sign-in with `profiles.onboarded = false`; the picker saves the choice
@@ -130,5 +144,6 @@ Database: apply `supabase/migrations/*.sql` in order (or `supabase/fresh_setup.s
 on a fresh project). Auth uses Supabase **Sign in with Web3 (Solana / SIWS)** —
 enable the Web3 provider (Solana) in the Supabase dashboard. The home chat +
 running vote use **Realtime Postgres Changes**: the `20260817_home_chat`
-migration adds `chat_messages` and `chat_poll` to the `supabase_realtime`
-publication, so no dashboard toggle is needed.
+migration adds `chat_messages` and `chat_poll` (and `20260930_chat_visibility`
+adds `chat_config`) to the `supabase_realtime` publication, so no dashboard
+toggle is needed.
