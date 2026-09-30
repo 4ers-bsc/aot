@@ -45,7 +45,7 @@ network" prompt — the cluster follows the RPC endpoint the app uses.
 | `RPC_URL`, `RPC_URL_2`, `RPC_URL_3` | all three | Optional RPC pool (round-robin + failover); falls back to the cluster's public RPC |
 | `GULAG_DECIMALS` | `f10admin` | Dashboard display decimals (on-chain paths read the mint's decimals live) |
 | `APP_ORIGIN` | all three | Locks CORS to the game origin |
-| `ADMIN_USER_IDS` / `ADMIN_WALLETS` | `f10admin` | Ops dashboard allowlist |
+| `ADMIN_USER_IDS` / `ADMIN_WALLETS` | `f10admin` | Ops dashboard allowlist (wallets are matched against the wallet the admin **signs in** with, via `login_wallets_of`) |
 
 > **Renamed from FIGHT10.** The pre-rebrand names still work as fallbacks, so an
 > existing deployment keeps running until you migrate: `VITE_FIGHT10_TOKEN` /
@@ -97,7 +97,9 @@ or not — reads the message stream, the live **online** count (the same presenc
 count the home screen shows), and the running **Yes / No** tally. Only the
 **host** can post messages and open/close votes; any signed-in player casts or
 changes a Yes/No while a vote is open, and the count updates for everyone in
-real time.
+real time. The box opens by default on desktop; on phones and small tablets
+(≤820px wide, or ≤500px tall) it starts collapsed to its launcher chip, which
+badges new messages and newly opened votes.
 
 "Host" is **not a new role or DB flag** — it reuses the same operator allowlist
 as the ops dashboard: `ADMIN_USER_IDS` / `ADMIN_WALLETS` on the `f10admin` edge

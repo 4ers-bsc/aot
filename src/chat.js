@@ -70,10 +70,13 @@ export function initHomeChat({ supabase, getUser, getProfile, signIn }) {
   let isAdmin   = false;
   let poll      = null;   // { id, question, is_open, yes_count, no_count }
   let yourVote  = null;   // true = yes, false = no, null = not voted
-  // Chat starts expanded on every page load — desktop and mobile alike, and
-  // regardless of how the visitor left it last time. The collapse is a
+  // Chat starts expanded on every page load on desktop, regardless of how the
+  // visitor left it last time. On phones and small tablets (≤820px wide, or a
+  // phone in landscape ≤500px tall) the open panel would bury the landing page,
+  // so it starts collapsed to the launcher chip instead — new messages and new
+  // votes still raise its unread badge. Either way the collapse is a
   // session-only toggle and is intentionally never persisted (see setCollapsed).
-  let collapsed = false;
+  let collapsed = !!window.matchMedia?.("(max-width: 820px), (max-height: 500px)").matches;
   let unread    = 0;
   const seen    = new Set(); // message ids already in the DOM
   let voting    = false;
@@ -235,9 +238,11 @@ export function initHomeChat({ supabase, getUser, getProfile, signIn }) {
   function adoptPollRow(row, isInsert) {
     if (!row) return;
     if (isInsert) {
-      // A brand-new poll opened — nobody has voted it yet.
+      // A brand-new poll opened — nobody has voted it yet. Flag it on the
+      // launcher like a new message when the chat is minimised.
       poll = row;
       yourVote = null;
+      if (collapsed && row.is_open) { unread += 1; renderBadge(); }
     } else if (poll && row.id === poll.id) {
       poll = row; // same poll: refreshed counts / open flag
     } else if (row.is_open) {

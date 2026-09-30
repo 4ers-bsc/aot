@@ -1810,6 +1810,13 @@ using (public.is_match_member(match_id));
 -- ---------------------------------------------------------------------------
 -- 12. Grants
 -- ---------------------------------------------------------------------------
+-- Supabase's default privileges give anon + authenticated ALL on every public
+-- table, and a column GRANT only adds rights — so without this REVOKE the
+-- row-level update policy would let a player rewrite ANY column of their own
+-- profile (wallet_address, wins, points …). REVOKE also drops column
+-- privileges, so the column grant must come after it (see migration
+-- 20260930_profile_write_guard).
+revoke all on public.profiles from anon, authenticated;
 grant select, update(display_name, skin_id) on public.profiles to authenticated;
 grant select on public.matches      to authenticated;
 grant select on public.match_players to authenticated;
@@ -3685,3 +3692,56 @@ begin
   end if;
 end
 $$;
+
+-- ---------------------------------------------------------------------------
+-- 21. Sign-in wallet lookup for the ops-dashboard allowlist (mirrors migration
+--     20260930_profile_write_guard). f10admin matches ADMIN_WALLETS against the
+--     wallet(s) a user actually signed in with — auth.identities, the same
+--     source join_pvp_match trusts — never against profiles.wallet_address.
+-- ---------------------------------------------------------------------------
+create or replace function public.login_wallets_of(p_user_id uuid)
+returns text[]
+language sql
+stable
+security definer
+set search_path = public, auth
+as $$
+  select coalesce(array_agg(distinct regexp_replace(trim(provider_id), '^.*:', '')), '{}')
+  from auth.identities
+  where user_id = p_user_id
+    and provider_id is not null;
+$$;
+revoke all on function public.login_wallets_of(uuid) from public, anon, authenticated;
+grant execute on function public.login_wallets_of(uuid) to service_role;
+
+-- ---------------------------------------------------------------------------
+-- 22. Cash-flow incoming total at each match's own entry fee (mirrors migration
+--     20260930_cashflow_match_fees). Summed server-side so the dashboard total
+--     is exact for any number of seats; pre-snapshot matches count at 10,000.
+-- ---------------------------------------------------------------------------
+create or replace function public.admin_cashflow_incoming(
+  p_from      timestamptz default null,
+  p_to        timestamptz default null,
+  p_wallet    text        default null,
+  p_match_ids uuid[]      default null
+)
+returns jsonb
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select jsonb_build_object(
+    'count',        count(*),
+    'total_tokens', coalesce(sum(coalesce(m.entry_fee_tokens, 10000)), 0)
+  )
+  from public.match_players mp
+  join public.matches m on m.id = mp.match_id
+  where mp.deposit_tx is not null
+    and (p_from      is null or mp.joined_at >= p_from)
+    and (p_to        is null or mp.joined_at <= p_to)
+    and (p_wallet    is null or mp.deposit_wallet ilike '%' || p_wallet || '%')
+    and (p_match_ids is null or mp.match_id = any (p_match_ids));
+$$;
+revoke all on function public.admin_cashflow_incoming(timestamptz, timestamptz, text, uuid[]) from public, anon, authenticated;
+grant execute on function public.admin_cashflow_incoming(timestamptz, timestamptz, text, uuid[]) to service_role;

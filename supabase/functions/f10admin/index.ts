@@ -28,15 +28,18 @@
 //
 // Auth model: mirrors f10join / f10treasurer. The caller's JWT is verified
 // (userClient.auth.getUser()); the user id is then checked against the
-// ADMIN_USER_IDS allowlist (and optionally ADMIN_WALLETS). Everything the
-// endpoint reads/writes runs through the service-role client, so admin identity
-// lives entirely in the function's env — no admin flag in the database, nothing
-// for a browser to escalate. Non-admins get 403.
+// ADMIN_USER_IDS allowlist (and optionally ADMIN_WALLETS, matched against the
+// wallets the user signed in with — auth.identities via login_wallets_of — not
+// the profile's display copy). Everything the endpoint reads/writes runs
+// through the service-role client, so admin identity lives entirely in the
+// function's env — no admin flag in the database, nothing for a browser to
+// escalate. Non-admins get 403.
 //
 // Required Supabase secrets:
 //   SUPABASE_URL, SUPABASE_ANON_KEY, SUPABASE_SERVICE_ROLE_KEY (auto-provided)
 //   ADMIN_USER_IDS   comma-separated auth user UUIDs allowed to use this tool
-//   ADMIN_WALLETS    (optional) comma-separated wallet addresses, also allowed
+//   ADMIN_WALLETS    (optional) comma-separated sign-in wallet addresses, also
+//                     allowed (needs migration 20260930_profile_write_guard)
 //   APP_ORIGIN       (recommended) locks CORS to the game origin
 // ============================================================================
 
@@ -73,9 +76,10 @@ const STALE_WAITING_MINUTES = 15;   // a lobby open this long with empty seats
 const PAYOUT_STUCK_MINUTES   = 15;   // a 'pending' payout reservation this old
 const LIST_LIMIT = 100;
 
-// Cash-flow tab limits. Incoming amount is a fixed entry fee per deposit, so its
-// total is exact from the count alone; outgoing amounts vary, so we sum matching
-// payout rows in JS up to a cap (and flag when a narrower range is needed).
+// Cash-flow tab limits. Incoming is summed server-side at each match's own entry
+// fee (admin_cashflow_incoming), so its total is exact; outgoing amounts vary,
+// so we sum matching payout rows in JS up to a cap (and flag when a narrower
+// range is needed).
 const CASHFLOW_ROWS    = 200;   // rows returned per side for the on-screen table
 const CASHFLOW_SUM_CAP = 5000;  // max payout rows summed for the outgoing total
 // Token decimals used only to scale dashboard amounts (the payout path reads
@@ -84,12 +88,14 @@ const CASHFLOW_SUM_CAP = 5000;  // max payout rows summed for the outgoing total
 // mismatch and the cashflow net/total math mixes 10^6 and 10^9 scales. Override
 // with the GULAG_DECIMALS secret if the deployed token differs.
 const TOKEN_DECIMALS = Number(Deno.env.get("GULAG_DECIMALS") ?? Deno.env.get("FIGHT10_DECIMALS") ?? "6");
-// Fixed historical entry fee for the cashflow/treasury ESTIMATE only (incoming
-// totals across past seats). Deliberately NOT sourced from pvp_config: seats
-// settled at whatever fee applied then, so a mutable current value would skew
-// historical rows. The live deposit-validation + payout paths below read the
-// entry fee from pvp_config per request.
-const ENTRY_FEE_RAW  = 10000n * 10n ** BigInt(TOKEN_DECIMALS);
+// The historical entry fee (whole $GULAG), for seats on matches that predate
+// the per-match fee snapshot (matches.entry_fee_tokens) — and the cash-flow
+// fallback before admin_cashflow_incoming exists. Deliberately NOT the live
+// pvp_config value: seats settled at whatever fee applied then.
+const LEGACY_ENTRY_FEE = 10000;
+const WINNER_SHARE_BPS_DEFAULT = 9000;
+// Whole tokens → raw units at the dashboard's display decimals.
+const tokensToRaw = (tokens: number | bigint) => BigInt(tokens) * 10n ** BigInt(TOKEN_DECIMALS);
 
 // Solana addresses are base58 and CASE-SENSITIVE — never lowercase. Strip only
 // a CAIP "solana:" prefix and trim.
@@ -527,9 +533,17 @@ Deno.serve(async (req: Request) => {
     }
     let isAdmin = adminIds.has(user.id);
     if (!isAdmin && adminWallets.size > 0) {
-      const { data: prof } = await admin
-        .from("profiles").select("wallet_address").eq("user_id", user.id).maybeSingle();
-      if (prof?.wallet_address && adminWallets.has(norm(prof.wallet_address))) isAdmin = true;
+      // Match the wallets this user actually SIGNED IN with (auth.identities),
+      // never profiles.wallet_address — that is a display copy. Fails closed: if
+      // the lookup is unavailable nobody gets in by wallet (ADMIN_USER_IDS still
+      // works), and the error says which migration is missing.
+      const { data: wallets, error: walletsErr } = await admin
+        .rpc("login_wallets_of", { p_user_id: user.id });
+      if (walletsErr) {
+        console.error("f10admin: login_wallets_of failed — wallet allowlist unavailable", walletsErr);
+        return fail("Admin wallet check unavailable — apply migration 20260930_profile_write_guard.sql.", 500);
+      }
+      isAdmin = ((wallets ?? []) as string[]).some((w) => adminWallets.has(norm(w)));
     }
     if (!isAdmin) {
       console.error("f10admin: rejected non-admin", { user: user.id });
@@ -618,7 +632,8 @@ Deno.serve(async (req: Request) => {
           const applyMatch = (q: any) =>
             matchIdFilter ? q.in("match_id", matchIdFilter.length ? matchIdFilter : emptyGuard) : q;
 
-          // Incoming: exact count (× fixed fee) + latest rows for the table.
+          // Incoming: exact count + latest rows for the table. The total is
+          // summed at each match's own entry fee by admin_cashflow_incoming.
           let inCountQ = admin.from("match_players")
             .select("match_id", { count: "exact", head: true }).not("deposit_tx", "is", null);
           inCountQ = applyRange(inCountQ, "joined_at");
@@ -646,47 +661,59 @@ Deno.serve(async (req: Request) => {
           outRowsQ = applyMatch(outRowsQ);
           if (winnerIds) outRowsQ = outRowsQ.in("winner_user_id", winnerIds.length ? winnerIds : emptyGuard);
 
-          const [inCountRes, inRowsRes, outCountRes, outRowsRes] = await Promise.all([
+          const [inCountRes, inRowsRes, outCountRes, outRowsRes, inAggRes] = await Promise.all([
             inCountQ, inRowsQ, outCountQ, outRowsQ,
+            admin.rpc("admin_cashflow_incoming", {
+              p_from: fromIso, p_to: toIso, p_wallet: walletTail || null, p_match_ids: matchIdFilter,
+            }),
           ]);
           const cfErr = [inCountRes, inRowsRes, outCountRes, outRowsRes].find((r: any) => r.error)?.error;
           if (cfErr) return fail(`Query failed: ${cfErr.message}`, 500);
 
           const inCount    = inCountRes.count ?? 0;
           const outRows    = outRowsRes.data ?? [];
+          const outShown   = outRows.slice(0, CASHFLOW_ROWS);
           const outCount   = outCountRes.count ?? outRows.length;
-          const inTotalRaw  = BigInt(inCount) * ENTRY_FEE_RAW;
+          // Until migration 20260930_cashflow_match_fees is applied the per-match
+          // sum isn't available: fall back to the old flat-fee estimate and flag
+          // it, so the tab says the figure is estimated.
+          const inEstimated = !!inAggRes.error;
+          if (inEstimated) console.error("cashflow: admin_cashflow_incoming unavailable — flat-fee estimate", inAggRes.error);
+          const inTotalRaw  = tokensToRaw(inEstimated
+            ? inCount * LEGACY_ENTRY_FEE
+            : Number((inAggRes.data as any)?.total_tokens ?? 0));
           const outTotalRaw = outRows.reduce((acc: bigint, r: any) => acc + BigInt(r.amount_raw ?? 0), 0n);
 
-          const outNames = await resolveNames(outRows.map((r: any) => r.winner_user_id));
+          const outNames = await resolveNames(outShown.map((r: any) => r.winner_user_id));
 
-          // Human-facing match numbers for both sides so the cash-flow rows link
-          // through with the same "#123" label the other tabs show (the ledger /
-          // seat tables only store match_id).
-          const matchNoIds = [...new Set([
+          // Match numbers for the rows on screen, so they link through with the
+          // same "#123" label the other tabs show (the ledger / seat tables only
+          // store match_id), plus each match's own entry fee for its seats.
+          const shownMatchIds = [...new Set([
             ...(inRowsRes.data ?? []).map((r: any) => r.match_id),
-            ...outRows.map((r: any) => r.match_id),
+            ...outShown.map((r: any) => r.match_id),
           ].filter(Boolean))];
-          const matchNoById = new Map<string, number>();
-          if (matchNoIds.length) {
-            const { data: mnos } = await admin
-              .from("matches").select("id, match_no").in("id", matchNoIds);
-            for (const m of mnos ?? []) matchNoById.set(m.id, m.match_no);
+          const matchById = new Map<string, { match_no: number; entry_fee_tokens: number | null }>();
+          if (shownMatchIds.length) {
+            const { data: mrows } = await admin
+              .from("matches").select("id, match_no, entry_fee_tokens").in("id", shownMatchIds);
+            for (const m of mrows ?? []) matchById.set(m.id, m);
           }
+          const feeOf = (matchId: string) => {
+            const fee = Number(matchById.get(matchId)?.entry_fee_tokens);
+            return fee > 0 ? fee : LEGACY_ENTRY_FEE;
+          };
 
-          // Winners whose profile has no wallet_address recorded: fall back to
-          // the wallet that signed their deposit for that match (the seat row).
+          // Winners' payout wallets: the wallet that signed their deposit for
+          // that match (the seat row) — where the payout is actually sent —
+          // falling back to the profile only for legacy rows without one.
           const outSeatWallets = new Map<string, string>();
-          {
-            const missingIds = [...new Set(outRows
-              .filter((r: any) => !outNames.get(r.winner_user_id)?.wallet)
-              .map((r: any) => r.match_id))];
-            if (missingIds.length) {
-              const { data: seats } = await admin
-                .from("match_players").select("match_id, user_id, deposit_wallet").in("match_id", missingIds);
-              for (const s of seats ?? []) {
-                if (s.deposit_wallet) outSeatWallets.set(`${s.match_id}:${s.user_id}`, s.deposit_wallet);
-              }
+          const outMatchIds = [...new Set(outShown.map((r: any) => r.match_id).filter(Boolean))];
+          if (outMatchIds.length) {
+            const { data: seats } = await admin
+              .from("match_players").select("match_id, user_id, deposit_wallet").in("match_id", outMatchIds);
+            for (const s of seats ?? []) {
+              if (s.deposit_wallet) outSeatWallets.set(`${s.match_id}:${s.user_id}`, s.deposit_wallet);
             }
           }
 
@@ -697,6 +724,7 @@ Deno.serve(async (req: Request) => {
             incoming: {
               count: inCount,
               total_raw: inTotalRaw.toString(),
+              estimated: inEstimated,
               rows: (inRowsRes.data ?? []).map((r: any) => ({
                 joined_at: r.joined_at,
                 display_name: r.display_name,
@@ -704,26 +732,26 @@ Deno.serve(async (req: Request) => {
                 deposit_wallet: r.deposit_wallet,
                 deposit_tx: r.deposit_tx,
                 match_id: r.match_id,
-                match_no: matchNoById.get(r.match_id) ?? null,
-                amount_raw: ENTRY_FEE_RAW.toString(),
+                match_no: matchById.get(r.match_id)?.match_no ?? null,
+                amount_raw: tokensToRaw(feeOf(r.match_id)).toString(),
               })),
             },
             outgoing: {
               count: outCount,
               total_raw: outTotalRaw.toString(),
               truncated: outCount > outRows.length,
-              rows: outRows.slice(0, CASHFLOW_ROWS).map((r: any) => ({
+              rows: outShown.map((r: any) => ({
                 created_at: r.created_at,
                 winner_user_id: r.winner_user_id,
                 winner_name: outNames.get(r.winner_user_id)?.name ?? null,
-                winner_wallet: outNames.get(r.winner_user_id)?.wallet
-                  ?? outSeatWallets.get(`${r.match_id}:${r.winner_user_id}`) ?? null,
+                winner_wallet: outSeatWallets.get(`${r.match_id}:${r.winner_user_id}`)
+                  ?? outNames.get(r.winner_user_id)?.wallet ?? null,
                 num_players: r.num_players,
                 amount_raw: String(r.amount_raw ?? "0"),
                 decimals: r.decimals ?? TOKEN_DECIMALS,
                 payout_tx: r.payout_tx,
                 match_id: r.match_id,
-                match_no: matchNoById.get(r.match_id) ?? null,
+                match_no: matchById.get(r.match_id)?.match_no ?? null,
               })),
             },
             net_raw: (inTotalRaw - outTotalRaw).toString(),
@@ -812,13 +840,15 @@ Deno.serve(async (req: Request) => {
           ]);
           const nm = (id?: string | null) => (id ? nameMap.get(id)?.name ?? null : null);
           const wl = (id?: string | null) => (id ? nameMap.get(id)?.wallet ?? null : null);
+          const winnerId = mRes.data.winner_user_id;
 
           return json({
             ok: true,
             match: mRes.data,
             created_by_name: nm(mRes.data.created_by),
-            winner_name: nm(mRes.data.winner_user_id),
-            winner_wallet: wl(mRes.data.winner_user_id),
+            winner_name: nm(winnerId),
+            // The payout destination: the winner's seat wallet (legacy: profile).
+            winner_wallet: seats.find((s: any) => s.user_id === winnerId)?.deposit_wallet || wl(winnerId),
             players: seats.map((s: any) => ({ ...s, name: nm(s.user_id) })),
             payout: payRes.data ?? null,
             notes: (notesRes.data ?? []).map((n: any) => ({ ...n, author_name: nm(n.author_id) })),
@@ -995,7 +1025,9 @@ Deno.serve(async (req: Request) => {
           if (!matchId || !tx) return fail("match_id and payout_tx are required");
           if (!new RegExp(`^${BASE58}{43,88}$`).test(tx)) return fail("payout_tx is not a valid transaction signature");
           const { data: m } = await admin
-            .from("matches").select("payout_tx, status, winner_user_id, max_players").eq("id", matchId).maybeSingle();
+            .from("matches")
+            .select("payout_tx, status, winner_user_id, max_players, entry_fee_tokens, winner_share_bps, token_address, escrow_wallet")
+            .eq("id", matchId).maybeSingle();
           if (!m) return fail("Match not found");
           if (m.payout_tx && m.payout_tx !== "pending") {
             return fail(`Match already has payout_tx ${m.payout_tx}`);
@@ -1006,31 +1038,48 @@ Deno.serve(async (req: Request) => {
 
           // Resolve the winner wallet + expected minimum payout, then verify the
           // signature actually moved that from escrow to the winner on-chain.
-          // Reuses the same inline chain helpers as payoutWinner (above).
+          // Everything comes from the match's OWN snapshot — the same values
+          // payoutWinner pays from (above): the winner's seat wallet (== their
+          // sign-in wallet at entry) and the entry fee / winner share / token /
+          // escrow frozen on the match. Live config and the profile wallet are
+          // fallbacks for legacy rows only. The snapshot matters most after a
+          // token or escrow change: the automatic payout refuses such a match,
+          // so a manual transfer from its original escrow is the only way to
+          // settle it — and it has to verify.
           try {
-            const { data: prof } = await admin
-              .from("profiles").select("wallet_address").eq("user_id", m.winner_user_id).maybeSingle();
-            const winnerAddr = norm(prof?.wallet_address);
-            if (!isAddress(winnerAddr)) return fail("Winner wallet address not found/invalid — cannot verify the transfer.");
-
             const { data: seats } = await admin
-              .from("match_players").select("user_id").eq("match_id", matchId);
+              .from("match_players").select("user_id, deposit_wallet").eq("match_id", matchId);
             const numPlayers = seats?.length ?? m.max_players ?? 0;
             if (numPlayers <= 0) return fail("Could not determine the match's player count.");
 
-            const escrowKey = (Deno.env.get("ESCROW_PRIVATE_KEY") ?? "").trim();
-            const tokenAddr = norm(Deno.env.get("GULAG_TOKEN") ?? Deno.env.get("FIGHT10_TOKEN"));
-            if (!escrowKey || !isAddress(tokenAddr)) return fail("Escrow configuration missing (ESCROW_PRIVATE_KEY / GULAG_TOKEN)");
-            let escrowAddr: string;
-            try { escrowAddr = loadEscrowKeypair(escrowKey).publicKey.toBase58(); }
-            catch { return fail("Escrow key is malformed"); }
+            let winnerAddr = norm(seats?.find((s: any) => s.user_id === m.winner_user_id)?.deposit_wallet);
+            if (!isAddress(winnerAddr)) {
+              const { data: prof } = await admin
+                .from("profiles").select("wallet_address").eq("user_id", m.winner_user_id).maybeSingle();
+              winnerAddr = norm(prof?.wallet_address);
+            }
+            if (!isAddress(winnerAddr)) return fail("Winner wallet address not found/invalid — cannot verify the transfer.");
+
+            let tokenAddr  = norm(m.token_address);
+            let escrowAddr = norm(m.escrow_wallet);
+            if (!isAddress(tokenAddr)) tokenAddr = norm(Deno.env.get("GULAG_TOKEN") ?? Deno.env.get("FIGHT10_TOKEN"));
+            if (!isAddress(escrowAddr)) {
+              const escrowKey = (Deno.env.get("ESCROW_PRIVATE_KEY") ?? "").trim();
+              if (escrowKey) {
+                try { escrowAddr = loadEscrowKeypair(escrowKey).publicKey.toBase58(); }
+                catch { return fail("Escrow key is malformed"); }
+              }
+            }
+            if (!isAddress(tokenAddr) || !isAddress(escrowAddr)) return fail("Escrow configuration missing (ESCROW_PRIVATE_KEY / GULAG_TOKEN)");
 
             const rpc = createRpcPool();
             const decimals = Number((await rpc.run((c) => c.getTokenSupply(new PublicKey(tokenAddr)))).value.decimals);
             const { data: cfg } = await admin
               .from("pvp_config").select("entry_fee_tokens, winner_share_bps").maybeSingle();
-            const entryFeeTokens = Number(cfg?.entry_fee_tokens) > 0 ? Number(cfg.entry_fee_tokens) : 10000;
-            const winnerShareBps = Number(cfg?.winner_share_bps) > 0 ? Number(cfg.winner_share_bps) : 9000;
+            const entryFeeTokens = Number(m.entry_fee_tokens) > 0 ? Number(m.entry_fee_tokens)
+              : Number(cfg?.entry_fee_tokens) > 0 ? Number(cfg?.entry_fee_tokens) : LEGACY_ENTRY_FEE;
+            const winnerShareBps = Number(m.winner_share_bps) > 0 ? Number(m.winner_share_bps)
+              : Number(cfg?.winner_share_bps) > 0 ? Number(cfg?.winner_share_bps) : WINNER_SHARE_BPS_DEFAULT;
             const entryFeeRaw = BigInt(entryFeeTokens) * BigInt(10) ** BigInt(decimals);
             const expectedRaw = (BigInt(numPlayers) * entryFeeRaw * BigInt(winnerShareBps)) / BigInt(10000);
 
@@ -1042,7 +1091,8 @@ Deno.serve(async (req: Request) => {
             const winnerDelta = ownerMintDelta(parsed.meta, winnerAddr, tokenAddr);
             const escrowDelta = ownerMintDelta(parsed.meta, escrowAddr, tokenAddr);
             if (winnerDelta < expectedRaw || escrowDelta > -expectedRaw) {
-              return fail(`On-chain verification failed: not a $GULAG transfer from escrow to the winner for at least the expected payout (${expectedRaw})`);
+              const whole = (expectedRaw / 10n ** BigInt(decimals)).toLocaleString();
+              return fail(`On-chain verification failed: expected at least ${whole} $GULAG (${expectedRaw} raw) of this match's token ${tokenAddr} from escrow ${escrowAddr} to the winner's payout wallet ${winnerAddr}.`);
             }
           } catch (err) {
             return fail(`On-chain verification failed: ${String(err?.message ?? err)}`);
@@ -1512,7 +1562,7 @@ Deno.serve(async (req: Request) => {
       // a paid match must still show here even when its ledger row is missing
       // (insert failed, or the match was paid before the ledger existed).
       admin.from("matches")
-        .select("id, match_no, max_players, winner_user_id, ended_at, pot_tokens, payout_tx, payout_claimed_at")
+        .select("id, match_no, max_players, winner_user_id, ended_at, pot_tokens, winner_share_bps, payout_tx, payout_claimed_at")
         .eq("status", "finished").not("winner_user_id", "is", null)
         .not("payout_tx", "is", null).neq("payout_tx", "pending")
         .order("ended_at", { ascending: false, nullsFirst: false }).limit(LIST_LIMIT),
@@ -1619,10 +1669,12 @@ Deno.serve(async (req: Request) => {
     const nameOf = (id?: string | null) => (id ? nameMap.get(id)?.name ?? null : null);
     const walletOf = (id?: string | null) => (id ? nameMap.get(id)?.wallet ?? null : null);
 
+    // Payout cards show where the payout goes: the winner's seat wallet (what
+    // payoutWinner pays), falling back to the profile only for legacy rows.
     const payoutView = (m: any) => ({
       ...m,
       winner_name: nameOf(m.winner_user_id),
-      winner_wallet: walletOf(m.winner_user_id) ?? seatWalletOf(m.id, m.winner_user_id),
+      winner_wallet: seatWalletOf(m.id, m.winner_user_id) ?? walletOf(m.winner_user_id),
       stuck_minutes: m.payout_claimed_at
         ? Math.floor((now - new Date(m.payout_claimed_at).getTime()) / 60_000)
         : null,
@@ -1676,10 +1728,12 @@ Deno.serve(async (req: Request) => {
       notes: notes.map((r: any) => ({ ...r, author_name: nameOf(r.author_id), author_wallet: walletOf(r.author_id) })),
       payouts: paidMatches.map((m: any) => {
         // Prefer the ledger row (exact paid amount at its recorded decimals);
-        // fall back to 90% of the pot for matches whose ledger insert never
-        // landed — pot_tokens is stored in WHOLE tokens, so decimals 0.
+        // fall back to the match's own winner share of the pot for matches
+        // whose ledger insert never landed — pot_tokens is stored in WHOLE
+        // tokens, so decimals 0.
         const p = ledgerByMatch.get(m.id);
-        const amount_raw = p?.amount_raw ?? Math.floor(Number(m.pot_tokens ?? 0) * 0.9);
+        const shareBps = Number(m.winner_share_bps) > 0 ? Number(m.winner_share_bps) : WINNER_SHARE_BPS_DEFAULT;
+        const amount_raw = p?.amount_raw ?? Math.floor((Number(m.pot_tokens ?? 0) * shareBps) / 10000);
         const decimals = p ? (p.decimals ?? TOKEN_DECIMALS) : 0;
         return {
           match_id: m.id,
@@ -1687,7 +1741,7 @@ Deno.serve(async (req: Request) => {
           max_players: m.max_players,
           winner_user_id: m.winner_user_id,
           winner_name: nameOf(m.winner_user_id),
-          winner_wallet: walletOf(m.winner_user_id) ?? seatWalletOf(m.id, m.winner_user_id),
+          winner_wallet: seatWalletOf(m.id, m.winner_user_id) ?? walletOf(m.winner_user_id),
           payout_tx: m.payout_tx,
           amount_raw,
           decimals,

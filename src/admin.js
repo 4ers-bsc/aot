@@ -908,7 +908,7 @@ export function initAdmin(supabase) {
     }
     if (a === "pay_winner") {
       if (await askConfirm(
-        "Pay the winner now from the escrow wallet? This verifies every deposit on-chain, then sends 90% of the pot and records the transaction. Only proceed if no payout has already landed.",
+        "Pay the winner now from the escrow wallet? This verifies every deposit on-chain, then sends the winner's share of the pot (as frozen on the match) to their seat wallet and records the transaction. Only proceed if no payout has already landed.",
         "Pay winner")) {
         act("admin_pay_winner", { match_id: match });
       }
@@ -1333,7 +1333,7 @@ export function initAdmin(supabase) {
           <div class="cf-card-sub">incoming − outgoing</div>
         </div>
       </div>
-      <p class="admin-note">${scope}. Incoming = player entry-fee deposits recorded on seats; outgoing = winner payouts.${out.truncated ? " ⚠ Outgoing total is summed over the most recent payouts only — narrow the date range for an exact figure." : ""}</p>`;
+      <p class="admin-note">${scope}. Incoming = player entry-fee deposits recorded on seats, each at its match's own entry fee; outgoing = winner payouts.${inc.estimated ? " ⚠ Incoming total is estimated at a flat 10,000 $GULAG per seat — apply migration 20260930_cashflow_match_fees.sql for the exact per-match figure." : ""}${out.truncated ? " ⚠ Outgoing total is summed over the most recent payouts only — narrow the date range for an exact figure." : ""}</p>`;
 
     const inTable = inc.rows.length
       ? `<h3 class="cf-h">Incoming deposits <span class="admin-dim">showing ${inc.rows.length} of ${Number(inc.count).toLocaleString()}</span></h3>
@@ -1519,7 +1519,8 @@ export function initAdmin(supabase) {
         let val;
         if (v === true)  val = `<span class="fn-ok">yes</span>`;
         else if (v === false || v == null) val = `<span class="fn-bad">no</span>`;
-        else if (typeof v === "string" && /^0x[0-9a-f]{40}$/i.test(v)) val = `<span class="admin-mono">${addrLink(v)}</span>`;
+        // Solana address (base58, case-sensitive) → Solscan link.
+        else if (typeof v === "string" && /^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(v)) val = `<span class="admin-mono">${addrLink(v)}</span>`;
         else val = `<span class="admin-mono">${escapeHtml(String(v))}</span>`;
         return `<div class="fn-kv"><span class="fn-k">${escapeHtml(k)}</span>${val}</div>`;
       }).join("");
